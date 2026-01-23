@@ -15,7 +15,7 @@ model User {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   lastLoginAt     DateTime?
-  
+
   // Game stats
   wins            Int               @default(0)
   streak          Int               @default(0)
@@ -24,6 +24,8 @@ model User {
   // Relations
   authChallenges  AuthChallenge[]
   messages        Message[]
+  rounds          Round[]
+  predictions     Prediction[]
 
   @@index([walletAddress])
 }
@@ -55,4 +57,47 @@ model Message {
 
   @@index([timestamp])
   @@index([userId])
+}
+
+// Round model for tracking prediction rounds
+model Round {
+  id              String        @id @default(uuid())
+  mode            Int           @default(0)
+  startPrice      BigInt
+  finalPrice      BigInt?
+  durationLedgers Int
+  endLedger       Int
+  status          RoundStatus   @default(ACTIVE)
+  createdById     String
+  createdBy       User          @relation(fields: [createdById], references: [id])
+  createdAt       DateTime      @default(now())
+  resolvedAt      DateTime?
+  predictions     Prediction[]
+
+  @@index([status])
+  @@index([createdById])
+}
+
+// Prediction model for tracking user bets
+model Prediction {
+  id          String   @id @default(uuid())
+  roundId     String
+  round       Round    @relation(fields: [roundId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  side        String
+  amount      BigInt
+  txHash      String?
+  createdAt   DateTime @default(now())
+
+  @@unique([roundId, userId])
+  @@index([roundId])
+  @@index([userId])
+}
+
+// Round status enum
+enum RoundStatus {
+  ACTIVE
+  RESOLVED
+  CANCELLED
 }
