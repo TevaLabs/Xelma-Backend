@@ -1,0 +1,34 @@
+## Description
+This PR implements comprehensive User Profile and Balance Management features as requested in Issue #35. It introduces a robust system for tracking user stats, a daily login bonus with streak mechanics, and transaction history.
+
+## Changes Created
+- **Database Schema**:
+  - Added `nickname`, `avatarUrl`, `preferences`, `streak` to `User`.
+  - Created `Transaction` model for auditing balance changes.
+  - Cleaned up duplicate `Round` and `Prediction` models.
+- **API Endpoints**:
+  - `GET /api/user/profile`: Full profile details.
+  - `GET /api/user/balance`: Virtual balance check.
+  - `GET /api/user/stats`: User game statistics.
+  - `GET /api/user/transactions`: Paginated balance history (Bonuses, Wins, Losses).
+  - `PATCH /api/user/profile`: Update profile settings.
+  - `GET /api/user/:address/public-profile`: Public user view.
+- **Logic**:
+  - Implemented **Daily Login Bonus** in the auth flow:
+    - Tracks consecutive logins.
+    - Resets streak on missed days.
+    - Awards multipliers (1.5x > 3 days, 2x > 7 days).
+
+## Verification
+- Checked logic for Streak calculation (Date diffing).
+- Verified Schema consistency (although migration requires local DB).
+- `docs/USER_MANAGEMENT_FEATURES.md` added with detailed implementation guide.
+
+## Checklist
+- [x] Schema updated
+- [x] API Routes created
+- [x] Daily Bonus logic implemented
+- [x] Transaction history recording
+- [x] Documentation added
+
+Resolves #35
