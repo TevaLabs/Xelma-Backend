@@ -1,8 +1,8 @@
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import { JwtPayload } from '../types/auth.types';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const JWT_EXPIRY = process.env.JWT_EXPIRY || '7d'; // 7 days default
+const JWT_EXPIRY: string | number = process.env.JWT_EXPIRY || '7d'; // 7 days default
 
 /**
  * Generate a JWT token for authenticated user
@@ -16,6 +16,7 @@ export function generateToken(userId: string, walletAddress: string): string {
     walletAddress,
   };
 
+  // Pass options directly to avoid TypeScript type inference issues
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn: JWT_EXPIRY as any,
   });

@@ -35,6 +35,8 @@ model User {
   authChallenges  AuthChallenge[]
   messages        Message[]
   predictions     Prediction[]
+  predictions     Prediction[]
+  stats           UserStats?
 
   @@index([walletAddress])
 }
@@ -56,16 +58,64 @@ model AuthChallenge {
   @@index([expiresAt])
 }
 
-// Chat Message model
-model Message {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  content   String
-  timestamp DateTime @default(now())
+// Prediction model for user price predictions
+model Prediction {
+  id          String   @id @default(uuid())
+  userId      String
+  roundId     String
+  mode        Int      // 0 = Up/Down, 1 = Legends (exact price)
+  choice      String?  // "up" or "down" for mode 0; null for mode 1
+  guessPrice  Decimal? @db.Decimal(10, 4)  // only for mode 1 (e.g. 0.2297)
+  amount      Decimal  @db.Decimal(18, 8)   // virtual XLM staked
+  createdAt   DateTime @default(now())
 
-  @@index([timestamp])
+  user        User     @relation(fields: [userId], references: [id])
+  round       Round    @relation(fields: [roundId], references: [id])
+
   @@index([userId])
+  @@index([roundId])
+}
+
+// Round model for prediction rounds
+model Round {
+  id          String   @id @default(uuid())
+  mode        Int      // 0 = Up/Down, 1 = Legends
+  startPrice  Decimal? @db.Decimal(10, 4)
+  endPrice    Decimal? @db.Decimal(10, 4)
+  startTime   DateTime
+  endTime     DateTime
+  status      String   // "open", "running", "closed"
+  createdAt   DateTime @default(now())
+
+  predictions Prediction[]
+
+  @@index([status])
+}
+
+// UserStats model for leaderboard tracking
+model UserStats {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Overall stats
+  totalPredictions  Int      @default(0)
+  correctPredictions Int     @default(0)
+  totalEarnings     Decimal  @default(0) @db.Decimal(18, 8)
+  
+  // Mode-specific stats
+  upDownWins        Int      @default(0)
+  upDownLosses      Int      @default(0)
+  upDownEarnings    Decimal  @default(0) @db.Decimal(18, 8)
+  
+  legendsWins       Int      @default(0)
+  legendsLosses     Int      @default(0)
+  legendsEarnings   Decimal  @default(0) @db.Decimal(18, 8)
+  
+  // Metadata
+  updatedAt         DateTime @updatedAt
+  
+  @@index([totalEarnings])
 }
 
 // Game mode enum

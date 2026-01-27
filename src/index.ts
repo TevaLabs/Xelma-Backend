@@ -7,6 +7,7 @@ import authRoutes from './routes/auth.routes';
 import roundsRoutes from './routes/rounds.routes';
 import predictionsRoutes from './routes/predictions.routes';
 import educationRoutes from './routes/education.routes';
+import leaderboardRoutes from './routes/leaderboard.routes';
 import priceOracle from './services/oracle';
 import websocketService from './services/websocket.service';
 import schedulerService from './services/scheduler.service';
@@ -41,6 +42,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/rounds', roundsRoutes);
 app.use('/api/predictions', predictionsRoutes);
 app.use('/api/education', educationRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
 
 // Hello World endpoint
 app.get('/', (req: Request, res: Response) => {
