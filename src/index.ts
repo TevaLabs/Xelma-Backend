@@ -4,7 +4,11 @@ import dotenv from 'dotenv';
 import { Server } from 'socket.io';
 import { createServer } from 'http';
 import authRoutes from './routes/auth.routes';
+import roundsRoutes from './routes/rounds.routes';
+import predictionsRoutes from './routes/predictions.routes';
 import priceOracle from './services/oracle';
+import websocketService from './services/websocket.service';
+import schedulerService from './services/scheduler.service';
 import logger from './utils/logger';
 
 dotenv.config();
@@ -33,6 +37,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/rounds', roundsRoutes);
+app.use('/api/predictions', predictionsRoutes);
 
 // Hello World endpoint
 app.get('/', (req: Request, res: Response) => {
@@ -64,6 +70,20 @@ app.get('/api/price', (req: Request, res: Response) => {
 
 // Start Oracle Polling
 priceOracle.startPolling();
+
+// Initialize WebSocket service
+websocketService.initialize(io);
+
+// Initialize Scheduler
+schedulerService.start();
+
+// Emit price updates via WebSocket
+setInterval(() => {
+  const price = priceOracle.getPrice();
+  if (price !== null) {
+    websocketService.emitPriceUpdate('XLM', price);
+  }
+}, 5000); // Every 5 seconds
 
 // Socket.IO connection handler
 io.on('connection', (socket) => {

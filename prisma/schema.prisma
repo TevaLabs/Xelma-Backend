@@ -7,6 +7,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// User role enum
+enum UserRole {
+  USER
+  ADMIN
+  ORACLE
+}
+
 // User model for wallet-based authentication
 model User {
   id              String            @id @default(uuid())
@@ -21,9 +28,13 @@ model User {
   streak          Int               @default(0)
   virtualBalance  Float             @default(1000)
 
+  // Role
+  role            UserRole          @default(USER)
+
   // Relations
   authChallenges  AuthChallenge[]
   messages        Message[]
+  predictions     Prediction[]
 
   @@index([walletAddress])
 }
@@ -55,4 +66,87 @@ model Message {
 
   @@index([timestamp])
   @@index([userId])
+}
+
+// Game mode enum
+enum GameMode {
+  UP_DOWN    // Mode 0: Binary Up/Down predictions
+  LEGENDS    // Mode 1: Price range predictions
+}
+
+// Round status enum
+enum RoundStatus {
+  PENDING    // Created but not started
+  ACTIVE     // Accepting predictions
+  LOCKED     // No more predictions, awaiting resolution
+  RESOLVED   // Completed with results
+  CANCELLED  // Admin cancelled
+}
+
+// Prediction side for Up/Down mode
+enum PredictionSide {
+  UP
+  DOWN
+}
+
+// Round model for prediction rounds
+model Round {
+  id              String       @id @default(uuid())
+  mode            GameMode
+  status          RoundStatus  @default(PENDING)
+  
+  // Timing
+  startTime       DateTime
+  endTime         DateTime
+  resolvedAt      DateTime?
+  
+  // Pricing
+  startPrice      Float
+  endPrice        Float?
+  
+  // Soroban (Mode 0 only)
+  sorobanRoundId  String?      @unique
+  
+  // Pools
+  poolUp          Float        @default(0)
+  poolDown        Float        @default(0)
+  
+  // Legends mode: price ranges stored as JSON
+  // Format: [{min: 0.20, max: 0.25, pool: 0}, ...]
+  priceRanges     Json?
+  
+  // Relations
+  predictions     Prediction[]
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  
+  @@index([status])
+  @@index([mode])
+  @@index([startTime])
+}
+
+// Prediction model for user bets
+model Prediction {
+  id              String         @id @default(uuid())
+  roundId         String
+  round           Round          @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Prediction details
+  amount          Float
+  side            PredictionSide? // For Up/Down mode
+  priceRange      Json?           // For Legends: {min: 0.20, max: 0.25}
+  
+  // Results
+  won             Boolean?
+  payout          Float?
+  
+  createdAt       DateTime       @default(now())
+  
+  @@unique([roundId, userId])
+  @@index([userId])
+  @@index([roundId])
 }
