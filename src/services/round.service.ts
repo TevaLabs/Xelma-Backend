@@ -157,6 +157,90 @@ export class RoundService {
             logger.error('Failed to auto-lock expired rounds:', error);
         }
     }
+
+    /**
+     * Gets historical rounds with pagination and aggregate stats
+     */
+    async getRoundsHistory(options: {
+        limit?: number;
+        offset?: number;
+        mode?: 'UP_DOWN' | 'LEGENDS';
+        status?: 'RESOLVED' | 'CANCELLED';
+    }): Promise<{
+        rounds: any[];
+        total: number;
+        limit: number;
+        offset: number;
+    }> {
+        try {
+            const limit = Math.min(options.limit ?? 20, 100);
+            const offset = options.offset ?? 0;
+
+            // Build where clause for historical rounds (RESOLVED or CANCELLED)
+            const where: any = {
+                status: {
+                    in: [RoundStatus.RESOLVED, RoundStatus.CANCELLED],
+                },
+            };
+
+            // Apply optional filters
+            if (options.mode) {
+                where.mode = options.mode === 'UP_DOWN' ? GameMode.UP_DOWN : GameMode.LEGENDS;
+            }
+
+            if (options.status) {
+                where.status = options.status === 'RESOLVED' ? RoundStatus.RESOLVED : RoundStatus.CANCELLED;
+            }
+
+            // Get total count for pagination
+            const total = await prisma.round.count({ where });
+
+            // Get rounds with predictions for aggregate stats
+            const rounds = await prisma.round.findMany({
+                where,
+                orderBy: {
+                    resolvedAt: 'desc',
+                },
+                skip: offset,
+                take: limit,
+                include: {
+                    predictions: {
+                        select: {
+                            amount: true,
+                            won: true,
+                        },
+                    },
+                },
+            });
+
+            // Transform rounds to include aggregate stats
+            const roundsWithStats = rounds.map((round: any) => {
+                const totalPredictions = round.predictions.length;
+                const totalPool = round.predictions.reduce((sum: number, p: any) => sum + p.amount, 0);
+                const winnerCount = round.predictions.filter((p: any) => p.won === true).length;
+
+                // Remove predictions array and add aggregate stats
+                const { predictions, ...roundData } = round;
+
+                return {
+                    ...roundData,
+                    totalPredictions,
+                    totalPool: totalPool.toFixed(2),
+                    winnerCount,
+                };
+            });
+
+            return {
+                rounds: roundsWithStats,
+                total,
+                limit,
+                offset,
+            };
+        } catch (error) {
+            logger.error('Failed to get rounds history:', error);
+            throw error;
+        }
+    }
 }
 
 export default new RoundService();
