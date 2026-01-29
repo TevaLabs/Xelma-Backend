@@ -35,10 +35,21 @@ model User {
   authChallenges  AuthChallenge[]
   messages        Message[]
   predictions     Prediction[]
-  predictions     Prediction[]
   stats           UserStats?
 
   @@index([walletAddress])
+}
+
+// Chat message model
+model Message {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
 }
 
 // Auth challenge model for replay protection
@@ -56,40 +67,6 @@ model AuthChallenge {
   @@index([challenge])
   @@index([walletAddress])
   @@index([expiresAt])
-}
-
-// Prediction model for user price predictions
-model Prediction {
-  id          String   @id @default(uuid())
-  userId      String
-  roundId     String
-  mode        Int      // 0 = Up/Down, 1 = Legends (exact price)
-  choice      String?  // "up" or "down" for mode 0; null for mode 1
-  guessPrice  Decimal? @db.Decimal(10, 4)  // only for mode 1 (e.g. 0.2297)
-  amount      Decimal  @db.Decimal(18, 8)   // virtual XLM staked
-  createdAt   DateTime @default(now())
-
-  user        User     @relation(fields: [userId], references: [id])
-  round       Round    @relation(fields: [roundId], references: [id])
-
-  @@index([userId])
-  @@index([roundId])
-}
-
-// Round model for prediction rounds
-model Round {
-  id          String   @id @default(uuid())
-  mode        Int      // 0 = Up/Down, 1 = Legends
-  startPrice  Decimal? @db.Decimal(10, 4)
-  endPrice    Decimal? @db.Decimal(10, 4)
-  startTime   DateTime
-  endTime     DateTime
-  status      String   // "open", "running", "closed"
-  createdAt   DateTime @default(now())
-
-  predictions Prediction[]
-
-  @@index([status])
 }
 
 // UserStats model for leaderboard tracking
