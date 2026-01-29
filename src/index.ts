@@ -12,6 +12,8 @@ import priceOracle from './services/oracle';
 import websocketService from './services/websocket.service';
 import schedulerService from './services/scheduler.service';
 import logger from './utils/logger';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './docs/openapi';
 
 dotenv.config();
 
@@ -43,6 +45,11 @@ app.use('/api/rounds', roundsRoutes);
 app.use('/api/predictions', predictionsRoutes);
 app.use('/api/education', educationRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+
+// Swagger UI (OpenAPI)
+app.get('/docs', (req: Request, res: Response) => res.redirect(302, '/api-docs'));
+app.get('/api-docs.json', (req: Request, res: Response) => res.json(swaggerSpec));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }));
 
 // Hello World endpoint
 app.get('/', (req: Request, res: Response) => {

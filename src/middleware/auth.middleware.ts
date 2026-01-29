@@ -72,6 +72,55 @@ export const authenticateUser = async (
 };
 
 /**
+ * Middleware to optionally authenticate user via JWT token.
+ * If a Bearer token is provided and valid, attaches `req.user`; otherwise continues unauthenticated.
+ */
+export const optionalAuthentication = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      next();
+      return;
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    if (!decoded) {
+      next();
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: {
+        id: true,
+        walletAddress: true,
+        role: true,
+      },
+    });
+
+    if (user) {
+      req.user = {
+        userId: user.id,
+        walletAddress: user.walletAddress,
+        role: user.role,
+      };
+    }
+
+    next();
+  } catch (error) {
+    // Optional auth should never block the request
+    next();
+  }
+};
+
+/**
  * Middleware to require admin role
  */
 export const requireAdmin = async (

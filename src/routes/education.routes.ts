@@ -4,6 +4,38 @@ import { EducationGuidesResponse, EducationGuide } from '../types/education.type
 const router = Router();
 
 /**
+ * @swagger
+ * /api/education/guides:
+ *   get:
+ *     summary: Get educational guides
+ *     description: Returns a structured list of static educational guides grouped by category.
+ *     tags: [education]
+ *     responses:
+ *       200:
+ *         description: Education guides
+ *         content:
+ *           application/json:
+ *             example:
+ *               guides: []
+ *               categories:
+ *                 volatility: []
+ *                 stellar: []
+ *                 oracles: []
+ *               total: 0
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             example:
+ *               error: Internal Server Error
+ *               message: Failed to fetch education guides
+ *     x-codeSamples:
+ *       - lang: cURL
+ *         source: |
+ *           curl -X GET "$API_BASE_URL/api/education/guides"
+ */
+
+/**
  * Static educational content
  * This structure is designed to be easily extensible for future CMS or admin tooling
  */

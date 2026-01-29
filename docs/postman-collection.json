@@ -1,0 +1,157 @@
+{
+  "info": {
+    "name": "Prediction Game API",
+    "_postman_id": "00000000-0000-0000-0000-000000000000",
+    "description": "Postman v2.1 collection generated from the Prediction Game API OpenAPI/Swagger documentation.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Request Challenge",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/auth/challenge", "host": ["{{baseUrl}}"], "path": ["api", "auth", "challenge"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Connect (Verify Signature)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/auth/connect", "host": ["{{baseUrl}}"], "path": ["api", "auth", "connect"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"random-challenge-string\",\n  \"signature\": \"base64-or-hex-signature\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Leaderboard",
+      "item": [
+        {
+          "name": "Get Global Leaderboard",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/leaderboard?limit=100&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaderboard"],
+              "query": [
+                { "key": "limit", "value": "100" },
+                { "key": "offset", "value": "0" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rounds",
+      "item": [
+        {
+          "name": "Start Round (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/rounds/start", "host": ["{{baseUrl}}"], "path": ["api", "rounds", "start"] },
+            "body": { "mode": "raw", "raw": "{\n  \"mode\": 0,\n  \"startPrice\": 0.1234,\n  \"duration\": 300\n}" }
+          }
+        },
+        {
+          "name": "Get Active Rounds",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/rounds/active", "host": ["{{baseUrl}}"], "path": ["api", "rounds", "active"] }
+          }
+        },
+        {
+          "name": "Get Round By ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/rounds/{{roundId}}", "host": ["{{baseUrl}}"], "path": ["api", "rounds", "{{roundId}}"] }
+          }
+        },
+        {
+          "name": "Resolve Round (Oracle/Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/rounds/{{roundId}}/resolve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rounds", "{{roundId}}", "resolve"]
+            },
+            "body": { "mode": "raw", "raw": "{\n  \"finalPrice\": 0.2345\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Predictions",
+      "item": [
+        {
+          "name": "Submit Prediction",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/predictions/submit", "host": ["{{baseUrl}}"], "path": ["api", "predictions", "submit"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roundId\": \"round-id\",\n  \"userId\": \"user-id\",\n  \"amount\": 10,\n  \"side\": \"UP\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get User Predictions",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/predictions/user/{{userId}}", "host": ["{{baseUrl}}"], "path": ["api", "predictions", "user", "{{userId}}"] }
+          }
+        },
+        {
+          "name": "Get Round Predictions",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/predictions/round/{{roundId}}", "host": ["{{baseUrl}}"], "path": ["api", "predictions", "round", "{{roundId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Education",
+      "item": [
+        {
+          "name": "Get Education Guides",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/education/guides", "host": ["{{baseUrl}}"], "path": ["api", "education", "guides"] }
+          }
+        }
+      ]
+    }
+  ]
+}
+
