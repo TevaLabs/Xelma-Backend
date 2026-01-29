@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { GameMode } from '@prisma/client';
 import { LeaderboardEntry, LeaderboardResponse, ModeStats } from '../types/leaderboard.types';
 
  
@@ -26,7 +27,7 @@ export async function getLeaderboard(
   });
 
   // Format leaderboard entries
-  const leaderboard: LeaderboardEntry[] = userStats.map((stat, index) => ({
+  const leaderboard: LeaderboardEntry[] = userStats.map((stat: typeof userStats[number], index: number) => ({
     rank: offset + index + 1,
     userId: stat.user.id,
     walletAddress: maskWalletAddress(stat.user.walletAddress),
@@ -140,6 +141,10 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
     const isCorrect = calculatePredictionResult(prediction, round);
     const earnings = isCorrect ? parseFloat(prediction.amount.toString()) : -parseFloat(prediction.amount.toString());
 
+    // Determine mode from round
+    const isUpDown = round.mode === GameMode.UP_DOWN;
+    const isLegends = round.mode === GameMode.LEGENDS;
+
     // Update or create user stats
     await prisma.userStats.upsert({
       where: { userId: prediction.userId },
@@ -148,23 +153,23 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
         totalPredictions: 1,
         correctPredictions: isCorrect ? 1 : 0,
         totalEarnings: earnings,
-        upDownWins: prediction.mode === 0 && isCorrect ? 1 : 0,
-        upDownLosses: prediction.mode === 0 && !isCorrect ? 1 : 0,
-        upDownEarnings: prediction.mode === 0 ? earnings : 0,
-        legendsWins: prediction.mode === 1 && isCorrect ? 1 : 0,
-        legendsLosses: prediction.mode === 1 && !isCorrect ? 1 : 0,
-        legendsEarnings: prediction.mode === 1 ? earnings : 0,
+        upDownWins: isUpDown && isCorrect ? 1 : 0,
+        upDownLosses: isUpDown && !isCorrect ? 1 : 0,
+        upDownEarnings: isUpDown ? earnings : 0,
+        legendsWins: isLegends && isCorrect ? 1 : 0,
+        legendsLosses: isLegends && !isCorrect ? 1 : 0,
+        legendsEarnings: isLegends ? earnings : 0,
       },
       update: {
         totalPredictions: { increment: 1 },
         correctPredictions: { increment: isCorrect ? 1 : 0 },
         totalEarnings: { increment: earnings },
-        upDownWins: { increment: prediction.mode === 0 && isCorrect ? 1 : 0 },
-        upDownLosses: { increment: prediction.mode === 0 && !isCorrect ? 1 : 0 },
-        upDownEarnings: { increment: prediction.mode === 0 ? earnings : 0 },
-        legendsWins: { increment: prediction.mode === 1 && isCorrect ? 1 : 0 },
-        legendsLosses: { increment: prediction.mode === 1 && !isCorrect ? 1 : 0 },
-        legendsEarnings: { increment: prediction.mode === 1 ? earnings : 0 },
+        upDownWins: { increment: isUpDown && isCorrect ? 1 : 0 },
+        upDownLosses: { increment: isUpDown && !isCorrect ? 1 : 0 },
+        upDownEarnings: { increment: isUpDown ? earnings : 0 },
+        legendsWins: { increment: isLegends && isCorrect ? 1 : 0 },
+        legendsLosses: { increment: isLegends && !isCorrect ? 1 : 0 },
+        legendsEarnings: { increment: isLegends ? earnings : 0 },
       }
     });
   }
@@ -175,18 +180,17 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
 function calculatePredictionResult(prediction: any, round: any): boolean {
   if (!round.startPrice || !round.endPrice) return false;
 
-  if (prediction.mode === 0) {
-    // Up/Down mode
+  if (round.mode === GameMode.UP_DOWN) {
+    // Up/Down mode - check if prediction side matches price movement
     const priceWentUp = round.endPrice > round.startPrice;
-    return (prediction.choice === 'up' && priceWentUp) || 
-           (prediction.choice === 'down' && !priceWentUp);
+    return (prediction.side === 'UP' && priceWentUp) ||
+           (prediction.side === 'DOWN' && !priceWentUp);
   } else {
-    // Legends mode (exact price)
-    if (!prediction.guessPrice) return false;
-    // Consider correct if within 0.01% of actual price
-    const tolerance = parseFloat(round.endPrice.toString()) * 0.0001;
-    const diff = Math.abs(parseFloat(prediction.guessPrice.toString()) - parseFloat(round.endPrice.toString()));
-    return diff <= tolerance;
+    // Legends mode - check if price falls within predicted range
+    if (!prediction.priceRange) return false;
+    const range = prediction.priceRange as { min: number; max: number };
+    const endPrice = parseFloat(round.endPrice.toString());
+    return endPrice >= range.min && endPrice <= range.max;
   }
 }
 

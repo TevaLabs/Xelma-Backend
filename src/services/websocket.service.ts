@@ -1,5 +1,6 @@
 import { Server as SocketIOServer } from 'socket.io';
 import logger from '../utils/logger';
+import { ChatMessage } from '../types/chat.types';
 
 class WebSocketService {
     private io: SocketIOServer | null = null;
@@ -100,6 +101,20 @@ class WebSocketService {
 
         // Don't log every price update to avoid spam
         // logger.info(`Emitted price:update: ${asset} = ${price}`);
+    }
+
+    /**
+     * Emit chat message to all connected clients
+     */
+    emitChatMessage(message: ChatMessage): void {
+        if (!this.io) {
+            logger.warn('WebSocket not initialized, cannot emit chat:message');
+            return;
+        }
+
+        this.io.emit('chat:message', message);
+
+        logger.info(`Emitted chat:message: ${message.id}`);
     }
 
     /**
