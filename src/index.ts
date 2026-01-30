@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import { Server } from "socket.io";
 import { createServer } from "http";
 import authRoutes from "./routes/auth.routes";
+import userRoutes from "./routes/user.routes";
+import roundRoutes from './routes/round.routes';
 import roundsRoutes from "./routes/rounds.routes";
 import predictionsRoutes from "./routes/predictions.routes";
 import educationRoutes from "./routes/education.routes";
@@ -40,6 +42,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // API Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/user", userRoutes);
 app.use("/api/rounds", roundsRoutes);
 app.use("/api/predictions", predictionsRoutes);
 app.use("/api/education", educationRoutes);

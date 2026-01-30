@@ -7,3 +7,7 @@ dist
 coverage
 .prisma
 package-lock.json
+
+commit.sh
+pr.txt
+docs

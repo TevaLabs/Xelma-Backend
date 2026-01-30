@@ -136,6 +136,7 @@ export const optionalAuthentication = async (
     logger.error("Optional authentication error:", error);
     // Don't fail on error, just continue without user
     next();
+    res.status(401).json({ error: "Authentication failed" });
   }
 };
 
@@ -184,3 +185,48 @@ export const requireOracle = async (
     next();
   });
 };
+
+/**
+ * Middleware that attempts to authenticate but doesn't block if fails
+ */
+export const optionalAuthentication = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return next();
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    if (decoded) {
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        select: {
+          id: true,
+          walletAddress: true,
+          role: true,
+        },
+      });
+
+      if (user) {
+        req.user = {
+          userId: user.id,
+          walletAddress: user.walletAddress,
+          role: user.role,
+        };
+      }
+    }
+    next();
+  } catch (error) {
+    // Just ignore errors for optional auth
+    next();
+  }
+};
+
+export type AuthRequest = Request;
