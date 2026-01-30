@@ -1,325 +1,171 @@
-import * as StellarSdk from '@stellar/stellar-sdk';
-import { GameMode, BetSide } from '../types/round.types';
-
-const CONTRACT_ID = process.env.CONTRACT_ID || '';
-const RPC_URL = process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
-const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY || '';
-const ORACLE_SECRET_KEY = process.env.ORACLE_SECRET_KEY || '';
-
-const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === 'mainnet'
-  ? StellarSdk.Networks.PUBLIC
-  : StellarSdk.Networks.TESTNET;
+import { Client, BetSide } from '@tevalabs/xelma-bindings';
+import { Keypair, Networks } from '@stellar/stellar-sdk';
+import logger from '../utils/logger';
 
 export class SorobanService {
-  private rpc: StellarSdk.SorobanRpc.Server;
-  private adminKeypair: StellarSdk.Keypair;
-  private oracleKeypair: StellarSdk.Keypair;
+  private client: Client | null = null;
+  private adminKeypair: Keypair | null = null;
+  private oracleKeypair: Keypair | null = null;
+  private initialized = false;
 
   constructor() {
-    if (!CONTRACT_ID || CONTRACT_ID === 'your-contract-id-here') {
-      console.warn('CONTRACT_ID not configured. Soroban calls will fail.');
-    }
+    try {
+      const contractId = process.env.SOROBAN_CONTRACT_ID;
+      const network = process.env.SOROBAN_NETWORK || 'testnet';
+      const rpcUrl =
+        process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
+      const adminSecret = process.env.SOROBAN_ADMIN_SECRET;
+      const oracleSecret = process.env.SOROBAN_ORACLE_SECRET;
 
-    this.rpc = new StellarSdk.SorobanRpc.Server(RPC_URL);
-    
-    if (ADMIN_SECRET_KEY) {
-      this.adminKeypair = StellarSdk.Keypair.fromSecret(ADMIN_SECRET_KEY);
-    }
-    
-    if (ORACLE_SECRET_KEY) {
-      this.oracleKeypair = StellarSdk.Keypair.fromSecret(ORACLE_SECRET_KEY);
+      if (!contractId || !adminSecret || !oracleSecret) {
+        logger.warn(
+          'Soroban configuration missing. Soroban integration disabled.'
+        );
+        return;
+      }
+
+      this.client = new Client({
+        contractId,
+        networkPassphrase:
+          network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET,
+        rpcUrl,
+      });
+
+      this.adminKeypair = Keypair.fromSecret(adminSecret);
+      this.oracleKeypair = Keypair.fromSecret(oracleSecret);
+      this.initialized = true;
+
+      logger.info('Soroban service initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize Soroban service:', error);
     }
   }
 
-  private async getAccount(keypair: StellarSdk.Keypair) {
-    return await this.rpc.getAccount(keypair.publicKey());
+  private ensureInitialized() {
+    if (!this.initialized || !this.client) {
+      throw new Error('Soroban service is not initialized');
+    }
   }
 
-  private async buildTransaction(
-    keypair: StellarSdk.Keypair,
-    contractMethod: string,
-    params: any[]
-  ): Promise<StellarSdk.TransactionBuilder> {
-    const account = await this.getAccount(keypair);
-    const contract = new StellarSdk.Contract(CONTRACT_ID);
-
-    const tx = new StellarSdk.TransactionBuilder(account, {
-      fee: StellarSdk.BASE_FEE,
-      networkPassphrase: NETWORK_PASSPHRASE,
-    })
-      .addOperation(contract.call(contractMethod, ...params))
-      .setTimeout(30);
-
-    return tx;
-  }
-
-  private async simulateAndSign(
-    keypair: StellarSdk.Keypair,
-    tx: StellarSdk.TransactionBuilder
-  ): Promise<StellarSdk.Transaction> {
-    const transaction = tx.build();
-    
-    const sim = await this.rpc.simulateTransaction(transaction);
-    
-    if (!sim.result) {
-      throw new Error('Transaction simulation failed: No result returned');
-    }
-
-    if (SorobanApi.isTransactionError(sim)) {
-      throw new Error(`Transaction error: ${sim.error}`);
-    }
-
-    transaction.sign(keypair);
-
-    if (sim.result && sim.restorePreamble) {
-      const auth = StellarSdk.xdr.SorobanAuthorizationEntry.fromXDR(
-        Buffer.from(sim.restorePreamble, 'base64')
-      );
-      transaction.signAuthXDR(auth.toXDR());
-    }
-
-    return transaction;
-  }
-
+  /**
+   * Creates a new prediction round
+   */
   async createRound(
-    startPrice: bigint,
-    durationLedgers: number,
-    mode: GameMode
+    startPrice: number,
+    durationLedgers: number
   ): Promise<string> {
-    if (mode === GameMode.LEGENDS) {
-      throw new Error(
-        'LEGENDS_NOT_IMPLEMENTED: The Soroban contract does not yet support Legends mode. ' +
-        'Contract update required in Xelma-Blockchain repository. ' +
-        'See: https://github.com/TevaLabs/Xelma-Blockchain'
-      );
-    }
+    this.ensureInitialized();
 
-    if (!this.adminKeypair) {
-      throw new Error('ADMIN_SECRET_KEY not configured');
-    }
+    try {
+      const priceInStroops = Math.floor(startPrice * 10_000_000);
 
-    const priceScVal = StellarSdk.scValToBigInt(StellarSdk.ScVal.scvU128(startPrice));
-    const durationScVal = StellarSdk.ScVal.scvU32(durationLedgers);
+      const result = await this.client!.create_round({
+        start_price: BigInt(priceInStroops),
+        duration_ledgers: durationLedgers,
+      });
 
-    const tx = await this.buildTransaction(
-      this.adminKeypair,
-      'create_round',
-      [priceScVal, durationScVal]
-    );
-
-    const signedTx = await this.simulateAndSign(this.adminKeypair, tx);
-    const result = await this.rpc.sendTransaction(signedTx);
-
-    if (result.status === 'PENDING') {
-      await this.waitUntilReady(result.hash);
-      return result.hash;
-    } else {
-      throw new Error(`Failed to create round: ${result.status}`);
+      logger.info('Soroban round created');
+      return result.toString();
+    } catch (error) {
+      logger.error('Failed to create Soroban round:', error);
+      throw error;
     }
   }
 
+  /**
+   * Places a bet
+   */
   async placeBet(
     userAddress: string,
-    userSecretKey: string,
-    amount: bigint,
-    side: BetSide,
-    mode: GameMode
-  ): Promise<string> {
-    if (mode === GameMode.LEGENDS) {
-      throw new Error(
-        'LEGENDS_NOT_IMPLEMENTED: The Soroban contract does not yet support Legends mode. ' +
-        'Contract update required in Xelma-Blockchain repository. ' +
-        'See: https://github.com/TevaLabs/Xelma-Blockchain'
-      );
-    }
+    amount: number,
+    side: 'UP' | 'DOWN'
+  ): Promise<void> {
+    this.ensureInitialized();
 
-    const userKeypair = StellarSdk.Keypair.fromSecret(userSecretKey);
+    try {
+      const amountInStroops = Math.floor(amount * 10_000_000);
 
-    const addressScVal = StellarSdk.ScVal.scvAddress(StellarSdk.Address.fromString(userAddress));
-    const amountScVal = StellarSdk.scValToBigInt(StellarSdk.ScVal.scvI128(amount));
-    const sideScVal = StellarSdk.ScVal.scvEnum(
-      side === BetSide.UP ? 0 : 1
-    );
+      const betSide: BetSide =
+        side === 'UP'
+          ? { tag: 'Up', values: undefined }
+          : { tag: 'Down', values: undefined };
 
-    const tx = await this.buildTransaction(
-      userKeypair,
-      'place_bet',
-      [addressScVal, amountScVal, sideScVal]
-    );
+      await this.client!.place_bet({
+        user: userAddress,
+        amount: BigInt(amountInStroops),
+        side: betSide,
+      });
 
-    const signedTx = await this.simulateAndSign(userKeypair, tx);
-    const result = await this.rpc.sendTransaction(signedTx);
-
-    if (result.status === 'PENDING') {
-      await this.waitUntilReady(result.hash);
-      return result.hash;
-    } else {
-      throw new Error(`Failed to place bet: ${result.status}`);
+      logger.info('Bet placed successfully');
+    } catch (error) {
+      logger.error('Failed to place bet:', error);
+      throw error;
     }
   }
 
-  async resolveRound(
-    finalPrice: bigint,
-    mode: GameMode
-  ): Promise<string> {
-    if (mode === GameMode.LEGENDS) {
-      throw new Error(
-        'LEGENDS_NOT_IMPLEMENTED: The Soroban contract does not yet support Legends mode. ' +
-        'Contract update required in Xelma-Blockchain repository. ' +
-        'See: https://github.com/TevaLabs/Xelma-Blockchain'
-      );
-    }
+  /**
+   * Resolves the active round (oracle only)
+   */
+  async resolveRound(finalPrice: number): Promise<void> {
+    this.ensureInitialized();
 
-    if (!this.oracleKeypair) {
-      throw new Error('ORACLE_SECRET_KEY not configured');
-    }
+    try {
+      const priceInStroops = Math.floor(finalPrice * 10_000_000);
 
-    const priceScVal = StellarSdk.scValToBigInt(StellarSdk.ScVal.scvU128(finalPrice));
+      await this.client!.resolve_round({
+        final_price: BigInt(priceInStroops),
+      });
 
-    const tx = await this.buildTransaction(
-      this.oracleKeypair,
-      'resolve_round',
-      [priceScVal]
-    );
-
-    const signedTx = await this.simulateAndSign(this.oracleKeypair, tx);
-    const result = await this.rpc.sendTransaction(signedTx);
-
-    if (result.status === 'PENDING') {
-      await this.waitUntilReady(result.hash);
-      return result.hash;
-    } else {
-      throw new Error(`Failed to resolve round: ${result.status}`);
+      logger.info('Soroban round resolved');
+    } catch (error) {
+      logger.error('Failed to resolve round:', error);
+      throw error;
     }
   }
 
+  /**
+   * Fetch active round
+   */
   async getActiveRound(): Promise<any | null> {
+    if (!this.initialized) return null;
+
     try {
-      const contract = new StellarSdk.Contract(CONTRACT_ID);
-      
-      const method = contract.methods.get_active_round();
-      
-      const result = await this.rpc.simulateTransaction(
-        new StellarSdk.TransactionBuilder(new StellarSdk.Account(
-          StellarSdk.Keypair.random().publicKey(),
-          '0'
-        ), {
-          fee: StellarSdk.BASE_FEE,
-          networkPassphrase: NETWORK_PASSPHRASE,
-        })
-        .addOperation(method)
-        .setTimeout(30)
-        .build()
-      );
-
-      if (!result.result) {
-        return null;
-      }
-
-      return result.result;
+      return await this.client!.get_active_round();
     } catch (error) {
-      console.error('Error fetching active round:', error);
+      logger.error('Failed to fetch active round:', error);
       return null;
     }
   }
 
-  async getUserPosition(userAddress: string): Promise<any | null> {
+  /**
+   * Get user balance
+   */
+  async getBalance(userAddress: string): Promise<number> {
+    if (!this.initialized) return 0;
+
     try {
-      const contract = new StellarSdk.Contract(CONTRACT_ID);
-      
-      const method = contract.methods.get_user_position({
-        user: StellarSdk.Address.fromString(userAddress)
-      });
-      
-      const result = await this.rpc.simulateTransaction(
-        new StellarSdk.TransactionBuilder(new StellarSdk.Account(
-          StellarSdk.Keypair.random().publicKey(),
-          '0'
-        ), {
-          fee: StellarSdk.BASE_FEE,
-          networkPassphrase: NETWORK_PASSPHRASE,
-        })
-        .addOperation(method)
-        .setTimeout(30)
-        .build()
-      );
-
-      if (!result.result) {
-        return null;
-      }
-
-      return result.result;
+      const balance = await this.client!.balance({ user: userAddress });
+      return Number(balance) / 10_000_000;
     } catch (error) {
-      console.error('Error fetching user position:', error);
-      return null;
+      logger.error('Failed to fetch balance:', error);
+      return 0;
     }
   }
 
-  async getBalance(userAddress: string): Promise<bigint> {
+  /**
+   * Mint initial tokens for a new user
+   */
+  async mintInitial(userAddress: string): Promise<number> {
+    this.ensureInitialized();
+
     try {
-      const contract = new StellarSdk.Contract(CONTRACT_ID);
-      
-      const method = contract.methods.balance({
-        user: StellarSdk.Address.fromString(userAddress)
-      });
-      
-      const result = await this.rpc.simulateTransaction(
-        new StellarSdk.TransactionBuilder(new StellarSdk.Account(
-          StellarSdk.Keypair.random().publicKey(),
-          '0'
-        ), {
-          fee: StellarSdk.BASE_FEE,
-          networkPassphrase: NETWORK_PASSPHRASE,
-        })
-        .addOperation(method)
-        .setTimeout(30)
-        .build()
-      );
-
-      if (!result.result) {
-        return 0n;
-      }
-
-      return result.result as bigint;
+      const result = await this.client!.mint_initial({ user: userAddress });
+      return Number(result) / 10_000_000;
     } catch (error) {
-      console.error('Error fetching balance:', error);
-      return 0n;
+      logger.error('Failed to mint initial tokens:', error);
+      throw error;
     }
-  }
-
-  private async waitUntilReady(txHash: string): Promise<void> {
-    let attempts = 0;
-    const maxAttempts = 30;
-
-    while (attempts < maxAttempts) {
-      try {
-        const result = await this.rpc.getTransaction(txHash);
-        
-        if (result.status === 'SUCCESS') {
-          return;
-        }
-
-        if (result.status === 'FAILED') {
-          throw new Error(`Transaction failed: ${result.resultXdr}`);
-        }
-      } catch (error) {
-        if (attempts === maxAttempts - 1) {
-          throw error;
-        }
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      attempts++;
-    }
-
-    throw new Error(`Transaction not ready after ${maxAttempts} seconds`);
   }
 }
-
-const SorobanApi = {
-  isTransactionError: (sim: any): boolean => {
-    return sim.status !== 'SUCCESS' && sim.error !== undefined;
-  }
-};
 
 export default new SorobanService();

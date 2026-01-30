@@ -1,90 +1,118 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../utils/jwt.util';
-import { JwtPayload } from '../types/auth.types';
+import { PrismaClient, UserRole } from '@prisma/client';
+import logger from '../utils/logger';
 
-// Extend Express Request type to include user
-export interface AuthRequest extends Request {
-  user?: JwtPayload;
+const prisma = new PrismaClient();
+
+// Extend Express Request to include user
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        userId: string;
+        walletAddress: string;
+        role: UserRole;
+      };
+    }
+  }
 }
 
 /**
- * Authentication middleware to protect routes
- * Verifies JWT token from Authorization header
- *
- * Usage:
- * router.get('/protected', authenticateToken, (req: AuthRequest, res) => {
- *   const user = req.user; // Access authenticated user info
- * });
+ * Middleware to authenticate user via JWT token
  */
-export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction): void {
+export const authenticateUser = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
-    // Get token from Authorization header
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.startsWith('Bearer ')
-      ? authHeader.substring(7)
-      : null;
+    const authHeader = req.headers.authorization;
 
-    if (!token) {
-      res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Access token is required',
-      });
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'No token provided' });
       return;
     }
 
-    // Verify token
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
     const decoded = verifyToken(token);
 
     if (!decoded) {
-      res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Invalid or expired token',
-      });
+      res.status(401).json({ error: 'Invalid or expired token' });
       return;
     }
 
-    // Attach user info to request
-    req.user = decoded;
+    // Get user from database to check role
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: {
+        id: true,
+        walletAddress: true,
+        role: true,
+      },
+    });
+
+    if (!user) {
+      res.status(401).json({ error: 'User not found' });
+      return;
+    }
+
+    // Attach user to request
+    req.user = {
+      userId: user.id,
+      walletAddress: user.walletAddress,
+      role: user.role,
+    };
+
     next();
   } catch (error) {
-    console.error('Error in authentication middleware:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: 'Authentication failed',
-    });
+    logger.error('Authentication error:', error);
+    res.status(401).json({ error: 'Authentication failed' });
   }
-}
+};
 
 /**
- * Optional authentication middleware
- * Attaches user info if valid token is provided, but doesn't block the request
- *
- * Usage:
- * router.get('/optional-auth', optionalAuthentication, (req: AuthRequest, res) => {
- *   if (req.user) {
- *     // User is authenticated
- *   } else {
- *     // User is not authenticated (but that's okay)
- *   }
- * });
+ * Middleware to require admin role
  */
-export function optionalAuthentication(req: AuthRequest, res: Response, next: NextFunction): void {
-  try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.startsWith('Bearer ')
-      ? authHeader.substring(7)
-      : null;
+export const requireAdmin = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  await authenticateUser(req, res, () => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
 
-    if (token) {
-      const decoded = verifyToken(token);
-      if (decoded) {
-        req.user = decoded;
-      }
+    if (req.user.role !== UserRole.ADMIN) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
     }
 
     next();
-  } catch (error) {
-    // Don't block the request on error, just continue without user info
+  });
+};
+
+/**
+ * Middleware to require oracle role
+ */
+export const requireOracle = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  await authenticateUser(req, res, () => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    if (req.user.role !== UserRole.ORACLE && req.user.role !== UserRole.ADMIN) {
+      res.status(403).json({ error: 'Oracle or Admin access required' });
+      return;
+    }
+
     next();
-  }
-}
+  });
+};
