@@ -1,29 +1,31 @@
-import { prisma } from '../lib/prisma';
+import { prisma } from "../lib/prisma";
 import { GameMode } from '@prisma/client';
-import { LeaderboardEntry, LeaderboardResponse, ModeStats } from '../types/leaderboard.types';
+import {
+  LeaderboardEntry,
+  LeaderboardResponse,
+  ModeStats,
+} from "../types/leaderboard.types";
 
- 
 // Get leaderboard with pagination
 
 export async function getLeaderboard(
   limit: number = 100,
   offset: number = 0,
-  userId?: string
+  userId?: string,
 ): Promise<LeaderboardResponse> {
-  
   // Fetch user stats ordered by earnings
   const userStats = await prisma.userStats.findMany({
     take: limit,
     skip: offset,
-    orderBy: { totalEarnings: 'desc' },
+    orderBy: { totalEarnings: "desc" },
     include: {
       user: {
         select: {
           id: true,
-          walletAddress: true
-        }
-      }
-    }
+          walletAddress: true,
+        },
+      },
+    },
   });
 
   // Format leaderboard entries
@@ -39,15 +41,21 @@ export async function getLeaderboard(
         wins: stat.upDownWins,
         losses: stat.upDownLosses,
         earnings: parseFloat(stat.upDownEarnings.toString()),
-        accuracy: calculateAccuracy(stat.upDownWins, stat.upDownWins + stat.upDownLosses)
+        accuracy: calculateAccuracy(
+          stat.upDownWins,
+          stat.upDownWins + stat.upDownLosses,
+        ),
       },
       legends: {
         wins: stat.legendsWins,
         losses: stat.legendsLosses,
         earnings: parseFloat(stat.legendsEarnings.toString()),
-        accuracy: calculateAccuracy(stat.legendsWins, stat.legendsWins + stat.legendsLosses)
-      }
-    }
+        accuracy: calculateAccuracy(
+          stat.legendsWins,
+          stat.legendsWins + stat.legendsLosses,
+        ),
+      },
+    },
   }));
 
   // Get user position if authenticated
@@ -63,35 +71,38 @@ export async function getLeaderboard(
     leaderboard,
     userPosition,
     totalUsers,
-    lastUpdated: new Date().toISOString()
+    lastUpdated: new Date().toISOString(),
   };
 }
 
 // Get specific user's position and stats
 
-export async function getUserPosition(userId: string): Promise<LeaderboardEntry | undefined> {
+export async function getUserPosition(
+  userId: string,
+): Promise<LeaderboardEntry | undefined> {
   const userStats = await prisma.userStats.findUnique({
     where: { userId },
     include: {
       user: {
         select: {
           id: true,
-          walletAddress: true
-        }
-      }
-    }
+          walletAddress: true,
+        },
+      },
+    },
   });
 
   if (!userStats) return undefined;
 
   // Calculate rank by counting users with higher earnings
-  const rank = await prisma.userStats.count({
-    where: {
-      totalEarnings: {
-        gt: userStats.totalEarnings
-      }
-    }
-  }) + 1;
+  const rank =
+    (await prisma.userStats.count({
+      where: {
+        totalEarnings: {
+          gt: userStats.totalEarnings,
+        },
+      },
+    })) + 1;
 
   return {
     rank,
@@ -99,21 +110,30 @@ export async function getUserPosition(userId: string): Promise<LeaderboardEntry 
     walletAddress: maskWalletAddress(userStats.user.walletAddress),
     totalEarnings: parseFloat(userStats.totalEarnings.toString()),
     totalPredictions: userStats.totalPredictions,
-    accuracy: calculateAccuracy(userStats.correctPredictions, userStats.totalPredictions),
+    accuracy: calculateAccuracy(
+      userStats.correctPredictions,
+      userStats.totalPredictions,
+    ),
     modeStats: {
       upDown: {
         wins: userStats.upDownWins,
         losses: userStats.upDownLosses,
         earnings: parseFloat(userStats.upDownEarnings.toString()),
-        accuracy: calculateAccuracy(userStats.upDownWins, userStats.upDownWins + userStats.upDownLosses)
+        accuracy: calculateAccuracy(
+          userStats.upDownWins,
+          userStats.upDownWins + userStats.upDownLosses,
+        ),
       },
       legends: {
         wins: userStats.legendsWins,
         losses: userStats.legendsLosses,
         earnings: parseFloat(userStats.legendsEarnings.toString()),
-        accuracy: calculateAccuracy(userStats.legendsWins, userStats.legendsWins + userStats.legendsLosses)
-      }
-    }
+        accuracy: calculateAccuracy(
+          userStats.legendsWins,
+          userStats.legendsWins + userStats.legendsLosses,
+        ),
+      },
+    },
   };
 }
 
@@ -126,20 +146,26 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
     include: {
       predictions: {
         include: {
-          user: true
-        }
-      }
-    }
+          user: true,
+        },
+      },
+    },
   });
 
   if (!round || !round.endPrice) {
-    throw new Error('Round not found or not closed');
+    throw new Error("Round not found or not closed");
   }
 
   // Process each prediction
   for (const prediction of round.predictions) {
     const isCorrect = calculatePredictionResult(prediction, round);
-    const earnings = isCorrect ? parseFloat(prediction.amount.toString()) : -parseFloat(prediction.amount.toString());
+    const earnings = isCorrect
+      ? parseFloat(prediction.amount.toString())
+      : -parseFloat(prediction.amount.toString());
+
+    // Check mode from Round as Prediction doesn't have it anymore
+    const isUpDown = round.mode === "UP_DOWN";
+    const isLegends = round.mode === "LEGENDS";
 
     // Determine mode from round
     const isUpDown = round.mode === GameMode.UP_DOWN;
@@ -170,7 +196,7 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
         legendsWins: { increment: isLegends && isCorrect ? 1 : 0 },
         legendsLosses: { increment: isLegends && !isCorrect ? 1 : 0 },
         legendsEarnings: { increment: isLegends ? earnings : 0 },
-      }
+      },
     });
   }
 }
@@ -178,7 +204,7 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
 // Calculate if a prediction was correct
 
 function calculatePredictionResult(prediction: any, round: any): boolean {
-  if (!round.startPrice || !round.endPrice) return false;
+  if (round.startPrice === null || round.endPrice === null) return false;
 
   if (round.mode === GameMode.UP_DOWN) {
     // Up/Down mode - check if prediction side matches price movement

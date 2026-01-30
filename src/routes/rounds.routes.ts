@@ -50,6 +50,53 @@ router.post('/start', requireAdmin, async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/rounds/history
+ * Gets historical rounds with pagination
+ * Query params: limit (default: 20, max: 100), offset (default: 0), mode (optional), status (optional)
+ */
+router.get('/history', async (req: Request, res: Response) => {
+    try {
+        const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+        const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+        const mode = req.query.mode as 'UP_DOWN' | 'LEGENDS' | undefined;
+        const status = req.query.status as 'RESOLVED' | 'CANCELLED' | undefined;
+
+        // Validate limit
+        if (isNaN(limit) || limit < 1 || limit > 100) {
+            return res.status(400).json({ error: 'Invalid limit. Must be between 1 and 100' });
+        }
+
+        // Validate offset
+        if (isNaN(offset) || offset < 0) {
+            return res.status(400).json({ error: 'Invalid offset. Must be a non-negative number' });
+        }
+
+        // Validate mode if provided
+        if (mode && !['UP_DOWN', 'LEGENDS'].includes(mode)) {
+            return res.status(400).json({ error: 'Invalid mode. Must be UP_DOWN or LEGENDS' });
+        }
+
+        // Validate status if provided
+        if (status && !['RESOLVED', 'CANCELLED'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status. Must be RESOLVED or CANCELLED' });
+        }
+
+        const result = await roundService.getRoundsHistory({ limit, offset, mode, status });
+
+        res.json({
+            success: true,
+            rounds: result.rounds,
+            total: result.total,
+            limit: result.limit,
+            offset: result.offset,
+        });
+    } catch (error: any) {
+        logger.error('Failed to get rounds history:', error);
+        res.status(500).json({ error: error.message || 'Failed to get rounds history' });
+    }
+});
+
+/**
  * GET /api/rounds/:id
  * Gets a specific round by ID
  */
