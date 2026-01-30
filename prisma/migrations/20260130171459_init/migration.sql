@@ -2,6 +2,9 @@
 CREATE TYPE "UserRole" AS ENUM ('USER', 'ADMIN', 'ORACLE');
 
 -- CreateEnum
+CREATE TYPE "NotificationType" AS ENUM ('WIN', 'LOSS', 'ROUND_START', 'BONUS_AVAILABLE', 'ANNOUNCEMENT');
+
+-- CreateEnum
 CREATE TYPE "GameMode" AS ENUM ('UP_DOWN', 'LEGENDS');
 
 -- CreateEnum
@@ -10,18 +13,23 @@ CREATE TYPE "RoundStatus" AS ENUM ('PENDING', 'ACTIVE', 'LOCKED', 'RESOLVED', 'C
 -- CreateEnum
 CREATE TYPE "PredictionSide" AS ENUM ('UP', 'DOWN');
 
+-- CreateEnum
+CREATE TYPE "TransactionType" AS ENUM ('BONUS', 'WIN', 'LOSS', 'WITHDRAWAL', 'DEPOSIT');
+
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
     "walletAddress" TEXT NOT NULL,
-    "publicKey" TEXT NOT NULL,
+    "publicKey" TEXT,
+    "nickname" TEXT,
+    "avatarUrl" TEXT,
+    "preferences" JSONB,
+    "virtualBalance" DOUBLE PRECISION NOT NULL DEFAULT 1000,
+    "role" "UserRole" NOT NULL DEFAULT 'USER',
+    "notificationPreferences" JSONB DEFAULT '{"win": true, "loss": true, "roundStart": false, "bonus": true, "announcement": true}',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "lastLoginAt" TIMESTAMP(3),
-    "wins" INTEGER NOT NULL DEFAULT 0,
-    "streak" INTEGER NOT NULL DEFAULT 0,
-    "virtualBalance" DOUBLE PRECISION NOT NULL DEFAULT 1000,
-    "role" "UserRole" NOT NULL DEFAULT 'USER',
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
@@ -51,39 +59,21 @@ CREATE TABLE "AuthChallenge" (
 );
 
 -- CreateTable
-CREATE TABLE "UserStats" (
-    "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-    "totalPredictions" INTEGER NOT NULL DEFAULT 0,
-    "correctPredictions" INTEGER NOT NULL DEFAULT 0,
-    "totalEarnings" DECIMAL(18,8) NOT NULL DEFAULT 0,
-    "upDownWins" INTEGER NOT NULL DEFAULT 0,
-    "upDownLosses" INTEGER NOT NULL DEFAULT 0,
-    "upDownEarnings" DECIMAL(18,8) NOT NULL DEFAULT 0,
-    "legendsWins" INTEGER NOT NULL DEFAULT 0,
-    "legendsLosses" INTEGER NOT NULL DEFAULT 0,
-    "legendsEarnings" DECIMAL(18,8) NOT NULL DEFAULT 0,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "UserStats_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "Round" (
     "id" TEXT NOT NULL,
     "mode" "GameMode" NOT NULL,
     "status" "RoundStatus" NOT NULL DEFAULT 'PENDING',
-    "startTime" TIMESTAMP(3) NOT NULL,
-    "endTime" TIMESTAMP(3) NOT NULL,
-    "resolvedAt" TIMESTAMP(3),
     "startPrice" DOUBLE PRECISION NOT NULL,
     "endPrice" DOUBLE PRECISION,
+    "startTime" TIMESTAMP(3) NOT NULL,
+    "endTime" TIMESTAMP(3) NOT NULL,
     "sorobanRoundId" TEXT,
     "poolUp" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "poolDown" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "priceRanges" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "userId" TEXT,
 
     CONSTRAINT "Round_pkey" PRIMARY KEY ("id")
 );
@@ -91,10 +81,10 @@ CREATE TABLE "Round" (
 -- CreateTable
 CREATE TABLE "Prediction" (
     "id" TEXT NOT NULL,
-    "roundId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "amount" DOUBLE PRECISION NOT NULL,
+    "roundId" TEXT NOT NULL,
     "side" "PredictionSide",
+    "amount" DOUBLE PRECISION NOT NULL,
     "priceRange" JSONB,
     "won" BOOLEAN,
     "payout" DOUBLE PRECISION,
@@ -103,17 +93,59 @@ CREATE TABLE "Prediction" (
     CONSTRAINT "Prediction_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "Notification" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "type" "NotificationType" NOT NULL,
+    "title" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "data" JSONB,
+    "isRead" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Notification_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "UserStats" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "totalPredictions" INTEGER NOT NULL DEFAULT 0,
+    "correctPredictions" INTEGER NOT NULL DEFAULT 0,
+    "totalEarnings" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "upDownWins" INTEGER NOT NULL DEFAULT 0,
+    "upDownLosses" INTEGER NOT NULL DEFAULT 0,
+    "upDownEarnings" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "legendsWins" INTEGER NOT NULL DEFAULT 0,
+    "legendsLosses" INTEGER NOT NULL DEFAULT 0,
+    "legendsEarnings" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "UserStats_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Transaction" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "type" "TransactionType" NOT NULL,
+    "description" TEXT,
+    "roundId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Transaction_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_walletAddress_key" ON "User"("walletAddress");
 
 -- CreateIndex
-CREATE INDEX "User_walletAddress_idx" ON "User"("walletAddress");
+CREATE INDEX "Message_userId_idx" ON "Message"("userId");
 
 -- CreateIndex
 CREATE INDEX "Message_createdAt_idx" ON "Message"("createdAt");
-
--- CreateIndex
-CREATE INDEX "Message_userId_idx" ON "Message"("userId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "AuthChallenge_challenge_key" ON "AuthChallenge"("challenge");
@@ -126,12 +158,6 @@ CREATE INDEX "AuthChallenge_walletAddress_idx" ON "AuthChallenge"("walletAddress
 
 -- CreateIndex
 CREATE INDEX "AuthChallenge_expiresAt_idx" ON "AuthChallenge"("expiresAt");
-
--- CreateIndex
-CREATE UNIQUE INDEX "UserStats_userId_key" ON "UserStats"("userId");
-
--- CreateIndex
-CREATE INDEX "UserStats_totalEarnings_idx" ON "UserStats"("totalEarnings");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Round_sorobanRoundId_key" ON "Round"("sorobanRoundId");
@@ -154,6 +180,18 @@ CREATE INDEX "Prediction_roundId_idx" ON "Prediction"("roundId");
 -- CreateIndex
 CREATE UNIQUE INDEX "Prediction_roundId_userId_key" ON "Prediction"("roundId", "userId");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "UserStats_userId_key" ON "UserStats"("userId");
+
+-- CreateIndex
+CREATE INDEX "UserStats_totalEarnings_idx" ON "UserStats"("totalEarnings");
+
+-- CreateIndex
+CREATE INDEX "Transaction_userId_idx" ON "Transaction"("userId");
+
+-- CreateIndex
+CREATE INDEX "Transaction_type_idx" ON "Transaction"("type");
+
 -- AddForeignKey
 ALTER TABLE "Message" ADD CONSTRAINT "Message_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -161,10 +199,19 @@ ALTER TABLE "Message" ADD CONSTRAINT "Message_userId_fkey" FOREIGN KEY ("userId"
 ALTER TABLE "AuthChallenge" ADD CONSTRAINT "AuthChallenge_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Round" ADD CONSTRAINT "Round_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Prediction" ADD CONSTRAINT "Prediction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Prediction" ADD CONSTRAINT "Prediction_roundId_fkey" FOREIGN KEY ("roundId") REFERENCES "Round"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "UserStats" ADD CONSTRAINT "UserStats_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Prediction" ADD CONSTRAINT "Prediction_roundId_fkey" FOREIGN KEY ("roundId") REFERENCES "Round"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Prediction" ADD CONSTRAINT "Prediction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

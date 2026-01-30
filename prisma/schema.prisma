@@ -7,68 +7,81 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User role enum
+// =======================
+// Enums
+// =======================
+
 enum UserRole {
   USER
   ADMIN
   ORACLE
 }
 
-// Notification type enum
 enum NotificationType {
   WIN
   LOSS
   ROUND_START
   BONUS_AVAILABLE
   ANNOUNCEMENT
-// I had to create this because there was no reference to it in L:48
-model Message {
-  id String @id @default(uuid())
-  userId String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// User model for wallet-based authentication
+enum GameMode {
+  UP_DOWN
+  LEGENDS
+}
+
+enum RoundStatus {
+  PENDING
+  ACTIVE
+  LOCKED
+  RESOLVED
+  CANCELLED
+}
+
+enum PredictionSide {
+  UP
+  DOWN
+}
+
+enum TransactionType {
+  BONUS
+  WIN
+  LOSS
+  WITHDRAWAL
+  DEPOSIT
+}
+
+// =======================
+// Models
+// =======================
+
 model User {
-  id              String            @id @default(uuid())
-  walletAddress   String            @unique
-  publicKey       String
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  lastLoginAt     DateTime?
-
-  // Profile
-  nickname        String?
-  avatarUrl       String?
-  preferences     Json?             // { theme, notifications, etc. }
-
-  // Game stats
-  wins            Int               @default(0)
-  streak          Int               @default(0)
-  virtualBalance  Float             @default(1000)
-
-  // Role
-  role            UserRole          @default(USER)
-
-  // Notification preferences
+  id                      String    @id @default(uuid())
+  walletAddress           String    @unique
+  publicKey               String?
+  nickname                String?
+  avatarUrl               String?
+  preferences             Json?
+  virtualBalance          Float     @default(1000)
+  wins          Int      @default(0)
+  streak        Int      @default(0)
+  role                    UserRole  @default(USER)
   notificationPreferences Json?     @default("{\"win\": true, \"loss\": true, \"roundStart\": false, \"bonus\": true, \"announcement\": true}")
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  lastLoginAt             DateTime?
+
 
   // Relations
-  authChallenges  AuthChallenge[]
-  predictions     Prediction[]
-  stats           UserStats?
-  notifications   Notification[]
-
-  messages        Message[]
-  predictions     Prediction[]
-  stats           UserStats?
-  transactions    Transaction[]
-  rounds          Round[]
-  predictions     Prediction[]
-  @@index([walletAddress])
+  messages       Message[]
+  predictions    Prediction[]
+  rounds         Round[]
+  notifications  Notification[]
+  authChallenges AuthChallenge[]
+  stats          UserStats?
+  transactions   Transaction[]
 }
 
-// Chat message model
 model Message {
   id        String   @id @default(uuid())
   userId    String
@@ -76,11 +89,10 @@ model Message {
   content   String   @db.VarChar(500)
   createdAt DateTime @default(now())
 
-  @@index([createdAt])
   @@index([userId])
+  @@index([createdAt])
 }
 
-// Auth challenge model for replay protection
 model AuthChallenge {
   id            String    @id @default(uuid())
   userId        String?
@@ -97,238 +109,98 @@ model AuthChallenge {
   @@index([expiresAt])
 }
 
-// Prediction model for user price predictions
-model Prediction {
-  id              String   @id @default(uuid())
-  userId          String
-  roundId         String
-  mode            Int      // 0 = Up/Down, 1 = Legends (exact price)
-  choice          String?  // "up" or "down" for mode 0; null for mode 1
-  guessPrice      Decimal? @db.Decimal(10, 4)  // only for mode 1 (e.g. 0.2297)
-  amount          Decimal  @db.Decimal(18, 8)   // virtual XLM staked
-  won             Boolean? // null = not resolved, true = winner, false = loser
-  payout          Decimal? @db.Decimal(18, 8)   // payout amount received
-  createdAt       DateTime @default(now())
-
-  user            User     @relation(fields: [userId], references: [id])
-  round           Round    @relation(fields: [roundId], references: [id])
-
-  @@unique([roundId, userId])
-  @@index([userId])
-  @@index([roundId])
-}
-
-// Round model for prediction rounds
 model Round {
-  id          String   @id @default(uuid())
-  mode        Int      // 0 = Up/Down, 1 = Legends
-  startPrice  Decimal? @db.Decimal(10, 4)
-  endPrice    Decimal? @db.Decimal(10, 4)
-  startTime   DateTime
-  endTime     DateTime
-  status      String   // "ACTIVE", "LOCKED", "RESOLVED"
-  resolvedAt  DateTime? // timestamp when round was resolved
-  sorobanRoundId String?
-  poolUp      Decimal  @default(0) @db.Decimal(18, 8)  // Total XLM staked on UP
-  poolDown    Decimal  @default(0) @db.Decimal(18, 8)  // Total XLM staked on DOWN
-  priceRanges Json?    // Price ranges for LEGENDS mode
-  createdAt   DateTime @default(now())
+  id             String      @id @default(uuid())
+  mode           GameMode
+  status         RoundStatus @default(PENDING)
+  startPrice     Float
+  endPrice       Float?
+  startTime      DateTime
+  endTime        DateTime
+  sorobanRoundId String?     @unique
+  poolUp         Float       @default(0)
+  poolDown       Float       @default(0)
+  priceRanges    Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   predictions Prediction[]
-
-  @@index([status])
-}
-
-// UserStats model for leaderboard tracking
-model UserStats {
-  id                String   @id @default(uuid())
-  userId            String   @unique
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Overall stats
-  totalPredictions  Int      @default(0)
-  correctPredictions Int     @default(0)
-  totalEarnings     Decimal  @default(0) @db.Decimal(18, 8)
-
-  // Mode-specific stats
-  upDownWins        Int      @default(0)
-  upDownLosses      Int      @default(0)
-  upDownEarnings    Decimal  @default(0) @db.Decimal(18, 8)
-
-  legendsWins       Int      @default(0)
-  legendsLosses     Int      @default(0)
-  legendsEarnings   Decimal  @default(0) @db.Decimal(18, 8)
-
-  // Metadata
-  updatedAt         DateTime @updatedAt
-
-  @@index([totalEarnings])
-}
-
-// Transaction Type Enum
-enum TransactionType {
-  BONUS
-  WIN
-  LOSS
-  WITHDRAWAL
-  DEPOSIT
-}
-
-// Transaction model for balance history
-model Transaction {
-  id          String          @id @default(uuid())
-  userId      String
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  amount      Float
-  type        TransactionType
-  description String?
-
-  roundId     String?         // Optional link to a round
-
-  createdAt   DateTime        @default(now())
-
-  @@index([userId])
-  @@index([type])
-}
-
-// Game mode enum
-enum GameMode {
-  UP_DOWN    // Mode 0: Binary Up/Down predictions
-  LEGENDS    // Mode 1: Price range predictions
-}
-
-// Round status enum
-enum RoundStatus {
-  PENDING    // Created but not started
-  ACTIVE     // Accepting predictions
-  LOCKED     // No more predictions, awaiting resolution
-  RESOLVED   // Completed with results
-  CANCELLED  // Admin cancelled
-}
-
-// Prediction side for Up/Down mode
-enum PredictionSide {
-  UP
-  DOWN
-}
-
-// Notification model for user notifications
-model Notification {
-  id              String           @id @default(uuid())
-  userId          String
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  type            NotificationType
-  title           String
-  message         String
-  data            Json?            // Optional payload (e.g., roundId, amount, etc.)
-  
-  isRead          Boolean          @default(false)
-  createdAt       DateTime         @default(now())
-  
-// Round model for prediction rounds
-model Round {
-  id              String       @id @default(uuid())
-  mode            GameMode
-  status          RoundStatus  @default(PENDING)
-
-  // Timing
-  startTime       DateTime
-  endTime         DateTime
-  resolvedAt      DateTime?
-
-  // Pricing
-  startPrice      Float
-  endPrice        Float?
-
-  // Soroban (Mode 0 only)
-  sorobanRoundId  String?      @unique
-
-  // Pools
-  poolUp          Float        @default(0)
-  poolDown        Float        @default(0)
-
-  // Legends mode: price ranges stored as JSON
-  // Format: [{min: 0.20, max: 0.25, pool: 0}, ...]
-  priceRanges     Json?
-
-  // Relations
-  predictions     Prediction[]
-
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  User        User?        @relation(fields: [userId], references: [id])
+  userId      String?
 
   @@index([status])
   @@index([mode])
   @@index([startTime])
 }
 
-// Prediction model for user bets
 model Prediction {
-  id              String         @id @default(uuid())
-  roundId         String
-  round           Round          @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  id         String          @id @default(uuid())
+  userId     String
+  roundId    String
+  side       PredictionSide?
+  amount     Float
+  priceRange Json?
 
-  userId          String
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+  round Round @relation(fields: [roundId], references: [id])
 
-  // Prediction details
-  amount          Float
-  side            PredictionSide? // For Up/Down mode
-  priceRange      Json?           // For Legends: {min: 0.20, max: 0.25}
+  won    Boolean?
+  payout Float?
 
-  // Results
-  won             Boolean?
-  payout          Float?
-
-  createdAt       DateTime       @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([roundId, userId])
   @@index([userId])
-  @@index([createdAt])
-  @@index([isRead])
-}
-
-// Round model for tracking prediction rounds
-model Round {
-  id              String        @id @default(uuid())
-  mode            Int           @default(0)
-  startPrice      BigInt
-  finalPrice      BigInt?
-  durationLedgers Int
-  endLedger       Int
-  status          RoundStatus   @default(ACTIVE)
-  createdById     String
-  createdBy       User          @relation(fields: [createdById], references: [id])
-  createdAt       DateTime      @default(now())
-  resolvedAt      DateTime?
-  predictions     Prediction[]
-
-  @@index([status])
-  @@index([createdById])
-}
-
-// Prediction model for tracking user bets
-model Prediction {
-  id          String   @id @default(uuid())
-  roundId     String
-  round       Round    @relation(fields: [roundId], references: [id])
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  side        String
-  amount      BigInt
-  txHash      String?
-  createdAt   DateTime @default(now())
-
-  @@unique([roundId, userId])
   @@index([roundId])
-  @@index([userId])
 }
 
-// Round status enum
-enum RoundStatus {
-  ACTIVE
-  RESOLVED
-  CANCELLED
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+}
+
+model UserStats {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  totalPredictions   Int   @default(0)
+  correctPredictions Int   @default(0)
+  totalEarnings      Float @default(0)
+
+  upDownWins     Int   @default(0)
+  upDownLosses   Int   @default(0)
+  upDownEarnings Float @default(0)
+
+  legendsWins     Int   @default(0)
+  legendsLosses   Int   @default(0)
+  legendsEarnings Float @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  @@index([totalEarnings])
+}
+
+model Transaction {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  amount      Float
+  type        TransactionType
+  description String?
+  roundId     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
 }

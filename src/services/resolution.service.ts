@@ -1,10 +1,10 @@
-import { PrismaClient } from "@prisma/client";
 import sorobanService from "./soroban.service";
 import websocketService from "./websocket.service";
 import notificationService from "./notification.service";
 import logger from "../utils/logger";
+import educationTipService from "./education-tip.service";
+import { prisma } from "../lib/prisma";
 
-const prisma = new PrismaClient();
 
 interface PriceRange {
   min: number;
@@ -60,6 +60,31 @@ export class ResolutionService {
       });
 
       logger.info(`Round resolved: ${roundId}, finalPrice=${finalPrice}`);
+      // -----------------------------
+      // Generate Educational Tip
+      // -----------------------------
+      try {
+        const tip = await educationTipService.generateTip(roundId);
+
+        await prisma.round.update({
+          where: { id: roundId },
+          data: {
+            educationalTip: tip.message,
+            educationalTipCategory: tip.category,
+          },
+        });
+
+        logger.info("Educational tip attached to round", {
+          roundId,
+          category: tip.category,
+        });
+      } catch (tipError) {
+        logger.error("Failed to generate educational tip after resolution", {
+          roundId,
+          error:
+            tipError instanceof Error ? tipError.message : "Unknown tip error",
+        });
+      }
 
       return await prisma.round.findUnique({
         where: { id: roundId },

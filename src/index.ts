@@ -5,7 +5,7 @@ import { Server } from "socket.io";
 import { createServer } from "http";
 import authRoutes from "./routes/auth.routes";
 import userRoutes from "./routes/user.routes";
-import roundRoutes from './routes/round.routes';
+import roundRoutes from "./routes/round.routes";
 import roundsRoutes from "./routes/rounds.routes";
 import predictionsRoutes from "./routes/predictions.routes";
 import educationRoutes from "./routes/education.routes";
@@ -15,7 +15,7 @@ import priceOracle from "./services/oracle";
 import websocketService from "./services/websocket.service";
 import schedulerService from "./services/scheduler.service";
 import logger from "./utils/logger";
-
+import chatRoutes from "./routes/chat.routes";
 dotenv.config();
 
 const app: Express = express();
@@ -47,7 +47,7 @@ app.use("/api/rounds", roundsRoutes);
 app.use("/api/predictions", predictionsRoutes);
 app.use("/api/education", educationRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
-app.use('/api/chat', chatRoutes);
+app.use("/api/chat", chatRoutes);
 app.use("/api/notifications", notificationsRoutes);
 
 // Hello World endpoint
@@ -137,3 +137,5 @@ httpServer.listen(PORT, () => {
   logger.info(`🚀 Server is running on http://localhost:${PORT}`);
   logger.info(`📡 Socket.IO is ready for connections`);
 });
+
+export default app;
