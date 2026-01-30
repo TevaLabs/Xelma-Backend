@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { GameMode } from '@prisma/client';
 import {
   LeaderboardEntry,
   LeaderboardResponse,
@@ -28,7 +29,7 @@ export async function getLeaderboard(
   });
 
   // Format leaderboard entries
-  const leaderboard: LeaderboardEntry[] = userStats.map((stat, index) => ({
+  const leaderboard: LeaderboardEntry[] = userStats.map((stat: typeof userStats[number], index: number) => ({
     rank: offset + index + 1,
     userId: stat.user.id,
     walletAddress: maskWalletAddress(stat.user.walletAddress),
@@ -166,6 +167,10 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
     const isUpDown = round.mode === "UP_DOWN";
     const isLegends = round.mode === "LEGENDS";
 
+    // Determine mode from round
+    const isUpDown = round.mode === GameMode.UP_DOWN;
+    const isLegends = round.mode === GameMode.LEGENDS;
+
     // Update or create user stats
     await prisma.userStats.upsert({
       where: { userId: prediction.userId },
@@ -201,23 +206,17 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
 function calculatePredictionResult(prediction: any, round: any): boolean {
   if (round.startPrice === null || round.endPrice === null) return false;
 
-  if (round.mode === "UP_DOWN") {
-    // Up/Down mode
+  if (round.mode === GameMode.UP_DOWN) {
+    // Up/Down mode - check if prediction side matches price movement
     const priceWentUp = round.endPrice > round.startPrice;
-    return (
-      (prediction.side === "UP" && priceWentUp) ||
-      (prediction.side === "DOWN" && !priceWentUp)
-    );
+    return (prediction.side === 'UP' && priceWentUp) ||
+           (prediction.side === 'DOWN' && !priceWentUp);
   } else {
-    // Legends mode (price range)
-    // Check if endPrice falls within the prediction's priceRange
-    // priceRange is expected to be { min: number, max: number }
+    // Legends mode - check if price falls within predicted range
     if (!prediction.priceRange) return false;
-
     const range = prediction.priceRange as { min: number; max: number };
     const endPrice = parseFloat(round.endPrice.toString());
-
-    return endPrice >= range.min && endPrice < range.max;
+    return endPrice >= range.min && endPrice <= range.max;
   }
 }
 

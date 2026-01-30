@@ -1,5 +1,6 @@
-import { Server as SocketIOServer } from "socket.io";
-import logger from "../utils/logger";
+import { Server as SocketIOServer } from 'socket.io';
+import logger from '../utils/logger';
+import { ChatMessage } from '../types/chat.types';
 
 class WebSocketService {
   private io: SocketIOServer | null = null;
@@ -112,6 +113,34 @@ class WebSocketService {
       return;
     }
 
+    /**
+     * Emit chat message to all connected clients
+     */
+    emitChatMessage(message: ChatMessage): void {
+        if (!this.io) {
+            logger.warn('WebSocket not initialized, cannot emit chat:message');
+            return;
+        }
+
+        this.io.emit('chat:message', message);
+
+        logger.info(`Emitted chat:message: ${message.id}`);
+    }
+
+    /**
+     * Join a room (for round-specific events)
+     */
+    joinRoom(socketId: string, roomName: string): void {
+        if (!this.io) {
+            logger.warn('WebSocket not initialized, cannot join room');
+            return;
+        }
+
+        const socket = this.io.sockets.sockets.get(socketId);
+        if (socket) {
+            socket.join(roomName);
+            logger.info(`Socket ${socketId} joined room ${roomName}`);
+        }
     const socket = this.io.sockets.sockets.get(socketId);
     if (socket) {
       socket.join(roomName);

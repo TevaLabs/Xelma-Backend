@@ -60,11 +60,24 @@ model User {
   notifications   Notification[]
 
   messages        Message[]
+  predictions     Prediction[]
   stats           UserStats?
   transactions    Transaction[]
   rounds          Round[]
   predictions     Prediction[]
   @@index([walletAddress])
+}
+
+// Chat message model
+model Message {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
 }
 
 // Auth challenge model for replay protection

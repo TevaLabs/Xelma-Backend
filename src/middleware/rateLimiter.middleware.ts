@@ -62,3 +62,32 @@ export const authRateLimiter = rateLimit({
     });
   },
 });
+
+/**
+ * Rate limiter for chat messages
+ * Limits: 5 messages per minute per USER (not per IP)
+ *
+ * NOTE: This requires authenticateUser middleware to run first
+ * to populate req.user.userId
+ */
+export const chatMessageRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // 5 messages per minute per user
+  keyGenerator: (req) => {
+    // Use userId for rate limiting (requires authentication first)
+    // Falls back to IP if userId not available
+    return (req as any).user?.userId || req.ip || 'unknown';
+  },
+  message: {
+    error: 'Too Many Messages',
+    message: 'You can only send 5 messages per minute. Please wait before sending another message.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      error: 'Too Many Messages',
+      message: 'You can only send 5 messages per minute. Please wait before sending another message.',
+    });
+  },
+});

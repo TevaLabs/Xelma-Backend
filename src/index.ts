@@ -47,6 +47,7 @@ app.use("/api/rounds", roundsRoutes);
 app.use("/api/predictions", predictionsRoutes);
 app.use("/api/education", educationRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
+app.use('/api/chat', chatRoutes);
 app.use("/api/notifications", notificationsRoutes);
 
 // Hello World endpoint
