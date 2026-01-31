@@ -1,6 +1,5 @@
 import { Server as SocketIOServer } from 'socket.io';
 import logger from '../utils/logger';
-import { ChatMessage } from '../types/chat.types';
 
 class WebSocketService {
   private io: SocketIOServer | null = null;
@@ -14,6 +13,13 @@ class WebSocketService {
   }
 
   /**
+   * Get the Socket.IO instance
+   */
+  getIO(): SocketIOServer | null {
+    return this.io;
+  }
+
+  /**
    * Emit event when a new round starts
    */
   emitRoundStarted(round: any): void {
@@ -22,7 +28,7 @@ class WebSocketService {
       return;
     }
 
-    this.io.emit("round:started", {
+    this.io.to('round').emit("round:started", {
       id: round.id,
       mode: round.mode,
       status: round.status,
@@ -44,19 +50,12 @@ class WebSocketService {
       return;
     }
 
-    // Emit to all clients
-    this.io.emit("prediction:placed", {
+    this.io.to('round').emit("prediction:placed", {
       roundId,
       predictionId: prediction.id,
       amount: prediction.amount,
       side: prediction.side,
       priceRange: prediction.priceRange,
-    });
-
-    // Also emit to a room specific to this round
-    this.io.to(`round:${roundId}`).emit("round:prediction", {
-      predictionId: prediction.id,
-      amount: prediction.amount,
     });
 
     logger.info(`Emitted prediction:placed for prediction ${prediction.id}`);
@@ -71,15 +70,14 @@ class WebSocketService {
       return;
     }
 
-    this.io.emit("round:resolved", {
+    this.io.to('round').emit("round:resolved", {
       id: round.id,
       status: round.status,
       startPrice: round.startPrice,
       endPrice: round.endPrice,
       resolvedAt: round.resolvedAt,
       predictions: round.predictions?.length || 0,
-      winners:
-        round.predictions?.filter((p: any) => p.won === true).length || 0,
+      winners: round.predictions?.filter((p: any) => p.won === true).length || 0,
     });
 
     logger.info(`Emitted round:resolved for round ${round.id}`);
@@ -94,78 +92,28 @@ class WebSocketService {
       return;
     }
 
-    this.io.emit("price:update", {
+    this.io.to('round').emit("price:update", {
       asset,
       price,
       timestamp: new Date().toISOString(),
     });
-
-    // Don't log every price update to avoid spam
-    // logger.info(`Emitted price:update: ${asset} = ${price}`);
   }
 
   /**
-   * Join a room (for round-specific events)
+   * Emit chat message to chat room
    */
-  joinRoom(socketId: string, roomName: string): void {
+  emitChatMessage(message: any): void {
     if (!this.io) {
-      logger.warn("WebSocket not initialized, cannot join room");
+      logger.warn('WebSocket not initialized, cannot emit chat:message');
       return;
     }
 
-    /**
-     * Emit chat message to all connected clients
-     */
-    emitChatMessage(message: ChatMessage): void {
-        if (!this.io) {
-            logger.warn('WebSocket not initialized, cannot emit chat:message');
-            return;
-        }
-
-        this.io.emit('chat:message', message);
-
-        logger.info(`Emitted chat:message: ${message.id}`);
-    }
-
-    /**
-     * Join a room (for round-specific events)
-     */
-    joinRoom(socketId: string, roomName: string): void {
-        if (!this.io) {
-            logger.warn('WebSocket not initialized, cannot join room');
-            return;
-        }
-
-        const socket = this.io.sockets.sockets.get(socketId);
-        if (socket) {
-            socket.join(roomName);
-            logger.info(`Socket ${socketId} joined room ${roomName}`);
-        }
-    const socket = this.io.sockets.sockets.get(socketId);
-    if (socket) {
-      socket.join(roomName);
-      logger.info(`Socket ${socketId} joined room ${roomName}`);
-    }
+    this.io.to('chat').emit('chat:message', message);
+    logger.info(`Emitted chat:message: ${message.id}`);
   }
 
   /**
-   * Leave a room
-   */
-  leaveRoom(socketId: string, roomName: string): void {
-    if (!this.io) {
-      logger.warn("WebSocket not initialized, cannot leave room");
-      return;
-    }
-
-    const socket = this.io.sockets.sockets.get(socketId);
-    if (socket) {
-      socket.leave(roomName);
-      logger.info(`Socket ${socketId} left room ${roomName}`);
-    }
-  }
-
-  /**
-   * Emit a notification to a specific user (to user:${userId} room)
+   * Emit a notification to a specific user
    */
   emitNotification(userId: string, notification: any): void {
     if (!this.io) {
@@ -180,8 +128,7 @@ class WebSocketService {
       message: notification.message,
       data: notification.data,
       isRead: notification.isRead,
-      createdAt:
-        notification.createdAt?.toISOString?.() || notification.createdAt,
+      createdAt: notification.createdAt?.toISOString?.() || notification.createdAt,
     });
 
     logger.info(`Emitted notification to user ${userId}`);
@@ -201,9 +148,7 @@ class WebSocketService {
       timestamp: new Date().toISOString(),
     });
 
-    logger.info(
-      `Emitted unread count update to user ${userId}: ${unreadCount}`,
-    );
+    logger.info(`Emitted unread count update to user ${userId}: ${unreadCount}`);
   }
 }
 

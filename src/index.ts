@@ -1,11 +1,9 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { Server } from 'socket.io';
 import { createServer } from 'http';
 import authRoutes from './routes/auth.routes';
 import userRoutes from "./routes/user.routes";
-import roundRoutes from './routes/round.routes';
 import roundsRoutes from './routes/rounds.routes';
 import predictionsRoutes from './routes/predictions.routes';
 import educationRoutes from './routes/education.routes';
@@ -18,19 +16,15 @@ import logger from './utils/logger';
 import chatRoutes from "./routes/chat.routes";
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './docs/openapi';
-
-
+import { initializeSocket } from './socket';
 
 dotenv.config();
 
 const app: Express = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: process.env.CLIENT_URL || "*",
-    methods: ["GET", "POST"],
-  },
-});
+
+// Initialize Socket.IO with JWT authentication
+const io = initializeSocket(httpServer);
 
 const PORT = process.env.PORT || 3000;
 
@@ -91,9 +85,6 @@ app.get("/api/price", (req: Request, res: Response) => {
 // Start Oracle Polling
 priceOracle.startPolling();
 
-// Initialize WebSocket service
-websocketService.initialize(io);
-
 // Initialize Scheduler
 schedulerService.start();
 
@@ -104,25 +95,6 @@ setInterval(() => {
     websocketService.emitPriceUpdate("XLM", price);
   }
 }, 5000); // Every 5 seconds
-
-// Socket.IO connection handler
-io.on("connection", (socket) => {
-  logger.info(`Client connected: ${socket.id}`);
-
-  // Handle user joining their notification room
-  socket.on("join-user-room", (userId: string) => {
-    if (!userId) {
-      logger.warn("User ID not provided for join-user-room event");
-      return;
-    }
-    socket.join(`user:${userId}`);
-    logger.info(`Socket ${socket.id} joined room user:${userId}`);
-  });
-
-  socket.on("disconnect", () => {
-    logger.info(`Client disconnected: ${socket.id}`);
-  });
-});
 
 // 404 handler
 app.use((req: Request, res: Response) => {
