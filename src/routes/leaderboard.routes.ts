@@ -5,13 +5,43 @@ import { optionalAuthentication, AuthRequest } from '../middleware/auth.middlewa
 const router = Router();
 
 
-//   GET /api/leaderboard
-//  Get the global leaderboard with optional user position
- 
-//  Query Parameters:
-//  - limit: number (default: 100, max: 500)
-//  - offset: number (default: 0)
-//  Returns leaderboard with user rankings and mode-specific stats
+/**
+ * @swagger
+ * /api/leaderboard:
+ *   get:
+ *     summary: Get the global leaderboard
+ *     description: |
+ *       Returns the global leaderboard. Bearer authentication is **optional**; if provided, the API may include the requesting user's position.\n
+ *       Query params support pagination.
+ *     tags: [leaderboard]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+ *         description: Max number of entries to return (max 500)
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, minimum: 0, default: 0 }
+ *         description: Pagination offset
+ *     responses:
+ *       200:
+ *         description: Leaderboard payload
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/LeaderboardResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             example:
+ *               error: Internal Server Error
+ *               message: Failed to fetch leaderboard
+ *     x-codeSamples:
+ *       - lang: cURL
+ *         source: |
+ *           curl -X GET "$API_BASE_URL/api/leaderboard?limit=100&offset=0"
+ */
 
 router.get('/', optionalAuthentication, async (req: AuthRequest, res: Response) => {
   try {

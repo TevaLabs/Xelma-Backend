@@ -1,6 +1,6 @@
-// import { Client, BetSide } from '@tevalabs/xelma-bindings';
-import { Keypair, Networks } from '@stellar/stellar-sdk';
-import logger from '../utils/logger';
+import { Client, BetSide } from "@tevalabs/xelma-bindings";
+import { Keypair, Networks } from "@stellar/stellar-sdk";
+import logger from "../utils/logger";
 
 // Temporary loose typing until bindings are available
 type Client = any;
@@ -50,20 +50,24 @@ export class SorobanService {
 
   private ensureInitialized() {
     if (!this.initialized || !this.client) {
-      throw new Error('Soroban service is not initialized');
+      throw new Error("Soroban service is not initialized");
     }
   }
 
   /**
-   * Creates a new prediction round
+   * Creates a new round on the Soroban contract
    */
   async createRound(
     startPrice: number,
-    durationLedgers: number
+    durationLedgers: number,
   ): Promise<string> {
     this.ensureInitialized();
-
     try {
+      logger.info(
+        `Creating Soroban round: price=${startPrice}, duration=${durationLedgers}`,
+      );
+
+      // Convert price to stroops (1 XLM = 10^7 stroops)
       const priceInStroops = Math.floor(startPrice * 10_000_000);
 
       const result = await this.client!.create_round({
@@ -71,31 +75,36 @@ export class SorobanService {
         duration_ledgers: durationLedgers,
       });
 
-      logger.info('Soroban round created');
+      logger.info("Soroban round created successfully");
       return result.toString();
     } catch (error) {
-      logger.error('Failed to create Soroban round:', error);
-      throw error;
+      logger.error("Failed to create Soroban round:", error);
+      throw new Error(`Soroban contract error: ${error}`);
     }
   }
 
   /**
-   * Places a bet
+   * Places a bet on the Soroban contract
    */
   async placeBet(
     userAddress: string,
     amount: number,
-    side: 'UP' | 'DOWN'
+    side: "UP" | "DOWN",
   ): Promise<void> {
     this.ensureInitialized();
-
     try {
+      logger.info(
+        `Placing bet on Soroban: user=${userAddress}, amount=${amount}, side=${side}`,
+      );
+
+      // Convert amount to stroops
       const amountInStroops = Math.floor(amount * 10_000_000);
 
+      // BetSide is a type union: {tag: "Up", values: void} | {tag: "Down", values: void}
       const betSide: BetSide =
-        side === 'UP'
-          ? { tag: 'Up', values: undefined }
-          : { tag: 'Down', values: undefined };
+        side === "UP"
+          ? { tag: "Up", values: undefined }
+          : { tag: "Down", values: undefined };
 
       await this.client!.place_bet({
         user: userAddress,
@@ -103,74 +112,76 @@ export class SorobanService {
         side: betSide,
       });
 
-      logger.info('Bet placed successfully');
+      logger.info("Bet placed successfully on Soroban");
     } catch (error) {
-      logger.error('Failed to place bet:', error);
-      throw error;
+      logger.error("Failed to place bet on Soroban:", error);
+      throw new Error(`Soroban contract error: ${error}`);
     }
   }
 
   /**
-   * Resolves the active round (oracle only)
+   * Resolves a round on the Soroban contract
    */
   async resolveRound(finalPrice: number): Promise<void> {
     this.ensureInitialized();
-
     try {
+      logger.info(`Resolving Soroban round: finalPrice=${finalPrice}`);
+
+      // Convert price to stroops
       const priceInStroops = Math.floor(finalPrice * 10_000_000);
 
       await this.client!.resolve_round({
         final_price: BigInt(priceInStroops),
       });
 
-      logger.info('Soroban round resolved');
+      logger.info("Soroban round resolved successfully");
     } catch (error) {
-      logger.error('Failed to resolve Soroban round:', error);
-      throw error;
+      logger.error("Failed to resolve Soroban round:", error);
+      throw new Error(`Soroban contract error: ${error}`);
     }
   }
 
   /**
-   * Fetch active round
+   * Gets the active round from Soroban
    */
-  async getActiveRound(): Promise<any | null> {
+  async getActiveRound(): Promise<any> {
     if (!this.initialized) return null;
-
     try {
-      return await this.client!.get_active_round();
+      const round = await this.client!.get_active_round();
+      return round;
     } catch (error) {
-      logger.error('Failed to fetch active round:', error);
+      logger.error("Failed to get active round from Soroban:", error);
       return null;
     }
   }
 
   /**
-   * Get user balance
+   * Mints initial tokens for a new user
    */
-  async getBalance(userAddress: string): Promise<number> {
-    if (!this.initialized) return 0;
-
+  async mintInitial(userAddress: string): Promise<number> {
+    this.ensureInitialized();
     try {
-      const balance = await this.client!.balance({ user: userAddress });
-      return Number(balance) / 10_000_000;
+      const result = await this.client!.mint_initial({ user: userAddress });
+      // Convert from stroops to XLM
+      return Number(result) / 10_000_000;
     } catch (error) {
-      logger.error('Failed to fetch balance:', error);
-      return 0;
+      logger.error("Failed to mint initial tokens:", error);
+      throw new Error(`Soroban contract error: ${error}`);
     }
   }
 
   /**
-   * Mint initial tokens for a new user
+   * Gets user balance from Soroban
    */
-  async mintInitial(userAddress: string): Promise<number> {
-    this.ensureInitialized();
-
+  async getBalance(userAddress: string): Promise<number> {
+    if (!this.initialized) return 0;
     try {
-      const result = await this.client!.mint_initial({ user: userAddress });
-      return Number(result) / 10_000_000;
+      const balance = await this.client!.balance({ user: userAddress });
+      // Convert from stroops to XLM
+      return Number(balance) / 10_000_000;
     } catch (error) {
-      logger.error('Failed to mint initial tokens:', error);
-      throw error;
+      logger.error("Failed to get balance from Soroban:", error);
+      return 0;
     }
   }
 }
