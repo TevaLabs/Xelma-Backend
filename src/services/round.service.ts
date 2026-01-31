@@ -1,162 +1,211 @@
-import { PrismaClient, GameMode, RoundStatus } from '@prisma/client';
-import sorobanService from './soroban.service';
-import websocketService from './websocket.service';
-import logger from '../utils/logger';
+import { PrismaClient } from "@prisma/client";
+import sorobanService from "./soroban.service";
+import websocketService from "./websocket.service";
+import notificationService from "./notification.service";
+import logger from "../utils/logger";
 
 const prisma = new PrismaClient();
 
 export class RoundService {
-    /**
-     * Starts a new prediction round
-     */
-    async startRound(
-        mode: 'UP_DOWN' | 'LEGENDS',
-        startPrice: number,
-        durationMinutes: number
-    ): Promise<any> {
-        try {
-            const gameMode = mode === 'UP_DOWN' ? GameMode.UP_DOWN : GameMode.LEGENDS;
-            const startTime = new Date();
-            const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+  /**
+   * Starts a new prediction round
+   */
+  async startRound(
+    mode: "UP_DOWN" | "LEGENDS",
+    startPrice: number,
+    durationMinutes: number,
+  ): Promise<any> {
+    try {
+      const gameMode = mode === "UP_DOWN" ? 0 : 1;
+      const startTime = new Date();
+      const endTime = new Date(
+        startTime.getTime() + durationMinutes * 60 * 1000,
+      );
 
-            let sorobanRoundId: string | null = null;
+      let sorobanRoundId: string | null = null;
 
-            // Mode 0 (UP_DOWN): Create round on Soroban contract
-            if (mode === 'UP_DOWN') {
-                // Convert duration to ledgers (~5 seconds per ledger)
-                const durationLedgers = Math.floor((durationMinutes * 60) / 5);
-                sorobanRoundId = await sorobanService.createRound(startPrice, durationLedgers);
-            }
+      // Mode 0 (UP_DOWN): Create round on Soroban contract
+      if (mode === "UP_DOWN") {
+        // Convert duration to ledgers (~5 seconds per ledger)
+        const durationLedgers = Math.floor((durationMinutes * 60) / 5);
+        sorobanRoundId = await sorobanService.createRound(
+          startPrice,
+          durationLedgers,
+        );
+      }
 
-            // Mode 1 (LEGENDS): Define price ranges
-            let priceRanges = null;
-            if (mode === 'LEGENDS') {
-                // Create 5 price ranges around the current price
-                const rangeWidth = startPrice * 0.05; // 5% range width
-                priceRanges = [
-                    { min: startPrice - rangeWidth * 2, max: startPrice - rangeWidth, pool: 0 },
-                    { min: startPrice - rangeWidth, max: startPrice, pool: 0 },
-                    { min: startPrice, max: startPrice + rangeWidth, pool: 0 },
-                    { min: startPrice + rangeWidth, max: startPrice + rangeWidth * 2, pool: 0 },
-                    { min: startPrice + rangeWidth * 2, max: startPrice + rangeWidth * 3, pool: 0 },
-                ];
-            }
+      // Mode 1 (LEGENDS): Define price ranges
+      let priceRanges: any = null;
+      if (mode === "LEGENDS") {
+        // Create 5 price ranges around the current price
+        const rangeWidth = startPrice * 0.05; // 5% range width
+        priceRanges = [
+          {
+            min: startPrice - rangeWidth * 2,
+            max: startPrice - rangeWidth,
+            pool: 0,
+          },
+          { min: startPrice - rangeWidth, max: startPrice, pool: 0 },
+          { min: startPrice, max: startPrice + rangeWidth, pool: 0 },
+          {
+            min: startPrice + rangeWidth,
+            max: startPrice + rangeWidth * 2,
+            pool: 0,
+          },
+          {
+            min: startPrice + rangeWidth * 2,
+            max: startPrice + rangeWidth * 3,
+            pool: 0,
+          },
+        ];
+      }
 
-            // Create round in database
-            const round = await prisma.round.create({
-                data: {
-                    mode: gameMode,
-                    status: RoundStatus.ACTIVE,
-                    startTime,
-                    endTime,
-                    startPrice,
-                    sorobanRoundId,
-                    priceRanges: priceRanges as any,
-                },
-            });
+      // Create round in database
+      const round = await prisma.round.create({
+        data: {
+          mode: gameMode,
+          status: "ACTIVE",
+          startTime,
+          endTime,
+          startPrice,
+          sorobanRoundId,
+          priceRanges: priceRanges
+            ? JSON.parse(JSON.stringify(priceRanges))
+            : null,
+        },
+      });
 
-            logger.info(`Round created: ${round.id}, mode=${mode}, sorobanId=${sorobanRoundId}`);
+      logger.info(
+        `Round created: ${round.id}, mode=${mode}, sorobanId=${sorobanRoundId}`,
+      );
 
-            return round;
-        } catch (error) {
-            logger.error('Failed to start round:', error);
-            throw error;
+      // Emit round started event
+      websocketService.emitRoundStarted(round);
+
+      // Create and broadcast ROUND_START notification to all users
+      try {
+        const users = await prisma.user.findMany({
+          select: { id: true },
+        });
+
+        for (const user of users) {
+          const notif = await notificationService.createNotification({
+            userId: user.id,
+            type: "ROUND_START",
+            title: "New Round Started!",
+            message: `A new ${mode === "UP_DOWN" ? "Up/Down" : "Legends"} round has started! Place your prediction now. Starting price: $${startPrice.toFixed(4)}`,
+            data: { roundId: round.id, startPrice },
+          });
+
+          if (notif) {
+            websocketService.emitNotification(user.id, notif);
+          }
         }
-    }
+      } catch (error) {
+        logger.error("Failed to send round start notifications:", error);
+        // Don't throw - let the round creation succeed even if notifications fail
+      }
 
-    /**
-     * Gets a round by ID
-     */
-    async getRound(roundId: string): Promise<any> {
-        try {
-            const round = await prisma.round.findUnique({
-                where: { id: roundId },
-                include: {
-                    predictions: {
-                        include: {
-                            user: {
-                                select: {
-                                    id: true,
-                                    walletAddress: true,
-                                },
-                            },
-                        },
-                    },
+      return round;
+    } catch (error) {
+      logger.error("Failed to start round:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Gets a round by ID
+   */
+  async getRound(roundId: string): Promise<any> {
+    try {
+      const round = await prisma.round.findUnique({
+        where: { id: roundId },
+        include: {
+          predictions: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  walletAddress: true,
                 },
-            });
+              },
+            },
+          },
+        },
+      });
 
-            return round;
-        } catch (error) {
-            logger.error('Failed to get round:', error);
-            throw error;
-        }
+      return round;
+    } catch (error) {
+      logger.error("Failed to get round:", error);
+      throw error;
     }
+  }
 
-    /**
-     * Gets all active rounds
-     */
-    async getActiveRounds(): Promise<any[]> {
-        try {
-            const rounds = await prisma.round.findMany({
-                where: {
-                    status: RoundStatus.ACTIVE,
-                },
-                orderBy: {
-                    startTime: 'desc',
-                },
-            });
+  /**
+   * Gets all active rounds
+   */
+  async getActiveRounds(): Promise<any[]> {
+    try {
+      const rounds = await prisma.round.findMany({
+        where: {
+          status: "ACTIVE",
+        },
+        orderBy: {
+          startTime: "desc",
+        },
+      });
 
-            return rounds;
-        } catch (error) {
-            logger.error('Failed to get active rounds:', error);
-            throw error;
-        }
+      return rounds;
+    } catch (error) {
+      logger.error("Failed to get active rounds:", error);
+      throw error;
     }
+  }
 
-    /**
-     * Locks a round (no more predictions allowed)
-     */
-    async lockRound(roundId: string): Promise<void> {
-        try {
-            await prisma.round.update({
-                where: { id: roundId },
-                data: { status: RoundStatus.LOCKED },
-            });
+  /**
+   * Locks a round (no more predictions allowed)
+   */
+  async lockRound(roundId: string): Promise<void> {
+    try {
+      await prisma.round.update({
+        where: { id: roundId },
+        data: { status: "LOCKED" },
+      });
 
-            logger.info(`Round locked: ${roundId}`);
-        } catch (error) {
-            logger.error('Failed to lock round:', error);
-            throw error;
-        }
+      logger.info(`Round locked: ${roundId}`);
+    } catch (error) {
+      logger.error("Failed to lock round:", error);
+      throw error;
     }
+  }
 
-    /**
-     * Checks if a round should be auto-locked based on time
-     */
-    async autoLockExpiredRounds(): Promise<void> {
-        try {
-            const now = new Date();
+  /**
+   * Checks if a round should be auto-locked based on time
+   */
+  async autoLockExpiredRounds(): Promise<void> {
+    try {
+      const now = new Date();
 
-            const expiredRounds = await prisma.round.findMany({
-                where: {
-                    status: RoundStatus.ACTIVE,
-                    endTime: {
-                        lte: now,
-                    },
-                },
-            });
+      const expiredRounds = await prisma.round.findMany({
+        where: {
+          status: "ACTIVE",
+          endTime: {
+            lte: now,
+          },
+        },
+      });
 
-            for (const round of expiredRounds) {
-                await this.lockRound(round.id);
-            }
+      for (const round of expiredRounds) {
+        await this.lockRound(round.id);
+      }
 
-            if (expiredRounds.length > 0) {
-                logger.info(`Auto-locked ${expiredRounds.length} expired rounds`);
-            }
-        } catch (error) {
-            logger.error('Failed to auto-lock expired rounds:', error);
-        }
+      if (expiredRounds.length > 0) {
+        logger.info(`Auto-locked ${expiredRounds.length} expired rounds`);
+      }
+    } catch (error) {
+      logger.error("Failed to auto-lock expired rounds:", error);
     }
+  }
 
     /**
      * Gets historical rounds with pagination and aggregate stats

@@ -5,6 +5,18 @@ import logger from "../utils/logger";
 
 const prisma = new PrismaClient();
 
+// Re-export UserRole for backwards compatibility
+export { UserRole };
+
+// Export AuthRequest type for use in routes
+export interface AuthRequest extends Request {
+  user?: {
+    userId: string;
+    walletAddress: string;
+    role: UserRole;
+  };
+}
+
 // Extend Express Request to include user
 declare global {
   namespace Express {
@@ -14,8 +26,17 @@ declare global {
         walletAddress: string;
         role: UserRole;
       };
+      userId?: string;
     }
   }
+}
+
+export interface AuthRequest extends Request {
+  user?: {
+    userId: string;
+    walletAddress: string;
+    role: UserRole;
+  };
 }
 
 /**
@@ -30,6 +51,7 @@ export const authenticateUser = async (
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      (req as any).userId = undefined;
       res.status(401).json({ error: "No token provided" });
       return;
     }
@@ -38,6 +60,7 @@ export const authenticateUser = async (
     const decoded = verifyToken(token);
 
     if (!decoded) {
+      (req as any).userId = undefined;
       res.status(401).json({ error: "Invalid or expired token" });
       return;
     }
@@ -53,6 +76,7 @@ export const authenticateUser = async (
     });
 
     if (!user) {
+      (req as any).userId = undefined;
       res.status(401).json({ error: "User not found" });
       return;
     }
@@ -63,10 +87,67 @@ export const authenticateUser = async (
       walletAddress: user.walletAddress,
       role: user.role,
     };
+    (req as any).userId = user.id;
 
     next();
   } catch (error) {
     logger.error("Authentication error:", error);
+    (req as any).userId = undefined;
+    res.status(401).json({ error: "Authentication failed" });
+  }
+};
+
+/**
+ * Middleware for optional authentication (user may or may not be logged in)
+ */
+export const optionalAuthentication = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      // No token, but that's ok for optional auth
+      (req as any).userId = undefined;
+      next();
+      return;
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyToken(token);
+
+    if (!decoded) {
+      (req as any).userId = undefined;
+      next();
+      return;
+    }
+
+    // Get user from database
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: {
+        id: true,
+        walletAddress: true,
+        role: true,
+      },
+    });
+
+    if (user) {
+      req.user = {
+        userId: user.id,
+        walletAddress: user.walletAddress,
+        role: user.role,
+      };
+      (req as any).userId = user.id;
+    }
+
+    next();
+  } catch (error) {
+    logger.error("Optional authentication error:", error);
+    // Don't fail on error, just continue without user
+    next();
     res.status(401).json({ error: "Authentication failed" });
   }
 };
@@ -167,6 +248,8 @@ export const requireOracle = async (
 };
 
 /**
+ * Optional authentication middleware
+ * Validates token if present, but doesn't require it
  * Middleware that attempts to authenticate but doesn't block if fails
  */
 export const optionalAuthentication = async (
@@ -177,36 +260,43 @@ export const optionalAuthentication = async (
   try {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return next();
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      // No token provided, continue without user
+      next();
+      return;
     }
 
     const token = authHeader.substring(7);
     const decoded = verifyToken(token);
 
-    if (decoded) {
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
-        select: {
-          id: true,
-          walletAddress: true,
-          role: true,
-        },
-      });
-
-      if (user) {
-        req.user = {
-          userId: user.id,
-          walletAddress: user.walletAddress,
-          role: user.role,
-        };
-      }
+    if (!decoded) {
+      // Invalid token, continue without user
+      next();
+      return;
     }
+
+    // Get user from database
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: {
+        id: true,
+        walletAddress: true,
+        role: true,
+      },
+    });
+
+    if (user) {
+      req.user = {
+        userId: user.id,
+        walletAddress: user.walletAddress,
+        role: user.role,
+      };
+    }
+
     next();
   } catch (error) {
-    // Just ignore errors for optional auth
+    // On error, continue without user
+    logger.warn('Optional authentication error:', error);
     next();
   }
 };
-
-export type AuthRequest = Request;

@@ -14,6 +14,13 @@ enum UserRole {
   ORACLE
 }
 
+// Notification type enum
+enum NotificationType {
+  WIN
+  LOSS
+  ROUND_START
+  BONUS_AVAILABLE
+  ANNOUNCEMENT
 // I had to create this because there was no reference to it in L:48
 model Message {
   id String @id @default(uuid())
@@ -43,14 +50,34 @@ model User {
   // Role
   role            UserRole          @default(USER)
 
+  // Notification preferences
+  notificationPreferences Json?     @default("{\"win\": true, \"loss\": true, \"roundStart\": false, \"bonus\": true, \"announcement\": true}")
+
   // Relations
   authChallenges  AuthChallenge[]
+  predictions     Prediction[]
+  stats           UserStats?
+  notifications   Notification[]
+
   messages        Message[]
+  predictions     Prediction[]
   stats           UserStats?
   transactions    Transaction[]
   rounds          Round[]
   predictions     Prediction[]
   @@index([walletAddress])
+}
+
+// Chat message model
+model Message {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
 }
 
 // Auth challenge model for replay protection
@@ -68,6 +95,48 @@ model AuthChallenge {
   @@index([challenge])
   @@index([walletAddress])
   @@index([expiresAt])
+}
+
+// Prediction model for user price predictions
+model Prediction {
+  id              String   @id @default(uuid())
+  userId          String
+  roundId         String
+  mode            Int      // 0 = Up/Down, 1 = Legends (exact price)
+  choice          String?  // "up" or "down" for mode 0; null for mode 1
+  guessPrice      Decimal? @db.Decimal(10, 4)  // only for mode 1 (e.g. 0.2297)
+  amount          Decimal  @db.Decimal(18, 8)   // virtual XLM staked
+  won             Boolean? // null = not resolved, true = winner, false = loser
+  payout          Decimal? @db.Decimal(18, 8)   // payout amount received
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id])
+  round           Round    @relation(fields: [roundId], references: [id])
+
+  @@unique([roundId, userId])
+  @@index([userId])
+  @@index([roundId])
+}
+
+// Round model for prediction rounds
+model Round {
+  id          String   @id @default(uuid())
+  mode        Int      // 0 = Up/Down, 1 = Legends
+  startPrice  Decimal? @db.Decimal(10, 4)
+  endPrice    Decimal? @db.Decimal(10, 4)
+  startTime   DateTime
+  endTime     DateTime
+  status      String   // "ACTIVE", "LOCKED", "RESOLVED"
+  resolvedAt  DateTime? // timestamp when round was resolved
+  sorobanRoundId String?
+  poolUp      Decimal  @default(0) @db.Decimal(18, 8)  // Total XLM staked on UP
+  poolDown    Decimal  @default(0) @db.Decimal(18, 8)  // Total XLM staked on DOWN
+  priceRanges Json?    // Price ranges for LEGENDS mode
+  createdAt   DateTime @default(now())
+
+  predictions Prediction[]
+
+  @@index([status])
 }
 
 // UserStats model for leaderboard tracking
@@ -144,6 +213,20 @@ enum PredictionSide {
   DOWN
 }
 
+// Notification model for user notifications
+model Notification {
+  id              String           @id @default(uuid())
+  userId          String
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type            NotificationType
+  title           String
+  message         String
+  data            Json?            // Optional payload (e.g., roundId, amount, etc.)
+  
+  isRead          Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  
 // Round model for prediction rounds
 model Round {
   id              String       @id @default(uuid())
@@ -203,7 +286,8 @@ model Prediction {
 
   @@unique([roundId, userId])
   @@index([userId])
-  @@index([roundId])
+  @@index([createdAt])
+  @@index([isRead])
 }
 
 // Round model for tracking prediction rounds
