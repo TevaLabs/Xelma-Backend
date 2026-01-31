@@ -6,7 +6,7 @@
 declare module '@tevalabs/xelma-bindings' {
   export interface BetSide {
     tag: 'Up' | 'Down';
-    values: undefined;
+    values?: any;
   }
 
   export interface ClientOptions {
@@ -18,16 +18,19 @@ declare module '@tevalabs/xelma-bindings' {
   export interface CreateRoundParams {
     start_price: bigint;
     duration_ledgers: number;
+    mode?: number;
   }
 
   export interface PlaceBetParams {
     user: string;
     amount: bigint;
     side: BetSide;
+    mode?: number;
   }
 
   export interface ResolveRoundParams {
     final_price: bigint;
+    mode?: number;
   }
 
   export interface MintInitialParams {
@@ -40,45 +43,12 @@ declare module '@tevalabs/xelma-bindings' {
 
   export class Client {
     constructor(options: ClientOptions);
-    create_round(params: CreateRoundParams): Promise<bigint>;
-    place_bet(params: PlaceBetParams): Promise<void>;
-    resolve_round(params: ResolveRoundParams): Promise<void>;
+    
+    create_round(params: CreateRoundParams): Promise<string>;
+    place_bet(params: PlaceBetParams): Promise<string>;
+    resolve_round(params: ResolveRoundParams): Promise<string>;
     get_active_round(): Promise<any>;
     mint_initial(params: MintInitialParams): Promise<bigint>;
     balance(params: BalanceParams): Promise<bigint>;
-// Type stub for @tevalabs/xelma-bindings
-declare module "@tevalabs/xelma-bindings" {
-  export interface BetSide {
-    tag: "Up" | "Down";
-    values?: any;
-  }
-
-  export interface Client {
-    create_round(params: {
-      start_price: BigInt;
-      duration_ledgers: number;
-    }): Promise<string>;
-
-    place_bet(params: {
-      user: string;
-      amount: BigInt;
-      side: BetSide;
-    }): Promise<void>;
-
-    resolve_round(params: { final_price: BigInt }): Promise<void>;
-
-    get_active_round(): Promise<any>;
-
-    mint_initial(params: { user: string }): Promise<BigInt>;
-
-    balance(params: { user: string }): Promise<BigInt>;
-  }
-
-  export class Client {
-    constructor(config: {
-      contractId: string;
-      networkPassphrase: string;
-      rpcUrl: string;
-    });
   }
 }

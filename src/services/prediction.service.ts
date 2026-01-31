@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import sorobanService from "./soroban.service";
+import sorobanService, { BlockchainError } from "./soroban.service";
 import websocketService from "./websocket.service";
 import logger from "../utils/logger";
 
@@ -10,9 +10,28 @@ interface PriceRange {
   max: number;
 }
 
+/**
+ * Prediction service error
+ */
+export class PredictionServiceError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly statusCode: number = 500
+  ) {
+    super(message);
+    this.name = "PredictionServiceError";
+    Object.setPrototypeOf(this, PredictionServiceError.prototype);
+  }
+}
+
 export class PredictionService {
   /**
-   * Submits a prediction for a round
+   * ORIGINAL + ENHANCED: Submit a prediction for a round
+   * Now includes blockchain integration with rollback on failure
+   * 
+   * NOTE: This method expects userSecretKey to be provided from the route layer
+   * which extracts it from the x-signature header
    */
   async submitPrediction(
     userId: string,
@@ -20,22 +39,40 @@ export class PredictionService {
     amount: number,
     side?: "UP" | "DOWN",
     priceRange?: PriceRange,
+    userSecretKey?: string  // NEW: Optional for blockchain integration
   ): Promise<any> {
+    const operationStart = Date.now();
+    let createdPredictionId: string | null = null;
+
     try {
-      // Get round
+      // ORIGINAL: Get round
       const round = await prisma.round.findUnique({
         where: { id: roundId },
       });
 
       if (!round) {
-        throw new Error("Round not found");
+        throw new PredictionServiceError("Round not found", "ROUND_NOT_FOUND", 404);
       }
 
+      // ORIGINAL: Validate round status
       if (round.status !== "ACTIVE") {
-        throw new Error("Round is not active");
+        throw new PredictionServiceError(
+          "Round is not active",
+          "ROUND_NOT_ACTIVE",
+          400
+        );
       }
 
-      // Check if user already has a prediction for this round
+      // ENHANCED: Check if round has ended
+      if (new Date() > round.endTime) {
+        throw new PredictionServiceError(
+          "Round has ended, no longer accepting bets",
+          "ROUND_ENDED",
+          400
+        );
+      }
+
+      // ORIGINAL: Check if user already has a prediction for this round
       const existingPrediction = await prisma.prediction.findUnique({
         where: {
           roundId_userId: {
@@ -46,100 +83,233 @@ export class PredictionService {
       });
 
       if (existingPrediction) {
-        throw new Error("User has already placed a prediction for this round");
+        throw new PredictionServiceError(
+          "User has already placed a prediction for this round",
+          "PREDICTION_EXISTS",
+          409
+        );
       }
 
-      // Get user
+      // ORIGINAL: Get user
       const user = await prisma.user.findUnique({
         where: { id: userId },
       });
 
       if (!user) {
-        throw new Error("User not found");
+        throw new PredictionServiceError("User not found", "USER_NOT_FOUND", 404);
       }
 
-      // Check balance
+      // ORIGINAL: Check balance
       if (user.virtualBalance < amount) {
-        throw new Error("Insufficient balance");
+        throw new PredictionServiceError(
+          `Insufficient balance. Required: ${amount}, Available: ${user.virtualBalance}`,
+          "INSUFFICIENT_BALANCE",
+          400
+        );
       }
 
-      // Mode-specific logic
-      if (round.mode === 0) {
+      // ORIGINAL: Mode-specific logic
+      if (round.mode === "UP_DOWN") {
         if (!side) {
-          throw new Error("Side (UP/DOWN) is required for UP_DOWN mode");
+          throw new PredictionServiceError(
+            "Side (UP/DOWN) is required for UP_DOWN mode",
+            "SIDE_REQUIRED",
+            400
+          );
         }
 
-        // Call Soroban contract
-        await sorobanService.placeBet(user.walletAddress, amount, side);
-
-        // Create prediction in database
+        // Step 1: ORIGINAL - Create prediction in database with PENDING status
         const prediction = await prisma.prediction.create({
           data: {
             roundId,
             userId,
-            mode: 0,
             amount,
-            choice: side,
+            side,
           },
         });
 
-        // Update user balance
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            virtualBalance: user.virtualBalance - amount,
-          },
+        createdPredictionId = prediction.id;
+
+        logger.info("Database prediction created", {
+          predictionId: prediction.id,
+          roundId,
+          userId,
+          side,
+          amount,
         });
 
-        // Update round pools
-        await prisma.round.update({
-          where: { id: roundId },
-          data: {
-            poolUp: side === "UP" ? { increment: amount } : undefined,
-            poolDown: side === "DOWN" ? { increment: amount } : undefined,
-          },
-        });
+        // Step 2: NEW - Submit to blockchain (if Soroban is enabled AND user provided secret key)
+        let txHash: string | null = null;
+        if (sorobanService.isInitialized() && userSecretKey) {
+          try {
+            if (!user.walletAddress) {
+              throw new PredictionServiceError(
+                "User wallet address not configured",
+                "WALLET_NOT_CONFIGURED",
+                400
+              );
+            }
 
-        logger.info(
-          `Prediction submitted (UP_DOWN): user=${userId}, round=${roundId}, side=${side}`,
-        );
+            logger.info("Submitting bet to blockchain", {
+              predictionId: prediction.id,
+              roundId,
+              userAddress: user.walletAddress.slice(0, 8) + "...",
+              amount,
+              side,
+            });
 
-        return prediction;
-      } else if (round.mode === 1) {
-        if (!priceRange) {
-          throw new Error("Price range is required for LEGENDS mode");
+            // Convert amount to stroops (BigInt)
+            const amountInStroops = BigInt(amount) * 10_000_000n;
+            const modeNum = 0; // UP_DOWN mode
+
+            txHash = await sorobanService.placeBet(
+              user.walletAddress,
+              userSecretKey,
+              amountInStroops,
+              side,
+              modeNum
+            );
+
+            logger.info("Blockchain bet placement successful", {
+              predictionId: prediction.id,
+              txHash,
+            });
+
+            // Update prediction with transaction hash
+            await prisma.prediction.update({
+              where: { id: prediction.id },
+              data: {
+                // Note: Add txHash field to Prediction model if needed
+                // For now, we just log it
+              },
+            });
+          } catch (blockchainError: any) {
+            // NEW: Blockchain failed - rollback database
+            logger.error("Blockchain bet placement failed, rolling back", {
+              predictionId: prediction.id,
+              error: blockchainError.message,
+              errorType: blockchainError.type,
+            });
+
+            // Delete the prediction we just created
+            await prisma.prediction.delete({
+              where: { id: prediction.id },
+            });
+
+            // Re-throw the blockchain error so the route can handle it
+            throw blockchainError;
+          }
+        } else if (!sorobanService.isInitialized()) {
+          logger.warn("Soroban service not initialized, prediction created in database only", {
+            predictionId: prediction.id,
+          });
+        } else if (!userSecretKey) {
+          logger.warn("User secret key not provided, prediction created in database only", {
+            predictionId: prediction.id,
+          });
         }
 
-        // Validate price range exists in round
+        // Step 3: ORIGINAL - Update user balance and round pools
+        await prisma.$transaction([
+          // Deduct from user balance
+          prisma.user.update({
+            where: { id: userId },
+            data: {
+              virtualBalance: {
+                decrement: amount,
+              },
+            },
+          }),
+          // Update round pool
+          prisma.round.update({
+            where: { id: roundId },
+            data: {
+              poolUp: side === "UP" ? { increment: amount } : undefined,
+              poolDown: side === "DOWN" ? { increment: amount } : undefined,
+            },
+          }),
+          // Create transaction record
+          prisma.transaction.create({
+            data: {
+              userId,
+              amount: -amount,
+              type: "LOSS", // Initially recorded as loss, will update if wins
+              description: `Bet on round ${roundId.slice(0, 8)}`,
+              roundId,
+            },
+          }),
+        ]);
+
+        const duration = Date.now() - operationStart;
+
+        logger.info("Prediction submitted (UP_DOWN)", {
+          predictionId: prediction.id,
+          userId,
+          roundId,
+          side,
+          amount,
+          txHash,
+          durationMs: duration,
+        });
+
+        return prediction;
+      } else if (round.mode === "LEGENDS") {
+        // ORIGINAL: LEGENDS mode logic
+        if (!priceRange) {
+          throw new PredictionServiceError(
+            "Price range is required for LEGENDS mode",
+            "PRICE_RANGE_REQUIRED",
+            400
+          );
+        }
+
         const ranges = round.priceRanges as any[];
         const validRange = ranges.find(
-          (r) => r.min === priceRange.min && r.max === priceRange.max,
+          (r) => r.min === priceRange.min && r.max === priceRange.max
         );
 
         if (!validRange) {
-          throw new Error("Invalid price range");
+          throw new PredictionServiceError(
+            "Invalid price range",
+            "INVALID_PRICE_RANGE",
+            400
+          );
         }
 
-        // Create prediction in database
         const prediction = await prisma.prediction.create({
           data: {
             roundId,
             userId,
-            mode: 1,
             amount,
-            guessPrice: priceRange.min,
+            priceRange,
           },
         });
 
-        // Update user balance
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            virtualBalance: user.virtualBalance - amount,
-          },
-        });
+        createdPredictionId = prediction.id;
 
-        // Update price range pool
+        // Note: LEGENDS mode blockchain integration would go here
+        // Currently not supported by smart contract
+
+        await prisma.$transaction([
+          prisma.user.update({
+            where: { id: userId },
+            data: {
+              virtualBalance: {
+                decrement: amount,
+              },
+            },
+          }),
+          prisma.transaction.create({
+            data: {
+              userId,
+              amount: -amount,
+              type: "LOSS",
+              description: `LEGENDS bet on round ${roundId.slice(0, 8)}`,
+              roundId,
+            },
+          }),
+        ]);
+
         const updatedRanges = ranges.map((r) => {
           if (r.min === priceRange.min && r.max === priceRange.max) {
             return { ...r, pool: r.pool + amount };
@@ -154,22 +324,71 @@ export class PredictionService {
           },
         });
 
-        logger.info(
-          `Prediction submitted (LEGENDS): user=${userId}, round=${roundId}, range=${JSON.stringify(priceRange)}`,
-        );
+        logger.info("Prediction submitted (LEGENDS)", {
+          predictionId: prediction.id,
+          userId,
+          roundId,
+          priceRange: JSON.stringify(priceRange),
+        });
 
         return prediction;
       }
 
-      throw new Error("Invalid game mode");
-    } catch (error) {
-      logger.error("Failed to submit prediction:", error);
-      throw error;
+      throw new PredictionServiceError(
+        "Invalid game mode",
+        "INVALID_GAME_MODE",
+        400
+      );
+    } catch (error: any) {
+      const duration = Date.now() - operationStart;
+
+      logger.error("Failed to submit prediction", {
+        userId,
+        roundId,
+        amount,
+        error: error.message,
+        errorType: error.type || error.name,
+        durationMs: duration,
+        predictionId: createdPredictionId,
+      });
+
+      // If we created a prediction but something failed after, try to delete it
+      if (
+        createdPredictionId &&
+        !(error instanceof BlockchainError) && // Already rolled back if blockchain error
+        error.code !== "PREDICTION_EXISTS"
+      ) {
+        try {
+          await prisma.prediction.delete({
+            where: { id: createdPredictionId },
+          });
+          logger.info("Rolled back prediction after error", {
+            predictionId: createdPredictionId,
+          });
+        } catch (rollbackError: any) {
+          logger.error("Failed to rollback prediction after error", {
+            predictionId: createdPredictionId,
+            rollbackError: rollbackError.message,
+          });
+        }
+      }
+
+      // Re-throw known error types
+      if (error instanceof PredictionServiceError || error instanceof BlockchainError) {
+        throw error;
+      }
+
+      // Wrap unknown errors
+      throw new PredictionServiceError(
+        `Failed to submit prediction: ${error.message}`,
+        "PREDICTION_FAILED",
+        500
+      );
     }
   }
 
   /**
-   * Gets user's predictions
+   * ORIGINAL: Get user's predictions
    */
   async getUserPredictions(userId: string): Promise<any[]> {
     try {
@@ -184,14 +403,18 @@ export class PredictionService {
       });
 
       return predictions;
-    } catch (error) {
+    } catch (error: any) {
       logger.error("Failed to get user predictions:", error);
-      throw error;
+      throw new PredictionServiceError(
+        `Failed to get user predictions: ${error.message}`,
+        "GET_PREDICTIONS_FAILED",
+        500
+      );
     }
   }
 
   /**
-   * Gets predictions for a round
+   * ORIGINAL: Get predictions for a round
    */
   async getRoundPredictions(roundId: string): Promise<any[]> {
     try {
@@ -208,9 +431,13 @@ export class PredictionService {
       });
 
       return predictions;
-    } catch (error) {
+    } catch (error: any) {
       logger.error("Failed to get round predictions:", error);
-      throw error;
+      throw new PredictionServiceError(
+        `Failed to get round predictions: ${error.message}`,
+        "GET_PREDICTIONS_FAILED",
+        500
+      );
     }
   }
 }

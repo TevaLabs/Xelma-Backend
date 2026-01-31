@@ -1,12 +1,81 @@
 import { Router, Request, Response } from 'express';
-import roundService from '../services/round.service';
-import resolutionService from '../services/resolution.service';
+import roundService, { RoundServiceError } from '../services/round.service';
+import resolutionService, { ResolutionServiceError } from '../services/resolution.service';
+import sorobanService, { BlockchainError, BlockchainErrorType } from '../services/soroban.service';
 import { requireAdmin, requireOracle } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 
 const router = Router();
 
 /**
+ * ENHANCED: Handle blockchain errors and convert to HTTP responses
+ */
+function handleBlockchainError(error: BlockchainError, res: Response): void {
+  let statusCode = 500;
+
+  switch (error.type) {
+    case BlockchainErrorType.VALIDATION:
+      statusCode = 400;
+      break;
+    case BlockchainErrorType.INSUFFICIENT_FUNDS:
+      statusCode = 400;
+      break;
+    case BlockchainErrorType.CONTRACT_ERROR:
+      statusCode = 400;
+      break;
+    case BlockchainErrorType.TIMEOUT:
+      statusCode = 504;
+      break;
+    case BlockchainErrorType.TRANSIENT:
+      statusCode = 503;
+      break;
+    case BlockchainErrorType.UNKNOWN:
+    default:
+      statusCode = 500;
+  }
+
+  logger.error('Blockchain error in rounds route', {
+    errorType: error.type,
+    message: error.message,
+    retryable: error.retryable,
+    txHash: error.txHash,
+  });
+
+  res.status(statusCode).json({
+    error: error.type,
+    message: error.message,
+    retryable: error.retryable,
+    txHash: error.txHash,
+  });
+}
+
+/**
+ * ENHANCED: Handle service errors with proper status codes
+ */
+function handleServiceError(error: any, res: Response, defaultMessage: string): void {
+  if (error instanceof RoundServiceError || error instanceof ResolutionServiceError) {
+    res.status(error.statusCode).json({
+      error: error.code,
+      message: error.message,
+    });
+    return;
+  }
+
+  if (error instanceof BlockchainError) {
+    handleBlockchainError(error, res);
+    return;
+  }
+
+  // Generic error
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: error.message || defaultMessage,
+  });
+}
+/**
+ * ORIGINAL + ENHANCED: Start a new prediction round
+ * Now includes blockchain error handling and 501 for LEGENDS mode
+ * 
  * @swagger
  * /api/rounds/start:
  *   post:
@@ -74,6 +143,21 @@ const router = Router();
  *         content:
  *           application/json:
  *             example: { error: "Admin access required" }
+ *       409:
+ *         description: Conflict (active round already exists)
+ *         content:
+ *           application/json:
+ *             example: { error: "ACTIVE_ROUND_EXISTS", message: "An active round already exists" }
+ *       501:
+ *         description: LEGENDS mode not yet implemented
+ *         content:
+ *           application/json:
+ *             example: { error: "LEGENDS_NOT_IMPLEMENTED", message: "LEGENDS mode is not yet supported by the smart contract" }
+ *       503:
+ *         description: Service unavailable (blockchain temporarily down)
+ *         content:
+ *           application/json:
+ *             example: { error: "TRANSIENT", message: "Blockchain temporarily unavailable", retryable: true }
  *       500:
  *         description: Internal server error
  *         content:
@@ -91,8 +175,8 @@ router.post('/start', requireAdmin, async (req: Request, res: Response) => {
     try {
         const { mode, startPrice, duration } = req.body;
 
-        // Validation
-        if (!mode || mode < 0 || mode > 1) {
+        // ORIGINAL: Validation
+        if (mode === undefined || mode < 0 || mode > 1) {
             return res.status(400).json({ error: 'Invalid mode. Must be 0 (UP_DOWN) or 1 (LEGENDS)' });
         }
 
@@ -104,9 +188,15 @@ router.post('/start', requireAdmin, async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Invalid duration' });
         }
 
+        // ORIGINAL: Convert mode to game mode string
         const gameMode = mode === 0 ? 'UP_DOWN' : 'LEGENDS';
-        const round = await roundService.startRound(gameMode, startPrice, duration);
+        
+        // ENHANCED: Convert duration from seconds to minutes for service
+        const durationMinutes = duration / 60;
+        
+        const round = await roundService.startRound(gameMode, startPrice, durationMinutes);
 
+        // ORIGINAL: Return response
         res.json({
             success: true,
             round: {
@@ -122,11 +212,15 @@ router.post('/start', requireAdmin, async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         logger.error('Failed to start round:', error);
-        res.status(500).json({ error: error.message || 'Failed to start round' });
+        
+        // ENHANCED: Handle specific error types
+        handleServiceError(error, res, 'Failed to start round');
     }
 });
 
 /**
+ * ORIGINAL: Get a round by ID
+ * 
  * @swagger
  * /api/rounds/{id}:
  *   get:
@@ -177,11 +271,13 @@ router.get('/:id', async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         logger.error('Failed to get round:', error);
-        res.status(500).json({ error: error.message || 'Failed to get round' });
+        handleServiceError(error, res, 'Failed to get round');
     }
 });
 
 /**
+ * ORIGINAL: Get active rounds
+ * 
  * @swagger
  * /api/rounds/active:
  *   get:
@@ -215,11 +311,14 @@ router.get('/active', async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         logger.error('Failed to get active rounds:', error);
-        res.status(500).json({ error: error.message || 'Failed to get active rounds' });
+        handleServiceError(error, res, 'Failed to get active rounds');
     }
 });
 
 /**
+ * ORIGINAL + ENHANCED: Resolve a round with the final price
+ * Now includes blockchain error handling
+ * 
  * @swagger
  * /api/rounds/{id}/resolve:
  *   post:
@@ -257,7 +356,6 @@ router.get('/active', async (req: Request, res: Response) => {
  *                 status: "RESOLVED"
  *                 startPrice: 0.1234
  *                 endPrice: 0.2345
- *                 resolvedAt: "2026-01-29T00:10:00.000Z"
  *                 predictions: 10
  *                 winners: 4
  *       400:
@@ -275,6 +373,11 @@ router.get('/active', async (req: Request, res: Response) => {
  *         content:
  *           application/json:
  *             example: { error: "Oracle or Admin access required" }
+ *       404:
+ *         description: Round not found
+ *         content:
+ *           application/json:
+ *             example: { error: "ROUND_NOT_FOUND", message: "Round not found" }
  *       500:
  *         description: Internal server error
  *         content:
@@ -293,12 +396,14 @@ router.post('/:id/resolve', requireOracle, async (req: Request, res: Response) =
         const { id } = req.params;
         const { finalPrice } = req.body;
 
+        // ORIGINAL: Validation
         if (!finalPrice || finalPrice <= 0) {
             return res.status(400).json({ error: 'Invalid final price' });
         }
 
         const round = await resolutionService.resolveRound(id, finalPrice);
 
+        // ORIGINAL: Return response
         res.json({
             success: true,
             round: {
@@ -306,14 +411,81 @@ router.post('/:id/resolve', requireOracle, async (req: Request, res: Response) =
                 status: round.status,
                 startPrice: round.startPrice,
                 endPrice: round.endPrice,
-                resolvedAt: round.resolvedAt,
                 predictions: round.predictions.length,
                 winners: round.predictions.filter((p: any) => p.won === true).length,
             },
         });
     } catch (error: any) {
         logger.error('Failed to resolve round:', error);
-        res.status(500).json({ error: error.message || 'Failed to resolve round' });
+        
+        // ENHANCED: Handle specific error types
+        handleServiceError(error, res, 'Failed to resolve round');
+    }
+});
+
+/**
+ * NEW: Get blockchain service status
+ * Useful for health checks and monitoring
+ * 
+ * @swagger
+ * /api/rounds/status/blockchain:
+ *   get:
+ *     summary: Get blockchain service status
+ *     description: Returns the current status of the Soroban blockchain integration
+ *     tags: [rounds]
+ *     responses:
+ *       200:
+ *         description: Blockchain status
+ *         content:
+ *           application/json:
+ *             example:
+ *               initialized: true
+ *               network: "testnet"
+ *               contractId: "CABC...XYZ"
+ *               status: "healthy"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             example: { error: "Failed to get blockchain status" }
+ */
+/**
+ * NEW: Get blockchain service status
+ * Useful for health checks and monitoring
+ * 
+ * @swagger
+ * /api/rounds/status/blockchain:
+ *   get:
+ *     summary: Get blockchain service status
+ *     description: Returns the current status of the Soroban blockchain integration
+ *     tags: [rounds]
+ *     responses:
+ *       200:
+ *         description: Blockchain status
+ *         content:
+ *           application/json:
+ *             example:
+ *               initialized: true
+ *               network: "testnet"
+ *               contractId: "CABC...XYZ"
+ *               status: "healthy"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             example: { error: "Failed to get blockchain status" }
+ */
+router.get('/status/blockchain', async (req: Request, res: Response) => {
+    try {
+        const status = sorobanService.getStatus();
+        
+        res.json(status);
+    } catch (error: any) {
+        logger.error('Failed to get blockchain status:', error);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            message: error.message || 'Failed to get blockchain status',
+        });
     }
 });
 

@@ -1,11 +1,55 @@
 import { Router, Request, Response } from 'express';
 import predictionService from '../services/prediction.service';
 import { authenticateUser } from '../middleware/auth.middleware';
+import { BlockchainError, BlockchainErrorType } from '../services/soroban.service';
 import logger from '../utils/logger';
 
 const router = Router();
 
 /**
+ * ENHANCED: Handle blockchain errors and convert to HTTP responses
+ */
+function handleBlockchainError(error: BlockchainError, res: Response): void {
+  let statusCode = 500;
+
+  switch (error.type) {
+    case BlockchainErrorType.VALIDATION:
+      statusCode = 400;
+      break;
+    case BlockchainErrorType.INSUFFICIENT_FUNDS:
+      statusCode = 400;
+      break;
+    case BlockchainErrorType.CONTRACT_ERROR:
+      statusCode = 400;
+      break;
+    case BlockchainErrorType.TIMEOUT:
+      statusCode = 504;
+      break;
+    case BlockchainErrorType.TRANSIENT:
+    case BlockchainErrorType.UNKNOWN:
+    default:
+      statusCode = 500;
+  }
+
+  logger.error('Blockchain error in prediction submission', {
+    errorType: error.type,
+    message: error.message,
+    retryable: error.retryable,
+    txHash: error.txHash,
+  });
+
+  res.status(statusCode).json({
+    error: error.type,
+    message: error.message,
+    retryable: error.retryable,
+    txHash: error.txHash,
+  });
+}
+
+/**
+ * ORIGINAL + ENHANCED: Submit a prediction for a round
+ * Now includes blockchain integration via x-signature header
+ * 
  * @swagger
  * /api/predictions/submit:
  *   post:
@@ -75,13 +119,14 @@ const router = Router();
  *           curl -X POST "$API_BASE_URL/api/predictions/submit" \\
  *             -H "Content-Type: application/json" \\
  *             -H "Authorization: Bearer $TOKEN" \\
+ *             -H "x-signature: $USER_SECRET_KEY" \\
  *             -d '{"roundId":"round-id","userId":"user-id","amount":10,"side":"UP"}'
  */
 router.post('/submit', authenticateUser, async (req: Request, res: Response) => {
     try {
         const { roundId, userId, amount, side, priceRange } = req.body;
 
-        // Validation
+        // ORIGINAL: Validation
         if (!roundId) {
             return res.status(400).json({ error: 'Round ID is required' });
         }
@@ -94,19 +139,25 @@ router.post('/submit', authenticateUser, async (req: Request, res: Response) => 
             return res.status(400).json({ error: 'Invalid amount' });
         }
 
-        // Either side or priceRange must be provided
+        // ORIGINAL: Either side or priceRange must be provided
         if (!side && !priceRange) {
             return res.status(400).json({ error: 'Either side (UP/DOWN) or priceRange must be provided' });
         }
 
+        // ENHANCED: Extract user secret key from header (optional for blockchain integration)
+        const userSecretKey = req.headers['x-signature'] as string | undefined;
+
+        // ENHANCED: Call service with optional secret key for blockchain integration
         const prediction = await predictionService.submitPrediction(
             userId,
             roundId,
             amount,
             side,
-            priceRange
+            priceRange,
+            userSecretKey  // NEW: Pass secret key for blockchain submission
         );
 
+        // ORIGINAL: Return response
         res.json({
             success: true,
             prediction: {
@@ -120,11 +171,28 @@ router.post('/submit', authenticateUser, async (req: Request, res: Response) => 
         });
     } catch (error: any) {
         logger.error('Failed to submit prediction:', error);
+
+        // ENHANCED: Handle blockchain-specific errors
+        if (error instanceof BlockchainError) {
+            return handleBlockchainError(error, res);
+        }
+
+        // ENHANCED: Handle service errors with status codes
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({
+                error: error.code || 'Error',
+                message: error.message,
+            });
+        }
+
+        // ORIGINAL: Generic error handling
         res.status(500).json({ error: error.message || 'Failed to submit prediction' });
     }
 });
 
 /**
+ * ORIGINAL: Get all predictions for a user
+ * 
  * @swagger
  * /api/predictions/user/{userId}:
  *   get:
@@ -171,6 +239,8 @@ router.get('/user/:userId', async (req: Request, res: Response) => {
 });
 
 /**
+ * ORIGINAL: Get all predictions for a round
+ * 
  * @swagger
  * /api/predictions/round/{roundId}:
  *   get:
