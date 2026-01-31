@@ -24,14 +24,63 @@ import {
 const router = Router();
 
 /**
- * POST /api/auth/challenge
- * Step 1: Request a challenge for wallet authentication
- *
- * Security Features:
- * - Rate limited: 10 requests per 15 minutes per IP
- * - Generates cryptographically secure random challenge
- * - Challenge expires after 5 minutes
- * - Validates wallet address format
+ * @swagger
+ * /api/auth/challenge:
+ *   post:
+ *     summary: Request a wallet authentication challenge
+ *     description: |
+ *       Step 1 of wallet authentication. Returns a one-time challenge string for the wallet to sign.\n
+ *       Rate limit: **10 requests per 15 minutes per IP**. On limit, responds with **429**.
+ *     tags: [auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AuthChallengeRequest'
+ *           example:
+ *             walletAddress: GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX
+ *     responses:
+ *       200:
+ *         description: Challenge created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthChallengeResponse'
+ *             example:
+ *               challenge: random-challenge-string
+ *               expiresAt: 2026-01-29T00:00:00.000Z
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             examples:
+ *               missingWallet:
+ *                 value: { error: "Validation Error", message: "walletAddress is required" }
+ *               invalidWallet:
+ *                 value: { error: "Validation Error", message: "Invalid Stellar wallet address format" }
+ *       429:
+ *         description: Too many requests
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RateLimitResponse'
+ *             example:
+ *               error: Too Many Requests
+ *               message: Too many challenge requests from this IP, please try again after 15 minutes
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             example:
+ *               error: Internal Server Error
+ *               message: Failed to generate authentication challenge
+ *     x-codeSamples:
+ *       - lang: cURL
+ *         source: |
+ *           curl -X POST "$API_BASE_URL/api/auth/challenge" \\
+ *             -H "Content-Type: application/json" \\
+ *             -d '{"walletAddress":"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX"}'
  */
 router.post(
   "/challenge",
@@ -97,16 +146,69 @@ router.post(
 );
 
 /**
- * POST /api/auth/connect
- * Step 2: Verify signature and authenticate wallet
- *
- * Security Features:
- * - Rate limited: 5 requests per 15 minutes per IP
- * - Verifies Stellar signature using Ed25519
- * - Implements replay protection (one-time use challenges)
- * - Validates challenge expiration
- * - Creates/updates user record
- * - Returns signed JWT with expiry
+ * @swagger
+ * /api/auth/connect:
+ *   post:
+ *     summary: Verify signature and authenticate wallet
+ *     description: |
+ *       Step 2 of wallet authentication. Verifies the signature for the challenge and returns a JWT.\n
+ *       Rate limit: **5 requests per 15 minutes per IP**. On limit, responds with **429**.
+ *     tags: [auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AuthConnectRequest'
+ *           example:
+ *             walletAddress: GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX
+ *             challenge: random-challenge-string
+ *             signature: base64-or-hex-signature
+ *     responses:
+ *       200:
+ *         description: Authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthConnectResponse'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             example:
+ *               error: Validation Error
+ *               message: walletAddress, challenge, and signature are required
+ *       401:
+ *         description: Authentication failed
+ *         content:
+ *           application/json:
+ *             examples:
+ *               invalidSignature:
+ *                 value: { error: "Authentication Error", message: "Invalid signature" }
+ *               expiredChallenge:
+ *                 value: { error: "Authentication Error", message: "Challenge has expired. Please request a new one." }
+ *       429:
+ *         description: Too many requests
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RateLimitResponse'
+ *             example:
+ *               error: Too Many Requests
+ *               message: Too many authentication attempts from this IP, please try again after 15 minutes
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             example:
+ *               error: Internal Server Error
+ *               message: Failed to authenticate wallet
+ *     x-codeSamples:
+ *       - lang: cURL
+ *         source: |
+ *           curl -X POST "$API_BASE_URL/api/auth/connect" \\
+ *             -H "Content-Type: application/json" \\
+ *             -d '{"walletAddress":"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX","challenge":"random-challenge-string","signature":"base64-or-hex-signature"}'
  */
 router.post(
   "/connect",

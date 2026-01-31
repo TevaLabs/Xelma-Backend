@@ -1,21 +1,26 @@
-import express, { Express, Request, Response, NextFunction } from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import { Server } from "socket.io";
-import { createServer } from "http";
-import authRoutes from "./routes/auth.routes";
+import express, { Express, Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { Server } from 'socket.io';
+import { createServer } from 'http';
+import authRoutes from './routes/auth.routes';
 import userRoutes from "./routes/user.routes";
-import roundRoutes from "./routes/round.routes";
-import roundsRoutes from "./routes/rounds.routes";
-import predictionsRoutes from "./routes/predictions.routes";
-import educationRoutes from "./routes/education.routes";
-import leaderboardRoutes from "./routes/leaderboard.routes";
+import roundRoutes from './routes/round.routes';
+import roundsRoutes from './routes/rounds.routes';
+import predictionsRoutes from './routes/predictions.routes';
+import educationRoutes from './routes/education.routes';
+import leaderboardRoutes from './routes/leaderboard.routes';
 import notificationsRoutes from "./routes/notifications.routes";
-import priceOracle from "./services/oracle";
-import websocketService from "./services/websocket.service";
-import schedulerService from "./services/scheduler.service";
-import logger from "./utils/logger";
+import priceOracle from './services/oracle';
+import websocketService from './services/websocket.service';
+import schedulerService from './services/scheduler.service';
+import logger from './utils/logger';
 import chatRoutes from "./routes/chat.routes";
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './docs/openapi';
+
+
+
 dotenv.config();
 
 const app: Express = express();
@@ -49,6 +54,11 @@ app.use("/api/education", educationRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/notifications", notificationsRoutes);
+
+// Swagger UI (OpenAPI)
+app.get('/docs', (req: Request, res: Response) => res.redirect(302, '/api-docs'));
+app.get('/api-docs.json', (req: Request, res: Response) => res.json(swaggerSpec));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }));
 
 // Hello World endpoint
 app.get("/", (req: Request, res: Response) => {
