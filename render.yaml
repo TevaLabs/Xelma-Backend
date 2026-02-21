@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: xelma-backend
+    env: node
+    region: oregon
+    plan: free
+    nodeVersion: "22"
+    buildCommand: npm ci && npm run build && npx prisma generate && npx prisma migrate deploy
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRY
+        value: 7d
+      - key: CLIENT_URL
+        sync: false
+      - key: XELMA_API_KEY
+        sync: false
+      - key: SOROBAN_NETWORK
+        value: testnet
+      - key: SOROBAN_RPC_URL
+        value: https://soroban-testnet.stellar.org
+      - key: SOROBAN_CONTRACT_ID
+        sync: false
+      - key: SOROBAN_ADMIN_SECRET
+        sync: false
+      - key: SOROBAN_ORACLE_SECRET
+        sync: false
