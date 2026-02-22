@@ -12,6 +12,7 @@ import notificationsRoutes from "./routes/notifications.routes";
 import priceOracle from './services/oracle';
 import websocketService from './services/websocket.service';
 import schedulerService from './services/scheduler.service';
+import roundSchedulerService from './services/round-scheduler.service';
 import logger from './utils/logger';
 import chatRoutes from "./routes/chat.routes";
 import swaggerUi from 'swagger-ui-express';
@@ -87,6 +88,7 @@ priceOracle.startPolling();
 
 // Initialize Scheduler
 schedulerService.start();
+roundSchedulerService.start();
 
 // Emit price updates via WebSocket
 setInterval(() => {
