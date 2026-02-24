@@ -92,15 +92,15 @@ router.post('/start', requireAdmin, async (req: Request, res: Response) => {
         const { mode, startPrice, duration } = req.body;
 
         // Validation
-        if (!mode || mode < 0 || mode > 1) {
+        if (mode === undefined || mode === null || typeof mode !== 'number' || mode < 0 || mode > 1) {
             return res.status(400).json({ error: 'Invalid mode. Must be 0 (UP_DOWN) or 1 (LEGENDS)' });
         }
 
-        if (!startPrice || startPrice <= 0) {
+        if (startPrice === undefined || startPrice === null || typeof startPrice !== 'number' || startPrice <= 0) {
             return res.status(400).json({ error: 'Invalid start price' });
         }
 
-        if (!duration || duration <= 0) {
+        if (duration === undefined || duration === null || typeof duration !== 'number' || duration <= 0) {
             return res.status(400).json({ error: 'Invalid duration' });
         }
 
