@@ -7,6 +7,7 @@ class PriceOracle {
   private readonly COINGECKO_URL = 'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd';
   private readonly POLLING_INTERVAL = 10000; // 10 seconds
   private pollingInterval: ReturnType<typeof setInterval> | null = null;
+  private _running = false;
 
   private constructor() {}
 
@@ -18,6 +19,12 @@ class PriceOracle {
   }
 
   public startPolling(): void {
+    if (this._running) {
+      logger.warn('Price Oracle polling already running — ignoring duplicate start');
+      return;
+    }
+    this._running = true;
+
     // Initial fetch
     this.fetchPrice();
 
@@ -30,11 +37,19 @@ class PriceOracle {
   }
 
   public stopPolling(): void {
+    if (!this._running) {
+      return;
+    }
     if (this.pollingInterval) {
       clearInterval(this.pollingInterval);
       this.pollingInterval = null;
-      logger.info('Price Oracle polling stopped');
     }
+    this._running = false;
+    logger.info('Price Oracle polling stopped');
+  }
+
+  public isRunning(): boolean {
+    return this._running;
   }
 
   private async fetchPrice(): Promise<void> {
