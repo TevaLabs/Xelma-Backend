@@ -1,10 +1,9 @@
-import { PrismaClient, GameMode, RoundStatus } from "@prisma/client";
+import { GameMode } from "@prisma/client";
 import sorobanService from "./soroban.service";
 import websocketService from "./websocket.service";
 import notificationService from "./notification.service";
 import logger from "../utils/logger";
-
-const prisma = new PrismaClient();
+import { prisma } from "../lib/prisma";
 
 export class RoundService {
   /**
@@ -17,6 +16,23 @@ export class RoundService {
   ): Promise<any> {
     try {
       const gameMode = mode === "UP_DOWN" ? GameMode.UP_DOWN : GameMode.LEGENDS;
+
+      // Check for existing active round of the same mode
+      const existingActiveRound = await prisma.round.findFirst({
+        where: {
+          mode: gameMode,
+          status: "ACTIVE",
+        },
+      });
+
+      if (existingActiveRound) {
+        const error: any = new Error(
+          `An active ${mode} round already exists (ID: ${existingActiveRound.id})`
+        );
+        error.code = "ACTIVE_ROUND_EXISTS";
+        throw error;
+      }
+
       const startTime = new Date();
       const endTime = new Date(
         startTime.getTime() + durationMinutes * 60 * 1000,

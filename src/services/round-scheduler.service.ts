@@ -53,14 +53,34 @@ class RoundSchedulerService {
       }
 
       const mode = this.getMode();
+      const gameMode = mode === "UP_DOWN" ? "UP_DOWN" : "LEGENDS";
+
+      // Check if there's already an active round for this mode
+      const existingActiveRound = await prisma.round.findFirst({
+        where: {
+          mode: gameMode,
+          status: "ACTIVE",
+        },
+      });
+
+      if (existingActiveRound) {
+        logger.info(
+          `[Round Scheduler] Skipping round creation: active ${mode} round already exists (${existingActiveRound.id})`,
+        );
+        return;
+      }
 
       const round = await roundService.startRound(mode, startPrice, 1);
 
       logger.info(
         `[Round Scheduler] Created round ${round.id}, mode=${mode}, startPrice=${startPrice.toFixed(4)}`,
       );
-    } catch (error) {
-      logger.error("[Round Scheduler] Failed to create round:", error);
+    } catch (error: any) {
+      if (error.code === "ACTIVE_ROUND_EXISTS") {
+        logger.info(`[Round Scheduler] ${error.message}`);
+      } else {
+        logger.error("[Round Scheduler] Failed to create round:", error);
+      }
     }
   }
 
