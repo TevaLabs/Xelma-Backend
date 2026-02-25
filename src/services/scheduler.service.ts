@@ -1,11 +1,9 @@
 import cron, { ScheduledTask } from "node-cron";
-import { PrismaClient } from "@prisma/client";
 import resolutionService from "./resolution.service";
 import notificationService from "./notification.service";
 import priceOracle from "./oracle";
 import logger from "../utils/logger";
-
-const prisma = new PrismaClient();
+import { prisma } from "../lib/prisma";
 
 class SchedulerService {
   private cronTasks: ScheduledTask[] = [];
