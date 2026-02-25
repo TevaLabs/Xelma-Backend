@@ -20,6 +20,8 @@ import {
   challengeRateLimiter,
   connectRateLimiter,
 } from "../middleware/rateLimiter.middleware";
+import { validate } from "../middleware/validate.middleware";
+import { challengeSchema, connectSchema } from "../schemas/auth.schema";
 
 const router = Router();
 
@@ -85,25 +87,10 @@ const router = Router();
 router.post(
   "/challenge",
   challengeRateLimiter,
+  validate(challengeSchema),
   async (req: Request, res: Response) => {
     try {
       const { walletAddress }: ChallengeRequestBody = req.body;
-
-      // Validate required fields
-      if (!walletAddress) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "walletAddress is required",
-        });
-      }
-
-      // Validate Stellar address format
-      if (!isValidStellarAddress(walletAddress)) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "Invalid Stellar wallet address format",
-        });
-      }
 
       // Clean up expired challenges for this wallet (housekeeping)
       await prisma.authChallenge.deleteMany({
@@ -213,26 +200,11 @@ router.post(
 router.post(
   "/connect",
   connectRateLimiter,
+  validate(connectSchema),
   async (req: Request, res: Response) => {
     try {
       const { walletAddress, challenge, signature }: ConnectRequestBody =
         req.body;
-
-      // Validate required fields
-      if (!walletAddress || !challenge || !signature) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "walletAddress, challenge, and signature are required",
-        });
-      }
-
-      // Validate Stellar address format
-      if (!isValidStellarAddress(walletAddress)) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "Invalid Stellar wallet address format",
-        });
-      }
 
       // Find the challenge in database
       const authChallenge = await prisma.authChallenge.findUnique({

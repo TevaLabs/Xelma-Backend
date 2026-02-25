@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import roundService from '../services/round.service';
 import resolutionService from '../services/resolution.service';
 import { requireAdmin, requireOracle } from '../middleware/auth.middleware';
+import { validate } from '../middleware/validate.middleware';
+import { startRoundSchema, resolveRoundSchema } from '../schemas/rounds.schema';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -87,23 +89,9 @@ const router = Router();
  *             -H "Authorization: Bearer $TOKEN" \\
  *             -d '{"mode":0,"startPrice":0.1234,"duration":300}'
  */
-router.post('/start', requireAdmin, async (req: Request, res: Response) => {
+router.post('/start', requireAdmin, validate(startRoundSchema), async (req: Request, res: Response) => {
     try {
         const { mode, startPrice, duration } = req.body;
-
-        // Validation
-        if (mode === undefined || mode === null || typeof mode !== 'number' || mode < 0 || mode > 1) {
-            return res.status(400).json({ error: 'Invalid mode. Must be 0 (UP_DOWN) or 1 (LEGENDS)' });
-        }
-
-        if (startPrice === undefined || startPrice === null || typeof startPrice !== 'number' || startPrice <= 0) {
-            return res.status(400).json({ error: 'Invalid start price' });
-        }
-
-        if (duration === undefined || duration === null || typeof duration !== 'number' || duration <= 0) {
-            return res.status(400).json({ error: 'Invalid duration' });
-        }
-
         const gameMode = mode === 0 ? 'UP_DOWN' : 'LEGENDS';
         const round = await roundService.startRound(gameMode, startPrice, duration);
 
@@ -288,14 +276,10 @@ router.get('/active', async (req: Request, res: Response) => {
  *             -H "Authorization: Bearer $TOKEN" \\
  *             -d '{"finalPrice":0.2345}'
  */
-router.post('/:id/resolve', requireOracle, async (req: Request, res: Response) => {
+router.post('/:id/resolve', requireOracle, validate(resolveRoundSchema), async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const { finalPrice } = req.body;
-
-        if (!finalPrice || finalPrice <= 0) {
-            return res.status(400).json({ error: 'Invalid final price' });
-        }
 
         const round = await resolutionService.resolveRound(id, finalPrice);
 
