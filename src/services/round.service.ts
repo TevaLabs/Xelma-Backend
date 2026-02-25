@@ -1,10 +1,9 @@
-import { PrismaClient, GameMode, RoundStatus } from "@prisma/client";
+import { GameMode } from "@prisma/client";
 import sorobanService from "./soroban.service";
 import websocketService from "./websocket.service";
 import notificationService from "./notification.service";
 import logger from "../utils/logger";
-
-const prisma = new PrismaClient();
+import { prisma } from "../lib/prisma";
 
 export class RoundService {
   /**
