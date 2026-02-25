@@ -376,6 +376,18 @@ cp .env.example .env
 
 ### 2. Configure Environment Variables
 
+## Environment Variables
+
+This application requires specific environment variables to run securely. Create a `.env` file in the root directory based on `.env.example`.
+
+### Required Variables
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `JWT_SECRET` | Cryptographic secret used to sign and verify JSON Web Tokens. **App will refuse to start without this.** | *None* |
+
+*Note: For production, `JWT_SECRET` must be a cryptographically strong, random string (e.g., generated via `openssl rand -base64 32`).*
+
 Open `.env` and set the following:
 
 ```env

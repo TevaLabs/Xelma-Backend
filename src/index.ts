@@ -22,6 +22,19 @@ import { prisma } from './lib/prisma';
 
 dotenv.config();
 
+
+const validateEnv = (): void => {
+  if (!process.env.JWT_SECRET) {
+    console.error('🔥 CRITICAL ERROR: Application startup failed.');
+    console.error('Missing required environment variable: JWT_SECRET');
+    console.error('Please configure this securely in your environment before starting the app.');
+    process.exit(1); // 1 indicates a failure/error state
+  }
+};
+
+// Execute validation immediately
+validateEnv();
+
 /**
  * Create and configure the Express app without starting any background
  * jobs or binding to a network port. Safe to import in tests.

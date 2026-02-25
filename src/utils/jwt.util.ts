@@ -1,8 +1,20 @@
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { JwtPayload } from '../types/auth.types';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
 const JWT_EXPIRY: string | number = process.env.JWT_EXPIRY || '7d'; // 7 days default
+
+/**
+ * Helper to get JWT secret at runtime.
+ * Throws an explicit error if missing, acting as a secondary safeguard.
+ */
+const getJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('FATAL: JWT_SECRET environment variable is missing.');
+  }
+  return secret;
+};
 
 /**
  * Generate a JWT token for authenticated user
@@ -17,7 +29,7 @@ export function generateToken(userId: string, walletAddress: string): string {
   };
 
   // Pass options directly to avoid TypeScript type inference issues
-  return jwt.sign(payload, JWT_SECRET, {
+  return jwt.sign(payload, getJwtSecret(), {
     expiresIn: JWT_EXPIRY as any,
   });
 }
@@ -29,7 +41,7 @@ export function generateToken(userId: string, walletAddress: string): string {
  */
 export function verifyToken(token: string): JwtPayload | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
     return decoded;
   } catch (error) {
     return null;
