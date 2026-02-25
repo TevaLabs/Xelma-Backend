@@ -1,9 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyToken } from "../utils/jwt.util";
-import { PrismaClient, UserRole } from "@prisma/client";
+import { UserRole } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
-
-const prisma = new PrismaClient();
 
 // Re-export UserRole for backwards compatibility
 export { UserRole };

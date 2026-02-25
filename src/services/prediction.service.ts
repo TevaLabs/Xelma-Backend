@@ -1,9 +1,7 @@
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import sorobanService from "./soroban.service";
 import websocketService from "./websocket.service";
 import logger from "../utils/logger";
-
-const prisma = new PrismaClient();
 
 interface PriceRange {
   min: number;

@@ -6,7 +6,10 @@ import { GameMode, BetSide } from '../types/round.types';
 import { generateToken } from '../utils/jwt.util';
 import * as StellarSdk from '@stellar/stellar-sdk';
 
-describe('Round Prediction Flow - End-to-End Test', () => {
+const hasDb = Boolean(process.env.DATABASE_URL);
+const describeRound = hasDb ? describe : describe.skip;
+
+describeRound('Round Prediction Flow - End-to-End Test', () => {
   let adminUser: any;
   let userA: any;
   let userB: any;
