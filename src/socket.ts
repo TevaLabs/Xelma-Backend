@@ -1,9 +1,9 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { verifyToken } from './utils/jwt.util';
+import { prisma } from './lib/prisma';
 import websocketService from './services/websocket.service';
 import logger from './utils/logger';
-import { prisma } from './lib/prisma';
 
 // Extended socket interface with user data
 interface AuthenticatedSocket extends Socket {

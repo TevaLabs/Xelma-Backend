@@ -1,9 +1,7 @@
-require('dotenv').config({ path: '.env.test' });
+// Load .env so DATABASE_URL and other vars are set for integration tests (auth, notifications, socket, rounds, predictions).
+require('dotenv').config();
 
-// Set test environment variables with mock database
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/xelma_test';
-process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key-for-testing-only';
-process.env.NODE_ENV = 'test';
-process.env.SOROBAN_CONTRACT_ID = 'test-contract';
-process.env.SOROBAN_ADMIN_SECRET = 'SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-process.env.SOROBAN_ORACLE_SECRET = 'SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+// Ensure JWT_SECRET is set so validateEnv() in src/index.ts does not process.exit(1) when tests import createApp.
+if (!process.env.JWT_SECRET) {
+  process.env.JWT_SECRET = 'test-jwt-secret';
+}

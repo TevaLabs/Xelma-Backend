@@ -64,7 +64,7 @@ export class ResolutionService {
         where: { id: roundId },
         data: {
           status: "RESOLVED",
-          endPrice: toDecimal(finalPrice),
+          endPrice: finalPrice,
           resolvedAt,
         },
       });
@@ -125,7 +125,7 @@ export class ResolutionService {
           where: { id: prediction.id },
           data: {
             won: null,
-            payout: refundAmount,
+            payout: toNumber(refundAmount),
           },
         });
 
@@ -133,7 +133,7 @@ export class ResolutionService {
           where: { id: prediction.userId },
           data: {
             virtualBalance: {
-              increment: refundAmount,
+              increment: toNumber(refundAmount),
             },
           },
         });
@@ -169,7 +169,7 @@ export class ResolutionService {
           where: { id: prediction.id },
           data: {
             won: true,
-            payout,
+            payout: toNumber(payout),
           },
         });
 
@@ -177,7 +177,7 @@ export class ResolutionService {
           where: { id: prediction.userId },
           data: {
             virtualBalance: {
-              increment: payout,
+              increment: toNumber(payout),
             },
             wins: {
               increment: 1,
@@ -260,7 +260,7 @@ export class ResolutionService {
           where: { id: prediction.id },
           data: {
             won: null,
-            payout: refundAmount,
+            payout: toNumber(refundAmount),
           },
         });
 
@@ -268,7 +268,7 @@ export class ResolutionService {
           where: { id: prediction.userId },
           data: {
             virtualBalance: {
-              increment: refundAmount,
+              increment: toNumber(refundAmount),
             },
           },
         });
@@ -309,7 +309,7 @@ export class ResolutionService {
           where: { id: prediction.id },
           data: {
             won: true,
-            payout,
+            payout: toNumber(payout),
           },
         });
 
@@ -317,7 +317,7 @@ export class ResolutionService {
           where: { id: prediction.userId },
           data: {
             virtualBalance: {
-              increment: payout,
+              increment: toNumber(payout),
             },
             wins: {
               increment: 1,

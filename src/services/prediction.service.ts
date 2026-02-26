@@ -1,8 +1,8 @@
+import { prisma } from "../lib/prisma";
 import sorobanService from "./soroban.service";
 import websocketService from "./websocket.service";
 import logger from "../utils/logger";
-import { prisma } from "../lib/prisma";
-import { toDecimal, toNumber, decLt } from "../utils/decimal.util";
+import { toDecimal, toNumber } from "../utils/decimal.util";
 
 interface PriceRange {
   min: number;
@@ -50,16 +50,17 @@ export class PredictionService {
         }
 
         const decimalAmount = toDecimal(amount);
+        const amountNum = toNumber(decimalAmount);
 
         // 3. Update user balance ATOMICALLY with sufficiency check
         // This prevents race conditions where balance is checked then deducted
         const user = await tx.user.update({
           where: { 
             id: userId,
-            virtualBalance: { gte: decimalAmount }
+            virtualBalance: { gte: amountNum }
           },
           data: {
-            virtualBalance: { decrement: decimalAmount },
+            virtualBalance: { decrement: amountNum },
           },
         }).catch((err) => {
           if (err.code === "P2025") {
@@ -73,7 +74,7 @@ export class PredictionService {
           data: {
             roundId,
             userId,
-            amount: decimalAmount,
+            amount: amountNum,
             side,
             priceRange: priceRange as any,
           },
@@ -88,8 +89,8 @@ export class PredictionService {
           await tx.round.update({
             where: { id: roundId },
             data: {
-              poolUp: side === "UP" ? { increment: decimalAmount } : undefined,
-              poolDown: side === "DOWN" ? { increment: decimalAmount } : undefined,
+              poolUp: side === "UP" ? { increment: amountNum } : undefined,
+              poolDown: side === "DOWN" ? { increment: amountNum } : undefined,
             },
           });
 

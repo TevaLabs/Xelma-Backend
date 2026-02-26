@@ -4,21 +4,23 @@ import {
   expect,
   beforeAll,
   afterAll,
-  beforeEach,
 } from "@jest/globals";
 import request from "supertest";
 import express from "express";
 import educationRoutes from "../routes/education.routes";
 import { prisma } from "../lib/prisma";
 
+const hasDb = Boolean(process.env.DATABASE_URL);
+const describeEducationTip = hasDb ? describe : describe.skip;
+
 // Create test app
 const app = express();
 app.use(express.json());
 app.use("/api/education", educationRoutes);
 
-describe("GET /api/education/tip - Integration Tests", () => {
-  let testRoundId: string;
-  let unresolvedRoundId: string;
+describeEducationTip("GET /api/education/tip - Integration Tests", () => {
+  let testRoundId: string | undefined;
+  let unresolvedRoundId: string | undefined;
 
   beforeAll(async () => {
     // Create a resolved test round
@@ -49,14 +51,12 @@ describe("GET /api/education/tip - Integration Tests", () => {
   });
 
   afterAll(async () => {
-    // Clean up test data
-    await prisma.round.deleteMany({
-      where: {
-        id: {
-          in: [testRoundId, unresolvedRoundId],
-        },
-      },
-    });
+    const ids = [testRoundId, unresolvedRoundId].filter(
+      (id): id is string => id != null
+    );
+    if (ids.length > 0) {
+      await prisma.round.deleteMany({ where: { id: { in: ids } } });
+    }
     await prisma.$disconnect();
   });
 

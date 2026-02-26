@@ -176,6 +176,7 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
     const isUpDown = round.mode === GameMode.UP_DOWN;
     const isLegends = round.mode === GameMode.LEGENDS;
 
+    const earningsNum = toNumber(earnings);
     // Update or create user stats
     await prisma.userStats.upsert({
       where: { userId: prediction.userId },
@@ -183,24 +184,24 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
         userId: prediction.userId,
         totalPredictions: 1,
         correctPredictions: isCorrect ? 1 : 0,
-        totalEarnings: earnings,
+        totalEarnings: earningsNum,
         upDownWins: isUpDown && isCorrect ? 1 : 0,
         upDownLosses: isUpDown && !isCorrect ? 1 : 0,
-        upDownEarnings: isUpDown ? earnings : 0,
+        upDownEarnings: isUpDown ? earningsNum : 0,
         legendsWins: isLegends && isCorrect ? 1 : 0,
         legendsLosses: isLegends && !isCorrect ? 1 : 0,
-        legendsEarnings: isLegends ? earnings : 0,
+        legendsEarnings: isLegends ? earningsNum : 0,
       },
       update: {
         totalPredictions: { increment: 1 },
         correctPredictions: { increment: isCorrect ? 1 : 0 },
-        totalEarnings: { increment: earnings },
+        totalEarnings: { increment: earningsNum },
         upDownWins: { increment: isUpDown && isCorrect ? 1 : 0 },
         upDownLosses: { increment: isUpDown && !isCorrect ? 1 : 0 },
-        upDownEarnings: { increment: isUpDown ? earnings : 0 },
+        upDownEarnings: { increment: isUpDown ? earningsNum : 0 },
         legendsWins: { increment: isLegends && isCorrect ? 1 : 0 },
         legendsLosses: { increment: isLegends && !isCorrect ? 1 : 0 },
-        legendsEarnings: { increment: isLegends ? earnings : 0 },
+        legendsEarnings: { increment: isLegends ? earningsNum : 0 },
       },
     });
   }

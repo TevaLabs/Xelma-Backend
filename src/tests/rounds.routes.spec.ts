@@ -1,33 +1,65 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { prisma } from '../lib/prisma';
 import request from 'supertest';
 import { createApp } from '../index';
 import { generateToken } from '../utils/jwt.util';
 import { Express } from 'express';
 
+const ADMIN_ID = 'rounds-admin-id';
+const mockUserFindUnique = jest.fn();
+const mockStartRound = jest.fn();
+
+jest.mock('../lib/prisma', () => ({
+  prisma: {
+    user: {
+      findUnique: (...args: any[]) => mockUserFindUnique(...args),
+    },
+    $disconnect: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
+jest.mock('../services/round.service', () => ({
+  __esModule: true,
+  default: {
+    startRound: (...args: any[]) => mockStartRound(...args),
+  },
+}));
+
 describe('Rounds Routes - Mode Validation (Issue #63)', () => {
   let app: Express;
-  let adminUser: any;
+  let adminUser: { id: string; walletAddress: string };
   let adminToken: string;
 
   beforeAll(async () => {
     app = createApp();
 
-    adminUser = await prisma.user.create({
-      data: {
-        walletAddress: 'GADMIN_MODE_TEST_AAAAAAAAAAAAAAAAA',
-        role: 'ADMIN',
-        virtualBalance: 1000,
-      },
+    adminUser = {
+      id: ADMIN_ID,
+      walletAddress: 'GADMIN_MODE_TEST_AAAAAAAAAAAAAAAAA',
+    };
+    adminToken = generateToken(adminUser.id, adminUser.walletAddress);
+
+    mockUserFindUnique.mockResolvedValue({
+      id: adminUser.id,
+      walletAddress: adminUser.walletAddress,
+      role: 'ADMIN',
     });
 
-    adminToken = generateToken(adminUser.id, adminUser.walletAddress);
+    mockStartRound.mockImplementation((mode: string, startPrice: number, duration: number) =>
+      Promise.resolve({
+        id: 'round-' + Date.now(),
+        mode: mode === 'UP_DOWN' ? 'UP_DOWN' : 'LEGENDS',
+        status: 'ACTIVE',
+        startTime: new Date(),
+        endTime: new Date(Date.now() + duration * 60 * 1000),
+        startPrice,
+        sorobanRoundId: null,
+        priceRanges: mode === 'LEGENDS' ? [] : null,
+      })
+    );
   });
 
-  afterAll(async () => {
-    await prisma.round.deleteMany({});
-    await prisma.user.deleteMany({ where: { id: adminUser.id } });
-    await prisma.$disconnect();
+  afterAll(() => {
+    jest.clearAllMocks();
   });
 
   describe('POST /api/rounds/start - mode validation', () => {
@@ -45,9 +77,6 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.round).toBeDefined();
       expect(res.body.round.mode).toBe('UP_DOWN');
-
-      // Cleanup
-      await prisma.round.delete({ where: { id: res.body.round.id } });
     });
 
     it('should accept mode=1 (LEGENDS)', async () => {
@@ -64,9 +93,6 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.round).toBeDefined();
       expect(res.body.round.mode).toBe('LEGENDS');
-
-      // Cleanup
-      await prisma.round.delete({ where: { id: res.body.round.id } });
     });
 
     it('should reject mode=-1 as invalid', async () => {
