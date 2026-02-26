@@ -4,11 +4,25 @@
 import { describe, it, expect, beforeEach } from "@jest/globals";
 import { PredictionService } from "../services/prediction.service";
 
+const mockRoundFindUnique = jest.fn();
+const mockRoundUpdate = jest.fn();
+const mockPredictionFindUnique = jest.fn();
+const mockPredictionFindMany = jest.fn();
+const mockPredictionCreate = jest.fn();
+const mockUserFindUnique = jest.fn();
+const mockUserUpdate = jest.fn();
+
 jest.mock("../lib/prisma", () => ({
   prisma: {
-    round: { findUnique: jest.fn(), update: jest.fn() },
-    prediction: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn() },
-    user: { findUnique: jest.fn(), update: jest.fn() },
+    round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
+    prediction: { findUnique: mockPredictionFindUnique, findMany: mockPredictionFindMany, create: mockPredictionCreate },
+    user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
+    $transaction: (fn: (tx: any) => Promise<any>) =>
+      fn({
+        round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
+        prediction: { findUnique: mockPredictionFindUnique, findMany: mockPredictionFindMany, create: mockPredictionCreate },
+        user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
+      }),
   },
 }));
 
@@ -20,13 +34,6 @@ jest.mock("../services/soroban.service", () => ({
 import { prisma } from "../lib/prisma";
 
 const predictionService = new PredictionService();
-const mockRoundFindUnique = prisma.round.findUnique as jest.Mock;
-const mockPredictionFindUnique = prisma.prediction.findUnique as jest.Mock;
-const mockPredictionCreate = prisma.prediction.create as jest.Mock;
-const mockPredictionFindMany = prisma.prediction.findMany as jest.Mock;
-const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
-const mockUserUpdate = prisma.user.update as jest.Mock;
-const mockRoundUpdate = prisma.round.update as jest.Mock;
 
 const userId = "user-1";
 const roundId = "round-1";

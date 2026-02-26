@@ -19,6 +19,9 @@ const config: Config = {
   },
   setupFiles: ["<rootDir>/jest.setup.js"],
   clearMocks: true,
+  moduleNameMapper: {
+    "^@tevalabs/xelma-bindings$": "<rootDir>/src/__mocks__/xelma-bindings.ts",
+  },
 };
 
 export default config;
