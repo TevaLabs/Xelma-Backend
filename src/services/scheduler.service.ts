@@ -92,6 +92,11 @@ class SchedulerService {
         return;
       }
 
+      if (priceOracle.isStale()) {
+        logger.warn("Cannot auto-resolve rounds: Oracle price data is stale");
+        return;
+      }
+
       // Resolve each round
       for (const round of expiredRounds) {
         try {

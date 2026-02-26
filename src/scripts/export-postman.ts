@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import converter from 'openapi-to-postmanv2';
+import logger from '../utils/logger';
 
 type ConversionResult = {
   result: boolean;
@@ -40,8 +41,7 @@ function main() {
 
       fs.mkdirSync(docsDir, { recursive: true });
       fs.writeFileSync(outPath, JSON.stringify(collection, null, 2), 'utf-8');
-      // eslint-disable-next-line no-console
-      console.log(`Wrote Postman collection to ${outPath}`);
+      logger.info(`Wrote Postman collection to ${outPath}`);
     }
   );
 }

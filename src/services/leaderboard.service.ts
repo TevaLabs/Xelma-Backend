@@ -1,10 +1,12 @@
 import { prisma } from "../lib/prisma";
 import { GameMode } from "@prisma/client";
+import { Decimal } from "@prisma/client/runtime/library";
 import {
   LeaderboardEntry,
   LeaderboardResponse,
   ModeStats,
 } from "../types/leaderboard.types";
+import { toNumber, toDecimal } from "../utils/decimal.util";
 
 // Get leaderboard with pagination
 
@@ -34,7 +36,7 @@ export async function getLeaderboard(
       rank: offset + index + 1,
       userId: stat.user.id,
       walletAddress: maskWalletAddress(stat.user.walletAddress),
-      totalEarnings: parseFloat(stat.totalEarnings.toString()),
+      totalEarnings: toNumber(stat.totalEarnings),
       totalPredictions: stat.totalPredictions,
       accuracy: calculateAccuracy(
         stat.correctPredictions,
@@ -44,7 +46,7 @@ export async function getLeaderboard(
         upDown: {
           wins: stat.upDownWins,
           losses: stat.upDownLosses,
-          earnings: parseFloat(stat.upDownEarnings.toString()),
+          earnings: toNumber(stat.upDownEarnings),
           accuracy: calculateAccuracy(
             stat.upDownWins,
             stat.upDownWins + stat.upDownLosses,
@@ -53,7 +55,7 @@ export async function getLeaderboard(
         legends: {
           wins: stat.legendsWins,
           losses: stat.legendsLosses,
-          earnings: parseFloat(stat.legendsEarnings.toString()),
+          earnings: toNumber(stat.legendsEarnings),
           accuracy: calculateAccuracy(
             stat.legendsWins,
             stat.legendsWins + stat.legendsLosses,
@@ -113,7 +115,7 @@ export async function getUserPosition(
     rank,
     userId: userStats.user.id,
     walletAddress: maskWalletAddress(userStats.user.walletAddress),
-    totalEarnings: parseFloat(userStats.totalEarnings.toString()),
+    totalEarnings: toNumber(userStats.totalEarnings),
     totalPredictions: userStats.totalPredictions,
     accuracy: calculateAccuracy(
       userStats.correctPredictions,
@@ -123,7 +125,7 @@ export async function getUserPosition(
       upDown: {
         wins: userStats.upDownWins,
         losses: userStats.upDownLosses,
-        earnings: parseFloat(userStats.upDownEarnings.toString()),
+        earnings: toNumber(userStats.upDownEarnings),
         accuracy: calculateAccuracy(
           userStats.upDownWins,
           userStats.upDownWins + userStats.upDownLosses,
@@ -132,7 +134,7 @@ export async function getUserPosition(
       legends: {
         wins: userStats.legendsWins,
         losses: userStats.legendsLosses,
-        earnings: parseFloat(userStats.legendsEarnings.toString()),
+        earnings: toNumber(userStats.legendsEarnings),
         accuracy: calculateAccuracy(
           userStats.legendsWins,
           userStats.legendsWins + userStats.legendsLosses,
@@ -164,9 +166,11 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
   // Process each prediction
   for (const prediction of round.predictions) {
     const isCorrect = calculatePredictionResult(prediction, round);
-    const earnings = isCorrect
-      ? parseFloat(prediction.amount.toString())
-      : -parseFloat(prediction.amount.toString());
+    const earnings = toDecimal(
+      isCorrect
+        ? toNumber(prediction.amount)
+        : -toNumber(prediction.amount),
+    );
 
     // Determine mode from round
     const isUpDown = round.mode === GameMode.UP_DOWN;
@@ -209,7 +213,7 @@ function calculatePredictionResult(prediction: any, round: any): boolean {
 
   if (round.mode === GameMode.UP_DOWN) {
     // Up/Down mode - check if prediction side matches price movement
-    const priceWentUp = round.endPrice > round.startPrice;
+    const priceWentUp = round.endPrice.gt(round.startPrice);
     return (
       (prediction.side === "UP" && priceWentUp) ||
       (prediction.side === "DOWN" && !priceWentUp)
@@ -218,7 +222,7 @@ function calculatePredictionResult(prediction: any, round: any): boolean {
     // Legends mode - check if price falls within predicted range
     if (!prediction.priceRange) return false;
     const range = prediction.priceRange as { min: number; max: number };
-    const endPrice = parseFloat(round.endPrice.toString());
+    const endPrice = toNumber(round.endPrice);
     return endPrice >= range.min && endPrice <= range.max;
   }
 }

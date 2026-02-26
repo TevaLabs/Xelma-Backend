@@ -20,144 +20,124 @@ export class PredictionService {
     priceRange?: PriceRange,
   ): Promise<any> {
     try {
-      // Get round
-      const round = await prisma.round.findUnique({
-        where: { id: roundId },
-      });
-
-      if (!round) {
-        throw new Error("Round not found");
-      }
-
-      if (round.status !== "ACTIVE") {
-        throw new Error("Round is not active");
-      }
-
-      // Check if user already has a prediction for this round
-      const existingPrediction = await prisma.prediction.findUnique({
-        where: {
-          roundId_userId: {
-            roundId,
-            userId,
-          },
-        },
-      });
-
-      if (existingPrediction) {
-        throw new Error("User has already placed a prediction for this round");
-      }
-
-      // Get user
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-      });
-
-      if (!user) {
-        throw new Error("User not found");
-      }
-
-      // Check balance
-      if (user.virtualBalance < amount) {
-        throw new Error("Insufficient balance");
-      }
-
-      // Mode-specific logic
-      if (round.mode === "UP_DOWN") {
-        if (!side) {
-          throw new Error("Side (UP/DOWN) is required for UP_DOWN mode");
-        }
-
-        // Call Soroban contract
-        await sorobanService.placeBet(user.walletAddress, amount, side);
-
-        // Create prediction in database
-        const prediction = await prisma.prediction.create({
-          data: {
-            roundId,
-            userId,
-            amount,
-            side,
-          },
-        });
-
-        // Update user balance
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            virtualBalance: user.virtualBalance - amount,
-          },
-        });
-
-        // Update round pools
-        await prisma.round.update({
+      return await prisma.$transaction(async (tx) => {
+        // 1. Get round inside transaction to ensure consistency
+        const round = await tx.round.findUnique({
           where: { id: roundId },
-          data: {
-            poolUp: side === "UP" ? { increment: amount } : undefined,
-            poolDown: side === "DOWN" ? { increment: amount } : undefined,
+        });
+
+        if (!round) {
+          throw new Error("Round not found");
+        }
+
+        if (round.status !== "ACTIVE") {
+          throw new Error("Round is not active");
+        }
+
+        // 2. Check for existing prediction (atomic via @@unique constraint in schema)
+        const existingPrediction = await tx.prediction.findUnique({
+          where: {
+            roundId_userId: {
+              roundId,
+              userId,
+            },
           },
         });
 
-        logger.info(
-          `Prediction submitted (UP_DOWN): user=${userId}, round=${roundId}, side=${side}`,
-        );
-
-        return prediction;
-      } else if (round.mode === "LEGENDS") {
-        if (!priceRange) {
-          throw new Error("Price range is required for LEGENDS mode");
+        if (existingPrediction) {
+          throw new Error("User has already placed a prediction for this round");
         }
 
-        // Validate price range exists in round
-        const ranges = round.priceRanges as any[];
-        const validRange = ranges.find(
-          (r) => r.min === priceRange.min && r.max === priceRange.max,
-        );
+        const decimalAmount = toDecimal(amount);
 
-        if (!validRange) {
-          throw new Error("Invalid price range");
-        }
+        // 3. Update user balance ATOMICALLY with sufficiency check
+        // This prevents race conditions where balance is checked then deducted
+        const user = await tx.user.update({
+          where: { 
+            id: userId,
+            virtualBalance: { gte: decimalAmount }
+          },
+          data: {
+            virtualBalance: { decrement: decimalAmount },
+          },
+        }).catch((err) => {
+          if (err.code === "P2025") {
+            throw new Error("Insufficient balance");
+          }
+          throw err;
+        });
 
-        // Create prediction in database
-        const prediction = await prisma.prediction.create({
+        // 4. Create prediction record
+        const prediction = await tx.prediction.create({
           data: {
             roundId,
             userId,
-            amount,
+            amount: decimalAmount,
+            side,
             priceRange: priceRange as any,
           },
         });
 
-        // Update user balance
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            virtualBalance: user.virtualBalance - amount,
-          },
-        });
-
-        // Update price range pool
-        const updatedRanges = ranges.map((r) => {
-          if (r.min === priceRange.min && r.max === priceRange.max) {
-            return { ...r, pool: r.pool + amount };
+        // 5. Update round pools
+        if (round.mode === "UP_DOWN") {
+          if (!side) {
+            throw new Error("Side (UP/DOWN) is required for UP_DOWN mode");
           }
-          return r;
-        });
 
-        await prisma.round.update({
-          where: { id: roundId },
-          data: {
-            priceRanges: updatedRanges as any,
-          },
-        });
+          await tx.round.update({
+            where: { id: roundId },
+            data: {
+              poolUp: side === "UP" ? { increment: decimalAmount } : undefined,
+              poolDown: side === "DOWN" ? { increment: decimalAmount } : undefined,
+            },
+          });
 
-        logger.info(
-          `Prediction submitted (LEGENDS): user=${userId}, round=${roundId}, range=${JSON.stringify(priceRange)}`,
-        );
+          // 6. External Soroban call: Ordering ensures DB is prepared but rolls back if chain call fails
+          // This is our rollback strategy: DB transaction will only commit if placeBet succeeds.
+          await sorobanService.placeBet(user.walletAddress, amount, side);
+
+          logger.info(
+            `Prediction submitted (UP_DOWN): user=${userId}, round=${roundId}, side=${side}`,
+          );
+        } else if (round.mode === "LEGENDS") {
+          if (!priceRange) {
+            throw new Error("Price range is required for LEGENDS mode");
+          }
+
+          const ranges = round.priceRanges as any[];
+          const validRange = ranges.find(
+            (r) => r.min === priceRange.min && r.max === priceRange.max,
+          );
+
+          if (!validRange) {
+            throw new Error("Invalid price range");
+          }
+
+          // Update price range pool (Note: JSON updates are not as atomic as increments in Prisma,
+          // but being inside the same transaction with the round read above provides baseline safety)
+          const updatedRanges = ranges.map((r) => {
+            if (r.min === priceRange.min && r.max === priceRange.max) {
+              return { ...r, pool: r.pool + amount };
+            }
+            return r;
+          });
+
+          await tx.round.update({
+            where: { id: roundId },
+            data: {
+              priceRanges: updatedRanges as any,
+            },
+          });
+
+          logger.info(
+            `Prediction submitted (LEGENDS): user=${userId}, round=${roundId}, range=${JSON.stringify(priceRange)}`,
+          );
+        } else {
+          throw new Error("Invalid game mode");
+        }
 
         return prediction;
-      }
-
-      throw new Error("Invalid game mode");
+      });
     } catch (error) {
       logger.error("Failed to submit prediction:", error);
       throw error;

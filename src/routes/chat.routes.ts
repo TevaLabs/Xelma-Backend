@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import chatService from '../services/chat.service';
 import { authenticateUser } from '../middleware/auth.middleware';
 import { chatMessageRateLimiter } from '../middleware/rateLimiter.middleware';
+import { validate } from '../middleware/validate.middleware';
+import { sendMessageSchema } from '../schemas/chat.schema';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -13,33 +15,9 @@ const router = Router();
  * Body: { content: string }
  * Response: { success: true, message: ChatMessage }
  */
-router.post('/send', authenticateUser, chatMessageRateLimiter, async (req: Request, res: Response) => {
+router.post('/send', authenticateUser, chatMessageRateLimiter, validate(sendMessageSchema), async (req: Request, res: Response) => {
   try {
     const { content } = req.body;
-
-    // Validation
-    if (!content) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: 'Message content is required',
-      });
-    }
-
-    if (typeof content !== 'string') {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: 'Message content must be a string',
-      });
-    }
-
-    if (content.length > 500) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: 'Message cannot exceed 500 characters',
-      });
-    }
-
-    // User is guaranteed by authenticateUser middleware
     const userId = req.user!.userId;
     const walletAddress = req.user!.walletAddress;
 

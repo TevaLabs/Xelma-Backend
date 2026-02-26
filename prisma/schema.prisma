@@ -62,7 +62,7 @@ model User {
   nickname                String?
   avatarUrl               String?
   preferences             Json?
-  virtualBalance          Float     @default(1000)
+  virtualBalance          Decimal   @default(1000) @db.Decimal(20, 8)
   wins          Int      @default(0)
   streak        Int      @default(0)
   role                    UserRole  @default(USER)
@@ -113,14 +113,15 @@ model Round {
   id             String      @id @default(uuid())
   mode           GameMode
   status         RoundStatus @default(PENDING)
-  startPrice     Float
-  endPrice       Float?
+  startPrice     Decimal     @db.Decimal(18, 8)
+  endPrice       Decimal?    @db.Decimal(18, 8)
   startTime      DateTime
   endTime        DateTime
   sorobanRoundId String?     @unique
-  poolUp         Float       @default(0)
-  poolDown       Float       @default(0)
+  poolUp         Decimal     @default(0) @db.Decimal(18, 8)
+  poolDown       Decimal     @default(0) @db.Decimal(18, 8)
   priceRanges    Json?
+  resolvedAt     DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -139,14 +140,14 @@ model Prediction {
   userId     String
   roundId    String
   side       PredictionSide?
-  amount     Float
+  amount     Decimal @db.Decimal(18, 8)
   priceRange Json?
 
   user  User  @relation(fields: [userId], references: [id])
   round Round @relation(fields: [roundId], references: [id])
 
   won    Boolean?
-  payout Float?
+  payout Decimal? @db.Decimal(18, 8)
 
   createdAt DateTime @default(now())
 
@@ -172,17 +173,17 @@ model UserStats {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  totalPredictions   Int   @default(0)
-  correctPredictions Int   @default(0)
-  totalEarnings      Float @default(0)
+  totalPredictions   Int     @default(0)
+  correctPredictions Int     @default(0)
+  totalEarnings      Decimal @default(0) @db.Decimal(20, 8)
 
-  upDownWins     Int   @default(0)
-  upDownLosses   Int   @default(0)
-  upDownEarnings Float @default(0)
+  upDownWins     Int     @default(0)
+  upDownLosses   Int     @default(0)
+  upDownEarnings Decimal @default(0) @db.Decimal(20, 8)
 
-  legendsWins     Int   @default(0)
-  legendsLosses   Int   @default(0)
-  legendsEarnings Float @default(0)
+  legendsWins     Int     @default(0)
+  legendsLosses   Int     @default(0)
+  legendsEarnings Decimal @default(0) @db.Decimal(20, 8)
 
   updatedAt DateTime @updatedAt
 
@@ -194,7 +195,7 @@ model Transaction {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  amount      Float
+  amount      Decimal         @db.Decimal(20, 8)
   type        TransactionType
   description String?
   roundId     String?

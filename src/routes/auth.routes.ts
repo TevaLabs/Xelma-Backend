@@ -20,6 +20,9 @@ import {
   challengeRateLimiter,
   connectRateLimiter,
 } from "../middleware/rateLimiter.middleware";
+import { validate } from "../middleware/validate.middleware";
+import { challengeSchema, connectSchema } from "../schemas/auth.schema";
+import logger from "../utils/logger";
 
 const router = Router();
 
@@ -85,25 +88,10 @@ const router = Router();
 router.post(
   "/challenge",
   challengeRateLimiter,
+  validate(challengeSchema),
   async (req: Request, res: Response) => {
     try {
       const { walletAddress }: ChallengeRequestBody = req.body;
-
-      // Validate required fields
-      if (!walletAddress) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "walletAddress is required",
-        });
-      }
-
-      // Validate Stellar address format
-      if (!isValidStellarAddress(walletAddress)) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "Invalid Stellar wallet address format",
-        });
-      }
 
       // Clean up expired challenges for this wallet (housekeeping)
       await prisma.authChallenge.deleteMany({
@@ -136,7 +124,7 @@ router.post(
 
       return res.status(200).json(response);
     } catch (error) {
-      console.error("Error generating challenge:", error);
+      logger.error("Error generating challenge:", { error });
       return res.status(500).json({
         error: "Internal Server Error",
         message: "Failed to generate authentication challenge",
@@ -213,68 +201,72 @@ router.post(
 router.post(
   "/connect",
   connectRateLimiter,
+  validate(connectSchema),
   async (req: Request, res: Response) => {
     try {
       const { walletAddress, challenge, signature }: ConnectRequestBody =
         req.body;
 
-      // Validate required fields
-      if (!walletAddress || !challenge || !signature) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "walletAddress, challenge, and signature are required",
-        });
-      }
-
-      // Validate Stellar address format
-      if (!isValidStellarAddress(walletAddress)) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "Invalid Stellar wallet address format",
-        });
-      }
-
-      // Find the challenge in database
-      const authChallenge = await prisma.authChallenge.findUnique({
+      // Use atomic update to consume challenge (prevent race conditions)
+      const now = new Date();
+      const updateResult = await prisma.authChallenge.updateMany({
         where: {
           challenge,
+          walletAddress,
+          isUsed: false,
+          expiresAt: {
+            gt: now,
+          },
+        },
+        data: {
+          isUsed: true,
+          usedAt: now,
         },
       });
 
-      // Validate challenge exists
-      if (!authChallenge) {
+      // If no rows were updated, the challenge is invalid, expired, or already used
+      if (updateResult.count === 0) {
+        // Find challenge to provide specific error message (original behavior)
+        const existingChallenge = await prisma.authChallenge.findUnique({
+          where: { challenge },
+        });
+
+        if (!existingChallenge || existingChallenge.walletAddress !== walletAddress) {
+          return res.status(401).json({
+            error: "Authentication Error",
+            message: "Invalid or expired challenge",
+          });
+        }
+
+        if (existingChallenge.isUsed) {
+          return res.status(401).json({
+            error: "Authentication Error",
+            message: "Challenge has already been used",
+          });
+        }
+
+        if (isChallengeExpired(existingChallenge.expiresAt)) {
+          return res.status(401).json({
+            error: "Authentication Error",
+            message: "Challenge has expired. Please request a new one.",
+          });
+        }
+
         return res.status(401).json({
           error: "Authentication Error",
           message: "Invalid or expired challenge",
         });
       }
 
-      // Validate challenge belongs to this wallet
-      if (authChallenge.walletAddress !== walletAddress) {
+      // Re-fetch the challenge record to get its ID for later steps
+      const authChallenge = await prisma.authChallenge.findUnique({
+        where: { challenge },
+      });
+
+      if (!authChallenge) {
         return res.status(401).json({
           error: "Authentication Error",
-          message: "Challenge does not match wallet address",
-        });
-      }
-
-      // Check if challenge has expired
-      if (isChallengeExpired(authChallenge.expiresAt)) {
-        // Delete expired challenge
-        await prisma.authChallenge.delete({
-          where: { id: authChallenge.id },
-        });
-
-        return res.status(401).json({
-          error: "Authentication Error",
-          message: "Challenge has expired. Please request a new one.",
-        });
-      }
-
-      // Replay protection: Check if challenge has been used
-      if (authChallenge.isUsed) {
-        return res.status(401).json({
-          error: "Authentication Error",
-          message: "Challenge has already been used",
+          message: "Invalid or expired challenge",
         });
       }
 
@@ -292,21 +284,10 @@ router.post(
         });
       }
 
-      // Mark challenge as used (replay protection)
-      await prisma.authChallenge.update({
-        where: { id: authChallenge.id },
-        data: {
-          isUsed: true,
-          usedAt: new Date(),
-        },
-      });
-
-      // Create or update user record
       let user = await prisma.user.findUnique({
         where: { walletAddress },
       });
 
-      const now = new Date();
       let bonusAmount = 0;
       let newStreak = 0;
       let streakBonusApplied = false;
@@ -436,7 +417,7 @@ router.post(
 
       return res.status(200).json(response);
     } catch (error) {
-      console.error("Error authenticating wallet:", error);
+      logger.error("Error authenticating wallet:", { error });
       return res.status(500).json({
         error: "Internal Server Error",
         message: "Failed to authenticate wallet",

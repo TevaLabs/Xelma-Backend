@@ -1,10 +1,6 @@
-// NOTE: @tevalabs/xelma-bindings not yet installed; using local type stubs below
 import { Keypair, Networks } from "@stellar/stellar-sdk";
 import logger from "../utils/logger";
-
-// Temporary loose typing until bindings are available
-const Client: any = undefined as any;
-type BetSide = any;
+import { Client, BetSide } from "@tevalabs/xelma-bindings";
 
 export class SorobanService {
   private client: any = null;

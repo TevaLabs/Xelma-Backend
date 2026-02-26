@@ -251,51 +251,52 @@ Xelma-Backend/
 ### Routes & Endpoints
 
 #### **Authentication (`/api/auth`)**
-- `POST /login` - Initiate wallet-based login (returns challenge)
-- `POST /verify` - Verify signed challenge and issue JWT token
+- `POST /challenge` - Request a wallet authentication challenge (returns challenge string)
+- `POST /connect` - Verify signed challenge and issue JWT token
 
 #### **User Management (`/api/user`)**
-- `GET /profile/:walletAddress` - Get user profile
-- `PUT /profile/:userId` - Update user profile (nickname, avatar, preferences)
+- `GET /profile` - [Auth] Get authenticated user's profile
+- `GET /balance` - [Auth] Get current virtual balance
+- `GET /stats` - [Auth] Get detailed user statistics
+- `PATCH /profile` - [Auth] Update user preferences (nickname, avatar, preferences)
+- `GET /transactions` - [Auth] Get paginated transaction history
+- `GET /:walletAddress/public-profile` - Get any user's public profile
 
 #### **Round Management (`/api/rounds`)**
 - `POST /start` - [Admin] Start a new round
 - `GET /active` - Get all active rounds
-- `GET /locked` - Get locked (no bets) rounds
-- `GET /upcoming` - Get upcoming rounds
-- `GET /:roundId` - Get specific round details
-- `POST /lock/:roundId` - [Admin] Lock a round manually
-- `POST /resolve/:roundId` - [Oracle] Resolve a round
+- `GET /:id` - Get specific round details
+- `POST /:id/resolve` - [Oracle] Resolve a round with final price
 
 #### **Predictions (`/api/predictions`)**
-- `POST /submit` - Submit a prediction for a round
+- `POST /submit` - [Auth] Submit a prediction for a round
 - `GET /user/:userId` - Get user's prediction history
 - `GET /round/:roundId` - Get all predictions for a round
-- `POST /claim/:predictionId` - Claim winnings for a prediction
 
 #### **Leaderboard (`/api/leaderboard`)**
-- `GET /` - Get global leaderboard (paginated)
-- `GET /user/:userId` - Get user's leaderboard stats
-- `GET /top/:count` - Get top N users
+- `GET /` - Get global leaderboard (paginated, optional auth for user position)
 
 #### **Education (`/api/education`)**
-- `GET /tips` - Get all education tips
-- `GET /tip/random` - Get random tip
-- `GET /tip/daily` - Get daily tip
+- `GET /guides` - Get all educational guides grouped by category
+- `GET /tip?roundId=<uuid>` - Generate contextual educational tip for a resolved round
 
 #### **Chat (`/api/chat`)**
-- `POST /message` - Send a chat message
-- `GET /messages` - Get recent chat messages (paginated)
+- `POST /send` - [Auth] Send a chat message
+- `GET /history` - Get recent chat messages (paginated, max 50)
 
 #### **Notifications (`/api/notifications`)**
-- `GET /user/:userId` - Get user notifications
-- `PUT /read/:notificationId` - Mark notification as read
-- `DELETE /:notificationId` - Delete a notification
+- `GET /` - [Auth] Get paginated notifications
+- `GET /unread-count` - [Auth] Get unread notification count
+- `GET /:id` - [Auth] Get a specific notification
+- `PATCH /:id/read` - [Auth] Mark a notification as read
+- `PATCH /read-all` - [Auth] Mark all notifications as read
+- `DELETE /:id` - [Auth] Delete a notification
+- `DELETE /` - [Auth] Delete all read notifications
 
 #### **System Endpoints**
 - `GET /` - Health check with timestamp
 - `GET /health` - Detailed health check (uptime, status)
-- `GET /api/price` - Current XLM/USD price
+- `GET /api/price` - Current XLM/USD price with staleness info
 - `GET /api-docs` - Swagger UI documentation
 - `GET /api-docs.json` - OpenAPI specification
 
@@ -375,6 +376,18 @@ cp .env.example .env
 ```
 
 ### 2. Configure Environment Variables
+
+## Environment Variables
+
+This application requires specific environment variables to run securely. Create a `.env` file in the root directory based on `.env.example`.
+
+### Required Variables
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `JWT_SECRET` | Cryptographic secret used to sign and verify JSON Web Tokens. **App will refuse to start without this.** | *None* |
+
+*Note: For production, `JWT_SECRET` must be a cryptographically strong, random string (e.g., generated via `openssl rand -base64 32`).*
 
 Open `.env` and set the following:
 
@@ -474,10 +487,10 @@ The backend provides auto-generated **OpenAPI/Swagger** documentation.
 
 ### Authentication Endpoints
 
-#### Login (Request Challenge)
+#### Request Challenge
 
 ```bash
-POST /api/auth/login
+POST /api/auth/challenge
 Content-Type: application/json
 
 {
@@ -488,18 +501,20 @@ Content-Type: application/json
 **Response:**
 ```json
 {
-  "challenge": "Sign this message to authenticate: abc123xyz"
+  "challenge": "random-challenge-string",
+  "expiresAt": "2026-02-23T00:05:00.000Z"
 }
 ```
 
-#### Verify Signature
+#### Connect (Verify Signature)
 
 ```bash
-POST /api/auth/verify
+POST /api/auth/connect
 Content-Type: application/json
 
 {
   "walletAddress": "GXXX...YOUR_STELLAR_ADDRESS",
+  "challenge": "random-challenge-string",
   "signature": "BASE64_SIGNATURE_OF_CHALLENGE"
 }
 ```
@@ -511,9 +526,11 @@ Content-Type: application/json
   "user": {
     "id": "user-uuid",
     "walletAddress": "GXXX...",
-    "virtualBalance": 1000,
-    "role": "USER"
-  }
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "lastLoginAt": "2026-02-23T12:00:00.000Z"
+  },
+  "bonus": 100,
+  "streak": 1
 }
 ```
 
@@ -591,15 +608,13 @@ Content-Type: application/json
 # For UP_DOWN mode:
 {
   "roundId": "round-uuid",
-  "userId": "user-uuid",
   "amount": 10,
-  "side": "UP"  # or "DOWN"
+  "side": "UP"
 }
 
 # For LEGENDS mode:
 {
   "roundId": "round-uuid",
-  "userId": "user-uuid",
   "amount": 10,
   "priceRange": {
     "min": 0.12,
@@ -615,12 +630,11 @@ Content-Type: application/json
   "prediction": {
     "id": "prediction-uuid",
     "roundId": "round-uuid",
-    "userId": "user-uuid",
     "amount": 10,
     "side": "UP",
+    "priceRange": null,
     "createdAt": "2026-02-23T12:01:00Z"
-  },
-  "userBalance": 990
+  }
 }
 ```
 
@@ -631,7 +645,7 @@ Content-Type: application/json
 #### Get Global Leaderboard
 
 ```bash
-GET /api/leaderboard?page=1&limit=10
+GET /api/leaderboard?limit=100&offset=0
 ```
 
 **Response:**
@@ -640,19 +654,20 @@ GET /api/leaderboard?page=1&limit=10
   "leaderboard": [
     {
       "rank": 1,
-      "walletAddress": "GXXX...",
-      "nickname": "CryptoKing",
+      "userId": "user-uuid",
+      "walletAddress": "GXXX...XXXX",
       "totalEarnings": 5432.10,
-      "wins": 45,
       "totalPredictions": 60,
-      "accuracy": 75.0
+      "accuracy": 75.0,
+      "modeStats": {
+        "upDown": { "wins": 30, "losses": 15, "earnings": 3000.0, "accuracy": 66.67 },
+        "legends": { "wins": 15, "losses": 0, "earnings": 2432.10, "accuracy": 100.0 }
+      }
     }
   ],
-  "pagination": {
-    "page": 1,
-    "limit": 10,
-    "total": 150
-  }
+  "userPosition": null,
+  "totalUsers": 150,
+  "lastUpdated": "2026-02-23T12:00:00.000Z"
 }
 ```
 

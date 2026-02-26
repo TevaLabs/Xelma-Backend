@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getLeaderboard } from '../services/leaderboard.service';
 import { optionalAuthentication, AuthRequest } from '../middleware/auth.middleware';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -53,7 +54,7 @@ router.get('/', optionalAuthentication, async (req: AuthRequest, res: Response) 
 
     res.json(leaderboard);
   } catch (error) {
-    console.error('Error fetching leaderboard:', error);
+    logger.error('Error fetching leaderboard:', { error });
     res.status(500).json({
       error: 'Internal Server Error',
       message: 'Failed to fetch leaderboard'

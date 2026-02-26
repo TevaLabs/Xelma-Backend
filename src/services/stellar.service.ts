@@ -1,4 +1,5 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
+import logger from '../utils/logger';
 
 /**
  * Verify a signature against a challenge using Stellar wallet verification
@@ -17,7 +18,7 @@ export async function verifySignature(
   try {
     // Validate wallet address format
     if (!StellarSdk.StrKey.isValidEd25519PublicKey(walletAddress)) {
-      console.error('Invalid Stellar wallet address format');
+      logger.error('Invalid Stellar wallet address format');
       return false;
     }
 
@@ -35,7 +36,7 @@ export async function verifySignature(
 
     return isValid;
   } catch (error) {
-    console.error('Error verifying signature:', error);
+    logger.error('Error verifying signature:', { error });
     return false;
   }
 }
@@ -69,7 +70,7 @@ export async function getAccountInfo(publicKey: string): Promise<any | null> {
     const account = await server.loadAccount(publicKey);
     return account;
   } catch (error) {
-    console.error('Error fetching account info:', error);
+    logger.error('Error fetching account info:', { error });
     return null;
   }
 }

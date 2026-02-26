@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import { authenticateUser } from "../middleware/auth.middleware";
+import logger from "../utils/logger";
 
 const router = Router();
 
@@ -55,7 +56,7 @@ router.get(
         profile,
       });
     } catch (error) {
-      console.error("Error fetching profile:", error);
+      logger.error("Error fetching profile:", { error });
       return res.status(500).json({ error: "Internal Server Error" });
     }
   },
@@ -85,7 +86,7 @@ router.get(
         balance: user.virtualBalance,
       });
     } catch (error) {
-      console.error("Error fetching balance:", error);
+      logger.error("Error fetching balance:", { error });
       return res.status(500).json({ error: "Internal Server Error" });
     }
   },
@@ -120,7 +121,7 @@ router.get("/stats", authenticateUser, async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error("Error fetching stats:", error);
+    logger.error("Error fetching stats:", { error });
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -160,7 +161,7 @@ router.patch(
         profile: updatedUser,
       });
     } catch (error) {
-      console.error("Error updating profile:", error);
+      logger.error("Error updating profile:", { error });
       return res.status(500).json({ error: "Internal Server Error" });
     }
   },
@@ -203,7 +204,7 @@ router.get(
         },
       });
     } catch (error) {
-      console.error("Error fetching transactions:", error);
+      logger.error("Error fetching transactions:", { error });
       return res.status(500).json({ error: "Internal Server Error" });
     }
   },
@@ -250,7 +251,7 @@ router.get(
         },
       });
     } catch (error) {
-      console.error("Error fetching public profile:", error);
+      logger.error("Error fetching public profile:", { error });
       return res.status(500).json({ error: "Internal Server Error" });
     }
   },
