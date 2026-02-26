@@ -13,12 +13,13 @@ jest.mock("../services/stellar.service", () => ({
   isValidStellarAddress: jest.fn(),
 }));
 
-// Bypass rate limiters in tests so we don't get 429
+// Bypass rate limiters in tests so we don't get 429; include any used by other routes (e.g. rounds)
 jest.mock("../middleware/rateLimiter.middleware", () => ({
   challengeRateLimiter: (_req: any, _res: any, next: any) => next(),
   connectRateLimiter: (_req: any, _res: any, next: any) => next(),
   authRateLimiter: (_req: any, _res: any, next: any) => next(),
   chatMessageRateLimiter: (_req: any, _res: any, next: any) => next(),
+  adminRoundRateLimiter: (_req: any, _res: any, next: any) => next(),
 }));
 
 const mockVerifySignature = stellarService.verifySignature as jest.MockedFunction<

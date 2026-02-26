@@ -206,10 +206,16 @@ describe("PredictionService (Issue #78)", () => {
             side: "UP",
           },
         });
-        expect(mockUserUpdate).toHaveBeenCalledWith({
-          where: { id: userId },
-          data: { virtualBalance: 900 },
-        });
+        // Service may use literal balance (900) or Prisma decrement for atomic update
+        expect(mockUserUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: userId } })
+        );
+        const updateCall = mockUserUpdate.mock.calls[0][0];
+        const balance = updateCall?.data?.virtualBalance;
+        const ok =
+          balance === 900 ||
+          (typeof balance === "object" && balance?.decrement === 100);
+        expect(ok).toBe(true);
         expect(mockRoundUpdate).toHaveBeenCalledWith({
           where: { id: roundId },
           data: { poolUp: { increment: 100 } },
