@@ -38,7 +38,8 @@ class RoundSchedulerService {
     logger.info("[Round Scheduler] Stopped");
   }
 
-  private async createRound(): Promise<void> {
+  /** @visibleForTesting */
+  async createRound(): Promise<void> {
     try {
       const startPrice = priceOracle.getPrice();
 
@@ -84,7 +85,8 @@ class RoundSchedulerService {
     }
   }
 
-  private async closeEligibleRounds(): Promise<void> {
+  /** @visibleForTesting */
+  async closeEligibleRounds(): Promise<void> {
     try {
       const now = new Date();
 
@@ -107,7 +109,8 @@ class RoundSchedulerService {
     }
   }
 
-  private getMode(): "UP_DOWN" | "LEGENDS" {
+  /** @visibleForTesting */
+  getMode(): "UP_DOWN" | "LEGENDS" {
     const mode = process.env.ROUND_SCHEDULER_MODE || "UP_DOWN";
     if (mode === "LEGENDS") {
       return "LEGENDS";

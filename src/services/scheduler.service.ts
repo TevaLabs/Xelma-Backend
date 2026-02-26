@@ -115,8 +115,9 @@ class SchedulerService {
 
   /**
    * Cleanup old notifications (older than 30 days)
+   * @visibleForTesting
    */
-  private async cleanupOldNotifications(): Promise<void> {
+  async cleanupOldNotifications(): Promise<void> {
     try {
       const deletedCount =
         await notificationService.cleanupOldNotifications(30);
