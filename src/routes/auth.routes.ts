@@ -207,47 +207,66 @@ router.post(
       const { walletAddress, challenge, signature }: ConnectRequestBody =
         req.body;
 
-      // Find the challenge in database
-      const authChallenge = await prisma.authChallenge.findUnique({
+      // Use atomic update to consume challenge (prevent race conditions)
+      const now = new Date();
+      const updateResult = await prisma.authChallenge.updateMany({
         where: {
           challenge,
+          walletAddress,
+          isUsed: false,
+          expiresAt: {
+            gt: now,
+          },
+        },
+        data: {
+          isUsed: true,
+          usedAt: now,
         },
       });
 
-      // Validate challenge exists
-      if (!authChallenge) {
+      // If no rows were updated, the challenge is invalid, expired, or already used
+      if (updateResult.count === 0) {
+        // Find challenge to provide specific error message (original behavior)
+        const existingChallenge = await prisma.authChallenge.findUnique({
+          where: { challenge },
+        });
+
+        if (!existingChallenge || existingChallenge.walletAddress !== walletAddress) {
+          return res.status(401).json({
+            error: "Authentication Error",
+            message: "Invalid or expired challenge",
+          });
+        }
+
+        if (existingChallenge.isUsed) {
+          return res.status(401).json({
+            error: "Authentication Error",
+            message: "Challenge has already been used",
+          });
+        }
+
+        if (isChallengeExpired(existingChallenge.expiresAt)) {
+          return res.status(401).json({
+            error: "Authentication Error",
+            message: "Challenge has expired. Please request a new one.",
+          });
+        }
+
         return res.status(401).json({
           error: "Authentication Error",
           message: "Invalid or expired challenge",
         });
       }
 
-      // Validate challenge belongs to this wallet
-      if (authChallenge.walletAddress !== walletAddress) {
+      // Re-fetch the challenge record to get its ID for later steps
+      const authChallenge = await prisma.authChallenge.findUnique({
+        where: { challenge },
+      });
+
+      if (!authChallenge) {
         return res.status(401).json({
           error: "Authentication Error",
-          message: "Challenge does not match wallet address",
-        });
-      }
-
-      // Check if challenge has expired
-      if (isChallengeExpired(authChallenge.expiresAt)) {
-        // Delete expired challenge
-        await prisma.authChallenge.delete({
-          where: { id: authChallenge.id },
-        });
-
-        return res.status(401).json({
-          error: "Authentication Error",
-          message: "Challenge has expired. Please request a new one.",
-        });
-      }
-
-      // Replay protection: Check if challenge has been used
-      if (authChallenge.isUsed) {
-        return res.status(401).json({
-          error: "Authentication Error",
-          message: "Challenge has already been used",
+          message: "Invalid or expired challenge",
         });
       }
 
@@ -265,21 +284,10 @@ router.post(
         });
       }
 
-      // Mark challenge as used (replay protection)
-      await prisma.authChallenge.update({
-        where: { id: authChallenge.id },
-        data: {
-          isUsed: true,
-          usedAt: new Date(),
-        },
-      });
-
-      // Create or update user record
       let user = await prisma.user.findUnique({
         where: { walletAddress },
       });
 
-      const now = new Date();
       let bonusAmount = 0;
       let newStreak = 0;
       let streakBonusApplied = false;
