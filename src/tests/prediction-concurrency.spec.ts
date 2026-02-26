@@ -162,6 +162,7 @@ describe('Prediction Service - Transactional & Concurrency Tests', () => {
             expect(Number(updatedUser!.virtualBalance)).toBe(50);
 
             // Cleanup extra rounds and users
+            await prisma.prediction.deleteMany({ where: { roundId: { in: rounds.map(r => r.id) } } });
             await prisma.user.deleteMany({ where: { id: { in: users.map(u => u.id) } } });
             await prisma.round.deleteMany({ where: { id: { in: rounds.map(r => r.id) } } });
         });
