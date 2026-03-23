@@ -14,6 +14,7 @@ import websocketService from './services/websocket.service';
 import schedulerService from './services/scheduler.service';
 import roundSchedulerService from './services/round-scheduler.service';
 import logger from './utils/logger';
+import { errorHandler } from './middleware/errorHandler.middleware';
 import chatRoutes from "./routes/chat.routes";
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './docs/openapi';
@@ -105,20 +106,14 @@ export function createApp(): Express {
   // 404 handler
   app.use((req: Request, res: Response) => {
     res.status(404).json({
-      error: "Not Found",
+      error: "NotFoundError",
       message: `Route ${req.method} ${req.path} not found`,
+      code: "NOT_FOUND",
     });
   });
 
-  // Global error handler
-  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-    logger.error("Error:", err);
-    res.status(500).json({
-      error: "Internal Server Error",
-      message: err.message,
-      ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
-    });
-  });
+  // Centralized error handler (must be last)
+  app.use(errorHandler);
 
   return app;
 }
