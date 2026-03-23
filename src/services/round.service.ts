@@ -4,6 +4,7 @@ import websocketService from "./websocket.service";
 import notificationService from "./notification.service";
 import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
+import { ConflictError } from "../utils/errors";
 
 export class RoundService {
   /**
@@ -26,11 +27,10 @@ export class RoundService {
       });
 
       if (existingActiveRound) {
-        const error: any = new Error(
-          `An active ${mode} round already exists (ID: ${existingActiveRound.id})`
+        throw new ConflictError(
+          `An active ${mode} round already exists (ID: ${existingActiveRound.id})`,
+          "ACTIVE_ROUND_EXISTS",
         );
-        error.code = "ACTIVE_ROUND_EXISTS";
-        throw error;
       }
 
       const startTime = new Date();
