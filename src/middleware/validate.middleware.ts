@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodSchema } from 'zod';
+import { ValidationError } from '../utils/errors';
 
 /**
  * Express middleware that validates request data against a Zod schema.
- * Returns 400 with a standardized error shape on failure.
+ * On failure, forwards a ValidationError to the centralized error handler.
  */
 export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' = 'body') {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return (req: Request, _res: Response, next: NextFunction) => {
     const result = schema.safeParse(req[source]);
     if (!result.success) {
       // Zod v4 stores errors in error.message as JSON string
@@ -15,12 +16,7 @@ export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' 
         field: e.path.join('.'),
         message: e.message,
       }));
-      const primaryMessage = details[0].message;
-      return res.status(400).json({
-        error: primaryMessage,
-        message: primaryMessage,
-        details,
-      });
+      return next(new ValidationError(details[0].message, details));
     }
     (req as any)[source] = result.data;
     next();
