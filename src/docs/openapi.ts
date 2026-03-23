@@ -30,18 +30,44 @@ export const swaggerSpec = swaggerJSDoc({
       schemas: {
         ErrorResponse: {
           type: 'object',
+          description: 'Standard error response returned by all API endpoints on failure.',
           properties: {
-            error: { type: 'string' },
-            message: { type: 'string' },
+            error: {
+              type: 'string',
+              description: 'Error class name (e.g. ValidationError, AuthenticationError, NotFoundError)',
+              example: 'ValidationError',
+            },
+            message: {
+              type: 'string',
+              description: 'Human-readable description of the error',
+              example: 'walletAddress is required',
+            },
+            code: {
+              type: 'string',
+              description: 'Machine-readable error code for programmatic handling',
+              example: 'VALIDATION_ERROR',
+            },
+            details: {
+              type: 'array',
+              description: 'Field-level validation details (present on validation errors only)',
+              items: {
+                type: 'object',
+                properties: {
+                  field: { type: 'string', example: 'walletAddress' },
+                  message: { type: 'string', example: 'walletAddress is required' },
+                },
+                required: ['field', 'message'],
+              },
+            },
           },
-          required: ['error'],
-          additionalProperties: true,
+          required: ['error', 'message', 'code'],
         },
         RateLimitResponse: {
           allOf: [{ $ref: '#/components/schemas/ErrorResponse' }],
           example: {
-            error: 'Too Many Requests',
+            error: 'AppError',
             message: 'Too many requests from this IP, please try again after 15 minutes',
+            code: 'RATE_LIMIT_EXCEEDED',
           },
         },
 
