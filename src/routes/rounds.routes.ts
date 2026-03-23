@@ -1,11 +1,11 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import roundService from '../services/round.service';
 import resolutionService from '../services/resolution.service';
 import { requireAdmin, requireOracle } from '../middleware/auth.middleware';
 import { adminRoundRateLimiter, oracleResolveRateLimiter } from '../middleware/rateLimiter.middleware';
 import { validate } from '../middleware/validate.middleware';
 import { startRoundSchema, resolveRoundSchema } from '../schemas/rounds.schema';
-import logger from '../utils/logger';
+import { NotFoundError } from '../utils/errors';
 
 const router = Router();
 
@@ -60,33 +60,32 @@ const router = Router();
  *         description: Validation error
  *         content:
  *           application/json:
- *             examples:
- *               invalidMode:
- *                 value: { error: "Invalid mode. Must be 0 (UP_DOWN) or 1 (LEGENDS)" }
- *               invalidStartPrice:
- *                 value: { error: "Invalid start price" }
- *               invalidDuration:
- *                 value: { error: "Invalid duration" }
+ *             $ref: '#/components/schemas/ErrorResponse'
  *       401:
  *         description: Unauthorized (missing/invalid token)
  *         content:
  *           application/json:
- *             example: { error: "No token provided" }
+ *             $ref: '#/components/schemas/ErrorResponse'
  *       403:
  *         description: Forbidden (admin role required)
  *         content:
  *           application/json:
- *             example: { error: "Admin access required" }
+ *             $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Conflict - active round already exists
+ *         content:
+ *           application/json:
+ *             $ref: '#/components/schemas/ErrorResponse'
  *       429:
  *         description: Too many requests
  *         content:
  *           application/json:
- *             example: { error: "Too Many Requests", message: "Too many round creation requests. Please wait before creating another round." }
+ *             $ref: '#/components/schemas/RateLimitResponse'
  *       500:
  *         description: Internal server error
  *         content:
  *           application/json:
- *             example: { error: "Failed to start round" }
+ *             $ref: '#/components/schemas/ErrorResponse'
  *     x-codeSamples:
  *       - lang: cURL
  *         source: |
@@ -95,7 +94,7 @@ const router = Router();
  *             -H "Authorization: Bearer $TOKEN" \\
  *             -d '{"mode":0,"startPrice":0.1234,"duration":300}'
  */
-router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSchema), async (req: Request, res: Response) => {
+router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSchema), async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { mode, startPrice, duration } = req.body;
         const gameMode = mode === 0 ? 'UP_DOWN' : 'LEGENDS';
@@ -114,15 +113,8 @@ router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSc
                 priceRanges: round.priceRanges,
             },
         });
-    } catch (error: any) {
-        logger.error('Failed to start round:', error);
-        
-        // Return 409 Conflict if active round already exists
-        if (error.code === 'ACTIVE_ROUND_EXISTS') {
-            return res.status(409).json({ error: error.message });
-        }
-        
-        res.status(500).json({ error: error.message || 'Failed to start round' });
+    } catch (error) {
+        next(error);
     }
 });
 
@@ -150,34 +142,33 @@ router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSc
  *         description: Round not found
  *         content:
  *           application/json:
- *             example: { error: "Round not found" }
+ *             $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Internal server error
  *         content:
  *           application/json:
- *             example: { error: "Failed to get round" }
+ *             $ref: '#/components/schemas/ErrorResponse'
  *     x-codeSamples:
  *       - lang: cURL
  *         source: |
  *           curl -X GET "$API_BASE_URL/api/rounds/round-id"
  */
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { id } = req.params;
 
         const round = await roundService.getRound(id);
 
         if (!round) {
-            return res.status(404).json({ error: 'Round not found' });
+            return next(new NotFoundError('Round not found'));
         }
 
         res.json({
             success: true,
             round,
         });
-    } catch (error: any) {
-        logger.error('Failed to get round:', error);
-        res.status(500).json({ error: error.message || 'Failed to get round' });
+    } catch (error) {
+        next(error);
     }
 });
 
@@ -199,13 +190,13 @@ router.get('/:id', async (req: Request, res: Response) => {
  *         description: Internal server error
  *         content:
  *           application/json:
- *             example: { error: "Failed to get active rounds" }
+ *             $ref: '#/components/schemas/ErrorResponse'
  *     x-codeSamples:
  *       - lang: cURL
  *         source: |
  *           curl -X GET "$API_BASE_URL/api/rounds/active"
  */
-router.get('/active', async (req: Request, res: Response) => {
+router.get('/active', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const rounds = await roundService.getActiveRounds();
 
@@ -213,9 +204,8 @@ router.get('/active', async (req: Request, res: Response) => {
             success: true,
             rounds,
         });
-    } catch (error: any) {
-        logger.error('Failed to get active rounds:', error);
-        res.status(500).json({ error: error.message || 'Failed to get active rounds' });
+    } catch (error) {
+        next(error);
     }
 });
 
@@ -264,27 +254,27 @@ router.get('/active', async (req: Request, res: Response) => {
  *         description: Validation error
  *         content:
  *           application/json:
- *             example: { error: "Invalid final price" }
+ *             $ref: '#/components/schemas/ErrorResponse'
  *       401:
  *         description: Unauthorized
  *         content:
  *           application/json:
- *             example: { error: "No token provided" }
+ *             $ref: '#/components/schemas/ErrorResponse'
  *       403:
  *         description: Forbidden (oracle/admin required)
  *         content:
  *           application/json:
- *             example: { error: "Oracle or Admin access required" }
+ *             $ref: '#/components/schemas/ErrorResponse'
  *       429:
  *         description: Too many requests
  *         content:
  *           application/json:
- *             example: { error: "Too Many Requests", message: "Too many resolve requests. Please wait before resolving another round." }
+ *             $ref: '#/components/schemas/RateLimitResponse'
  *       500:
  *         description: Internal server error
  *         content:
  *           application/json:
- *             example: { error: "Failed to resolve round" }
+ *             $ref: '#/components/schemas/ErrorResponse'
  *     x-codeSamples:
  *       - lang: cURL
  *         source: |
@@ -293,7 +283,7 @@ router.get('/active', async (req: Request, res: Response) => {
  *             -H "Authorization: Bearer $TOKEN" \\
  *             -d '{"finalPrice":0.2345}'
  */
-router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(resolveRoundSchema), async (req: Request, res: Response) => {
+router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(resolveRoundSchema), async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { id } = req.params;
         const { finalPrice } = req.body;
@@ -312,9 +302,8 @@ router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(re
                 winners: round.predictions.filter((p: any) => p.won === true).length,
             },
         });
-    } catch (error: any) {
-        logger.error('Failed to resolve round:', error);
-        res.status(500).json({ error: error.message || 'Failed to resolve round' });
+    } catch (error) {
+        next(error);
     }
 });
 

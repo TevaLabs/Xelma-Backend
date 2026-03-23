@@ -1,11 +1,11 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import {
   EducationGuidesResponse,
   EducationGuide,
   EducationalTipResponse,
 } from "../types/education.types";
 import educationTipService from "../services/education-tip.service";
-import logger from "../utils/logger";
+import { ValidationError, NotFoundError, BusinessRuleError } from "../utils/errors";
 
 const router = Router();
 
@@ -211,7 +211,7 @@ const educationGuides: EducationGuide[] = [
  * Returns a structured list of educational guides and tips
  * Content is grouped by category (volatility, Stellar, oracles)
  */
-router.get("/guides", (req: Request, res: Response) => {
+router.get("/guides", (req: Request, res: Response, next: NextFunction) => {
   try {
     // Group guides by category
     const categories = {
@@ -230,11 +230,7 @@ router.get("/guides", (req: Request, res: Response) => {
 
     return res.status(200).json(response);
   } catch (error) {
-    logger.error("Error fetching education guides:", { error });
-    return res.status(500).json({
-      error: "Internal Server Error",
-      message: "Failed to fetch education guides",
-    });
+    next(error);
   }
 });
 /**
@@ -263,33 +259,24 @@ router.get("/guides", (req: Request, res: Response) => {
  *   - 422: Round not resolved yet
  *   - 500: Internal server error
  */
-router.get("/tip", async (req: Request, res: Response) => {
+router.get("/tip", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { roundId } = req.query;
 
     // Validate roundId parameter
     if (!roundId) {
-      return res.status(400).json({
-        error: "Validation Error",
-        message: "roundId query parameter is required",
-      });
+      return next(new ValidationError("roundId query parameter is required"));
     }
 
     if (typeof roundId !== "string") {
-      return res.status(400).json({
-        error: "Validation Error",
-        message: "roundId must be a string",
-      });
+      return next(new ValidationError("roundId must be a string"));
     }
 
     // UUID format validation (basic)
     const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(roundId)) {
-      return res.status(400).json({
-        error: "Validation Error",
-        message: "roundId must be a valid UUID",
-      });
+      return next(new ValidationError("roundId must be a valid UUID"));
     }
 
     // Generate tip using service
@@ -310,42 +297,19 @@ router.get("/tip", async (req: Request, res: Response) => {
 
     return res.status(200).json(response);
   } catch (error: any) {
-    logger.error("Failed to generate educational tip", {
-      roundId: req.query.roundId,
-      error: error.message,
-      stack: error.stack,
-    });
-
-    // Handle specific error types
+    // Map known service error messages to typed errors
     if (error.message === "Round not found") {
-      return res.status(404).json({
-        error: "Not Found",
-        message: "Round not found",
-      });
+      return next(new NotFoundError("Round not found"));
     }
 
     if (
-      error.message ===
-      "Round must be resolved before generating educational tips"
+      error.message === "Round must be resolved before generating educational tips" ||
+      error.message === "Round missing required price data"
     ) {
-      return res.status(422).json({
-        error: "Invalid Round State",
-        message: "Round must be resolved before generating educational tips",
-      });
+      return next(new BusinessRuleError(error.message, "INVALID_ROUND_STATE"));
     }
 
-    if (error.message === "Round missing required price data") {
-      return res.status(422).json({
-        error: "Invalid Round Data",
-        message: "Round is missing required price data",
-      });
-    }
-
-    // Generic error
-    return res.status(500).json({
-      error: "Internal Server Error",
-      message: "Failed to generate educational tip",
-    });
+    next(error);
   }
 });
 

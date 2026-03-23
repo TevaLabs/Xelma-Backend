@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import {
   generateChallenge,
@@ -6,10 +6,7 @@ import {
   isChallengeExpired,
 } from "../utils/challenge.util";
 import { generateToken } from "../utils/jwt.util";
-import {
-  verifySignature,
-  isValidStellarAddress,
-} from "../services/stellar.service";
+import { verifySignature } from "../services/stellar.service";
 import {
   ChallengeRequestBody,
   ChallengeResponse,
@@ -22,7 +19,7 @@ import {
 } from "../middleware/rateLimiter.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { challengeSchema, connectSchema } from "../schemas/auth.schema";
-import logger from "../utils/logger";
+import { AuthenticationError } from "../utils/errors";
 
 const router = Router();
 
@@ -89,7 +86,7 @@ router.post(
   "/challenge",
   challengeRateLimiter,
   validate(challengeSchema),
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { walletAddress }: ChallengeRequestBody = req.body;
 
@@ -124,11 +121,7 @@ router.post(
 
       return res.status(200).json(response);
     } catch (error) {
-      logger.error("Error generating challenge:", { error });
-      return res.status(500).json({
-        error: "Internal Server Error",
-        message: "Failed to generate authentication challenge",
-      });
+      next(error);
     }
   },
 );
@@ -202,7 +195,7 @@ router.post(
   "/connect",
   connectRateLimiter,
   validate(connectSchema),
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { walletAddress, challenge, signature }: ConnectRequestBody =
         req.body;
@@ -231,11 +224,16 @@ router.post(
           where: { challenge },
         });
 
-        if (!existingChallenge) {
-          return res.status(401).json({
-            error: "Authentication Error",
-            message: "Invalid or expired challenge",
-          });
+        if (
+          !existingChallenge ||
+          existingChallenge.walletAddress !== walletAddress
+        ) {
+          return next(
+            new AuthenticationError(
+              "Invalid or expired challenge",
+              "INVALID_CHALLENGE",
+            ),
+          );
         }
 
         if (existingChallenge.walletAddress !== walletAddress) {
@@ -246,23 +244,14 @@ router.post(
         }
 
         if (existingChallenge.isUsed) {
-          return res.status(401).json({
-            error: "Authentication Error",
-            message: "Challenge has already been used",
-          });
+          return next(new AuthenticationError("Challenge has already been used", "CHALLENGE_USED"));
         }
 
         if (isChallengeExpired(existingChallenge.expiresAt)) {
-          return res.status(401).json({
-            error: "Authentication Error",
-            message: "Challenge has expired. Please request a new one.",
-          });
+          return next(new AuthenticationError("Challenge has expired. Please request a new one.", "CHALLENGE_EXPIRED"));
         }
 
-        return res.status(401).json({
-          error: "Authentication Error",
-          message: "Invalid or expired challenge",
-        });
+        return next(new AuthenticationError("Invalid or expired challenge", "INVALID_CHALLENGE"));
       }
 
       // Re-fetch the challenge record to get its ID for later steps
@@ -271,10 +260,7 @@ router.post(
       });
 
       if (!authChallenge) {
-        return res.status(401).json({
-          error: "Authentication Error",
-          message: "Invalid or expired challenge",
-        });
+        return next(new AuthenticationError("Invalid or expired challenge", "INVALID_CHALLENGE"));
       }
 
       // Verify the signature using Stellar SDK
@@ -285,10 +271,7 @@ router.post(
       );
 
       if (!isValidSignature) {
-        return res.status(401).json({
-          error: "Authentication Error",
-          message: "Invalid signature",
-        });
+        return next(new AuthenticationError("Invalid signature", "INVALID_SIGNATURE"));
       }
 
       let user = await prisma.user.findUnique({
@@ -424,11 +407,7 @@ router.post(
 
       return res.status(200).json(response);
     } catch (error) {
-      logger.error("Error authenticating wallet:", { error });
-      return res.status(500).json({
-        error: "Internal Server Error",
-        message: "Failed to authenticate wallet",
-      });
+      next(error);
     }
   },
 );
