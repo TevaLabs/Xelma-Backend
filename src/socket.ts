@@ -3,6 +3,8 @@ import { Server as HTTPServer } from 'http';
 import { verifyToken } from './utils/jwt.util';
 import { prisma } from './lib/prisma';
 import websocketService from './services/websocket.service';
+import chatService from './services/chat.service';
+import { ChatMessage } from './types/chat.types';
 import logger from './utils/logger';
 
 // Extended socket interface with user data
@@ -10,6 +12,48 @@ interface AuthenticatedSocket extends Socket {
   userId?: string;
   walletAddress?: string;
 }
+
+// Standardized ack payloads for chat:send
+type ChatAck =
+  | { ok: true; message: ChatMessage }
+  | { ok: false; error: string; code: 'AUTH_REQUIRED' | 'INVALID_CONTENT' | 'RATE_LIMITED' | 'SEND_FAILED' };
+
+/**
+ * In-memory sliding-window rate limiter for WebSocket events.
+ * Keyed by userId so each user has an independent quota.
+ */
+export class SocketRateLimiter {
+  private windows = new Map<string, number[]>();
+
+  constructor(
+    private readonly max: number,
+    private readonly windowMs: number,
+  ) {}
+
+  isAllowed(key: string): boolean {
+    const now = Date.now();
+    const timestamps = (this.windows.get(key) ?? []).filter(t => now - t < this.windowMs);
+    if (timestamps.length >= this.max) {
+      this.windows.set(key, timestamps);
+      return false;
+    }
+    timestamps.push(now);
+    this.windows.set(key, timestamps);
+    return true;
+  }
+
+  /** Reset state for a specific key (or all keys if omitted). Used in tests. */
+  reset(key?: string): void {
+    if (key !== undefined) {
+      this.windows.delete(key);
+    } else {
+      this.windows.clear();
+    }
+  }
+}
+
+// 5 messages per 60 seconds per user — mirrors HTTP chatMessageRateLimiter
+export const chatRateLimiter = new SocketRateLimiter(5, 60_000);
 
 /**
  * Initialize Socket.IO with JWT authentication
@@ -107,59 +151,40 @@ export function initializeSocket(httpServer: HTTPServer): SocketIOServer {
       socket.emit('room:left', { room: 'chat' });
     });
 
-    // Handle chat message (requires authentication)
-    socket.on('chat:send', async (data: { content: string }) => {
-      if (!socket.userId) {
-        socket.emit('error', { message: 'Authentication required to send messages' });
+    // Handle chat message (requires authentication, rate limited, ack-based)
+    socket.on('chat:send', async (data: { content: string }, callback?: (ack: ChatAck) => void) => {
+      const ack = (payload: ChatAck): void => {
+        if (typeof callback === 'function') callback(payload);
+      };
+
+      if (!socket.userId || !socket.walletAddress) {
+        ack({ ok: false, error: 'Authentication required to send messages', code: 'AUTH_REQUIRED' });
         return;
       }
 
-      if (!data.content || data.content.trim().length === 0) {
-        socket.emit('error', { message: 'Message content is required' });
+      if (!chatRateLimiter.isAllowed(socket.userId)) {
+        logger.warn(`Chat rate limit exceeded for user ${socket.userId}`);
+        ack({ ok: false, error: 'Too many messages. Please wait before sending another.', code: 'RATE_LIMITED' });
+        return;
+      }
+
+      if (!data?.content || data.content.trim().length === 0) {
+        ack({ ok: false, error: 'Message content is required', code: 'INVALID_CONTENT' });
         return;
       }
 
       if (data.content.length > 500) {
-        socket.emit('error', { message: 'Message too long (max 500 characters)' });
+        ack({ ok: false, error: 'Message too long (max 500 characters)', code: 'INVALID_CONTENT' });
         return;
       }
 
       try {
-        // Get user info for the message
-        const user = await prisma.user.findUnique({
-          where: { id: socket.userId },
-          select: { id: true, walletAddress: true, nickname: true, avatarUrl: true },
-        });
-
-        if (!user) {
-          socket.emit('error', { message: 'User not found' });
-          return;
-        }
-
-        // Create message in database
-        const message = await prisma.message.create({
-          data: {
-            userId: socket.userId,
-            content: data.content.trim(),
-          },
-        });
-
-        // Broadcast to chat room
-        const chatMessage = {
-          id: message.id,
-          userId: user.id,
-          walletAddress: user.walletAddress,
-          nickname: user.nickname,
-          avatarUrl: user.avatarUrl,
-          content: message.content,
-          createdAt: message.createdAt.toISOString(),
-        };
-
-        io.to('chat').emit('chat:message', chatMessage);
+        const message = await chatService.sendMessage(socket.userId, socket.walletAddress, data.content);
         logger.info(`Chat message sent by user ${socket.userId}: ${message.id}`);
+        ack({ ok: true, message });
       } catch (error) {
         logger.error('Error sending chat message:', error);
-        socket.emit('error', { message: 'Failed to send message' });
+        ack({ ok: false, error: 'Failed to send message', code: 'SEND_FAILED' });
       }
     });
 
