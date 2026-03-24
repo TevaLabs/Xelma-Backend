@@ -12,6 +12,14 @@ class SchedulerService {
    * Start the scheduler
    */
   start(): void {
+    // Always schedule notification cleanup regardless of auto-resolve setting
+    logger.info("Starting notification cleanup scheduler (daily at 2:00 AM)");
+    this.cronTasks.push(
+      cron.schedule("0 2 * * *", async () => {
+        await this.cleanupOldNotifications();
+      }),
+    );
+
     if (process.env.AUTO_RESOLVE_ENABLED !== "true") {
       logger.info("Auto-resolution scheduler is disabled");
       return;
@@ -33,14 +41,6 @@ class SchedulerService {
     this.cronTasks.push(
       cron.schedule(cronExpression, async () => {
         await this.autoResolveRounds();
-      }),
-    );
-
-    // Schedule notification cleanup: Run daily at 2 AM
-    logger.info("Starting notification cleanup scheduler (daily at 2:00 AM)");
-    this.cronTasks.push(
-      cron.schedule("0 2 * * *", async () => {
-        await this.cleanupOldNotifications();
       }),
     );
   }

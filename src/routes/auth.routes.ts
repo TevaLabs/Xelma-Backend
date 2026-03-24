@@ -231,10 +231,17 @@ router.post(
           where: { challenge },
         });
 
-        if (!existingChallenge || existingChallenge.walletAddress !== walletAddress) {
+        if (!existingChallenge) {
           return res.status(401).json({
             error: "Authentication Error",
             message: "Invalid or expired challenge",
+          });
+        }
+
+        if (existingChallenge.walletAddress !== walletAddress) {
+          return res.status(401).json({
+            error: "Authentication Error",
+            message: "Challenge does not match wallet address",
           });
         }
 
@@ -252,18 +259,6 @@ router.post(
           });
         }
 
-        return res.status(401).json({
-          error: "Authentication Error",
-          message: "Invalid or expired challenge",
-        });
-      }
-
-      // Re-fetch the challenge record to get its ID for later steps
-      const authChallenge = await prisma.authChallenge.findUnique({
-        where: { challenge },
-      });
-
-      if (!authChallenge) {
         return res.status(401).json({
           error: "Authentication Error",
           message: "Invalid or expired challenge",
@@ -380,14 +375,6 @@ router.post(
           },
         });
       }
-
-      // Link challenge to user
-      await prisma.authChallenge.update({
-        where: { id: authChallenge.id },
-        data: {
-          userId: user.id,
-        },
-      });
 
       // Generate JWT token
       const token = generateToken(user.id, user.walletAddress);
