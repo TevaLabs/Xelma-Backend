@@ -73,13 +73,10 @@ router.post(
         startTime.getTime() + durationMinutes * 60 * 1000,
       );
 
-      // Create round on Soroban contract
-      let sorobanRoundId: string | null = null;
+      // Create round on Soroban contract (UP_DOWN mode = 0)
+      const sorobanRoundId: string | null = null;
       try {
-        sorobanRoundId = await sorobanService.createRound(
-          priceNum,
-          durationLedgers,
-        );
+        await sorobanService.createRound(priceNum, 0);
       } catch (e) {
         logger.warn(
           "Soroban createRound failed, proceeding with DB-only round:",
@@ -340,7 +337,11 @@ router.post(
 
       // Call Soroban contract to resolve
       try {
-        await sorobanService.resolveRound(finalPriceNum);
+        await sorobanService.resolveRound(
+          finalPriceNum,
+          0,
+          BigInt(Math.floor(Date.now() / 1000)),
+        );
       } catch (e) {
         logger.warn(
           "Soroban resolveRound failed, proceeding with DB-only resolution:",

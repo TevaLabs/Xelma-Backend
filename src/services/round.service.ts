@@ -42,12 +42,11 @@ export class RoundService {
 
       // Mode 0 (UP_DOWN): Create round on Soroban contract
       if (mode === "UP_DOWN") {
-        // Convert duration to ledgers (~5 seconds per ledger)
-        const durationLedgers = Math.floor((durationMinutes * 60) / 5);
-        sorobanRoundId = await sorobanService.createRound(
-          startPrice,
-          durationLedgers,
-        );
+        try {
+          await sorobanService.createRound(startPrice, 0);
+        } catch (e) {
+          logger.warn("Soroban createRound failed, proceeding with DB-only round:", e);
+        }
       }
 
       // Mode 1 (LEGENDS): Define price ranges

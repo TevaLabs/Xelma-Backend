@@ -1,0 +1,25 @@
+{
+  "version": "0.0.0",
+  "name": "@tevalabs/xelma-bindings",
+  "type": "module",
+  "exports": {
+    ".": {
+      "require": "./dist/cjs/index.js",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "typings": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test:parity": "node src/parity.js"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^14.1.1",
+    "buffer": "6.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2"
+  },
+  "main": "./dist/cjs/index.js"
+}

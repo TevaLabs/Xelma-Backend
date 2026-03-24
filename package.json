@@ -9,6 +9,8 @@
     "lint": "tsc --noEmit",
     "build": "tsc",
     "ci": "npm run lint && npm run build && npm run test",
+    "install-bindings": "node scripts/install-bindings.js",
+    "preinstall": "node scripts/install-bindings.js || true",
     "postinstall": "npm run build",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -23,7 +25,7 @@
   "dependencies": {
     "@prisma/client": "^5.8.0",
     "@stellar/stellar-sdk": "^12.3.0",
-    "@tevalabs/xelma-bindings": "^1.0.0",
+    "@tevalabs/xelma-bindings": "file:vendor/xelma-bindings",
     "@types/winston": "^2.4.4",
     "axios": "^1.6.5",
     "cors": "^2.8.5",
