@@ -1,0 +1,154 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - staging
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+# Prevent concurrent deployments to the same environment
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # Gate: run the full CI suite before any deployment
+  # ──────────────────────────────────────────────────────────────
+  ci:
+    name: CI checks
+    uses: ./.github/workflows/ci.yml
+
+  # ──────────────────────────────────────────────────────────────
+  # Staging — automatic on push to dev/staging, or manual trigger
+  # ──────────────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to staging
+    needs: ci
+    if: >-
+      (github.ref_name == 'dev' || github.ref_name == 'staging') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy to staging
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          NODE_ENV: staging
+          PORT: ${{ vars.PORT }}
+          CLIENT_URL: ${{ vars.CLIENT_URL }}
+          SOROBAN_NETWORK: ${{ vars.SOROBAN_NETWORK }}
+          SOROBAN_RPC_URL: ${{ vars.SOROBAN_RPC_URL }}
+          SOROBAN_CONTRACT_ID: ${{ secrets.SOROBAN_CONTRACT_ID }}
+          SOROBAN_ADMIN_SECRET: ${{ secrets.SOROBAN_ADMIN_SECRET }}
+          SOROBAN_ORACLE_SECRET: ${{ secrets.SOROBAN_ORACLE_SECRET }}
+        run: |
+          echo "::notice::Deploying commit ${{ github.sha }} to staging"
+          # ─────────────────────────────────────────────────────
+          # Replace the block below with your actual deployment
+          # command (e.g., rsync, docker push, fly deploy, etc.)
+          # ─────────────────────────────────────────────────────
+          echo "Staging deployment placeholder — see README for setup instructions"
+
+      - name: Record deployment
+        run: |
+          echo "## Staging Deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Branch:** \`${{ github.ref_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Timestamp:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────────────────────
+  # Production — requires manual approval via GitHub environment
+  # ──────────────────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy to production
+    needs: ci
+    if: >-
+      github.ref_name == 'main' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy to production
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          NODE_ENV: production
+          PORT: ${{ vars.PORT }}
+          CLIENT_URL: ${{ vars.CLIENT_URL }}
+          SOROBAN_NETWORK: ${{ vars.SOROBAN_NETWORK }}
+          SOROBAN_RPC_URL: ${{ vars.SOROBAN_RPC_URL }}
+          SOROBAN_CONTRACT_ID: ${{ secrets.SOROBAN_CONTRACT_ID }}
+          SOROBAN_ADMIN_SECRET: ${{ secrets.SOROBAN_ADMIN_SECRET }}
+          SOROBAN_ORACLE_SECRET: ${{ secrets.SOROBAN_ORACLE_SECRET }}
+        run: |
+          echo "::notice::Deploying commit ${{ github.sha }} to production"
+          # ─────────────────────────────────────────────────────
+          # Replace the block below with your actual deployment
+          # command (e.g., rsync, docker push, fly deploy, etc.)
+          # ─────────────────────────────────────────────────────
+          echo "Production deployment placeholder — see README for setup instructions"
+
+      - name: Record deployment
+        run: |
+          echo "## Production Deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Branch:** \`${{ github.ref_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Timestamp:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_STEP_SUMMARY"
