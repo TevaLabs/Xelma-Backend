@@ -424,6 +424,26 @@ ROUND_SCHEDULER_ENABLED=false  # Set to 'true' to enable automated rounds
 ROUND_SCHEDULER_MODE=UP_DOWN   # or 'LEGENDS'
 ```
 
+### Database Pool Tuning
+
+Prisma pool behavior is configurable via environment variables (no code changes required):
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `DB_POOL_MAX` | `10` | Maximum number of pooled connections for this app instance (`connection_limit`) |
+| `DB_CONNECTION_TIMEOUT_MS` | `5000` | Maximum wait for a free pooled connection (converted to Prisma `pool_timeout` seconds; `0` disables timeout) |
+| `DB_IDLE_TIMEOUT_MS` | `300000` | Validated/logged operational knob; Prisma v5 does not expose direct idle pool timeout |
+| `DB_MAX_LIFETIME_S` | `0` | Validated/logged operational knob; Prisma v5 does not expose direct max pool connection lifetime |
+
+Recommended tuning:
+- Local development: keep defaults (`DB_POOL_MAX=10`) unless your local Postgres limits are lower.
+- Production: ensure `DB_POOL_MAX * app_instance_count` stays below your database max connections (leave headroom for admin and migration traffic).
+- If `DB_CONNECTION_TIMEOUT_MS` is set, non-second values are normalized to seconds for Prisma v5 (for example, `1500ms` becomes `2s`).
+
+Startup validation behavior:
+- Invalid values (non-integer, negative, or `DB_POOL_MAX < 1`) fail fast during startup with clear errors.
+- Effective pool configuration is logged at initialization without exposing database credentials.
+
 ### 3. Set Up Database
 
 ```bash
@@ -798,6 +818,10 @@ Can't reach database server at localhost:5432
 1. Verify PostgreSQL is running: `psql -U postgres`
 2. Check `DATABASE_URL` in `.env` matches your database credentials
 3. Ensure database `xelma_db` exists or run migrations: `npm run prisma:migrate`
+
+If startup fails with pool-configuration errors, verify:
+- `DB_POOL_MAX` is a positive integer
+- `DB_CONNECTION_TIMEOUT_MS`, `DB_IDLE_TIMEOUT_MS`, and `DB_MAX_LIFETIME_S` are integers >= 0
 
 ---
 
