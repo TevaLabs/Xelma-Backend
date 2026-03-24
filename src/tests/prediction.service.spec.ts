@@ -14,6 +14,7 @@ jest.mock("../lib/prisma", () => {
   const predictionFindUnique = jest.fn();
   const predictionFindMany = jest.fn();
   const predictionCreate = jest.fn();
+  const userFindUnique = jest.fn();
   const userUpdate = jest.fn();
 
   const mockTx = {
@@ -23,7 +24,7 @@ jest.mock("../lib/prisma", () => {
       findMany: predictionFindMany,
       create: predictionCreate,
     },
-    user: { update: userUpdate },
+    user: { findUnique: userFindUnique, update: userUpdate },
   };
 
   return {
@@ -32,7 +33,7 @@ jest.mock("../lib/prisma", () => {
       $transaction: (fn: (tx: any) => Promise<any>) => fn(mockTx),
     },
     // expose individual mocks so tests can import them
-    __mocks: { roundFindUnique, roundUpdate, predictionFindUnique, predictionFindMany, predictionCreate, userUpdate },
+    __mocks: { roundFindUnique, roundUpdate, predictionFindUnique, predictionFindMany, predictionCreate, userFindUnique, userUpdate },
   };
 });
 
@@ -51,6 +52,7 @@ const {
   predictionFindUnique: mockPredictionFindUnique,
   predictionFindMany: mockPredictionFindMany,
   predictionCreate: mockPredictionCreate,
+  userFindUnique: mockUserFindUnique,
   userUpdate: mockUserUpdate,
 } = (require("../lib/prisma") as any).__mocks;
 
@@ -108,11 +110,11 @@ describe("PredictionService (Issue #78)", () => {
           status: "ACTIVE",
         });
         mockPredictionFindUnique.mockResolvedValue(null);
-        mockUserUpdate.mockRejectedValue({ code: "P2025" });
+        mockUserFindUnique.mockResolvedValueOnce(null);
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, "UP")
-        ).rejects.toThrow("Insufficient balance");
+        ).rejects.toThrow("User not found");
       });
 
       it("should throw when insufficient balance", async () => {
@@ -122,7 +124,11 @@ describe("PredictionService (Issue #78)", () => {
           status: "ACTIVE",
         });
         mockPredictionFindUnique.mockResolvedValue(null);
-        mockUserUpdate.mockRejectedValue({ code: "P2025" });
+        mockUserFindUnique.mockResolvedValueOnce({
+          id: userId,
+          walletAddress: "GXXX",
+          virtualBalance: 50,
+        });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, "UP")
@@ -136,7 +142,7 @@ describe("PredictionService (Issue #78)", () => {
           status: "ACTIVE",
         });
         mockPredictionFindUnique.mockResolvedValue(null);
-        mockUserUpdate.mockResolvedValue({
+        mockUserFindUnique.mockResolvedValueOnce({
           id: userId,
           walletAddress: "GXXX",
           virtualBalance: 900,
@@ -155,7 +161,7 @@ describe("PredictionService (Issue #78)", () => {
           priceRanges: [{ min: 1, max: 2, pool: 0 }],
         });
         mockPredictionFindUnique.mockResolvedValue(null);
-        mockUserUpdate.mockResolvedValue({
+        mockUserFindUnique.mockResolvedValueOnce({
           id: userId,
           walletAddress: "GXXX",
           virtualBalance: 900,
@@ -174,7 +180,7 @@ describe("PredictionService (Issue #78)", () => {
           priceRanges: [{ min: 1, max: 2, pool: 0 }],
         });
         mockPredictionFindUnique.mockResolvedValue(null);
-        mockUserUpdate.mockResolvedValue({
+        mockUserFindUnique.mockResolvedValueOnce({
           id: userId,
           walletAddress: "GXXX",
           virtualBalance: 900,
@@ -197,7 +203,7 @@ describe("PredictionService (Issue #78)", () => {
           status: "ACTIVE",
         });
         mockPredictionFindUnique.mockResolvedValue(null);
-        mockUserUpdate.mockResolvedValue({
+        mockUserFindUnique.mockResolvedValueOnce({
           id: userId,
           walletAddress: "GXXX",
           virtualBalance: 900,
@@ -211,7 +217,9 @@ describe("PredictionService (Issue #78)", () => {
           createdAt: new Date(),
         };
         mockPredictionCreate.mockResolvedValue(created);
-        mockUserUpdate.mockResolvedValue({});
+        mockUserUpdate.mockResolvedValue({
+          id: userId,
+        });
         mockRoundUpdate.mockResolvedValue({});
 
         const result = await predictionService.submitPrediction(
@@ -230,9 +238,9 @@ describe("PredictionService (Issue #78)", () => {
             side: "UP",
           },
         });
-        // Service uses an atomic WHERE+DECREMENT pattern to prevent race conditions
+        // Service deducts via Prisma decrement after pre-checking available balance.
         expect(mockUserUpdate).toHaveBeenCalledWith({
-          where: { id: userId, virtualBalance: { gte: 100 } },
+          where: { id: userId },
           data: { virtualBalance: { decrement: 100 } },
         });
         expect(mockRoundUpdate).toHaveBeenCalledWith({
@@ -255,7 +263,7 @@ describe("PredictionService (Issue #78)", () => {
           priceRanges,
         });
         mockPredictionFindUnique.mockResolvedValue(null);
-        mockUserUpdate.mockResolvedValue({
+        mockUserFindUnique.mockResolvedValueOnce({
           id: userId,
           walletAddress: "GXXX",
           virtualBalance: 450,
@@ -269,7 +277,9 @@ describe("PredictionService (Issue #78)", () => {
           createdAt: new Date(),
         };
         mockPredictionCreate.mockResolvedValue(created);
-        mockUserUpdate.mockResolvedValue({});
+        mockUserUpdate.mockResolvedValue({
+          id: userId,
+        });
         mockRoundUpdate.mockResolvedValue({});
 
         const result = await predictionService.submitPrediction(

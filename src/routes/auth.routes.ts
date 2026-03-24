@@ -231,10 +231,17 @@ router.post(
           where: { challenge },
         });
 
-        if (!existingChallenge || existingChallenge.walletAddress !== walletAddress) {
+        if (!existingChallenge) {
           return res.status(401).json({
             error: "Authentication Error",
             message: "Invalid or expired challenge",
+          });
+        }
+
+        if (existingChallenge.walletAddress !== walletAddress) {
+          return res.status(401).json({
+            error: "Authentication Error",
+            message: "Challenge does not match wallet address",
           });
         }
 

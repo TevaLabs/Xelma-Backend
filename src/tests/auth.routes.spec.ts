@@ -36,6 +36,7 @@ const mockUserCreate = jest.fn();
 const mockUserUpdate = jest.fn();
 const mockAuthChallengeFindUnique = jest.fn();
 const mockAuthChallengeCreate = jest.fn();
+const mockAuthChallengeUpdate = jest.fn();
 const mockAuthChallengeUpdateMany = jest.fn();
 const mockAuthChallengeDelete = jest.fn();
 const mockAuthChallengeDeleteMany = jest.fn();
@@ -55,6 +56,7 @@ jest.mock("../lib/prisma", () => ({
     authChallenge: {
       findUnique: (...args: any[]) => mockAuthChallengeFindUnique(...args),
       create: (...args: any[]) => mockAuthChallengeCreate(...args),
+      update: (...args: any[]) => mockAuthChallengeUpdate(...args),
       updateMany: (...args: any[]) => mockAuthChallengeUpdateMany(...args),
       delete: (...args: any[]) => mockAuthChallengeDelete(...args),
       deleteMany: (...args: any[]) => mockAuthChallengeDeleteMany(...args),
@@ -95,6 +97,7 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
       return Promise.resolve(null);
     });
     mockAuthChallengeDeleteMany.mockResolvedValue({ count: 0 });
+    mockAuthChallengeUpdateMany.mockResolvedValue({ count: 0 });
     mockAuthChallengeCreate.mockImplementation((args: any) =>
       Promise.resolve({
         id: "ch-1",
@@ -140,8 +143,8 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
         .send({});
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain("expected string");
-      expect(res.body.message).toContain("expected string");
+      expect(res.body.error).toBe("Validation Error");
+      expect(res.body.message).toContain("walletAddress is required");
     });
 
     it("should return 400 for invalid Stellar wallet address format", async () => {
@@ -152,7 +155,7 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
         .send({ walletAddress: "not-a-valid-address" });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Invalid Stellar wallet address format");
+      expect(res.body.error).toBe("Validation Error");
       expect(res.body.message).toContain("Invalid Stellar wallet address format");
     });
 
@@ -176,8 +179,10 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
       });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain("expected string");
-      expect(res.body.message).toContain("expected string");
+      expect(res.body.error).toBe("Validation Error");
+      expect(res.body.message).toContain(
+        "walletAddress, challenge, and signature are required",
+      );
     });
 
     it("should return 400 for invalid Stellar address on connect", async () => {
@@ -267,6 +272,13 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
 
       const future = new Date(Date.now() + 5 * 60 * 1000);
       mockAuthChallengeUpdateMany.mockResolvedValueOnce({ count: 1 });
+      mockAuthChallengeFindUnique.mockResolvedValueOnce({
+        id: "ch-1",
+        challenge: "xelma_auth_new_user_connect_test",
+        walletAddress: newWallet,
+        expiresAt: future,
+        isUsed: false,
+      });
       mockVerifySignature.mockResolvedValueOnce(true);
       mockUserFindUnique.mockResolvedValueOnce(null);
       const newUser = {
