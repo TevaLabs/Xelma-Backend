@@ -15,6 +15,8 @@ import schedulerService from './services/scheduler.service';
 import roundSchedulerService from './services/round-scheduler.service';
 import logger from './utils/logger';
 import { errorHandler } from './middleware/errorHandler.middleware';
+import { metricsMiddleware } from './middleware/metrics.middleware';
+import metricsRoutes from './routes/metrics.routes';
 import chatRoutes from "./routes/chat.routes";
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './docs/openapi';
@@ -51,6 +53,9 @@ export function createApp(): Express {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
+  // Prometheus metrics middleware (before routes so all requests are tracked)
+  app.use(metricsMiddleware);
+
   // Request logging middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
     logger.info(`${req.method} ${req.path}`);
@@ -66,6 +71,9 @@ export function createApp(): Express {
   app.use("/api/leaderboard", leaderboardRoutes);
   app.use("/api/chat", chatRoutes);
   app.use("/api/notifications", notificationsRoutes);
+
+  // Prometheus metrics endpoint
+  app.use('/metrics', metricsRoutes);
 
   // Swagger UI (OpenAPI)
   app.get('/docs', (req: Request, res: Response) => res.redirect(302, '/api-docs'));
