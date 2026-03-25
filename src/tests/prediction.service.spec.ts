@@ -14,14 +14,34 @@ const mockUserUpdate = jest.fn();
 
 jest.mock("../lib/prisma", () => ({
   prisma: {
-    round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
-    prediction: { findUnique: mockPredictionFindUnique, findMany: mockPredictionFindMany, create: mockPredictionCreate },
-    user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
+    round: {
+      findUnique: (...args: any[]) => mockRoundFindUnique(...args),
+      update: (...args: any[]) => mockRoundUpdate(...args),
+    },
+    prediction: {
+      findUnique: (...args: any[]) => mockPredictionFindUnique(...args),
+      findMany: (...args: any[]) => mockPredictionFindMany(...args),
+      create: (...args: any[]) => mockPredictionCreate(...args),
+    },
+    user: {
+      findUnique: (...args: any[]) => mockUserFindUnique(...args),
+      update: (...args: any[]) => mockUserUpdate(...args),
+    },
     $transaction: (fn: (tx: any) => Promise<any>) =>
       fn({
-        round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
-        prediction: { findUnique: mockPredictionFindUnique, findMany: mockPredictionFindMany, create: mockPredictionCreate },
-        user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
+        round: {
+          findUnique: (...args: any[]) => mockRoundFindUnique(...args),
+          update: (...args: any[]) => mockRoundUpdate(...args),
+        },
+        prediction: {
+          findUnique: (...args: any[]) => mockPredictionFindUnique(...args),
+          findMany: (...args: any[]) => mockPredictionFindMany(...args),
+          create: (...args: any[]) => mockPredictionCreate(...args),
+        },
+        user: {
+          findUnique: (...args: any[]) => mockUserFindUnique(...args),
+          update: (...args: any[]) => mockUserUpdate(...args),
+        },
       }),
   },
 }));
@@ -41,6 +61,11 @@ const roundId = "round-1";
 describe("PredictionService (Issue #78)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUserUpdate.mockResolvedValue({
+      id: userId,
+      walletAddress: "GXXX",
+      virtualBalance: 900,
+    });
   });
 
   describe("submitPrediction", () => {
@@ -106,6 +131,7 @@ describe("PredictionService (Issue #78)", () => {
           walletAddress: "GXXX",
           virtualBalance: 50,
         });
+        mockUserUpdate.mockRejectedValue({ code: "P2025" });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, "UP")
@@ -213,16 +239,17 @@ describe("PredictionService (Issue #78)", () => {
             side: "UP",
           },
         });
-        // Service may use literal balance (900) or Prisma decrement for atomic update
         expect(mockUserUpdate).toHaveBeenCalledWith(
-          expect.objectContaining({ where: { id: userId } })
+          {
+            where: {
+              id: userId,
+              virtualBalance: { gte: 100 },
+            },
+            data: {
+              virtualBalance: { decrement: 100 },
+            },
+          }
         );
-        const updateCall = mockUserUpdate.mock.calls[0][0];
-        const balance = updateCall?.data?.virtualBalance;
-        const ok =
-          balance === 900 ||
-          (typeof balance === "object" && balance?.decrement === 100);
-        expect(ok).toBe(true);
         expect(mockRoundUpdate).toHaveBeenCalledWith({
           where: { id: roundId },
           data: { poolUp: { increment: 100 } },
