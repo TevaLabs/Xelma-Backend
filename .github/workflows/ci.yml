@@ -60,7 +60,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: public.ecr.aws/docker/library/postgres:16
         env:
           POSTGRES_DB: xelma_ci
           POSTGRES_USER: postgres
