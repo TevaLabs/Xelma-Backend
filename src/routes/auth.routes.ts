@@ -224,10 +224,7 @@ router.post(
           where: { challenge },
         });
 
-        if (
-          !existingChallenge ||
-          existingChallenge.walletAddress !== walletAddress
-        ) {
+        if (!existingChallenge) {
           return next(
             new AuthenticationError(
               "Invalid or expired challenge",
@@ -237,10 +234,12 @@ router.post(
         }
 
         if (existingChallenge.walletAddress !== walletAddress) {
-          return res.status(401).json({
-            error: "Authentication Error",
-            message: "Challenge does not match wallet address",
-          });
+          return next(
+            new AuthenticationError(
+              "Challenge does not match wallet address: Invalid or expired challenge",
+              "INVALID_CHALLENGE",
+            ),
+          );
         }
 
         if (existingChallenge.isUsed) {

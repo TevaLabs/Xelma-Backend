@@ -1,4 +1,5 @@
-import cron, { ScheduledTask } from "node-cron";
+import * as cron from "node-cron";
+import type { ScheduledTask } from "node-cron";
 import resolutionService from "./resolution.service";
 import notificationService from "./notification.service";
 import priceOracle from "./oracle";
