@@ -4,34 +4,39 @@
 import { describe, it, expect, beforeEach } from "@jest/globals";
 import { PredictionService } from "../services/prediction.service";
 
-const mockRoundFindUnique = jest.fn();
-const mockRoundUpdate = jest.fn();
-const mockPredictionFindUnique = jest.fn();
-const mockPredictionFindMany = jest.fn();
-const mockPredictionCreate = jest.fn();
-const mockUserFindUnique = jest.fn();
-const mockUserUpdate = jest.fn();
-
-jest.mock("../lib/prisma", () => ({
-  prisma: {
-    round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
-    prediction: { findUnique: mockPredictionFindUnique, findMany: mockPredictionFindMany, create: mockPredictionCreate },
-    user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
-    $transaction: (fn: (tx: any) => Promise<any>) =>
-      fn({
-        round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
-        prediction: { findUnique: mockPredictionFindUnique, findMany: mockPredictionFindMany, create: mockPredictionCreate },
-        user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
-      }),
-  },
-}));
+// Mock factory creates fns internally to avoid jest.mock() hoisting TDZ issues
+jest.mock("../lib/prisma", () => {
+  const round = { findUnique: jest.fn(), update: jest.fn() };
+  const prediction = { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn() };
+  const user = { findUnique: jest.fn(), update: jest.fn() };
+  return {
+    prisma: {
+      round,
+      prediction,
+      user,
+      $transaction: jest.fn((fn: (tx: any) => Promise<any>) =>
+        fn({ round, prediction, user })
+      ),
+    },
+  };
+});
 
 jest.mock("../services/soroban.service", () => ({
   __esModule: true,
   default: { placeBet: jest.fn().mockResolvedValue(undefined) },
 }));
 
+import { PredictionService as _PS } from "../services/prediction.service";
 import { prisma } from "../lib/prisma";
+
+// Named references obtained after import — same jest.fn() instances as in the factory
+const mockRoundFindUnique = prisma.round.findUnique as jest.Mock;
+const mockRoundUpdate = prisma.round.update as jest.Mock;
+const mockPredictionFindUnique = prisma.prediction.findUnique as jest.Mock;
+const mockPredictionFindMany = prisma.prediction.findMany as jest.Mock;
+const mockPredictionCreate = prisma.prediction.create as jest.Mock;
+const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
+const mockUserUpdate = prisma.user.update as jest.Mock;
 
 const predictionService = new PredictionService();
 
@@ -106,6 +111,7 @@ describe("PredictionService (Issue #78)", () => {
           walletAddress: "GXXX",
           virtualBalance: 50,
         });
+        mockUserUpdate.mockRejectedValue({ code: "P2025" });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, "UP")
@@ -119,11 +125,6 @@ describe("PredictionService (Issue #78)", () => {
           status: "ACTIVE",
         });
         mockPredictionFindUnique.mockResolvedValue(null);
-        mockUserFindUnique.mockResolvedValue({
-          id: userId,
-          walletAddress: "GXXX",
-          virtualBalance: 1000,
-        });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100)
@@ -138,11 +139,6 @@ describe("PredictionService (Issue #78)", () => {
           priceRanges: [{ min: 1, max: 2, pool: 0 }],
         });
         mockPredictionFindUnique.mockResolvedValue(null);
-        mockUserFindUnique.mockResolvedValue({
-          id: userId,
-          walletAddress: "GXXX",
-          virtualBalance: 1000,
-        });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, undefined)
@@ -157,11 +153,6 @@ describe("PredictionService (Issue #78)", () => {
           priceRanges: [{ min: 1, max: 2, pool: 0 }],
         });
         mockPredictionFindUnique.mockResolvedValue(null);
-        mockUserFindUnique.mockResolvedValue({
-          id: userId,
-          walletAddress: "GXXX",
-          virtualBalance: 1000,
-        });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, undefined, {
@@ -194,7 +185,7 @@ describe("PredictionService (Issue #78)", () => {
           createdAt: new Date(),
         };
         mockPredictionCreate.mockResolvedValue(created);
-        mockUserUpdate.mockResolvedValue({});
+        mockUserUpdate.mockResolvedValue({ id: userId, walletAddress: "GXXX", virtualBalance: 900 });
         mockRoundUpdate.mockResolvedValue({});
 
         const result = await predictionService.submitPrediction(
@@ -213,16 +204,11 @@ describe("PredictionService (Issue #78)", () => {
             side: "UP",
           },
         });
-        // Service may use literal balance (900) or Prisma decrement for atomic update
-        expect(mockUserUpdate).toHaveBeenCalledWith(
-          expect.objectContaining({ where: { id: userId } })
-        );
-        const updateCall = mockUserUpdate.mock.calls[0][0];
-        const balance = updateCall?.data?.virtualBalance;
-        const ok =
-          balance === 900 ||
-          (typeof balance === "object" && balance?.decrement === 100);
-        expect(ok).toBe(true);
+        // Service uses an atomic WHERE+DECREMENT pattern to prevent race conditions
+        expect(mockUserUpdate).toHaveBeenCalledWith({
+          where: { id: userId, virtualBalance: { gte: 100 } },
+          data: { virtualBalance: { decrement: 100 } },
+        });
         expect(mockRoundUpdate).toHaveBeenCalledWith({
           where: { id: roundId },
           data: { poolUp: { increment: 100 } },
@@ -257,7 +243,7 @@ describe("PredictionService (Issue #78)", () => {
           createdAt: new Date(),
         };
         mockPredictionCreate.mockResolvedValue(created);
-        mockUserUpdate.mockResolvedValue({});
+        mockUserUpdate.mockResolvedValue({ id: userId, walletAddress: "GXXX", virtualBalance: 450 });
         mockRoundUpdate.mockResolvedValue({});
 
         const result = await predictionService.submitPrediction(

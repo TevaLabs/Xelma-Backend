@@ -118,7 +118,11 @@ export class ResolutionService {
     finalPrice: number,
   ): Promise<void> {
     // Call Soroban contract to resolve
-    await sorobanService.resolveRound(finalPrice);
+    await sorobanService.resolveRound(
+      finalPrice,
+      0,
+      BigInt(Math.floor(Date.now() / 1000)),
+    );
 
     const priceWentUp = finalPrice > toNumber(round.startPrice);
     const priceWentDown = finalPrice < toNumber(round.startPrice);

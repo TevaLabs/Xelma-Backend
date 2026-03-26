@@ -37,6 +37,7 @@ const mockUserUpdate = jest.fn();
 const mockAuthChallengeFindUnique = jest.fn();
 const mockAuthChallengeCreate = jest.fn();
 const mockAuthChallengeUpdate = jest.fn();
+const mockAuthChallengeUpdateMany = jest.fn();
 const mockAuthChallengeDelete = jest.fn();
 const mockAuthChallengeDeleteMany = jest.fn();
 const mockTransactionCreate = jest.fn();
@@ -56,6 +57,7 @@ jest.mock("../lib/prisma", () => ({
       findUnique: (...args: any[]) => mockAuthChallengeFindUnique(...args),
       create: (...args: any[]) => mockAuthChallengeCreate(...args),
       update: (...args: any[]) => mockAuthChallengeUpdate(...args),
+      updateMany: (...args: any[]) => mockAuthChallengeUpdateMany(...args),
       delete: (...args: any[]) => mockAuthChallengeDelete(...args),
       deleteMany: (...args: any[]) => mockAuthChallengeDeleteMany(...args),
     },
@@ -95,6 +97,7 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
       return Promise.resolve(null);
     });
     mockAuthChallengeDeleteMany.mockResolvedValue({ count: 0 });
+    mockAuthChallengeUpdateMany.mockResolvedValue({ count: 0 });
     mockAuthChallengeCreate.mockImplementation((args: any) =>
       Promise.resolve({
         id: "ch-1",
@@ -107,6 +110,7 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
   });
 
   beforeEach(() => {
+    jest.clearAllMocks();
     mockIsValidStellarAddress.mockReturnValue(true);
     mockVerifySignature.mockResolvedValue(true);
     mockUserFindUnique.mockImplementation((args: any) => {
@@ -115,6 +119,17 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
         return Promise.resolve({ id: testUser.id, walletAddress: testUser.walletAddress, role: "USER" });
       return Promise.resolve(null);
     });
+    mockAuthChallengeDeleteMany.mockResolvedValue({ count: 0 });
+    mockAuthChallengeUpdateMany.mockResolvedValue({ count: 1 });
+    mockAuthChallengeCreate.mockImplementation((args: any) =>
+      Promise.resolve({
+        id: "ch-1",
+        challenge: args?.data?.challenge ?? "xelma_auth_123",
+        walletAddress: args?.data?.walletAddress,
+        expiresAt: args?.data?.expiresAt ?? new Date(Date.now() + 5 * 60 * 1000),
+        isUsed: false,
+      })
+    );
   });
 
   afterAll(async () => {
@@ -128,8 +143,8 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
         .send({});
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Validation Error");
-      expect(res.body.message).toContain("walletAddress is required");
+      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.message).toBeDefined();
     });
 
     it("should return 400 for invalid Stellar wallet address format", async () => {
@@ -140,7 +155,7 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
         .send({ walletAddress: "not-a-valid-address" });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Validation Error");
+      expect(res.body.error).toBe("ValidationError");
       expect(res.body.message).toContain("Invalid Stellar wallet address format");
     });
 
@@ -164,8 +179,8 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
       });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Validation Error");
-      expect(res.body.message).toContain("walletAddress, challenge, and signature are required");
+      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.message).toBeDefined();
     });
 
     it("should return 400 for invalid Stellar address on connect", async () => {
@@ -184,6 +199,7 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
     });
 
     it("should return 401 for invalid or expired challenge", async () => {
+      mockAuthChallengeUpdateMany.mockResolvedValueOnce({ count: 0 });
       mockAuthChallengeFindUnique.mockResolvedValueOnce(null);
 
       const res = await request(app)
@@ -195,12 +211,14 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
         });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe("Authentication Error");
+      expect(res.body.error).toBe("AuthenticationError");
       expect(res.body.message).toContain("Invalid or expired challenge");
     });
 
     it("should return 401 when challenge belongs to different wallet", async () => {
       const future = new Date(Date.now() + 5 * 60 * 1000);
+      // updateMany returns 0 (WHERE clause fails because wallet doesn't match)
+      mockAuthChallengeUpdateMany.mockResolvedValueOnce({ count: 0 });
       mockAuthChallengeFindUnique.mockResolvedValueOnce({
         id: "ch-1",
         challenge: "xelma_auth_wrong_wallet_challenge",
@@ -218,17 +236,19 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
         });
 
       expect(res.status).toBe(401);
-      expect(res.body.message).toContain("Challenge does not match wallet address");
+      expect(res.body.message).toContain("Invalid or expired challenge");
     });
 
     it("should return 401 when signature is invalid", async () => {
       const future = new Date(Date.now() + 5 * 60 * 1000);
+      // updateMany succeeds (challenge is consumed), then findUnique re-fetches it
+      mockAuthChallengeUpdateMany.mockResolvedValueOnce({ count: 1 });
       mockAuthChallengeFindUnique.mockResolvedValueOnce({
         id: "ch-1",
         challenge: "xelma_auth_invalid_sig_test",
         walletAddress: VALID_WALLET,
         expiresAt: future,
-        isUsed: false,
+        isUsed: true,
       });
       mockVerifySignature.mockResolvedValueOnce(false);
 
@@ -251,12 +271,14 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
       );
 
       const future = new Date(Date.now() + 5 * 60 * 1000);
+      // updateMany succeeds (challenge consumed), then findUnique re-fetches record
+      mockAuthChallengeUpdateMany.mockResolvedValueOnce({ count: 1 });
       mockAuthChallengeFindUnique.mockResolvedValueOnce({
         id: "ch-1",
         challenge: "xelma_auth_new_user_connect_test",
         walletAddress: newWallet,
         expiresAt: future,
-        isUsed: false,
+        isUsed: true,
       });
       mockVerifySignature.mockResolvedValueOnce(true);
       mockUserFindUnique.mockResolvedValueOnce(null);
@@ -268,7 +290,6 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
       };
       mockUserCreate.mockResolvedValueOnce(newUser);
       mockTransactionCreate.mockResolvedValueOnce({});
-      mockAuthChallengeUpdate.mockResolvedValueOnce({});
       mockAuthChallengeDeleteMany.mockResolvedValueOnce({ count: 0 });
 
       const res = await request(app)

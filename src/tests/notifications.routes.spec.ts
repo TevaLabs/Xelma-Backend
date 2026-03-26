@@ -194,7 +194,7 @@ describe("Notifications Routes & Ownership (Issue #78)", () => {
         .set("Authorization", `Bearer ${tokenA}`);
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toContain("not found");
+      expect(res.body.message).toContain("not found");
     });
 
     it("should return 401 without auth", async () => {
@@ -227,7 +227,7 @@ describe("Notifications Routes & Ownership (Issue #78)", () => {
         .set("Authorization", `Bearer ${tokenA}`);
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toContain("not found");
+      expect(res.body.message).toContain("not found");
     });
   });
 
@@ -255,7 +255,7 @@ describe("Notifications Routes & Ownership (Issue #78)", () => {
         .set("Authorization", `Bearer ${tokenB}`);
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toContain("not found");
+      expect(res.body.message).toContain("not found");
     });
 
     it("should return 200 and delete when user owns the notification", async () => {

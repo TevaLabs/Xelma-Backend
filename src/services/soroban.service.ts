@@ -1,14 +1,19 @@
-import { Keypair, Networks } from "@stellar/stellar-sdk";
+import { Keypair, Networks, Transaction } from "@stellar/stellar-sdk";
+import type { Client as XelmaClient, BetSide, OraclePayload, RoundMode } from "@tevalabs/xelma-bindings";
 import logger from "../utils/logger";
-import { Client, BetSide } from "@tevalabs/xelma-bindings";
 
 export class SorobanService {
-  private client: any = null;
+  private client: XelmaClient | null = null;
   private adminKeypair: Keypair | null = null;
   private oracleKeypair: Keypair | null = null;
   private initialized = false;
+  private readonly ready: Promise<void>;
 
   constructor() {
+    this.ready = this.init();
+  }
+
+  private async init(): Promise<void> {
     try {
       const contractId = process.env.SOROBAN_CONTRACT_ID;
       const network = process.env.SOROBAN_NETWORK || "testnet";
@@ -17,7 +22,6 @@ export class SorobanService {
       const adminSecret = process.env.SOROBAN_ADMIN_SECRET;
       const oracleSecret = process.env.SOROBAN_ORACLE_SECRET;
 
-      // Hard-disable if anything critical is missing
       if (!contractId || !adminSecret || !oracleSecret) {
         logger.warn(
           "Soroban configuration or bindings missing. Soroban integration DISABLED.",
@@ -25,7 +29,7 @@ export class SorobanService {
         return;
       }
 
-      // NOTE: Requires @tevalabs/xelma-bindings to be installed
+      const { Client } = await import("@tevalabs/xelma-bindings");
       this.client = new Client({
         contractId,
         networkPassphrase:
@@ -44,35 +48,37 @@ export class SorobanService {
     }
   }
 
-  private ensureInitialized() {
+  private async ensureInitialized(): Promise<void> {
+    await this.ready;
     if (!this.initialized || !this.client) {
       throw new Error("Soroban service is not initialized");
     }
   }
 
   /**
-   * Creates a new round on the Soroban contract
+   * Creates a new round on the Soroban contract (admin only).
+   * mode: 0 = Up/Down (default), 1 = Precision (Legends)
    */
   async createRound(
     startPrice: number,
-    durationLedgers: number,
-  ): Promise<string> {
-    this.ensureInitialized();
+    mode: RoundMode = 0 as RoundMode,
+  ): Promise<void> {
+    await this.ensureInitialized();
     try {
       logger.info(
-        `Creating Soroban round: price=${startPrice}, duration=${durationLedgers}`,
+        `Creating Soroban round: price=${startPrice}, mode=${mode}`,
       );
 
-      // Convert price to stroops (1 XLM = 10^7 stroops)
-      const priceInStroops = Math.floor(startPrice * 10_000_000);
+      // Price scaled to 4 decimal places (e.g. 0.2297 → 2297)
+      const priceScaled = BigInt(Math.round(startPrice * 10_000));
 
-      const result = await this.client!.create_round({
-        start_price: BigInt(priceInStroops),
-        duration_ledgers: durationLedgers,
+      const tx = await this.client!.create_round({
+        start_price: priceScaled,
+        mode,
       });
+      await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
 
       logger.info("Soroban round created successfully");
-      return result.toString();
     } catch (error) {
       logger.error("Failed to create Soroban round:", error);
       throw new Error(`Soroban contract error: ${error}`);
@@ -80,33 +86,33 @@ export class SorobanService {
   }
 
   /**
-   * Places a bet on the Soroban contract
+   * Places a bet on the Soroban contract (Up/Down mode only).
    */
   async placeBet(
     userAddress: string,
     amount: number,
     side: "UP" | "DOWN",
   ): Promise<void> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     try {
       logger.info(
         `Placing bet on Soroban: user=${userAddress}, amount=${amount}, side=${side}`,
       );
 
-      // Convert amount to stroops
-      const amountInStroops = Math.floor(amount * 10_000_000);
+      // Amount in stroops (1 XLM = 10^7 stroops)
+      const amountInStroops = BigInt(Math.floor(amount * 10_000_000));
 
-      // BetSide is a type union: {tag: "Up", values: void} | {tag: "Down", values: void}
       const betSide: BetSide =
         side === "UP"
           ? { tag: "Up", values: undefined }
           : { tag: "Down", values: undefined };
 
-      await this.client!.place_bet({
+      const tx = await this.client!.place_bet({
         user: userAddress,
-        amount: BigInt(amountInStroops),
+        amount: amountInStroops,
         side: betSide,
       });
+      await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
 
       logger.info("Bet placed successfully on Soroban");
     } catch (error) {
@@ -116,19 +122,28 @@ export class SorobanService {
   }
 
   /**
-   * Resolves a round on the Soroban contract
+   * Resolves the active round via oracle payload (oracle only).
    */
-  async resolveRound(finalPrice: number): Promise<void> {
-    this.ensureInitialized();
+  async resolveRound(
+    finalPrice: number,
+    roundId: number,
+    timestamp: bigint,
+  ): Promise<void> {
+    await this.ensureInitialized();
     try {
-      logger.info(`Resolving Soroban round: finalPrice=${finalPrice}`);
+      logger.info(`Resolving Soroban round: finalPrice=${finalPrice}, roundId=${roundId}`);
 
-      // Convert price to stroops
-      const priceInStroops = Math.floor(finalPrice * 10_000_000);
+      // Price scaled to 4 decimal places
+      const priceScaled = BigInt(Math.round(finalPrice * 10_000));
 
-      await this.client!.resolve_round({
-        final_price: BigInt(priceInStroops),
-      });
+      const payload: OraclePayload = {
+        price: priceScaled,
+        round_id: roundId,
+        timestamp,
+      };
+
+      const tx = await this.client!.resolve_round({ payload });
+      await tx.signAndSend({ signTransaction: this.signWithOracle.bind(this) });
 
       logger.info("Soroban round resolved successfully");
     } catch (error) {
@@ -138,13 +153,14 @@ export class SorobanService {
   }
 
   /**
-   * Gets the active round from Soroban
+   * Gets the active round from Soroban (read-only simulation).
    */
   async getActiveRound(): Promise<any> {
+    await this.ready;
     if (!this.initialized) return null;
     try {
-      const round = await this.client!.get_active_round();
-      return round;
+      const tx = await this.client!.get_active_round();
+      return tx.result;
     } catch (error) {
       logger.error("Failed to get active round from Soroban:", error);
       return null;
@@ -152,14 +168,15 @@ export class SorobanService {
   }
 
   /**
-   * Mints initial tokens for a new user
+   * Mints 1000 vXLM for a new user (one-time only).
+   * Returns the minted amount converted from stroops to XLM.
    */
   async mintInitial(userAddress: string): Promise<number> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     try {
-      const result = await this.client!.mint_initial({ user: userAddress });
-      // Convert from stroops to XLM
-      return Number(result) / 10_000_000;
+      const tx = await this.client!.mint_initial({ user: userAddress });
+      await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+      return Number(tx.result) / 10_000_000;
     } catch (error) {
       logger.error("Failed to mint initial tokens:", error);
       throw new Error(`Soroban contract error: ${error}`);
@@ -167,18 +184,43 @@ export class SorobanService {
   }
 
   /**
-   * Gets user balance from Soroban
+   * Gets user balance from Soroban (read-only simulation).
+   * Returns balance in XLM (converted from stroops).
    */
   async getBalance(userAddress: string): Promise<number> {
+    await this.ready;
     if (!this.initialized) return 0;
     try {
-      const balance = await this.client!.balance({ user: userAddress });
-      // Convert from stroops to XLM
-      return Number(balance) / 10_000_000;
+      const tx = await this.client!.balance({ user: userAddress });
+      return Number(tx.result) / 10_000_000;
     } catch (error) {
       logger.error("Failed to get balance from Soroban:", error);
       return 0;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal signing helpers
+  // ---------------------------------------------------------------------------
+
+  private signWithAdmin(xdr: string): string {
+    if (!this.adminKeypair) throw new Error("Admin keypair not set");
+    const network = process.env.SOROBAN_NETWORK || "testnet";
+    const passphrase =
+      network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+    const tx = new Transaction(xdr, passphrase);
+    tx.sign(this.adminKeypair);
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  private signWithOracle(xdr: string): string {
+    if (!this.oracleKeypair) throw new Error("Oracle keypair not set");
+    const network = process.env.SOROBAN_NETWORK || "testnet";
+    const passphrase =
+      network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+    const tx = new Transaction(xdr, passphrase);
+    tx.sign(this.oracleKeypair);
+    return tx.toEnvelope().toXDR("base64");
   }
 }
 

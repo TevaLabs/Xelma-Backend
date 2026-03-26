@@ -1,7 +1,6 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { getLeaderboard } from '../services/leaderboard.service';
 import { optionalAuthentication, AuthRequest } from '../middleware/auth.middleware';
-import logger from '../utils/logger';
 
 const router = Router();
 
@@ -44,7 +43,7 @@ const router = Router();
  *           curl -X GET "$API_BASE_URL/api/leaderboard?limit=100&offset=0"
  */
 
-router.get('/', optionalAuthentication, async (req: AuthRequest, res: Response) => {
+router.get('/', optionalAuthentication, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
     const offset = parseInt(req.query.offset as string) || 0;
@@ -54,11 +53,7 @@ router.get('/', optionalAuthentication, async (req: AuthRequest, res: Response) 
 
     res.json(leaderboard);
   } catch (error) {
-    logger.error('Error fetching leaderboard:', { error });
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: 'Failed to fetch leaderboard'
-    });
+    next(error);
   }
 });
 

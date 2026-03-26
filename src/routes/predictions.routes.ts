@@ -1,10 +1,9 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import predictionService from '../services/prediction.service';
 import { authenticateUser } from '../middleware/auth.middleware';
 import { predictionRateLimiter } from '../middleware/rateLimiter.middleware';
 import { validate } from '../middleware/validate.middleware';
 import { submitPredictionSchema } from '../schemas/predictions.schema';
-import logger from '../utils/logger';
 
 const router = Router();
 
@@ -81,7 +80,7 @@ const router = Router();
  *             -H "Authorization: Bearer $TOKEN" \\
  *             -d '{"roundId":"round-id","amount":10,"side":"UP"}'
  */
-router.post('/submit', authenticateUser, predictionRateLimiter, validate(submitPredictionSchema), async (req: Request, res: Response) => {
+router.post('/submit', authenticateUser, predictionRateLimiter, validate(submitPredictionSchema), async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { roundId, amount, side, priceRange } = req.body;
         const userId = req.user!.userId;
@@ -105,9 +104,8 @@ router.post('/submit', authenticateUser, predictionRateLimiter, validate(submitP
                 createdAt: prediction.createdAt,
             },
         });
-    } catch (error: any) {
-        logger.error('Failed to submit prediction:', error);
-        res.status(500).json({ error: error.message || 'Failed to submit prediction' });
+    } catch (error) {
+        next(error);
     }
 });
 
@@ -141,7 +139,7 @@ router.post('/submit', authenticateUser, predictionRateLimiter, validate(submitP
  *         source: |
  *           curl -X GET "$API_BASE_URL/api/predictions/user/user-id"
  */
-router.get('/user/:userId', async (req: Request, res: Response) => {
+router.get('/user/:userId', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { userId } = req.params;
 
@@ -151,9 +149,8 @@ router.get('/user/:userId', async (req: Request, res: Response) => {
             success: true,
             predictions,
         });
-    } catch (error: any) {
-        logger.error('Failed to get user predictions:', error);
-        res.status(500).json({ error: error.message || 'Failed to get user predictions' });
+    } catch (error) {
+        next(error);
     }
 });
 
@@ -187,7 +184,7 @@ router.get('/user/:userId', async (req: Request, res: Response) => {
  *         source: |
  *           curl -X GET "$API_BASE_URL/api/predictions/round/round-id"
  */
-router.get('/round/:roundId', async (req: Request, res: Response) => {
+router.get('/round/:roundId', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { roundId } = req.params;
 
@@ -197,9 +194,8 @@ router.get('/round/:roundId', async (req: Request, res: Response) => {
             success: true,
             predictions,
         });
-    } catch (error: any) {
-        logger.error('Failed to get round predictions:', error);
-        res.status(500).json({ error: error.message || 'Failed to get round predictions' });
+    } catch (error) {
+        next(error);
     }
 });
 

@@ -3,6 +3,8 @@ import { Server as HTTPServer } from 'http';
 import { verifyToken } from './utils/jwt.util';
 import { prisma } from './lib/prisma';
 import websocketService from './services/websocket.service';
+import chatService from './services/chat.service';
+import { ChatMessage } from './types/chat.types';
 import logger from './utils/logger';
 
 // Extended socket interface with user data
@@ -11,17 +13,165 @@ interface AuthenticatedSocket extends Socket {
   walletAddress?: string;
 }
 
+// Standardized ack payloads for chat:send
+type ChatAck =
+  | { ok: true; message: ChatMessage }
+  | { ok: false; error: string; code: 'AUTH_REQUIRED' | 'INVALID_CONTENT' | 'RATE_LIMITED' | 'SEND_FAILED' };
+
 /**
- * Initialize Socket.IO with JWT authentication
+ * In-memory sliding-window rate limiter for WebSocket events.
+ * Keyed by userId so each user has an independent quota.
+ */
+export class SocketRateLimiter {
+  private windows = new Map<string, number[]>();
+
+  constructor(
+    private readonly max: number,
+    private readonly windowMs: number,
+  ) {}
+
+  isAllowed(key: string): boolean {
+    const now = Date.now();
+    const timestamps = (this.windows.get(key) ?? []).filter(t => now - t < this.windowMs);
+    if (timestamps.length >= this.max) {
+      this.windows.set(key, timestamps);
+      return false;
+    }
+    timestamps.push(now);
+    this.windows.set(key, timestamps);
+    return true;
+  }
+
+  /** Reset state for a specific key (or all keys if omitted). Used in tests. */
+  reset(key?: string): void {
+    if (key !== undefined) {
+      this.windows.delete(key);
+    } else {
+      this.windows.clear();
+    }
+  }
+}
+
+// 5 messages per 60 seconds per user — mirrors HTTP chatMessageRateLimiter
+export const chatRateLimiter = new SocketRateLimiter(5, 60_000);
+
+// ---------------------------------------------------------------------------
+// Heartbeat / connection-lifecycle constants
+// ---------------------------------------------------------------------------
+
+/** How often (ms) the server sends a ping to each connected client. */
+export const PING_INTERVAL = 25_000;
+
+/**
+ * How long (ms) the server waits for a pong before treating the socket as
+ * dead and forcibly disconnecting it.
+ */
+export const PING_TIMEOUT = 10_000;
+
+/**
+ * How often (ms) the application-level stale-connection checker runs.
+ * Belt-and-suspenders on top of Socket.IO's built-in ping/pong: catches
+ * connections whose application-level activity has stopped even if the
+ * transport-level ping has not yet expired.
+ */
+const STALE_CHECK_INTERVAL_MS = 30_000;
+
+// ---------------------------------------------------------------------------
+// Connection registry
+// ---------------------------------------------------------------------------
+
+export interface ConnectionRecord {
+  userId?: string;
+  walletAddress?: string;
+  connectedAt: number;
+  /** Updated on every incoming application event and on engine-level pong. */
+  lastSeenAt: number;
+}
+
+/**
+ * Live map of socketId → ConnectionRecord for every currently-connected
+ * socket. Exported so tests and monitoring tools can inspect it directly.
+ */
+export const connectionRegistry = new Map<string, ConnectionRecord>();
+
+/**
+ * Scan the registry for sockets that have been silent longer than
+ * `staleThresholdMs` and force-disconnect them.
+ *
+ * Clients that have already closed their transport but whose `disconnect`
+ * event never fired are cleaned up from the registry without attempting to
+ * disconnect.
+ *
+ * @param io               The Socket.IO server instance.
+ * @param staleThresholdMs Default: PING_INTERVAL + PING_TIMEOUT + 5 s buffer.
+ * @returns Number of stale entries removed.
+ */
+export function checkStaleConnections(
+  io: SocketIOServer,
+  staleThresholdMs = PING_INTERVAL + PING_TIMEOUT + 5_000,
+): number {
+  const now = Date.now();
+  let removed = 0;
+
+  for (const [socketId, record] of connectionRegistry) {
+    if (now - record.lastSeenAt <= staleThresholdMs) continue;
+
+    const idleSeconds = Math.round((now - record.lastSeenAt) / 1000);
+    logger.warn(
+      `Stale connection detected: ${socketId}` +
+      ` (user: ${record.userId ?? 'unauthenticated'}, idle ${idleSeconds}s)`,
+    );
+
+    const socket = io.sockets.sockets.get(socketId);
+    if (socket) {
+      // disconnect(true) closes the underlying transport; the `disconnect`
+      // event will fire and clean up the registry entry.
+      socket.disconnect(true);
+    } else {
+      // Socket already gone but disconnect event never fired — clean up now.
+      connectionRegistry.delete(socketId);
+    }
+    removed++;
+  }
+
+  if (removed > 0) {
+    logger.info(`Stale connection check removed ${removed} connection(s)`);
+  }
+
+  return removed;
+}
+
+/**
+ * Initialize Socket.IO with JWT authentication, heartbeat tracking, and
+ * per-user chat rate limiting.
+ *
+ * ### Reconnection contract
+ * Each connection receives a `server:hello` event immediately after connecting
+ * that advertises `pingInterval` and `pingTimeout`. Clients should reconnect
+ * if they have not received a server ping within `pingInterval + pingTimeout`
+ * milliseconds. On reconnect the server treats the new socket as a completely
+ * fresh connection — clients are responsible for re-joining any rooms they
+ * previously occupied.
  */
 export function initializeSocket(httpServer: HTTPServer): SocketIOServer {
   const io = new SocketIOServer(httpServer, {
+    // Explicit heartbeat contract — exposed to clients via server:hello.
+    pingInterval: PING_INTERVAL,
+    pingTimeout: PING_TIMEOUT,
     cors: {
       origin: process.env.CLIENT_URL || "*",
       methods: ["GET", "POST"],
       credentials: true,
     },
   });
+
+  // Periodic stale connection cleanup.
+  // unref() ensures this timer does not keep the Node.js process alive.
+  const staleInterval = setInterval(
+    () => checkStaleConnections(io),
+    STALE_CHECK_INTERVAL_MS,
+  );
+  staleInterval.unref();
 
   // JWT Authentication middleware
   io.use(async (socket: AuthenticatedSocket, next) => {
@@ -69,7 +219,45 @@ export function initializeSocket(httpServer: HTTPServer): SocketIOServer {
   io.on('connection', (socket: AuthenticatedSocket) => {
     logger.info(`Client connected: ${socket.id}${socket.userId ? ` (user: ${socket.userId})` : ' (unauthenticated)'}`);
 
-    // Auto-join user to their personal room if authenticated
+    // -----------------------------------------------------------------------
+    // Registry & heartbeat tracking
+    // -----------------------------------------------------------------------
+
+    connectionRegistry.set(socket.id, {
+      userId: socket.userId,
+      walletAddress: socket.walletAddress,
+      connectedAt: Date.now(),
+      lastSeenAt: Date.now(),
+    });
+
+    // Announce the heartbeat contract so clients can tune their reconnect
+    // logic. On reconnect, clients must re-join rooms explicitly.
+    socket.emit('server:hello', {
+      socketId: socket.id,
+      pingInterval: PING_INTERVAL,
+      pingTimeout: PING_TIMEOUT,
+      authenticated: !!socket.userId,
+      userId: socket.userId,
+    });
+
+    // Refresh lastSeenAt on any incoming application-level event.
+    socket.onAny(() => {
+      const record = connectionRegistry.get(socket.id);
+      if (record) record.lastSeenAt = Date.now();
+    });
+
+    // Also refresh on engine-level pong responses (heartbeat replies).
+    (socket.conn as any).on('packet', (packet: { type: string }) => {
+      if (packet.type === 'pong') {
+        const record = connectionRegistry.get(socket.id);
+        if (record) record.lastSeenAt = Date.now();
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // Auto-join authenticated user to their personal notification room
+    // -----------------------------------------------------------------------
+
     if (socket.userId) {
       socket.join(`user:${socket.userId}`);
       logger.info(`Socket ${socket.id} auto-joined user:${socket.userId}`);
@@ -107,59 +295,40 @@ export function initializeSocket(httpServer: HTTPServer): SocketIOServer {
       socket.emit('room:left', { room: 'chat' });
     });
 
-    // Handle chat message (requires authentication)
-    socket.on('chat:send', async (data: { content: string }) => {
-      if (!socket.userId) {
-        socket.emit('error', { message: 'Authentication required to send messages' });
+    // Handle chat message (requires authentication, rate limited, ack-based)
+    socket.on('chat:send', async (data: { content: string }, callback?: (ack: ChatAck) => void) => {
+      const ack = (payload: ChatAck): void => {
+        if (typeof callback === 'function') callback(payload);
+      };
+
+      if (!socket.userId || !socket.walletAddress) {
+        ack({ ok: false, error: 'Authentication required to send messages', code: 'AUTH_REQUIRED' });
         return;
       }
 
-      if (!data.content || data.content.trim().length === 0) {
-        socket.emit('error', { message: 'Message content is required' });
+      if (!chatRateLimiter.isAllowed(socket.userId)) {
+        logger.warn(`Chat rate limit exceeded for user ${socket.userId}`);
+        ack({ ok: false, error: 'Too many messages. Please wait before sending another.', code: 'RATE_LIMITED' });
+        return;
+      }
+
+      if (!data?.content || data.content.trim().length === 0) {
+        ack({ ok: false, error: 'Message content is required', code: 'INVALID_CONTENT' });
         return;
       }
 
       if (data.content.length > 500) {
-        socket.emit('error', { message: 'Message too long (max 500 characters)' });
+        ack({ ok: false, error: 'Message too long (max 500 characters)', code: 'INVALID_CONTENT' });
         return;
       }
 
       try {
-        // Get user info for the message
-        const user = await prisma.user.findUnique({
-          where: { id: socket.userId },
-          select: { id: true, walletAddress: true, nickname: true, avatarUrl: true },
-        });
-
-        if (!user) {
-          socket.emit('error', { message: 'User not found' });
-          return;
-        }
-
-        // Create message in database
-        const message = await prisma.message.create({
-          data: {
-            userId: socket.userId,
-            content: data.content.trim(),
-          },
-        });
-
-        // Broadcast to chat room
-        const chatMessage = {
-          id: message.id,
-          userId: user.id,
-          walletAddress: user.walletAddress,
-          nickname: user.nickname,
-          avatarUrl: user.avatarUrl,
-          content: message.content,
-          createdAt: message.createdAt.toISOString(),
-        };
-
-        io.to('chat').emit('chat:message', chatMessage);
+        const message = await chatService.sendMessage(socket.userId, socket.walletAddress, data.content);
         logger.info(`Chat message sent by user ${socket.userId}: ${message.id}`);
+        ack({ ok: true, message });
       } catch (error) {
         logger.error('Error sending chat message:', error);
-        socket.emit('error', { message: 'Failed to send message' });
+        ack({ ok: false, error: 'Failed to send message', code: 'SEND_FAILED' });
       }
     });
 
@@ -173,8 +342,12 @@ export function initializeSocket(httpServer: HTTPServer): SocketIOServer {
       socket.emit('room:joined', { room: 'notifications' });
     });
 
-    // Handle disconnect
+    // -----------------------------------------------------------------------
+    // Disconnect — remove from registry
+    // -----------------------------------------------------------------------
+
     socket.on('disconnect', (reason) => {
+      connectionRegistry.delete(socket.id);
       logger.info(`Client disconnected: ${socket.id}, reason: ${reason}`);
     });
 

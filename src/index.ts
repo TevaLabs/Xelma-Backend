@@ -14,13 +14,19 @@ import websocketService from './services/websocket.service';
 import schedulerService from './services/scheduler.service';
 import roundSchedulerService from './services/round-scheduler.service';
 import logger from './utils/logger';
+import { errorHandler } from './middleware/errorHandler.middleware';
+import { metricsMiddleware } from './middleware/metrics.middleware';
+import metricsRoutes from './routes/metrics.routes';
 import chatRoutes from "./routes/chat.routes";
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './docs/openapi';
 import { initializeSocket } from './socket';
 import { prisma } from './lib/prisma';
+import path from 'path';
 
-dotenv.config();
+const envFile = process.env.NODE_ENV === 'test' ? '.env.test' : '.env';
+dotenv.config({ path: path.resolve(process.cwd(), envFile), override: false });
+dotenv.config({ override: false });
 
 
 const validateEnv = (): void => {
@@ -47,6 +53,9 @@ export function createApp(): Express {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
+  // Prometheus metrics middleware (before routes so all requests are tracked)
+  app.use(metricsMiddleware);
+
   // Request logging middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
     logger.info(`${req.method} ${req.path}`);
@@ -62,6 +71,9 @@ export function createApp(): Express {
   app.use("/api/leaderboard", leaderboardRoutes);
   app.use("/api/chat", chatRoutes);
   app.use("/api/notifications", notificationsRoutes);
+
+  // Prometheus metrics endpoint
+  app.use('/metrics', metricsRoutes);
 
   // Swagger UI (OpenAPI)
   app.get('/docs', (req: Request, res: Response) => res.redirect(302, '/api-docs'));
@@ -102,20 +114,14 @@ export function createApp(): Express {
   // 404 handler
   app.use((req: Request, res: Response) => {
     res.status(404).json({
-      error: "Not Found",
+      error: "NotFoundError",
       message: `Route ${req.method} ${req.path} not found`,
+      code: "NOT_FOUND",
     });
   });
 
-  // Global error handler
-  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-    logger.error("Error:", err);
-    res.status(500).json({
-      error: "Internal Server Error",
-      message: err.message,
-      ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
-    });
-  });
+  // Centralized error handler (must be last)
+  app.use(errorHandler);
 
   return app;
 }

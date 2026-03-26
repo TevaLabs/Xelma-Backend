@@ -1397,6 +1397,129 @@ PR Requirements
 
 ---
 
+## CI/CD Pipeline
+
+This project uses GitHub Actions for continuous integration and deployment. CI and CD are cleanly separated into two workflow files.
+
+### Continuous Integration (CI)
+
+**File:** `.github/workflows/ci.yml`
+
+CI runs automatically on every pull request and on pushes to `main`. It executes three independent jobs in parallel:
+
+| Job | What it does |
+|-----|-------------|
+| **lint** | Runs `tsc --noEmit` to check for type errors |
+| **build** | Compiles TypeScript to `dist/` via `tsc` |
+| **test** | Spins up a PostgreSQL 16 service container, runs migrations, and executes the full test suite |
+
+CI is fast, deterministic, and has no side effects. It is also used as a gate by the deployment workflow.
+
+### Deployment Workflow (CD)
+
+**File:** `.github/workflows/deploy.yml`
+
+The deployment workflow calls CI as a prerequisite (reusable workflow) and only proceeds if all checks pass.
+
+#### Staging Deployment
+
+- **Trigger:** Automatic on push to `dev` or `staging` branches, or via manual `workflow_dispatch`
+- **Environment:** `staging` (configured in GitHub repository settings)
+- **Process:**
+  1. CI suite runs and must pass
+  2. Dependencies are installed and the project is built
+  3. Database migrations run against the staging database
+  4. Application is deployed to the staging environment
+
+#### Production Deployment
+
+- **Trigger:** Push to `main` or manual `workflow_dispatch` with `production` selected
+- **Environment:** `production` (configured in GitHub repository settings with **required reviewers**)
+- **Approval Gate:** Production deployments require manual approval through GitHub's environment protection rules. Configure this in **Settings > Environments > production > Required reviewers**.
+- **Process:**
+  1. CI suite runs and must pass
+  2. A reviewer must approve the deployment in the GitHub Actions UI
+  3. Dependencies are installed and the project is built
+  4. Database migrations run against the production database
+  5. Application is deployed to production
+
+#### Manual Deployment
+
+Both environments can be deployed manually via **Actions > Deploy > Run workflow**, selecting the target environment from the dropdown.
+
+### Environment Configuration
+
+Each environment (`staging`, `production`) must have the following configured in **GitHub Settings > Environments**:
+
+#### Required Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string for the target environment |
+| `JWT_SECRET` | Strong random secret for JWT signing (must not be a placeholder) |
+| `SOROBAN_CONTRACT_ID` | Deployed Soroban prediction market contract address |
+| `SOROBAN_ADMIN_SECRET` | Stellar secret key for contract admin operations |
+| `SOROBAN_ORACLE_SECRET` | Stellar secret key for oracle price settlement |
+
+#### Environment Variables (non-sensitive)
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `PORT` | Server listen port | `3000` |
+| `CLIENT_URL` | CORS-allowed frontend origin | `https://app.xelma.io` |
+| `SOROBAN_NETWORK` | Stellar network target | `testnet` or `mainnet` |
+| `SOROBAN_RPC_URL` | Soroban RPC endpoint | `https://soroban-testnet.stellar.org` |
+| `STAGING_URL` | Staging environment URL (display only) | `https://staging.xelma.io` |
+| `PRODUCTION_URL` | Production environment URL (display only) | `https://xelma.io` |
+
+#### Setup Steps
+
+1. Go to your repository **Settings > Environments**
+2. Create `staging` and `production` environments
+3. For `production`, enable **Required reviewers** and add authorized approvers
+4. Add all secrets and variables listed above to each environment
+5. Ensure no secrets contain placeholder values
+
+### Rollback Procedure
+
+If a deployment causes issues, use the following rollback process:
+
+#### Quick Rollback (revert to previous deployment)
+
+```bash
+# 1. Identify the last known good commit
+git log --oneline -10
+
+# 2. Revert the problematic commit(s)
+git revert <bad-commit-sha>
+
+# 3. Push the revert (this triggers a new deployment)
+git push origin main    # for production
+git push origin dev     # for staging
+```
+
+#### Manual Rollback (redeploy a specific commit)
+
+1. Go to **Actions > Deploy > Run workflow**
+2. Select the target environment
+3. Optionally, create a branch from the known-good commit and push it to trigger deployment
+
+#### Database Rollback
+
+If a migration caused the issue:
+
+```bash
+# Check migration status
+npx prisma migrate status
+
+# If needed, manually revert the migration in the target database
+# Then redeploy the previous commit
+```
+
+**Important:** Always test rollbacks in staging before applying to production. Database migrations are not automatically reversed; plan migrations to be backward-compatible when possible.
+
+---
+
 ## Related Repositories
 
 - **Smart Contract**: [TevaLabs/Xelma-Blockchain](https://github.com/TevaLabs/Xelma-Blockchain)

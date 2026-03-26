@@ -1,7 +1,7 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import { authenticateUser } from "../middleware/auth.middleware";
-import logger from "../utils/logger";
+import { NotFoundError } from "../utils/errors";
 
 const router = Router();
 
@@ -12,13 +12,9 @@ const router = Router();
 router.get(
   "/profile",
   authenticateUser,
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user?.userId;
-
-      if (!userId) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
 
       const user = await prisma.user.findUnique({
         where: { id: userId },
@@ -36,7 +32,7 @@ router.get(
       });
 
       if (!user) {
-        return res.status(404).json({ error: "User not found" });
+        return next(new NotFoundError("User not found"));
       }
 
       // Map to API response format if needed, primarily just ensuring naming consistency
@@ -48,7 +44,7 @@ router.get(
         preferences: user.preferences,
         streak: user.streak,
         lastLoginAt: user.lastLoginAt,
-        balance: user.virtualBalance, // Added balance for convenience
+        balance: user.virtualBalance,
       };
 
       return res.json({
@@ -56,8 +52,7 @@ router.get(
         profile,
       });
     } catch (error) {
-      logger.error("Error fetching profile:", { error });
-      return res.status(500).json({ error: "Internal Server Error" });
+      next(error);
     }
   },
 );
@@ -69,25 +64,23 @@ router.get(
 router.get(
   "/balance",
   authenticateUser,
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user?.userId;
-      if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: { virtualBalance: true },
       });
 
-      if (!user) return res.status(404).json({ error: "User not found" });
+      if (!user) return next(new NotFoundError("User not found"));
 
       return res.json({
         success: true,
         balance: user.virtualBalance,
       });
     } catch (error) {
-      logger.error("Error fetching balance:", { error });
-      return res.status(500).json({ error: "Internal Server Error" });
+      next(error);
     }
   },
 );
@@ -96,17 +89,13 @@ router.get(
  * GET /api/user/stats
  * Returns detailed user statistics
  */
-router.get("/stats", authenticateUser, async (req: Request, res: Response) => {
+router.get("/stats", authenticateUser, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const stats = await prisma.userStats.findUnique({
       where: { userId },
     });
-
-    // If no stats specific record, return defaults or create one?
-    // Usually existing logic creates it, but we can fallback to user basic fields or return empty zeros.
 
     return res.json({
       success: true,
@@ -121,8 +110,7 @@ router.get("/stats", authenticateUser, async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    logger.error("Error fetching stats:", { error });
-    return res.status(500).json({ error: "Internal Server Error" });
+    next(error);
   }
 });
 
@@ -133,14 +121,11 @@ router.get("/stats", authenticateUser, async (req: Request, res: Response) => {
 router.patch(
   "/profile",
   authenticateUser,
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user?.userId;
-      if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
       const { nickname, avatarUrl, preferences } = req.body;
-
-      // Validate inputs if necessary
 
       const updatedUser = await prisma.user.update({
         where: { id: userId },
@@ -161,8 +146,7 @@ router.patch(
         profile: updatedUser,
       });
     } catch (error) {
-      logger.error("Error updating profile:", { error });
-      return res.status(500).json({ error: "Internal Server Error" });
+      next(error);
     }
   },
 );
@@ -174,10 +158,9 @@ router.patch(
 router.get(
   "/transactions",
   authenticateUser,
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user?.userId;
-      if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
@@ -204,8 +187,7 @@ router.get(
         },
       });
     } catch (error) {
-      logger.error("Error fetching transactions:", { error });
-      return res.status(500).json({ error: "Internal Server Error" });
+      next(error);
     }
   },
 );
@@ -216,7 +198,7 @@ router.get(
  */
 router.get(
   "/:walletAddress/public-profile",
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { walletAddress } = req.params;
 
@@ -237,7 +219,7 @@ router.get(
       });
 
       if (!user) {
-        return res.status(404).json({ error: "User not found" });
+        return next(new NotFoundError("User not found"));
       }
 
       return res.json({
@@ -251,8 +233,7 @@ router.get(
         },
       });
     } catch (error) {
-      logger.error("Error fetching public profile:", { error });
-      return res.status(500).json({ error: "Internal Server Error" });
+      next(error);
     }
   },
 );

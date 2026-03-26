@@ -102,7 +102,11 @@ describe("SchedulerService", () => {
     it("does not schedule tasks when AUTO_RESOLVE_ENABLED is not set", () => {
       schedulerService.start();
 
-      expect(cron.schedule).not.toHaveBeenCalled();
+      expect(cron.schedule).toHaveBeenCalledTimes(1);
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "0 2 * * *",
+        expect.any(Function),
+      );
     });
 
     it('does not schedule tasks when AUTO_RESOLVE_ENABLED is "false"', () => {
@@ -110,7 +114,11 @@ describe("SchedulerService", () => {
 
       schedulerService.start();
 
-      expect(cron.schedule).not.toHaveBeenCalled();
+      expect(cron.schedule).toHaveBeenCalledTimes(1);
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "0 2 * * *",
+        expect.any(Function),
+      );
     });
 
     it('schedules exactly two tasks when AUTO_RESOLVE_ENABLED is "true"', () => {

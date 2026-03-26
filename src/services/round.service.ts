@@ -4,6 +4,7 @@ import websocketService from "./websocket.service";
 import notificationService from "./notification.service";
 import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
+import { ConflictError } from "../utils/errors";
 
 export class RoundService {
   /**
@@ -26,11 +27,10 @@ export class RoundService {
       });
 
       if (existingActiveRound) {
-        const error: any = new Error(
+        throw new ConflictError(
           `An active ${mode} round already exists (ID: ${existingActiveRound.id})`,
+          "ACTIVE_ROUND_EXISTS",
         );
-        error.code = "ACTIVE_ROUND_EXISTS";
-        throw error;
       }
 
       const startTime = new Date();
@@ -45,9 +45,9 @@ export class RoundService {
         // Convert duration to ledgers (~5 seconds per ledger)
         const durationLedgers = Math.floor((durationMinutes * 60) / 5);
         try {
-          sorobanRoundId = await sorobanService.createRound(
+          await sorobanService.createRound(
             startPrice,
-            durationLedgers,
+            0,
           );
         } catch (err) {
           logger.warn(
