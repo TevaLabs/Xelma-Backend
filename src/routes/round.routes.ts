@@ -17,6 +17,7 @@ import {
 } from "../types/round.types";
 import logger from "../utils/logger";
 import { toNumber } from "../utils/decimal.util";
+import { invalidateNamespace } from "../lib/redis";
 
 const router = Router();
 
@@ -240,6 +241,9 @@ router.post(
         },
       });
 
+      // Invalidate leaderboard cache after prediction write.
+      void invalidateNamespace("leaderboard");
+
       const response: SubmitPredictionResponse = {
         predictionId: prediction.id,
         roundId,
@@ -356,6 +360,9 @@ router.post(
           status: "RESOLVED",
         },
       });
+
+      // Invalidate leaderboard cache after resolution.
+      void invalidateNamespace("leaderboard");
 
       let outcome: BetSide | null = null;
 

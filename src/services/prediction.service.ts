@@ -3,6 +3,7 @@ import sorobanService from "./soroban.service";
 import websocketService from "./websocket.service";
 import logger from "../utils/logger";
 import { toDecimal, toNumber } from "../utils/decimal.util";
+import { invalidateNamespace } from "../lib/redis";
 
 interface PriceRange {
   min: number;
@@ -21,7 +22,7 @@ export class PredictionService {
     priceRange?: PriceRange,
   ): Promise<any> {
     try {
-      return await prisma.$transaction(async (tx) => {
+      const prediction = await prisma.$transaction(async (tx) => {
         // 1. Get round inside transaction to ensure consistency
         const round = await tx.round.findUnique({
           where: { id: roundId },
@@ -148,6 +149,11 @@ export class PredictionService {
 
         return prediction;
       });
+
+      // Invalidate leaderboard after prediction write affects user stats.
+      void invalidateNamespace("leaderboard");
+
+      return prediction;
     } catch (error) {
       logger.error("Failed to submit prediction:", error);
       throw error;

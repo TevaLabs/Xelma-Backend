@@ -4,6 +4,7 @@ import notificationService from "./notification.service";
 import logger from "../utils/logger";
 import educationTipService from "./education-tip.service";
 import { prisma } from "../lib/prisma";
+import { invalidateNamespace } from "../lib/redis";
 import {
   toDecimal,
   toNumber,
@@ -68,6 +69,9 @@ export class ResolutionService {
           resolvedAt,
         },
       });
+
+      // Invalidate leaderboard after user stats affecting rankings change.
+      void invalidateNamespace("leaderboard");
 
       logger.info(`Round resolved: ${roundId}, finalPrice=${finalPrice}`);
       // -----------------------------

@@ -6,6 +6,7 @@ import {
 } from "../types/education.types";
 import educationTipService from "../services/education-tip.service";
 import { ValidationError, NotFoundError, BusinessRuleError } from "../utils/errors";
+import { cacheJsonResponse } from "../middleware/cache.middleware";
 
 const router = Router();
 
@@ -211,7 +212,16 @@ const educationGuides: EducationGuide[] = [
  * Returns a structured list of educational guides and tips
  * Content is grouped by category (volatility, Stellar, oracles)
  */
-router.get("/guides", (req: Request, res: Response, next: NextFunction) => {
+router.get(
+  "/guides",
+  cacheJsonResponse({
+    namespace: "education-guides",
+    ttlSeconds: parseInt(
+      process.env.EDUCATION_GUIDES_CACHE_TTL_SECONDS || "86400",
+      10,
+    ),
+  }),
+  (req: Request, res: Response, next: NextFunction) => {
   try {
     // Group guides by category
     const categories = {
@@ -232,7 +242,8 @@ router.get("/guides", (req: Request, res: Response, next: NextFunction) => {
   } catch (error) {
     next(error);
   }
-});
+},
+);
 /**
  * GET /api/education/tip
  * Generate contextual educational tip for a resolved round

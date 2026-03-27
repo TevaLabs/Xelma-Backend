@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { getJsonFromCache, setJsonToCache } from "../lib/redis";
 import { GameMode } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import {
@@ -8,6 +9,20 @@ import {
 } from "../types/leaderboard.types";
 import { toNumber, toDecimal } from "../utils/decimal.util";
 
+const LEADERBOARD_CACHE_NAMESPACE = "leaderboard";
+const LEADERBOARD_CACHE_TTL_SECONDS = parseInt(
+  process.env.LEADERBOARD_CACHE_TTL_SECONDS || "60",
+  10,
+);
+
+/**
+ * Redis cache key format (versioned namespace):
+ * - Namespace: `leaderboard`
+ * - Raw key: `limit=${limit}:offset=${offset}:user=${userId ?? "anon"}`
+ * - Final Redis key: `${REDIS_CACHE_PREFIX}:leaderboard:v${version}:${rawKey}`
+ * - TTL: `LEADERBOARD_CACHE_TTL_SECONDS` (seconds)
+ */
+
 // Get leaderboard with pagination
 
 export async function getLeaderboard(
@@ -15,6 +30,25 @@ export async function getLeaderboard(
   offset: number = 0,
   userId?: string,
 ): Promise<LeaderboardResponse> {
+  const rawKey = `limit=${limit}:offset=${offset}:user=${
+    userId ? userId : "anon"
+  }`;
+
+  type LeaderboardCachePayload = Omit<LeaderboardResponse, "lastUpdated">;
+
+  // Cache payload excludes `lastUpdated` (always refreshed on read).
+  const cached = await getJsonFromCache<LeaderboardCachePayload>(
+    LEADERBOARD_CACHE_NAMESPACE,
+    rawKey,
+  );
+
+  if (cached) {
+    return {
+      ...cached,
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+
   // Fetch user stats ordered by earnings
   const userStats = await prisma.userStats.findMany({
     take: limit,
@@ -74,10 +108,21 @@ export async function getLeaderboard(
   // Get total users count
   const totalUsers = await prisma.userStats.count();
 
-  return {
+  const payload: LeaderboardCachePayload = {
     leaderboard,
     userPosition,
     totalUsers,
+  };
+
+  await setJsonToCache(
+    LEADERBOARD_CACHE_NAMESPACE,
+    rawKey,
+    payload,
+    LEADERBOARD_CACHE_TTL_SECONDS,
+  );
+
+  return {
+    ...payload,
     lastUpdated: new Date().toISOString(),
   };
 }
