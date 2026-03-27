@@ -7,11 +7,12 @@ const config: Config = {
   testMatch: ["**/*.spec.ts"],
   testPathIgnorePatterns: [
     "/node_modules/",
-    "rounds.routes.spec.ts",
-    "predictions.routes.spec.ts",
-    "round.spec.ts",
-    "concurrent-rounds.spec.ts",
-    "education-tip.route.spec.ts"
+    // Removed: these tests now run in CI with proper DB setup
+    // - rounds.routes.spec.ts
+    // - predictions.routes.spec.ts
+    // - round.spec.ts
+    // - concurrent-rounds.spec.ts
+    // - education-tip.route.spec.ts
   ],
   moduleFileExtensions: ["ts", "js", "json"],
   transform: {

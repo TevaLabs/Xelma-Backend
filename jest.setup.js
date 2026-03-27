@@ -3,10 +3,20 @@
 const path = require('path');
 const dotenv = require('dotenv');
 
-dotenv.config({ path: path.resolve(__dirname, '.env.test'), override: false });
+// In CI, environment variables are already set; in local, load from .env.test
+if (!process.env.CI && !process.env.GITHUB_ACTIONS) {
+  dotenv.config({ path: path.resolve(__dirname, '.env.test'), override: false });
+}
+
 dotenv.config({ override: false });
 
 // Ensure JWT_SECRET is set so validateEnv() in src/index.ts does not process.exit(1) when tests import createApp.
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = 'test-jwt-secret';
+}
+
+// Ensure DATABASE_URL is set for database-backed tests
+if (!process.env.DATABASE_URL) {
+  // Fallback for local development
+  process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/xelma_test';
 }
