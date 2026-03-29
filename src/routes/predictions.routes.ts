@@ -1,9 +1,12 @@
-import { Router, Request, Response, NextFunction } from 'express';
-import predictionService from '../services/prediction.service';
-import { authenticateUser } from '../middleware/auth.middleware';
-import { predictionRateLimiter } from '../middleware/rateLimiter.middleware';
-import { validate } from '../middleware/validate.middleware';
-import { submitPredictionSchema } from '../schemas/predictions.schema';
+import { NextFunction, Request, Response, Router } from "express";
+import { authenticateUser } from "../middleware/auth.middleware";
+import { predictionRateLimiter } from "../middleware/rateLimiter.middleware";
+import { validate } from "../middleware/validate.middleware";
+import {
+  batchSubmitPredictionsSchema,
+  submitPredictionSchema,
+} from "../schemas/predictions.schema";
+import predictionService from "../services/prediction.service";
 
 const router = Router();
 
@@ -80,34 +83,161 @@ const router = Router();
  *             -H "Authorization: Bearer $TOKEN" \\
  *             -d '{"roundId":"round-id","amount":10,"side":"UP"}'
  */
-router.post('/submit', authenticateUser, predictionRateLimiter, validate(submitPredictionSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.post(
+  "/submit",
+  authenticateUser,
+  predictionRateLimiter,
+  validate(submitPredictionSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { roundId, amount, side, priceRange } = req.body;
-        const userId = req.user!.userId;
+      const { roundId, amount, side, priceRange } = req.body;
+      const userId = req.user!.userId;
 
-        const prediction = await predictionService.submitPrediction(
-            userId,
-            roundId,
-            amount,
-            side,
-            priceRange
-        );
+      const prediction = await predictionService.submitPrediction(
+        userId,
+        roundId,
+        amount,
+        side,
+        priceRange,
+      );
 
-        res.json({
-            success: true,
-            prediction: {
-                id: prediction.id,
-                roundId: prediction.roundId,
-                amount: prediction.amount,
-                side: prediction.side,
-                priceRange: prediction.priceRange,
-                createdAt: prediction.createdAt,
-            },
-        });
+      res.json({
+        success: true,
+        prediction: {
+          id: prediction.id,
+          roundId: prediction.roundId,
+          amount: prediction.amount,
+          side: prediction.side,
+          priceRange: prediction.priceRange,
+          createdAt: prediction.createdAt,
+        },
+      });
     } catch (error) {
-        next(error);
+      next(error);
     }
-});
+  },
+);
+
+/**
+ * @swagger
+ * /api/predictions/batch-submit:
+ *   post:
+ *     summary: Submit multiple predictions in a batch
+ *     description: |
+ *       Submit multiple predictions for different rounds in a single request.
+ *       Each prediction is processed independently with transaction isolation.
+ *       Partial success is supported - some predictions may succeed while others fail.
+ *       Maximum 50 predictions per batch. Duplicate round IDs are not allowed.
+ *     tags: [predictions]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               predictions:
+ *                 type: array
+ *                 items:
+ *                   $ref: '#/components/schemas/SubmitPredictionRequest'
+ *                 minItems: 1
+ *                 maxItems: 50
+ *             required: [predictions]
+ *           example:
+ *             predictions:
+ *               - roundId: "round-id-1"
+ *                 amount: 10
+ *                 side: "UP"
+ *               - roundId: "round-id-2"
+ *                 amount: 15
+ *                 side: "DOWN"
+ *     responses:
+ *       200:
+ *         description: Batch prediction results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   description: true if at least one prediction succeeded
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/BatchPredictionResult'
+ *             example:
+ *               success: true
+ *               results:
+ *                 - index: 0
+ *                   success: true
+ *                   prediction:
+ *                     id: "prediction-id-1"
+ *                     roundId: "round-id-1"
+ *                     amount: 10
+ *                     side: "UP"
+ *                     priceRange: null
+ *                     createdAt: "2026-01-29T00:00:00.000Z"
+ *                 - index: 1
+ *                   success: false
+ *                   error: "Round is not active"
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             examples:
+ *               emptyBatch:
+ *                 value: { error: "At least one prediction is required" }
+ *               duplicateRounds:
+ *                 value: { error: "Duplicate round IDs are not allowed in a batch" }
+ *               tooManyPredictions:
+ *                 value: { error: "Maximum 50 predictions per batch" }
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             example: { error: "No token provided" }
+ *       429:
+ *         description: Too many requests
+ *         content:
+ *           application/json:
+ *             example: { error: "Too Many Requests", message: "Too many prediction submissions. Please wait before submitting another." }
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             example: { error: "Failed to submit batch predictions" }
+ *     x-codeSamples:
+ *       - lang: cURL
+ *         source: |
+ *           curl -X POST "$API_BASE_URL/api/predictions/batch-submit" \\
+ *             -H "Content-Type: application/json" \\
+ *             -H "Authorization: Bearer $TOKEN" \\
+ *             -d '{"predictions":[{"roundId":"round-id-1","amount":10,"side":"UP"},{"roundId":"round-id-2","amount":15,"side":"DOWN"}]}'
+ */
+router.post(
+  "/batch-submit",
+  authenticateUser,
+  predictionRateLimiter,
+  validate(batchSubmitPredictionsSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { predictions } = req.body;
+      const userId = req.user!.userId;
+
+      const result = await predictionService.submitBatchPredictions(
+        userId,
+        predictions,
+      );
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 /**
  * @swagger
@@ -139,20 +269,23 @@ router.post('/submit', authenticateUser, predictionRateLimiter, validate(submitP
  *         source: |
  *           curl -X GET "$API_BASE_URL/api/predictions/user/user-id"
  */
-router.get('/user/:userId', async (req: Request, res: Response, next: NextFunction) => {
+router.get(
+  "/user/:userId",
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { userId } = req.params;
+      const { userId } = req.params;
 
-        const predictions = await predictionService.getUserPredictions(userId);
+      const predictions = await predictionService.getUserPredictions(userId);
 
-        res.json({
-            success: true,
-            predictions,
-        });
+      res.json({
+        success: true,
+        predictions,
+      });
     } catch (error) {
-        next(error);
+      next(error);
     }
-});
+  },
+);
 
 /**
  * @swagger
@@ -184,19 +317,22 @@ router.get('/user/:userId', async (req: Request, res: Response, next: NextFuncti
  *         source: |
  *           curl -X GET "$API_BASE_URL/api/predictions/round/round-id"
  */
-router.get('/round/:roundId', async (req: Request, res: Response, next: NextFunction) => {
+router.get(
+  "/round/:roundId",
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { roundId } = req.params;
+      const { roundId } = req.params;
 
-        const predictions = await predictionService.getRoundPredictions(roundId);
+      const predictions = await predictionService.getRoundPredictions(roundId);
 
-        res.json({
-            success: true,
-            predictions,
-        });
+      res.json({
+        success: true,
+        predictions,
+      });
     } catch (error) {
-        next(error);
+      next(error);
     }
-});
+  },
+);
 
 export default router;

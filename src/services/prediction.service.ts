@@ -1,9 +1,8 @@
 import { prisma } from "../lib/prisma";
-import sorobanService from "./soroban.service";
-import websocketService from "./websocket.service";
-import logger from "../utils/logger";
-import { toDecimal, toNumber } from "../utils/decimal.util";
 import { invalidateNamespace } from "../lib/redis";
+import { toDecimal, toNumber } from "../utils/decimal.util";
+import logger from "../utils/logger";
+import sorobanService from "./soroban.service";
 
 interface PriceRange {
   min: number;
@@ -47,7 +46,9 @@ export class PredictionService {
         });
 
         if (existingPrediction) {
-          throw new Error("User has already placed a prediction for this round");
+          throw new Error(
+            "User has already placed a prediction for this round",
+          );
         }
 
         // 3. Validate mode-specific params early, before any writes
@@ -74,27 +75,31 @@ export class PredictionService {
         const amountNum = toNumber(decimalAmount);
 
         // 4. Check user exists
-        const existingUser = await tx.user.findUnique({ where: { id: userId } });
+        const existingUser = await tx.user.findUnique({
+          where: { id: userId },
+        });
         if (!existingUser) {
           throw new Error("User not found");
         }
 
         // 5. Update user balance ATOMICALLY with sufficiency check
         // This prevents race conditions where balance is checked then deducted
-        const user = await tx.user.update({
-          where: {
-            id: userId,
-            virtualBalance: { gte: amountNum },
-          },
-          data: {
-            virtualBalance: { decrement: amountNum },
-          },
-        }).catch((err: any) => {
-          if (err.code === "P2025") {
-            throw new Error("Insufficient balance");
-          }
-          throw err;
-        });
+        const user = await tx.user
+          .update({
+            where: {
+              id: userId,
+              virtualBalance: { gte: amountNum },
+            },
+            data: {
+              virtualBalance: { decrement: amountNum },
+            },
+          })
+          .catch((err: any) => {
+            if (err.code === "P2025") {
+              throw new Error("Insufficient balance");
+            }
+            throw err;
+          });
 
         // 6. Create prediction record
         const prediction = await tx.prediction.create({
@@ -158,6 +163,73 @@ export class PredictionService {
       logger.error("Failed to submit prediction:", error);
       throw error;
     }
+  }
+
+  /**
+   * Submits multiple predictions in a batch with partial success handling
+   */
+  async submitBatchPredictions(
+    userId: string,
+    predictions: Array<{
+      roundId: string;
+      amount: number;
+      side?: "UP" | "DOWN";
+      priceRange?: PriceRange;
+    }>,
+  ): Promise<{
+    success: boolean;
+    results: Array<{
+      index: number;
+      success: boolean;
+      prediction?: any;
+      error?: string;
+    }>;
+  }> {
+    const results: Array<{
+      index: number;
+      success: boolean;
+      prediction?: any;
+      error?: string;
+    }> = [];
+
+    // Process each prediction individually to maintain transaction isolation
+    for (let i = 0; i < predictions.length; i++) {
+      const pred = predictions[i];
+      try {
+        const prediction = await this.submitPrediction(
+          userId,
+          pred.roundId,
+          pred.amount,
+          pred.side,
+          pred.priceRange,
+        );
+
+        results.push({
+          index: i,
+          success: true,
+          prediction: {
+            id: prediction.id,
+            roundId: prediction.roundId,
+            amount: prediction.amount,
+            side: prediction.side,
+            priceRange: prediction.priceRange,
+            createdAt: prediction.createdAt,
+          },
+        });
+      } catch (error) {
+        results.push({
+          index: i,
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+
+    const successCount = results.filter((r) => r.success).length;
+    return {
+      success: successCount > 0,
+      results,
+    };
   }
 
   /**
