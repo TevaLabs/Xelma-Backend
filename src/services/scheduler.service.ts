@@ -4,6 +4,7 @@ import notificationService from "./notification.service";
 import priceOracle from "./oracle";
 import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
+import { RoundLifecycleOutcome } from "../types/round.types";
 
 class SchedulerService {
   private cronTasks: ScheduledTask[] = [];
@@ -100,10 +101,14 @@ class SchedulerService {
       // Resolve each round
       for (const round of expiredRounds) {
         try {
-          await resolutionService.resolveRound(round.id, currentPrice);
-          logger.info(
-            `Auto-resolved round ${round.id} with price ${currentPrice}`,
-          );
+          const result = await resolutionService.resolveRound(round.id, currentPrice);
+          if (result.outcome === RoundLifecycleOutcome.UPDATED) {
+            logger.info(
+              `Auto-resolved round ${round.id} with price ${currentPrice}`,
+            );
+          } else if (result.outcome === RoundLifecycleOutcome.ALREADY_RESOLVED) {
+            logger.info(`Round ${round.id} was already resolved`);
+          }
         } catch (error) {
           logger.error(`Failed to auto-resolve round ${round.id}:`, error);
         }

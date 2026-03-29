@@ -5,6 +5,7 @@ import notificationService from "./notification.service";
 import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
 import { ConflictError } from "../utils/errors";
+import { RoundLifecycleOutcome } from "../types/round.types";
 
 export class RoundService {
   /**
@@ -180,14 +181,32 @@ export class RoundService {
   /**
    * Locks a round (no more predictions allowed)
    */
-  async lockRound(roundId: string): Promise<void> {
+  async lockRound(roundId: string): Promise<RoundLifecycleOutcome> {
     try {
+      const round = await prisma.round.findUnique({
+        where: { id: roundId },
+        select: { status: true },
+      });
+
+      if (!round) {
+        return RoundLifecycleOutcome.NO_OP;
+      }
+
+      if (round.status === "LOCKED") {
+        return RoundLifecycleOutcome.ALREADY_LOCKED;
+      }
+
+      if (round.status === "RESOLVED" || round.status === "CANCELLED") {
+        return RoundLifecycleOutcome.NO_OP;
+      }
+
       await prisma.round.update({
         where: { id: roundId },
         data: { status: "LOCKED" },
       });
 
       logger.info(`Round locked: ${roundId}`);
+      return RoundLifecycleOutcome.UPDATED;
     } catch (error) {
       logger.error("Failed to lock round:", error);
       throw error;
@@ -210,12 +229,16 @@ export class RoundService {
         },
       });
 
+      let updatedCount = 0;
       for (const round of expiredRounds) {
-        await this.lockRound(round.id);
+        const outcome = await this.lockRound(round.id);
+        if (outcome === RoundLifecycleOutcome.UPDATED) {
+          updatedCount++;
+        }
       }
 
-      if (expiredRounds.length > 0) {
-        logger.info(`Auto-locked ${expiredRounds.length} expired rounds`);
+      if (updatedCount > 0) {
+        logger.info(`Auto-locked ${updatedCount} expired rounds`);
       }
     } catch (error) {
       logger.error("Failed to auto-lock expired rounds:", error);

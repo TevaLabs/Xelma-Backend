@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { prisma } from "../lib/prisma";
 import { Decimal } from "@prisma/client/runtime/library";
 import sorobanService from "../services/soroban.service";
+import resolutionService from "../services/resolution.service";
 import { authenticateToken, AuthRequest } from "../middleware/auth.middleware";
 import {
   StartRoundRequestBody,
@@ -14,6 +15,7 @@ import {
   GameMode,
   RoundStatus,
   BetSide,
+  RoundLifecycleOutcome,
 } from "../types/round.types";
 import logger from "../utils/logger";
 import { toNumber } from "../utils/decimal.util";
@@ -319,9 +321,12 @@ router.post(
         });
       }
 
-      const round = await prisma.round.findUnique({
-        where: { id: roundId },
-      });
+      const finalPriceNum = parseFloat(finalPrice);
+
+      const { outcome: lifecycleOutcome, round } = await resolutionService.resolveRound(
+        roundId,
+        finalPriceNum
+      );
 
       if (!round) {
         return res.status(404).json({
@@ -330,51 +335,24 @@ router.post(
         });
       }
 
-      if (round.status !== "ACTIVE") {
-        return res.status(400).json({
-          error: "Invalid Round",
-          message: "Round is not active for resolution",
-        });
-      }
-
-      const finalPriceNum = parseFloat(finalPrice);
-
-      // Call Soroban contract to resolve
-      try {
-        await sorobanService.resolveRound(
-          finalPriceNum,
-          0,
-          BigInt(Math.floor(Date.now() / 1000)),
-        );
-      } catch (e) {
-        logger.warn(
-          "Soroban resolveRound failed, proceeding with DB-only resolution:",
-          e,
-        );
-      }
-
-      const updatedRound = await prisma.round.update({
-        where: { id: roundId },
-        data: {
-          endPrice: finalPriceNum,
-          status: "RESOLVED",
-        },
-      });
-
-      // Invalidate leaderboard cache after resolution.
-      void invalidateNamespace("leaderboard");
-
-      let outcome: BetSide | null = null;
-
-      if (finalPriceNum > toNumber(round.startPrice)) {
-        outcome = BetSide.UP;
-      } else if (finalPriceNum < toNumber(round.startPrice)) {
-        outcome = BetSide.DOWN;
+      if (lifecycleOutcome === RoundLifecycleOutcome.NO_OP && round.status !== "RESOLVED") {
+          return res.status(400).json({
+            error: "Invalid Round",
+            message: "Round is not in a state that can be resolved",
+          });
       }
 
       const predictions = await prisma.prediction.findMany({
         where: { roundId },
       });
+
+      // Calculate outcome for response based on prices
+      let outcome: BetSide | null = null;
+      if (toNumber(round.endPrice || 0) > toNumber(round.startPrice)) {
+        outcome = BetSide.UP;
+      } else if (toNumber(round.endPrice || 0) < toNumber(round.startPrice)) {
+        outcome = BetSide.DOWN;
+      }
 
       // Map BetSide to PredictionSide for comparison
       const winSide =
@@ -400,7 +378,7 @@ router.post(
         txHash: "", // Soroban resolveRound returns void
       };
 
-      logger.info(`Round resolved: ${roundId}, outcome: ${outcome}`);
+      logger.info(`Round resolved: ${roundId}, outcome: ${outcome}, lifecycle: ${lifecycleOutcome}`);
 
       return res.status(200).json(response);
     } catch (error: any) {

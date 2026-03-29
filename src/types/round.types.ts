@@ -12,6 +12,13 @@ export enum RoundStatus {
   CANCELLED = "CANCELLED",
 }
 
+export enum RoundLifecycleOutcome {
+  UPDATED = "updated",
+  ALREADY_LOCKED = "already_locked",
+  ALREADY_RESOLVED = "already_resolved",
+  NO_OP = "no_op",
+}
+
 export enum BetSide {
   UP = "up",
   DOWN = "down",

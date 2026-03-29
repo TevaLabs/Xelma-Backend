@@ -288,18 +288,23 @@ router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(re
         const { id } = req.params;
         const { finalPrice } = req.body;
 
-        const round = await resolutionService.resolveRound(id, finalPrice);
+        const { outcome, round } = await resolutionService.resolveRound(id, finalPrice);
+
+        if (!round) {
+            return res.status(404).json({ success: false, error: "Round not found" });
+        }
 
         res.json({
             success: true,
+            outcome,
             round: {
                 id: round.id,
                 status: round.status,
                 startPrice: round.startPrice,
                 endPrice: round.endPrice,
                 resolvedAt: round.resolvedAt,
-                predictions: round.predictions.length,
-                winners: round.predictions.filter((p: any) => p.won === true).length,
+                predictions: round.predictions ? round.predictions.length : 0,
+                winners: round.predictions ? round.predictions.filter((p: any) => p.won === true).length : 0,
             },
         });
     } catch (error) {
