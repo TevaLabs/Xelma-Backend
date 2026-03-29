@@ -7,6 +7,7 @@ import { Express } from 'express';
 const ADMIN_ID = 'rounds-admin-id';
 const mockUserFindUnique = jest.fn();
 const mockStartRound = jest.fn();
+const mockResolveRound = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -22,6 +23,23 @@ jest.mock('../services/round.service', () => ({
   default: {
     startRound: (...args: any[]) => mockStartRound(...args),
   },
+}));
+
+jest.mock('../services/resolution.service', () => ({
+  __esModule: true,
+  default: {
+    resolveRound: (...args: any[]) => mockResolveRound(...args),
+  },
+}));
+
+jest.mock('../middleware/rateLimiter.middleware', () => ({
+  challengeRateLimiter: (_req: any, _res: any, next: any) => next(),
+  connectRateLimiter: (_req: any, _res: any, next: any) => next(),
+  authRateLimiter: (_req: any, _res: any, next: any) => next(),
+  chatMessageRateLimiter: (_req: any, _res: any, next: any) => next(),
+  adminRoundRateLimiter: (_req: any, _res: any, next: any) => next(),
+  oracleResolveRateLimiter: (_req: any, _res: any, next: any) => next(),
+  predictionRateLimiter: (_req: any, _res: any, next: any) => next(),
 }));
 
 describe('Rounds Routes - Mode Validation (Issue #63)', () => {
@@ -56,6 +74,15 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
         priceRanges: mode === 'LEGENDS' ? [] : null,
       })
     );
+
+    mockResolveRound.mockResolvedValue({
+      id: 'round-resolved-id',
+      status: 'RESOLVED',
+      startPrice: 0.1234,
+      endPrice: 0.1301,
+      resolvedAt: new Date(),
+      predictions: [{ won: true }, { won: false }],
+    });
   });
 
   afterAll(() => {
@@ -95,6 +122,31 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
       expect(res.body.round.mode).toBe('LEGENDS');
     });
 
+    it('passes custom LEGENDS priceRanges to round service', async () => {
+      const customRanges = [
+        { min: 0.11, max: 0.12 },
+        { min: 0.12, max: 0.13 },
+      ];
+
+      const res = await request(app)
+        .post('/api/rounds/start')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          mode: 1,
+          startPrice: 0.1234,
+          duration: 300,
+          priceRanges: customRanges,
+        });
+
+      expect(res.status).toBe(200);
+      expect(mockStartRound).toHaveBeenCalledWith(
+        'LEGENDS',
+        0.1234,
+        300,
+        customRanges,
+      );
+    });
+
     it('should reject mode=-1 as invalid', async () => {
       const res = await request(app)
         .post('/api/rounds/start')
@@ -106,7 +158,7 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid mode');
+      expect(res.body.message).toContain('Invalid mode');
     });
 
     it('should reject mode=2 as out of range', async () => {
@@ -120,7 +172,7 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid mode');
+      expect(res.body.message).toContain('Invalid mode');
     });
 
     it('should reject mode as string', async () => {
@@ -134,7 +186,7 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid mode');
+      expect(res.body.message).toContain('expected number');
     });
 
     it('should reject missing mode (undefined)', async () => {
@@ -147,7 +199,7 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid mode');
+      expect(res.body.message).toContain('expected number');
     });
 
     it('should reject mode=null', async () => {
@@ -161,7 +213,7 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid mode');
+      expect(res.body.message).toContain('expected number');
     });
   });
 
@@ -177,7 +229,7 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid start price');
+      expect(res.body.message).toContain('Invalid start price');
     });
 
     it('should reject duration=0 (edge case for falsy check)', async () => {
@@ -191,7 +243,25 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid duration');
+      expect(res.body.message).toContain('Invalid duration');
+    });
+  });
+
+  describe('POST /api/rounds/:id/resolve - LEGENDS support', () => {
+    it('resolves a LEGENDS round via the active rounds API', async () => {
+      const res = await request(app)
+        .post('/api/rounds/round-resolve-id/resolve')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          finalPrice: 0.1301,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.round.status).toBe('RESOLVED');
+      expect(res.body.round.predictions).toBe(2);
+      expect(res.body.round.winners).toBe(1);
+      expect(mockResolveRound).toHaveBeenCalledWith('round-resolve-id', 0.1301);
     });
   });
 });

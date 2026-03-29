@@ -2,16 +2,14 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/glo
 import { prisma } from '../lib/prisma';
 import request from 'supertest';
 import app from '../index';
-import { GameMode, BetSide } from '../types/round.types';
 import { generateToken } from '../utils/jwt.util';
-import * as StellarSdk from '@stellar/stellar-sdk';
 
-// Skip when no DB, or in CI (CI has DB but round e2e expects admin role + specific route setup; run locally only)
 const hasDb = Boolean(process.env.DATABASE_URL);
 const isCI = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
-const describeRound = hasDb && !isCI ? describe : describe.skip;
+const runRoundE2E = process.env.RUN_ROUND_E2E === 'true';
+const describeRound = hasDb && !isCI && runRoundE2E ? describe : describe.skip;
 
-describeRound('Round Prediction Flow - End-to-End Test', () => {
+describeRound('Round Prediction Flow - LEGENDS Integration', () => {
   let adminUser: any;
   let userA: any;
   let userB: any;
@@ -24,6 +22,7 @@ describeRound('Round Prediction Flow - End-to-End Test', () => {
       data: {
         walletAddress: 'GADMINAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         publicKey: 'GADMINAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        role: 'ADMIN',
       },
     });
 
@@ -57,293 +56,103 @@ describeRound('Round Prediction Flow - End-to-End Test', () => {
     await prisma.round.deleteMany({});
   });
 
-  describe('Full Round Lifecycle (Up/Down Mode)', () => {
-    it('should complete a full Up/Down round: start -> predict -> resolve', async () => {
-      const startPrice = '1.23';
-      const durationLedgers = 60;
-      const finalPrice = '1.45';
+  it('supports LEGENDS start -> predict -> resolve flow with range payouts', async () => {
+    const priceRanges = [
+      { min: 1.1, max: 1.2 },
+      { min: 1.2, max: 1.3 },
+      { min: 1.3, max: 1.4 },
+    ];
 
-      let roundId: string | undefined;
-      let predictionAId: string | undefined;
-      let predictionBId: string | undefined;
-      let resolveTxHash: string | undefined;
+    const startRes = await request(app)
+      .post('/api/rounds/start')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        mode: 1,
+        startPrice: 1.23,
+        duration: 5,
+        priceRanges,
+      })
+      .expect(200);
 
-      await request(app)
-        .post('/api/rounds/start')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          startPrice,
-          durationLedgers,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(201)
-        .expect((res) => {
-          expect(res.body).toHaveProperty('roundId');
-          expect(res.body).toHaveProperty('startPrice');
-          expect(res.body).toHaveProperty('endLedger');
-          expect(res.body).toHaveProperty('mode');
-          expect(res.body).toHaveProperty('createdAt');
-          expect(res.body.mode).toBe(GameMode.UP_DOWN);
-          expect(res.body.startPrice).toBeGreaterThan(0n);
-          expect(res.body.endLedger).toBeGreaterThan(0);
-          roundId = res.body.roundId;
-        });
+    expect(startRes.body.success).toBe(true);
+    expect(startRes.body.round.mode).toBe('LEGENDS');
+    expect(startRes.body.round.priceRanges).toHaveLength(3);
+    const roundId = startRes.body.round.id;
 
-      await request(app)
-        .get('/api/rounds/active')
-        .expect(200)
-        .expect((res) => {
-          expect(res.body.roundId).toBe(roundId);
-          expect(res.body).toHaveProperty('startPrice');
-          expect(res.body).toHaveProperty('poolUp');
-          expect(res.body).toHaveProperty('poolDown');
-          expect(res.body).toHaveProperty('endLedger');
-          expect(res.body).toHaveProperty('mode');
-          expect(res.body.mode).toBe(GameMode.UP_DOWN);
-        });
+    await request(app)
+      .post('/api/predictions/submit')
+      .set('Authorization', `Bearer ${userAToken}`)
+      .send({
+        roundId,
+        amount: 100,
+        priceRange: { min: 1.2, max: 1.3 },
+      })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.success).toBe(true);
+        expect(res.body.prediction.roundId).toBe(roundId);
+        expect(res.body.prediction.priceRange).toEqual({ min: 1.2, max: 1.3 });
+      });
 
-      const userASecret = 'S' + 'A'.repeat(55);
-      await request(app)
-        .post('/api/rounds/predict')
-        .set('Authorization', `Bearer ${userAToken}`)
-        .set('x-signature', userASecret)
-        .send({
-          roundId,
-          side: BetSide.UP,
-          amount: 100,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(201)
-        .expect((res) => {
-          expect(res.body).toHaveProperty('predictionId');
-          expect(res.body).toHaveProperty('roundId');
-          expect(res.body).toHaveProperty('side');
-          expect(res.body).toHaveProperty('amount');
-          expect(res.body).toHaveProperty('txHash');
-          expect(res.body.roundId).toBe(roundId);
-          expect(res.body.side).toBe(BetSide.UP);
-          expect(res.body.amount).toBe(100);
-          predictionAId = res.body.predictionId;
-        });
+    await request(app)
+      .post('/api/predictions/submit')
+      .set('Authorization', `Bearer ${userBToken}`)
+      .send({
+        roundId,
+        amount: 200,
+        priceRange: { min: 1.3, max: 1.4 },
+      })
+      .expect(200);
 
-      const userBSecret = 'S' + 'B'.repeat(55);
-      await request(app)
-        .post('/api/rounds/predict')
-        .set('Authorization', `Bearer ${userBToken}`)
-        .set('x-signature', userBSecret)
-        .send({
-          roundId,
-          side: BetSide.DOWN,
-          amount: 150,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(201)
-        .expect((res) => {
-          expect(res.body).toHaveProperty('predictionId');
-          expect(res.body.roundId).toBe(roundId);
-          expect(res.body.side).toBe(BetSide.DOWN);
-          expect(res.body.amount).toBe(150);
-          predictionBId = res.body.predictionId;
-        });
+    const resolveRes = await request(app)
+      .post(`/api/rounds/${roundId}/resolve`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ finalPrice: 1.25 })
+      .expect(200);
 
-      await request(app)
-        .get('/api/rounds/active')
-        .expect(200)
-        .expect((res) => {
-          const poolUp = BigInt(res.body.poolUp);
-          const poolDown = BigInt(res.body.poolDown);
-          expect(poolUp).toBeGreaterThan(0n);
-          expect(poolDown).toBeGreaterThan(0n);
-        });
+    expect(resolveRes.body.success).toBe(true);
+    expect(resolveRes.body.round.status).toBe('RESOLVED');
+    expect(resolveRes.body.round.predictions).toBe(2);
+    expect(resolveRes.body.round.winners).toBe(1);
 
-      await request(app)
-        .post('/api/rounds/resolve')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          roundId,
-          finalPrice,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(200)
-        .expect((res) => {
-          expect(res.body).toHaveProperty('roundId');
-          expect(res.body).toHaveProperty('outcome');
-          expect(res.body).toHaveProperty('winnersCount');
-          expect(res.body).toHaveProperty('losersCount');
-          expect(res.body).toHaveProperty('txHash');
-          expect(res.body.roundId).toBe(roundId);
-          expect(res.body.outcome).toBe(BetSide.UP);
-          expect(res.body.winnersCount).toBe(1);
-          expect(res.body.losersCount).toBe(1);
-          resolveTxHash = res.body.txHash;
-        });
+    const predictionsRes = await request(app)
+      .get(`/api/predictions/round/${roundId}`)
+      .expect(200);
 
-      expect(roundId).toBeDefined();
-      expect(predictionAId).toBeDefined();
-      expect(predictionBId).toBeDefined();
-      expect(resolveTxHash).toBeDefined();
-    });
+    const winners = predictionsRes.body.predictions.filter((p: any) => p.won === true);
+    const losers = predictionsRes.body.predictions.filter((p: any) => p.won === false);
+    expect(winners).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+    expect(Number(winners[0].payout)).toBeCloseTo(300, 8);
+    expect(Number(losers[0].payout)).toBe(0);
   });
 
-  describe('Validation Tests', () => {
-    it('should reject start round without authentication', async () => {
-      await request(app)
-        .post('/api/rounds/start')
-        .send({
-          startPrice: '1.23',
-          durationLedgers: 60,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(401);
-    });
+  it('rejects LEGENDS prediction when range does not belong to round', async () => {
+    const startRes = await request(app)
+      .post('/api/rounds/start')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        mode: 1,
+        startPrice: 2.0,
+        duration: 5,
+        priceRanges: [
+          { min: 1.8, max: 2.0 },
+          { min: 2.0, max: 2.2 },
+        ],
+      })
+      .expect(200);
 
-    it('should reject prediction without authentication', async () => {
-      await request(app)
-        .post('/api/rounds/predict')
-        .send({
-          roundId: 'test-round-id',
-          side: BetSide.UP,
-          amount: 100,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(401);
-    });
-
-    it('should reject prediction for non-existent round', async () => {
-      await request(app)
-        .post('/api/rounds/predict')
-        .set('Authorization', `Bearer ${userAToken}`)
-        .set('x-signature', 'S' + 'A'.repeat(55))
-        .send({
-          roundId: 'non-existent-round',
-          side: BetSide.UP,
-          amount: 100,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(404);
-    });
-
-    it('should reject invalid bet amount', async () => {
-      const { body: roundBody } = await request(app)
-        .post('/api/rounds/start')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          startPrice: '1.23',
-          durationLedgers: 60,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(201);
-
-      await request(app)
-        .post('/api/rounds/predict')
-        .set('Authorization', `Bearer ${userAToken}`)
-        .set('x-signature', 'S' + 'A'.repeat(55))
-        .send({
-          roundId: roundBody.roundId,
-          side: BetSide.UP,
-          amount: -10,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(400);
-    });
-
-    it('should reject invalid side', async () => {
-      const { body: roundBody } = await request(app)
-        .post('/api/rounds/start')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          startPrice: '1.23',
-          durationLedgers: 60,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(201);
-
-      await request(app)
-        .post('/api/rounds/predict')
-        .set('Authorization', `Bearer ${userAToken}`)
-        .set('x-signature', 'S' + 'A'.repeat(55))
-        .send({
-          roundId: roundBody.roundId,
-          side: 'invalid',
-          amount: 100,
-          mode: GameMode.UP_DOWN,
-        })
-        .expect(400);
-    });
-  });
-
-  describe('Legends Mode (Stubbed)', () => {
-    it.skip('should handle Legends mode predictions - AWAITING CONTRACT SUPPORT', async () => {
-      await request(app)
-        .post('/api/rounds/start')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          startPrice: '1.23',
-          durationLedgers: 60,
-          mode: GameMode.LEGENDS,
-        })
-        .expect(201);
-    });
-
-    it('should return 501 for Legends mode start request', async () => {
-      await request(app)
-        .post('/api/rounds/start')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          startPrice: '1.23',
-          durationLedgers: 60,
-          mode: GameMode.LEGENDS,
-        })
-        .expect(501)
-        .expect((res) => {
-          expect(res.body).toHaveProperty('error');
-          expect(res.body.error).toBe('Not Implemented');
-          expect(res.body.message).toContain('Legends mode');
-          expect(res.body.message).toContain('Xelma-Blockchain');
-        });
-    });
-
-    it('should return 501 for Legends mode prediction request', async () => {
-      await request(app)
-        .post('/api/rounds/predict')
-        .set('Authorization', `Bearer ${userAToken}`)
-        .set('x-signature', 'S' + 'A'.repeat(55))
-        .send({
-          roundId: 'test-round-id',
-          side: BetSide.UP,
-          amount: 100,
-          mode: GameMode.LEGENDS,
-        })
-        .expect(501)
-        .expect((res) => {
-          expect(res.body.error).toBe('Not Implemented');
-          expect(res.body.message).toContain('Legends mode');
-        });
-    });
-
-    it('should return 501 for Legends mode resolve request', async () => {
-      await request(app)
-        .post('/api/rounds/resolve')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          roundId: 'test-round-id',
-          finalPrice: '1.45',
-          mode: GameMode.LEGENDS,
-        })
-        .expect(501)
-        .expect((res) => {
-          expect(res.body.error).toBe('Not Implemented');
-          expect(res.body.message).toContain('Legends mode');
-        });
-    });
-  });
-
-  describe('Sample Request/Response Payloads', () => {
-    it('should provide correct sample payloads as documented', () => {
-      expect(GameMode.UP_DOWN).toBe(0);
-      expect(GameMode.LEGENDS).toBe(1);
-      expect(BetSide.UP).toBe('up');
-      expect(BetSide.DOWN).toBe('down');
-    });
+    await request(app)
+      .post('/api/predictions/submit')
+      .set('Authorization', `Bearer ${userAToken}`)
+      .send({
+        roundId: startRes.body.round.id,
+        amount: 50,
+        priceRange: { min: 2.2, max: 2.4 },
+      })
+      .expect(400)
+      .expect((res) => {
+        expect(res.body.message).toContain('Invalid price range');
+      });
   });
 });

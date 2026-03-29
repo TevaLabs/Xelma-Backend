@@ -26,12 +26,18 @@ const router = Router();
  *               roundId: { type: string }
  *               amount: { type: number, minimum: 0 }
  *               side: { type: string, description: UP/DOWN (for UP_DOWN mode)" }
- *               priceRange: { type: string, description: Price range selection (for LEGENDS mode)" }
+ *               priceRange:
+ *                 type: object
+ *                 description: Price range selection (required for LEGENDS mode)
+ *                 properties:
+ *                   min: { type: number }
+ *                   max: { type: number }
+ *                 required: [min, max]
  *             required: [roundId, amount]
  *           example:
  *             roundId: "round-id"
  *             amount: 10
- *             side: "UP"
+ *             priceRange: { min: 0.12, max: 0.14 }
  *     responses:
  *       200:
  *         description: Prediction submitted

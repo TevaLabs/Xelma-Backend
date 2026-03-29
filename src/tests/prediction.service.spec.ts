@@ -159,7 +159,7 @@ describe("PredictionService (Issue #78)", () => {
             min: 5,
             max: 10,
           })
-        ).rejects.toThrow("Invalid price range");
+        ).rejects.toThrow("Invalid price range for this round");
       });
     });
 
@@ -260,6 +260,7 @@ describe("PredictionService (Issue #78)", () => {
             roundId,
             userId,
             amount: 50,
+            side: undefined,
             priceRange: { min: 1, max: 2 },
           },
         });

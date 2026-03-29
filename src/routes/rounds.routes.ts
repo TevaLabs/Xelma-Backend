@@ -35,11 +35,24 @@ const router = Router();
  *               duration:
  *                 type: integer
  *                 description: Duration in seconds (must be > 0)
+ *               priceRanges:
+ *                 type: array
+ *                 description: Optional LEGENDS-only custom ranges; if omitted, default ranges are generated from startPrice.
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     min: { type: number }
+ *                     max: { type: number }
+ *                   required: [min, max]
  *             required: [mode, startPrice, duration]
  *           example:
- *             mode: 0
+ *             mode: 1
  *             startPrice: 0.1234
  *             duration: 300
+ *             priceRanges:
+ *               - { min: 0.10, max: 0.12 }
+ *               - { min: 0.12, max: 0.14 }
+ *               - { min: 0.14, max: 0.16 }
  *     responses:
  *       200:
  *         description: Round started
@@ -96,9 +109,9 @@ const router = Router();
  */
 router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSchema), async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { mode, startPrice, duration } = req.body;
+        const { mode, startPrice, duration, priceRanges } = req.body;
         const gameMode = mode === 0 ? 'UP_DOWN' : 'LEGENDS';
-        const round = await roundService.startRound(gameMode, startPrice, duration);
+        const round = await roundService.startRound(gameMode, startPrice, duration, priceRanges);
 
         res.json({
             success: true,
@@ -214,7 +227,7 @@ router.get('/active', async (req: Request, res: Response, next: NextFunction) =>
  * /api/rounds/{id}/resolve:
  *   post:
  *     summary: Resolve a round with the final price
- *     description: Oracle-only (or Admin). Resolves the round and computes winners.
+ *     description: Oracle-only (or Admin). Resolves the round and computes winners. LEGENDS uses inclusive-lower/exclusive-upper range matching, with final range upper-bound inclusive.
  *     tags: [rounds]
  *     security:
  *       - bearerAuth: []
@@ -250,6 +263,7 @@ router.get('/active', async (req: Request, res: Response, next: NextFunction) =>
  *                 resolvedAt: "2026-01-29T00:10:00.000Z"
  *                 predictions: 10
  *                 winners: 4
+ *                 legendsPayoutRule: "winner payout = stake + (stake / winningPool) * losingPool"
  *       400:
  *         description: Validation error
  *         content:

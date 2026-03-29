@@ -21,6 +21,33 @@ import { invalidateNamespace } from "../lib/redis";
 
 const router = Router();
 
+interface LegendsPriceRange {
+  min: number;
+  max: number;
+  pool?: number;
+}
+
+function isValidPriceRange(value: any): value is LegendsPriceRange {
+  return (
+    value &&
+    typeof value === "object" &&
+    Number.isFinite(value.min) &&
+    Number.isFinite(value.max) &&
+    value.min < value.max
+  );
+}
+
+function buildDefaultLegendsRanges(startPrice: number): LegendsPriceRange[] {
+  const width = startPrice * 0.05;
+  return [
+    { min: startPrice - width * 2, max: startPrice - width },
+    { min: startPrice - width, max: startPrice },
+    { min: startPrice, max: startPrice + width },
+    { min: startPrice + width, max: startPrice + width * 2 },
+    { min: startPrice + width * 2, max: startPrice + width * 3 },
+  ];
+}
+
 function priceToStroops(price: string): bigint {
   const priceNum = parseFloat(price);
   if (isNaN(priceNum) || priceNum <= 0) {
@@ -51,15 +78,6 @@ router.post(
         });
       }
 
-      if (mode === GameMode.LEGENDS) {
-        return res.status(501).json({
-          error: "Not Implemented",
-          message:
-            "Legends mode (mode=1) is not yet supported. The Soroban contract currently only supports Up/Down betting. See: https://github.com/TevaLabs/Xelma-Blockchain",
-          supportedModes: [{ mode: 0, name: "Up/Down", status: "active" }],
-        });
-      }
-
       if (!req.user) {
         return res.status(401).json({
           error: "Unauthorized",
@@ -74,26 +92,53 @@ router.post(
         startTime.getTime() + durationMinutes * 60 * 1000,
       );
 
+      let priceRanges: LegendsPriceRange[] | null = null;
+
+      if (mode === GameMode.LEGENDS) {
+        const rangesFromBody = (req.body as StartRoundRequestBody).priceRanges;
+        const rangesToUse =
+          Array.isArray(rangesFromBody) && rangesFromBody.length > 0
+            ? rangesFromBody
+            : buildDefaultLegendsRanges(priceNum);
+
+        if (rangesToUse.length < 2 || !rangesToUse.every(isValidPriceRange)) {
+          return res.status(400).json({
+            error: "Validation Error",
+            message:
+              "LEGENDS rounds require at least 2 valid priceRanges with numeric min/max and min < max",
+          });
+        }
+
+        priceRanges = rangesToUse.map((range) => ({
+          min: range.min,
+          max: range.max,
+          pool: 0,
+        }));
+      }
+
       // Create round on Soroban contract (UP_DOWN mode = 0)
       const sorobanRoundId: string | null = null;
-      try {
-        await sorobanService.createRound(priceNum, 0);
-      } catch (e) {
-        logger.warn(
-          "Soroban createRound failed, proceeding with DB-only round:",
-          e,
-        );
+      if (mode === GameMode.UP_DOWN) {
+        try {
+          await sorobanService.createRound(priceNum, 0);
+        } catch (e) {
+          logger.warn(
+            "Soroban createRound failed, proceeding with DB-only round:",
+            e,
+          );
+        }
       }
 
       const round = await prisma.round.create({
         data: {
-          mode: "UP_DOWN",
+          mode: mode === GameMode.UP_DOWN ? "UP_DOWN" : "LEGENDS",
           startPrice: priceNum,
           startTime,
           endTime,
           sorobanRoundId,
           status: "ACTIVE",
           userId: req.user.userId,
+          priceRanges: priceRanges ? JSON.parse(JSON.stringify(priceRanges)) : null,
         },
       });
 
@@ -138,20 +183,27 @@ router.post(
   authenticateToken,
   async (req: AuthRequest, res: Response) => {
     try {
-      const { roundId, side, amount, mode }: SubmitPredictionRequestBody =
+      const { roundId, side, amount, mode, priceRange }: SubmitPredictionRequestBody =
         req.body;
 
-      if (!roundId || !side || !amount || mode === undefined) {
+      if (!roundId || !amount || mode === undefined) {
         return res.status(400).json({
           error: "Validation Error",
-          message: "roundId, side, amount, and mode are required",
+          message: "roundId, amount, and mode are required",
         });
       }
 
-      if (!Object.values(BetSide).includes(side)) {
+      if (mode === GameMode.UP_DOWN && (!side || !Object.values(BetSide).includes(side))) {
         return res.status(400).json({
           error: "Validation Error",
           message: 'side must be either "up" or "down"',
+        });
+      }
+
+      if (mode === GameMode.LEGENDS && !isValidPriceRange(priceRange)) {
+        return res.status(400).json({
+          error: "Validation Error",
+          message: "priceRange with numeric min/max and min < max is required for LEGENDS mode",
         });
       }
 
@@ -159,15 +211,6 @@ router.post(
         return res.status(400).json({
           error: "Validation Error",
           message: "amount must be between 1 and 1000 vXLM",
-        });
-      }
-
-      if (mode === GameMode.LEGENDS) {
-        return res.status(501).json({
-          error: "Not Implemented",
-          message:
-            "Legends mode (mode=1) is not yet supported. The Soroban contract currently only supports Up/Down betting. See: https://github.com/TevaLabs/Xelma-Blockchain",
-          supportedModes: [{ mode: 0, name: "Up/Down", status: "active" }],
         });
       }
 
@@ -218,26 +261,69 @@ router.post(
       const predictionSide =
         side === BetSide.UP ? ("UP" as const) : ("DOWN" as const);
 
-      // Call Soroban contract
-      try {
-        await sorobanService.placeBet(
-          user.walletAddress,
-          amount,
-          predictionSide,
+      if (mode === GameMode.LEGENDS) {
+        const ranges = Array.isArray(round.priceRanges)
+          ? (round.priceRanges as LegendsPriceRange[])
+          : [];
+        const validRange = ranges.find(
+          (r) =>
+            isValidPriceRange(r) &&
+            isValidPriceRange(priceRange) &&
+            new Decimal(r.min).eq(priceRange.min) &&
+            new Decimal(r.max).eq(priceRange.max),
         );
-      } catch (e) {
-        logger.warn(
-          "Soroban placeBet failed, proceeding with DB-only prediction:",
-          e,
-        );
+
+        if (!validRange) {
+          return res.status(400).json({
+            error: "Validation Error",
+            message: "Invalid priceRange for this LEGENDS round",
+          });
+        }
+
+        const updatedRanges = ranges.map((r) => {
+          if (
+            isValidPriceRange(r) &&
+            isValidPriceRange(priceRange) &&
+            new Decimal(r.min).eq(priceRange.min) &&
+            new Decimal(r.max).eq(priceRange.max)
+          ) {
+            return {
+              ...r,
+              pool: Number(r.pool || 0) + amount,
+            };
+          }
+          return r;
+        });
+
+        await prisma.round.update({
+          where: { id: roundId },
+          data: {
+            priceRanges: updatedRanges as any,
+          },
+        });
+      } else {
+        // Call Soroban contract
+        try {
+          await sorobanService.placeBet(
+            user.walletAddress,
+            amount,
+            predictionSide,
+          );
+        } catch (e) {
+          logger.warn(
+            "Soroban placeBet failed, proceeding with DB-only prediction:",
+            e,
+          );
+        }
       }
 
       const prediction = await prisma.prediction.create({
         data: {
           roundId,
           userId: req.user.userId,
-          side: predictionSide,
+          side: mode === GameMode.UP_DOWN ? predictionSide : null,
           amount,
+          priceRange: mode === GameMode.LEGENDS ? (priceRange as any) : null,
         },
       });
 
@@ -247,7 +333,7 @@ router.post(
       const response: SubmitPredictionResponse = {
         predictionId: prediction.id,
         roundId,
-        side,
+        side: side as BetSide,
         amount,
         txHash: "", // Soroban txHash not returned from placeBet
       };
@@ -303,15 +389,6 @@ router.post(
         });
       }
 
-      if (mode === GameMode.LEGENDS) {
-        return res.status(501).json({
-          error: "Not Implemented",
-          message:
-            "Legends mode (mode=1) is not yet supported. The Soroban contract currently only supports Up/Down betting. See: https://github.com/TevaLabs/Xelma-Blockchain",
-          supportedModes: [{ mode: 0, name: "Up/Down", status: "active" }],
-        });
-      }
-
       if (!req.user) {
         return res.status(401).json({
           error: "Unauthorized",
@@ -339,18 +416,20 @@ router.post(
 
       const finalPriceNum = parseFloat(finalPrice);
 
-      // Call Soroban contract to resolve
-      try {
-        await sorobanService.resolveRound(
-          finalPriceNum,
-          0,
-          BigInt(Math.floor(Date.now() / 1000)),
-        );
-      } catch (e) {
-        logger.warn(
-          "Soroban resolveRound failed, proceeding with DB-only resolution:",
-          e,
-        );
+      if (mode === GameMode.UP_DOWN) {
+        // Call Soroban contract to resolve
+        try {
+          await sorobanService.resolveRound(
+            finalPriceNum,
+            0,
+            BigInt(Math.floor(Date.now() / 1000)),
+          );
+        } catch (e) {
+          logger.warn(
+            "Soroban resolveRound failed, proceeding with DB-only resolution:",
+            e,
+          );
+        }
       }
 
       const updatedRound = await prisma.round.update({
@@ -365,11 +444,35 @@ router.post(
       void invalidateNamespace("leaderboard");
 
       let outcome: BetSide | null = null;
+      let winningRange: { min: number; max: number } | null = null;
 
-      if (finalPriceNum > toNumber(round.startPrice)) {
-        outcome = BetSide.UP;
-      } else if (finalPriceNum < toNumber(round.startPrice)) {
-        outcome = BetSide.DOWN;
+      if (mode === GameMode.UP_DOWN) {
+        if (finalPriceNum > toNumber(round.startPrice)) {
+          outcome = BetSide.UP;
+        } else if (finalPriceNum < toNumber(round.startPrice)) {
+          outcome = BetSide.DOWN;
+        }
+      } else {
+        const ranges = Array.isArray(round.priceRanges)
+          ? (round.priceRanges as LegendsPriceRange[])
+          : [];
+        const sortedRanges = ranges
+          .filter(isValidPriceRange)
+          .sort((a, b) => a.min - b.min);
+
+        const resolvedRange = sortedRanges.find((range, index) => {
+          const isLast = index === sortedRanges.length - 1;
+          const min = new Decimal(range.min);
+          const max = new Decimal(range.max);
+          const finalDec = new Decimal(finalPriceNum);
+          return isLast
+            ? finalDec.gte(min) && finalDec.lte(max)
+            : finalDec.gte(min) && finalDec.lt(max);
+        });
+
+        if (resolvedRange) {
+          winningRange = { min: resolvedRange.min, max: resolvedRange.max };
+        }
       }
 
       const predictions = await prisma.prediction.findMany({
@@ -378,23 +481,37 @@ router.post(
 
       // Map BetSide to PredictionSide for comparison
       const winSide =
-        outcome === BetSide.UP
-          ? "UP"
-          : outcome === BetSide.DOWN
-            ? "DOWN"
-            : null;
+        mode === GameMode.UP_DOWN
+          ? outcome === BetSide.UP
+            ? "UP"
+            : outcome === BetSide.DOWN
+              ? "DOWN"
+              : null
+          : null;
 
-      const winnersCount = winSide
-        ? predictions.filter((p) => p.side === winSide).length
-        : 0;
-      const losersCount = winSide
-        ? predictions.filter((p) => p.side !== winSide && p.side !== null)
-          .length
-        : 0;
+      const winnersCount =
+        mode === GameMode.UP_DOWN
+          ? winSide
+            ? predictions.filter((p) => p.side === winSide).length
+            : 0
+          : winningRange
+            ? predictions.filter((p: any) => {
+                const range = p.priceRange as LegendsPriceRange | null;
+                return (
+                  range &&
+                  isValidPriceRange(range) &&
+                  new Decimal(range.min).eq(winningRange.min) &&
+                  new Decimal(range.max).eq(winningRange.max)
+                );
+              }).length
+            : 0;
+
+      const losersCount = Math.max(predictions.length - winnersCount, 0);
 
       const response: ResolveRoundResponse = {
         roundId,
         outcome,
+        winningRange,
         winnersCount,
         losersCount,
         txHash: "", // Soroban resolveRound returns void
