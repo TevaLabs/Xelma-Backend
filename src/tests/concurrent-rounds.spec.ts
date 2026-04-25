@@ -16,6 +16,9 @@ describe('Concurrent Round Creation Prevention (Issue #66)', () => {
     // Reset rate limiter for the test IP to allow rapid sequential requests
     adminRoundRateLimiter.resetKey('unknown'); 
     adminRoundRateLimiter.resetKey(adminUser?.id || 'unknown');
+    adminRoundRateLimiter.resetKey('::ffff:127.0.0.1');
+    adminRoundRateLimiter.resetKey('127.0.0.1');
+    adminRoundRateLimiter.resetKey('::1');
     
     // Clear rounds to ensure a pristine state for each test
     await prisma.round.deleteMany({});

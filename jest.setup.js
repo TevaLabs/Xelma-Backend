@@ -11,8 +11,17 @@ if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = 'test-jwt-secret';
 }
 
+const DUMMY_DB_URL = 'postgresql://test_user:test_pass@localhost:5432/test_db?schema=public';
+
 // Ensure DATABASE_URL is set so src/config/index.ts validation passes in unit tests
 // that mock Prisma and do not require a real database.
 if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = 'postgresql://test_user:test_pass@localhost:5432/test_db?schema=public';
+  process.env.DATABASE_URL = DUMMY_DB_URL;
 }
+
+// Global helper to check if a real DB is available
+global.hasDb = Boolean(
+  process.env.DATABASE_URL && 
+  process.env.DATABASE_URL !== DUMMY_DB_URL &&
+  !process.env.DATABASE_URL.includes('test_pass@localhost')
+);

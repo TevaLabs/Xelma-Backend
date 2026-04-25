@@ -17,6 +17,11 @@ describe('Round Management', () => {
   let userAToken: string;
   let userBToken: string;
 
+  beforeEach(async () => {
+    // Clear rounds to prevent 409 Conflict from previous tests
+    await prisma.round.deleteMany({});
+  });
+
   beforeAll(async () => {
     // Setup test users
     adminUser = await prisma.user.upsert({
@@ -81,13 +86,13 @@ describe('Round Management', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
           mode: 0, // UP_DOWN
-          startPrice: '0.1234',
-          durationLedgers: 12,
+          startPrice: 0.1234,
+          duration: 300,
         });
 
-      expect(res.status).toBe(201);
-      expect(res.body).toHaveProperty('roundId');
-      expect(res.body.mode).toBe(0);
+        expect(res.status).toBe(200);
+      expect(res.body.round).toHaveProperty('id');
+      expect(res.body.round.mode).toBe('UP_DOWN');
     });
 
     it('should allow admin to start a new LEGENDS round', async () => {
@@ -100,9 +105,9 @@ describe('Round Management', () => {
           duration: 300,
         });
 
-      expect(res.status).toBe(201);
-      expect(res.body).toHaveProperty('roundId');
-      expect(res.body.mode).toBe(1);
+      expect(res.status).toBe(200);
+      expect(res.body.round).toHaveProperty('id');
+      expect(res.body.round.mode).toBe('LEGENDS');
     });
 
     it('should block non-admin from starting a round', async () => {
@@ -111,8 +116,8 @@ describe('Round Management', () => {
         .set('Authorization', `Bearer ${userAToken}`)
         .send({
           mode: 0,
-          startPrice: '0.1234',
-          durationLedgers: 12,
+          startPrice: 0.1234,
+          duration: 300,
         });
 
       // Based on implementation, authenticateToken allows any user, 
@@ -123,3 +128,4 @@ describe('Round Management', () => {
     });
   });
 });
+
