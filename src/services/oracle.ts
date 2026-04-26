@@ -1,6 +1,7 @@
 import axios from 'axios';
 import logger from '../utils/logger';
 import { toDecimal, toNumber, toDecimalString } from '../utils/decimal.util';
+import { withTimeout } from '../utils/timeout-wrapper';
 import { Decimal } from '@prisma/client/runtime/library';
 
 class PriceOracle {
@@ -8,7 +9,7 @@ class PriceOracle {
   private price: Decimal | null = null;
   private readonly COINGECKO_URL = 'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd';
   private readonly POLLING_INTERVAL = 10000; // 10 seconds
-  private readonly REQUEST_TIMEOUT = 5000; // 5s axios timeout
+  private readonly REQUEST_TIMEOUT = 5000; // 5s timeout
   private readonly MAX_RETRIES = 3;
   private readonly STALENESS_THRESHOLD = 60000; // 60s
   private pollingInterval: ReturnType<typeof setInterval> | null = null;
@@ -58,29 +59,43 @@ class PriceOracle {
     return this._running;
   }
 
-  private async fetchPrice(attempt = 1): Promise<void> {
-    try {
-      const response = await axios.get(this.COINGECKO_URL, {
-        timeout: this.REQUEST_TIMEOUT,
+  private async fetchPrice(): Promise<void> {
+    const result = await withTimeout(
+      async () => {
+        const response = await axios.get(this.COINGECKO_URL, {
+          timeout: this.REQUEST_TIMEOUT,
+        });
+        const rawPrice = response.data?.stellar?.usd;
+        if (rawPrice !== undefined && rawPrice !== null) {
+          return toDecimal(rawPrice as string | number);
+        } else {
+          throw new Error('Invalid response structure from CoinGecko: missing stellar.usd');
+        }
+      },
+      {
+        timeoutMs: this.REQUEST_TIMEOUT,
+        operationName: 'fetchPriceFromCoinGecko',
+        retries: this.MAX_RETRIES,
+      }
+    );
+
+    if (result.success && result.data) {
+      this.price = result.data;
+      this.lastUpdatedAt = new Date();
+      logger.info(`Fetched XLM price: $${toDecimalString(this.price)}`, {
+        durationMs: result.durationMs,
+        retriesUsed: result.retriesUsed,
       });
-      const rawPrice = response.data?.stellar?.usd;
-      if (rawPrice !== undefined && rawPrice !== null) {
-        this.price = toDecimal(rawPrice as string | number);
-        this.lastUpdatedAt = new Date();
-        logger.info(`Fetched XLM price: $${toDecimalString(this.price)}`);
-      } else {
-        logger.warn('Invalid response structure from CoinGecko:', response.data);
-      }
-    } catch (error: any) {
-      if (attempt < this.MAX_RETRIES) {
-        const backoffMs = Math.min(1000 * 2 ** (attempt - 1), 8000);
-        logger.warn(
-          `Price fetch attempt ${attempt} failed, retrying in ${backoffMs}ms: ${error.message}`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
-        return this.fetchPrice(attempt + 1);
-      }
-      logger.error(`Price fetch failed after ${this.MAX_RETRIES} attempts: ${error.message}`);
+    } else {
+      logger.error(
+        'Failed to fetch price from CoinGecko after retries',
+        {
+          error: result.error?.message,
+          durationMs: result.durationMs,
+          retriesUsed: result.retriesUsed,
+          timedOut: result.timedOut,
+        }
+      );
     }
   }
 

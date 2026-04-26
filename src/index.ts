@@ -99,15 +99,58 @@ export function createApp(): Express {
 
   // Health check endpoint
   app.get("/health", async (req: Request, res: Response) => {
-    const sorobanHealth = await sorobanService.getHealth();
-    res.json({
-      status: "healthy",
+    const startTime = Date.now();
+    let dbStatus = "unhealthy";
+    let dbDurationMs = 0;
+    let overallStatus = "healthy";
+
+    // Check database connectivity with bounded timeout
+    try {
+      const dbCheckStart = Date.now();
+      await Promise.race([
+        prisma.$queryRaw`SELECT 1`,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("DB health check timeout")), 5000)
+        ),
+      ]);
+      dbStatus = "healthy";
+      dbDurationMs = Date.now() - dbCheckStart;
+      logger.debug("Database health check passed", { dbDurationMs });
+    } catch (dbError: any) {
+      dbStatus = "unhealthy";
+      dbDurationMs = Date.now() - startTime;
+      overallStatus = "degraded";
+      logger.warn("Database health check failed", {
+        error: dbError?.message || "Unknown error",
+        dbDurationMs,
+      });
+    }
+
+    // Check Soroban service health
+    let sorobanHealth;
+    try {
+      sorobanHealth = await sorobanService.getHealth();
+    } catch (error: any) {
+      logger.warn("Soroban health check failed", { error: error?.message });
+      sorobanHealth = { initialized: false, error: "Health check failed" };
+    }
+
+    const responseCode = overallStatus === "healthy" ? 200 : 503;
+    const totalDurationMs = Date.now() - startTime;
+
+    res.status(responseCode).json({
+      status: overallStatus,
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
+      durationMs: totalDurationMs,
       services: {
         soroban: sorobanHealth,
-        database: "connected", // Basic assumption if we reach here
-      }
+        database: {
+          status: dbStatus,
+          durationMs: dbDurationMs,
+          timeout: 5000,
+        },
+      },
     });
   });
 

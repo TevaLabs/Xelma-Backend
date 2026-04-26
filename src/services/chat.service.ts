@@ -1,10 +1,10 @@
 import { prisma } from '../lib/prisma';
 import websocketService from './websocket.service';
 import logger from '../utils/logger';
+import { sanitizeChatContent, validateContentLength } from '../utils/sanitization.util';
 import { ChatMessage } from '../types/chat.types';
 
-// Simple profanity blocklist - extensible for future enhancements
-// Can be replaced with 'bad-words' npm package for production
+// Profanity blocklist - case-insensitive matching
 const PROFANITY_LIST = [
   'fuck',
   'shit',
@@ -21,50 +21,71 @@ const PROFANITY_LIST = [
 class ChatService {
   /**
    * Send a new chat message
+   * 
+   * Applies comprehensive content validation and sanitization:
+   * 1. Length validation (max 500 chars)
+   * 2. Whitespace normalization
+   * 3. HTML escaping for XSS prevention
+   * 4. Suspicious pattern detection (injection attempts)
+   * 5. Profanity filtering
+   * 
+   * @throws Error if content fails moderation checks
    */
   async sendMessage(userId: string, walletAddress: string, content: string): Promise<ChatMessage> {
-    // Validate content
-    if (!content || content.trim().length === 0) {
-      throw new Error('Message content cannot be empty');
-    }
+    try {
+      // Step 1: Validate length constraints
+      validateContentLength(content, 500);
 
-    if (content.length > 500) {
-      throw new Error('Message exceeds maximum length of 500 characters');
-    }
+      // Step 2: Sanitize content (normalize whitespace, escape HTML, check for suspicious patterns)
+      let sanitizedContent = sanitizeChatContent(content);
 
-    // Filter profanity
-    const filteredContent = this.filterProfanity(content.trim());
+      // Step 3: Apply profanity filter
+      sanitizedContent = this.filterProfanity(sanitizedContent);
 
-    // Create message in database
-    const message = await prisma.message.create({
-      data: {
-        userId,
-        content: filteredContent,
-      },
-      include: {
-        user: {
-          select: {
-            walletAddress: true,
+      logger.debug(`Message sanitized for user ${userId}`, {
+        originalLength: content.length,
+        sanitizedLength: sanitizedContent.length,
+      });
+
+      // Step 4: Create message in database
+      const message = await prisma.message.create({
+        data: {
+          userId,
+          content: sanitizedContent,
+        },
+        include: {
+          user: {
+            select: {
+              walletAddress: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    // Format response
-    const chatMessage: ChatMessage = {
-      id: message.id,
-      userId: message.userId,
-      walletAddress: this.maskWalletAddress(walletAddress),
-      content: message.content,
-      createdAt: message.createdAt.toISOString(),
-    };
+      // Step 5: Format response
+      const chatMessage: ChatMessage = {
+        id: message.id,
+        userId: message.userId,
+        walletAddress: this.maskWalletAddress(walletAddress),
+        content: message.content,
+        createdAt: message.createdAt.toISOString(),
+      };
 
-    // Broadcast via WebSocket
-    websocketService.emitChatMessage(chatMessage);
+      // Step 6: Broadcast via WebSocket
+      websocketService.emitChatMessage(chatMessage);
 
-    logger.info(`Chat message sent: user=${userId}, messageId=${message.id}`);
+      logger.info(`Chat message sent: user=${userId}, messageId=${message.id}`, {
+        contentLength: sanitizedContent.length,
+      });
 
-    return chatMessage;
+      return chatMessage;
+    } catch (error: any) {
+      logger.warn(`Chat message validation failed for user ${userId}`, {
+        error: error.message,
+        contentLength: content.length,
+      });
+      throw error;
+    }
   }
 
   /**
@@ -97,12 +118,17 @@ class ChatService {
 
   /**
    * Filter profanity from message content
-   * Replaces bad words with asterisks
+   * Replaces bad words with asterisks (case-insensitive)
+   * 
+   * Note: This operates on already-HTML-escaped content
    */
   private filterProfanity(content: string): string {
     let filtered = content;
 
     for (const word of PROFANITY_LIST) {
+      // Use word boundary regex for case-insensitive matching
+      // Note: regex word boundaries may not work perfectly with HTML entities,
+      // but profanity filtering is a secondary layer after sanitization
       const regex = new RegExp(`\\b${word}\\b`, 'gi');
       filtered = filtered.replace(regex, '*'.repeat(word.length));
     }
