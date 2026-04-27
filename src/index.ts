@@ -31,6 +31,54 @@ const envFile = process.env.NODE_ENV === 'test' ? '.env.test' : '.env';
 dotenv.config({ path: path.resolve(process.cwd(), envFile), override: false });
 dotenv.config({ override: false });
 
+/**
+ * Resolve the CORS origin allowlist for Express HTTP routes.
+ * Mirrors the logic in socket.ts getCorsOrigins() so both layers
+ * enforce the same policy.
+ */
+export function getHttpCorsOrigins(): string | string[] | boolean {
+  const clientUrl = process.env.CLIENT_URL;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (isProduction) {
+    if (!clientUrl) {
+      throw new Error(
+        'CLIENT_URL environment variable is required in production. ' +
+        'HTTP CORS cannot use wildcard origin (*) in production.',
+      );
+    }
+    const additional = process.env.ALLOWED_ORIGINS;
+    if (additional) {
+      return [clientUrl, ...additional.split(',').map((o) => o.trim()).filter(Boolean)];
+    }
+    return clientUrl;
+  }
+
+  if (!clientUrl) {
+    return true; // Allow all origins in development when CLIENT_URL is unset
+  }
+
+  const additional = process.env.ALLOWED_ORIGINS;
+  if (additional) {
+    return [clientUrl, ...additional.split(',').map((o) => o.trim()).filter(Boolean)];
+  }
+  return clientUrl;
+}
+
+/**
+ * Apply security headers to every response.
+ * Prevents common browser-based attacks without adding helmet as a dependency.
+ */
+function securityHeaders(_req: Request, res: Response, next: NextFunction): void {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'");
+  res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
+  next();
+}
+
 
 const validateEnv = (): void => {
   if (!process.env.JWT_SECRET) {
@@ -51,8 +99,17 @@ validateEnv();
 export function createApp(): Express {
   const app = express();
 
-  // Middleware
-  app.use(cors());
+  // Security headers (before all routes)
+  app.use(securityHeaders);
+
+  // CORS — origin allowlist is driven by CLIENT_URL / ALLOWED_ORIGINS env vars
+  app.use(cors({
+    origin: getHttpCorsOrigins(),
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  }));
+
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
