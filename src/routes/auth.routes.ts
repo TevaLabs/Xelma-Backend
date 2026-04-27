@@ -19,7 +19,7 @@ import {
 } from "../middleware/rateLimiter.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { challengeSchema, connectSchema } from "../schemas/auth.schema";
-import { AuthenticationError } from "../utils/errors";
+import { AuthenticationError, ErrorCode } from "../utils/errors";
 
 const router = Router();
 
@@ -90,13 +90,11 @@ router.post(
     try {
       const { walletAddress }: ChallengeRequestBody = req.body;
 
-      // Clean up expired challenges for this wallet (housekeeping)
+      // Clean up existing unused challenges for this wallet (enforce one-active-challenge policy)
       await prisma.authChallenge.deleteMany({
         where: {
           walletAddress,
-          expiresAt: {
-            lt: new Date(),
-          },
+          isUsed: false,
         },
       });
 
@@ -225,18 +223,18 @@ router.post(
         });
 
         if (!existingChallenge || existingChallenge.walletAddress !== walletAddress) {
-          return next(new AuthenticationError("Invalid or expired challenge", "INVALID_CHALLENGE"));
+          return next(new AuthenticationError("Invalid or expired challenge", ErrorCode.INVALID_CHALLENGE));
         }
 
         if (existingChallenge.isUsed) {
-          return next(new AuthenticationError("Challenge has already been used", "CHALLENGE_USED"));
+          return next(new AuthenticationError("Challenge has already been used", ErrorCode.CHALLENGE_USED));
         }
 
         if (isChallengeExpired(existingChallenge.expiresAt)) {
-          return next(new AuthenticationError("Challenge has expired. Please request a new one.", "CHALLENGE_EXPIRED"));
+          return next(new AuthenticationError("Challenge has expired. Please request a new one.", ErrorCode.CHALLENGE_EXPIRED));
         }
 
-        return next(new AuthenticationError("Invalid or expired challenge", "INVALID_CHALLENGE"));
+        return next(new AuthenticationError("Invalid or expired challenge", ErrorCode.INVALID_CHALLENGE));
       }
 
       // Verify the signature using Stellar SDK
@@ -247,7 +245,7 @@ router.post(
       );
 
       if (!isValidSignature) {
-        return next(new AuthenticationError("Invalid signature", "INVALID_SIGNATURE"));
+        return next(new AuthenticationError("Invalid signature", ErrorCode.INVALID_SIGNATURE));
       }
 
       let user = await prisma.user.findUnique({

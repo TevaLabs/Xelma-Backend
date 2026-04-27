@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma";
 import { invalidateNamespace } from "../lib/redis";
 import { UserPriceRange } from "../types/round.types";
 import { toDecimal, toNumber } from "../utils/decimal.util";
-import { ValidationError } from "../utils/errors";
+import { ValidationError, NotFoundError, BusinessRuleError, ErrorCode } from "../utils/errors";
 import logger from "../utils/logger";
 import {
   findRangeByBounds,
@@ -32,11 +32,11 @@ export class PredictionService {
         });
 
         if (!round) {
-          throw new Error("Round not found");
+          throw new NotFoundError("Round not found", ErrorCode.NOT_FOUND);
         }
 
         if (round.status !== "ACTIVE") {
-          throw new Error("Round is not active");
+          throw new BusinessRuleError("Round is not active", ErrorCode.ROUND_NOT_ACTIVE);
         }
 
         // 2. Check for existing prediction (atomic via @@unique constraint in schema)
@@ -50,15 +50,16 @@ export class PredictionService {
         });
 
         if (existingPrediction) {
-          throw new Error(
+          throw new BusinessRuleError(
             "User has already placed a prediction for this round",
+            ErrorCode.DUPLICATE_PREDICTION,
           );
         }
 
         // 3. Validate mode-specific params early, before any writes
         if (round.mode === "UP_DOWN") {
           if (!side) {
-            throw new Error("Side (UP/DOWN) is required for UP_DOWN mode");
+            throw new ValidationError("Side (UP/DOWN) is required for UP_DOWN mode");
           }
         } else if (round.mode === "LEGENDS") {
           if (!priceRange) {
@@ -82,7 +83,7 @@ export class PredictionService {
             throw new ValidationError("Invalid price range for this round");
           }
         } else {
-          throw new Error("Invalid game mode");
+          throw new BusinessRuleError("Invalid game mode", ErrorCode.BUSINESS_RULE_VIOLATION);
         }
 
         const decimalAmount = toDecimal(amount);
@@ -93,7 +94,7 @@ export class PredictionService {
           where: { id: userId },
         });
         if (!existingUser) {
-          throw new Error("User not found");
+          throw new NotFoundError("User not found", ErrorCode.NOT_FOUND);
         }
 
         // 5. Update user balance ATOMICALLY with sufficiency check
@@ -110,7 +111,7 @@ export class PredictionService {
           })
           .catch((err: any) => {
             if (err.code === "P2025") {
-              throw new Error("Insufficient balance");
+              throw new BusinessRuleError("Insufficient balance", ErrorCode.INSUFFICIENT_FUNDS);
             }
             throw err;
           });

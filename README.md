@@ -431,7 +431,24 @@ SOROBAN_ORACLE_SECRET=S...your-oracle-secret-key
 # Round Scheduler
 ROUND_SCHEDULER_ENABLED=false  # Set to 'true' to enable automated rounds
 ROUND_SCHEDULER_MODE=UP_DOWN   # or 'LEGENDS'
+
+# Price Oracle Configuration
+ORACLE_POLLING_INTERVAL_MS=10000    # Interval between price updates (ms)
+ORACLE_REQUEST_TIMEOUT_MS=5000     # Network timeout for requests (ms)
+ORACLE_MAX_RETRIES=3               # Max retry attempts for failed requests
+ORACLE_STALENESS_THRESHOLD_MS=60000 # Threshold for stale price data (ms)
 ```
+
+#### Price Oracle Tuning
+
+Operators can tune the oracle's behavior via environment variables to balance price freshness against API rate limits and network reliability:
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `ORACLE_POLLING_INTERVAL_MS` | How often to fetch the price from CoinGecko. | `10000` (10s) |
+| `ORACLE_REQUEST_TIMEOUT_MS` | Network timeout for the API request. | `5000` (5s) |
+| `ORACLE_MAX_RETRIES` | Number of retry attempts on failure. | `3` |
+| `ORACLE_STALENESS_THRESHOLD_MS` | When to consider the local price data stale. | `60000` (60s) |
 
 #### Database pool/timeout tuning
 

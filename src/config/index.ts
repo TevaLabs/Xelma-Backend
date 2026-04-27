@@ -51,6 +51,13 @@ export interface SocketConfig {
   clientUrl: string;
 }
 
+export interface OracleConfig {
+  pollingIntervalMs: number;
+  requestTimeoutMs: number;
+  maxRetries: number;
+  stalenessThresholdMs: number;
+}
+
 export interface Config {
   app: AppConfig;
   jwt: JwtConfig;
@@ -59,6 +66,7 @@ export interface Config {
   scheduler: SchedulerConfig;
   stellar: StellarConfig;
   socket: SocketConfig;
+  oracle: OracleConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -190,10 +198,33 @@ function buildConfig(): Config {
     clientUrl: app.clientUrl,
   };
 
+  const oracle: OracleConfig = {
+    pollingIntervalMs: v.positiveInt(
+      env.ORACLE_POLLING_INTERVAL_MS,
+      "ORACLE_POLLING_INTERVAL_MS",
+      10000,
+    ),
+    requestTimeoutMs: v.positiveInt(
+      env.ORACLE_REQUEST_TIMEOUT_MS,
+      "ORACLE_REQUEST_TIMEOUT_MS",
+      5000,
+    ),
+    maxRetries: v.nonNegativeInt(
+      env.ORACLE_MAX_RETRIES,
+      "ORACLE_MAX_RETRIES",
+      3,
+    ),
+    stalenessThresholdMs: v.positiveInt(
+      env.ORACLE_STALENESS_THRESHOLD_MS,
+      "ORACLE_STALENESS_THRESHOLD_MS",
+      60000,
+    ),
+  };
+
   // Fail fast — surface every invalid field at once
   v.throwIfErrors();
 
-  return { app, jwt, database, soroban, scheduler, stellar, socket };
+  return { app, jwt, database, soroban, scheduler, stellar, socket, oracle };
 }
 
 // ---------------------------------------------------------------------------

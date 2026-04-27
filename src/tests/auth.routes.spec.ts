@@ -171,6 +171,19 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
       expect(res.body.expiresAt).toBeDefined();
       expect(new Date(res.body.expiresAt).getTime()).toBeGreaterThan(Date.now());
     });
+
+    it("should delete existing unused challenges for the same wallet (Issue #110)", async () => {
+      await request(app)
+        .post("/api/auth/challenge")
+        .send({ walletAddress: VALID_WALLET });
+
+      expect(mockAuthChallengeDeleteMany).toHaveBeenCalledWith({
+        where: {
+          walletAddress: VALID_WALLET,
+          isUsed: false,
+        },
+      });
+    });
   });
 
   describe("POST /api/auth/connect", () => {

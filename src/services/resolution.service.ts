@@ -17,7 +17,7 @@ import {
   decLte,
 } from "../utils/decimal.util";
 import { Decimal } from "@prisma/client/runtime/library";
-import { ValidationError } from "../utils/errors";
+import { ValidationError, ErrorCode } from "../utils/errors";
 import { RoundLifecycleOutcome, RoundPriceRange, UserPriceRange } from "../types/round.types";
 import { parseRoundPriceRanges, validateUserPriceRange } from "../utils/price-range.util";
 

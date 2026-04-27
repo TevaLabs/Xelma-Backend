@@ -4,7 +4,7 @@ import websocketService from "./websocket.service";
 import notificationService from "./notification.service";
 import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
-import { ConflictError, ValidationError } from "../utils/errors";
+import { ConflictError, ValidationError, ErrorCode } from "../utils/errors";
 import { RoundLifecycleOutcome } from "../types/round.types";
 import { Decimal } from "@prisma/client/runtime/library";
 import { toDecimal, toNumber } from "../utils/decimal.util";
@@ -38,7 +38,7 @@ export class RoundService {
       if (existingActiveRound) {
         throw new ConflictError(
           `An active ${mode} round already exists (ID: ${existingActiveRound.id})`,
-          "ACTIVE_ROUND_EXISTS",
+          ErrorCode.ACTIVE_ROUND_EXISTS,
         );
       }
 

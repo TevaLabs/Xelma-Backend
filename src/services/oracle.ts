@@ -3,15 +3,16 @@ import logger from '../utils/logger';
 import { toDecimal, toNumber, toDecimalString } from '../utils/decimal.util';
 import { withTimeout } from '../utils/timeout-wrapper';
 import { Decimal } from '@prisma/client/runtime/library';
+import config from '../config';
 
 class PriceOracle {
   private static instance: PriceOracle;
   private price: Decimal | null = null;
   private readonly COINGECKO_URL = 'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd';
-  private readonly POLLING_INTERVAL = 10000; // 10 seconds
-  private readonly REQUEST_TIMEOUT = 5000; // 5s timeout
-  private readonly MAX_RETRIES = 3;
-  private readonly STALENESS_THRESHOLD = 60000; // 60s
+  private readonly POLLING_INTERVAL = config.oracle.pollingIntervalMs;
+  private readonly REQUEST_TIMEOUT = config.oracle.requestTimeoutMs;
+  private readonly MAX_RETRIES = config.oracle.maxRetries;
+  private readonly STALENESS_THRESHOLD = config.oracle.stalenessThresholdMs;
   private pollingInterval: ReturnType<typeof setInterval> | null = null;
   private _running = false;
   private lastUpdatedAt: Date | null = null;

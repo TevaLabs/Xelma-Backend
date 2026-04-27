@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
-import { AppError, ValidationError } from '../utils/errors';
+import { AppError, ValidationError, ErrorCode } from '../utils/errors';
 import logger from '../utils/logger';
 
 /**
@@ -24,18 +24,18 @@ function fromPrismaError(err: Prisma.PrismaClientKnownRequestError): AppError {
       return new AppError(
         (err.meta?.cause as string | undefined) ?? 'Record not found',
         404,
-        'NOT_FOUND',
+        ErrorCode.NOT_FOUND,
       );
     case 'P2002': {
       const fields = Array.isArray(err.meta?.target)
         ? (err.meta!.target as string[]).join(', ')
         : 'field';
-      return new AppError(`Unique constraint failed on: ${fields}`, 409, 'CONFLICT');
+      return new AppError(`Unique constraint failed on: ${fields}`, 409, ErrorCode.CONFLICT);
     }
     case 'P2003':
       return new AppError('Related record not found', 400, 'FOREIGN_KEY_VIOLATION');
     default:
-      return new AppError('Database error', 500, 'DATABASE_ERROR');
+      return new AppError('Database error', 500, ErrorCode.INTERNAL_SERVER_ERROR);
   }
 }
 
@@ -68,9 +68,9 @@ export function errorHandler(
   } else if (err instanceof Prisma.PrismaClientValidationError) {
     appError = new ValidationError('Invalid database query parameters');
   } else if (err instanceof Error) {
-    appError = new AppError(err.message || 'Internal Server Error', 500, 'INTERNAL_ERROR');
+    appError = new AppError(err.message || 'Internal Server Error', 500, ErrorCode.INTERNAL_SERVER_ERROR);
   } else {
-    appError = new AppError('Internal Server Error', 500, 'INTERNAL_ERROR');
+    appError = new AppError('Internal Server Error', 500, ErrorCode.INTERNAL_SERVER_ERROR);
   }
 
   const isDev = process.env.NODE_ENV === 'development';
