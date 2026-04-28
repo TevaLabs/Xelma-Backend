@@ -7,7 +7,7 @@ const router = Router();
 
 /**
  * @openapi
- * /admin/metrics/rate-limits:
+ * /api/admin/metrics/rate-limits:
  *   get:
  *     summary: Rate-limit activity summary
  *     description: Returns statistics about rate-limit hits and potential abuse patterns. Admin only.
@@ -86,7 +86,7 @@ router.get('/rate-limits', requireAdmin, async (req: Request, res: Response) => 
 
 /**
  * @openapi
- * /admin/metrics/rate-limits/clear:
+ * /api/admin/metrics/rate-limits/clear:
  *   post:
  *     summary: Clear old rate-limit metrics
  *     description: Deletes rate-limit records older than a specific number of days. Admin only.

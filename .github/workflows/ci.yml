@@ -116,3 +116,31 @@ jobs:
 
       - name: Run integration tests
         run: npm run test:integration
+
+  contract-drift:
+    name: contract drift
+    runs-on: ubuntu-latest
+    env:
+      JWT_SECRET: ci-contract-secret
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Generate OpenAPI spec
+        run: npm run docs:openapi
+
+      - name: Check contract drift
+        run: npm run check:contract
