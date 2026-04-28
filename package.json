@@ -17,7 +17,9 @@
     "preinstall": "node scripts/install-bindings.js || true",
     "postinstall": "npm run build",
     "docs:openapi": "node dist/scripts/generate-openapi.js",
+    "docs:generate": "npm run build && npm run docs:openapi",
     "docs:postman": "node dist/scripts/export-postman.js",
+    "check:contract": "ts-node src/scripts/check-contract-drift.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },
