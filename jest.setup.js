@@ -55,6 +55,31 @@ global.checkDbConnectivity = async () => {
     return true;
   } catch (error) {
     console.error('Database connectivity check failed:', error.message);
+    console.error('');
+    console.error('To set up the test database, run:');
+    console.error('  npm run test:db:setup');
+    console.error('');
     return false;
   }
+};
+
+/**
+ * Auto-setup helper for integration tests.
+ * Checks if database is set up and provides helpful error messages.
+ */
+global.ensureTestDb = async () => {
+  if (!global.hasDb) {
+    throw new Error(
+      'Test database not configured. Set DATABASE_URL in .env.test or run: npm run test:db:setup'
+    );
+  }
+  
+  const isConnected = await global.checkDbConnectivity();
+  if (!isConnected) {
+    throw new Error(
+      'Cannot connect to test database. Run: npm run test:db:setup'
+    );
+  }
+  
+  return true;
 };
