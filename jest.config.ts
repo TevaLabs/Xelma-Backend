@@ -40,6 +40,7 @@ const unitConfig: Config = {
     "decimal-precision.spec.ts",
     "monetary-precision.spec.ts",
     "leaderboard-cache.spec.ts",
+    "auth-audit-integration.spec.ts",
   ],
   setupFiles: ["<rootDir>/jest.setup.js"],
 };
@@ -49,7 +50,7 @@ const integrationConfig: Config = {
   ...baseConfig,
   displayName: "integration",
   testMatch: [
-    "**/{rounds.routes,predictions.routes,round,concurrent-rounds,education-tip.route,auth-race,prediction-concurrency,idempotency,db-pool-config,decimal-precision,monetary-precision,leaderboard-cache}.spec.ts",
+    "**/{rounds.routes,predictions.routes,round,concurrent-rounds,education-tip.route,auth-race,prediction-concurrency,idempotency,db-pool-config,decimal-precision,monetary-precision,leaderboard-cache,auth-audit-integration}.spec.ts",
   ],
   setupFiles: ["<rootDir>/jest.setup.js"],
   // Integration tests can have longer timeouts

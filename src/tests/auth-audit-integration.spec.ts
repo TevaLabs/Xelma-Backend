@@ -517,7 +517,7 @@ describe('Auth Routes - Audit Integration', () => {
       
       // Mock successful verification
       const { verifySignature } = require('../services/stellar.service');
-      (verifySignature as jest.Mock).mockResolvedValue(true);
+      (verifySignature as jest.MockedFunction<any>).mockResolvedValue(true);
       
       jest.clearAllMocks();
 

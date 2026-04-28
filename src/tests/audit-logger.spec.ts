@@ -66,7 +66,7 @@ describe('AuditLogger', () => {
         expiresAt,
       });
 
-      const call = (logger.info as jest.Mock).mock.calls[0][0];
+      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
       expect(call.metadata.ttlSeconds).toBeGreaterThan(0);
       expect(call.metadata.ttlSeconds).toBeLessThanOrEqual(300);
     });
@@ -112,7 +112,7 @@ describe('AuditLogger', () => {
         isNewUser: true,
       });
 
-      const call = (logger.info as jest.Mock).mock.calls[0][0];
+      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
       expect(call.metadata.isNewUser).toBe(true);
     });
   });
@@ -159,7 +159,7 @@ describe('AuditLogger', () => {
           reason,
         });
 
-        const call = (logger.warn as jest.Mock).mock.calls[0][0];
+        const call = (logger.warn as jest.Mock).mock.calls[0][0] as any;
         expect(call.metadata.failureReason).toBe(reason);
         expect(call.message).toContain(reason);
       });
@@ -171,7 +171,7 @@ describe('AuditLogger', () => {
         reason: 'challenge_not_found',
       });
 
-      const call = (logger.warn as jest.Mock).mock.calls[0][0];
+      const call = (logger.warn as jest.Mock).mock.calls[0][0] as any;
       expect(call.resource).toBeUndefined();
     });
   });
@@ -242,7 +242,7 @@ describe('AuditLogger', () => {
           reason,
         });
 
-        const call = (logger.info as jest.Mock).mock.calls[0][0];
+        const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
         expect(call.metadata.invalidationReason).toBe(reason);
       });
     });
@@ -395,7 +395,7 @@ describe('AuditLogger', () => {
         expiresAt: new Date(),
       });
 
-      const call = (logger.info as jest.Mock).mock.calls[0][0];
+      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
       
       // Should not include challenge value, signatures, or tokens
       expect(JSON.stringify(call)).not.toContain('signature');
@@ -413,7 +413,7 @@ describe('AuditLogger', () => {
         userAgent: longUserAgent,
       });
 
-      const call = (logger.info as jest.Mock).mock.calls[0][0];
+      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
       expect(call.actor.userAgent.length).toBeLessThanOrEqual(200);
     });
 
@@ -425,7 +425,7 @@ describe('AuditLogger', () => {
         requestId: 'req-123',
       });
 
-      const call = (logger.info as jest.Mock).mock.calls[0][0];
+      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
       expect(call.context.requestId).toBe('req-123');
       expect(call.resource.id).toBe('challenge-123');
     });
@@ -439,7 +439,7 @@ describe('AuditLogger', () => {
         expiresAt: new Date(),
       });
 
-      const call = (logger.info as jest.Mock).mock.calls[0][0];
+      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
       
       // Required fields
       expect(call).toHaveProperty('audit', true);
@@ -480,7 +480,7 @@ describe('AuditLogger', () => {
         expiresAt: new Date(),
       });
 
-      const call = (logger.info as jest.Mock).mock.calls[0][0];
+      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
       
       // Should be JSON serializable
       expect(() => JSON.stringify(call)).not.toThrow();
@@ -513,7 +513,7 @@ describe('AuditLogger', () => {
         jest.clearAllMocks();
         logEvent();
         
-        const call = (logger.info as jest.Mock).mock.calls[0][0];
+        const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
         
         // All events should have these fields
         expect(call).toHaveProperty('audit');
