@@ -3,6 +3,7 @@ import type { Client as XelmaClient, BetSide, OraclePayload, RoundMode } from "@
 import logger from "../utils/logger";
 import { toDecimal } from "../utils/decimal.util";
 import { withTimeout, TimeoutResult } from "../utils/timeout-wrapper";
+import { CircuitBreaker, CircuitBreakerOpenError } from "../utils/circuit-breaker";
 import { Decimal } from "@prisma/client/runtime/library";
 
 export interface SorobanHealth {
@@ -38,6 +39,11 @@ export class SorobanService {
   private readonly ready: Promise<void>;
   private readonly CALL_TIMEOUT_MS = 15000; // 15s timeout for contract calls
   private readonly MAX_RETRIES = 2; // 2 retries for transient failures
+  private readonly breaker = new CircuitBreaker({
+    name: "soroban-rpc",
+    failureThreshold: 3,
+    openBackoffMs: 30_000,
+  });
 
   constructor() {
     this.ready = this.init();
@@ -108,6 +114,58 @@ export class SorobanService {
     }
   }
 
+  private async callWithBreaker<T>(
+    operationName: string,
+    operation: () => Promise<TimeoutResult<T>>,
+    fallback?: T,
+  ): Promise<TimeoutResult<T>> {
+    try {
+      const result = await this.breaker.execute(async () => {
+        const timeoutResult = await operation();
+        if (!timeoutResult.success) {
+          throw timeoutResult.error ?? new Error(`${operationName} failed`);
+        }
+        return timeoutResult;
+      });
+      return result;
+    } catch (error) {
+      if (error instanceof CircuitBreakerOpenError) {
+        logger.warn("Skipped Soroban call because circuit breaker is open", {
+          operationName,
+          breaker: error.breakerName,
+          nextAttemptAt: error.nextAttemptAt.toISOString(),
+        });
+
+        return {
+          success: false,
+          data: fallback,
+          error,
+          durationMs: 0,
+          retriesUsed: 0,
+          timedOut: false,
+        };
+      }
+
+      if (error instanceof Error) {
+        return {
+          success: false,
+          error,
+          durationMs: 0,
+          retriesUsed: 0,
+          timedOut: error.message.includes("timeout"),
+        };
+      }
+
+      return {
+        success: false,
+        error: new Error(String(error)),
+        durationMs: 0,
+        retriesUsed: 0,
+        timedOut: false,
+      };
+    }
+  }
+
   /**
    * Creates a new round on the Soroban contract (admin only).
    * mode: 0 = Up/Down (default), 1 = Precision (Legends)
@@ -120,8 +178,9 @@ export class SorobanService {
   ): Promise<void> {
     await this.ensureInitialized();
     
-    const result = await withTimeout(
-      async () => {
+    const result = await this.callWithBreaker("sorobanCreateRound", () =>
+      withTimeout(
+        async () => {
         logger.debug(
           `Initiating Soroban createRound: price=${startPrice}, mode=${mode}`,
         );
@@ -141,6 +200,7 @@ export class SorobanService {
         operationName: 'sorobanCreateRound',
         retries: this.MAX_RETRIES,
       }
+      )
     );
 
     if (!result.success) {
@@ -170,8 +230,9 @@ export class SorobanService {
   ): Promise<void> {
     await this.ensureInitialized();
     
-    const result = await withTimeout(
-      async () => {
+    const result = await this.callWithBreaker("sorobanPlaceBet", () =>
+      withTimeout(
+        async () => {
         logger.debug(
           `Initiating Soroban placeBet: user=${userAddress}, amount=${amount}, side=${side}`,
         );
@@ -197,6 +258,7 @@ export class SorobanService {
         operationName: 'sorobanPlaceBet',
         retries: this.MAX_RETRIES,
       }
+      )
     );
 
     if (!result.success) {
@@ -226,8 +288,9 @@ export class SorobanService {
   ): Promise<void> {
     await this.ensureInitialized();
     
-    const result = await withTimeout(
-      async () => {
+    const result = await this.callWithBreaker("sorobanResolveRound", () =>
+      withTimeout(
+        async () => {
         logger.debug(
           `Initiating Soroban resolveRound: finalPrice=${finalPrice}, roundId=${roundId}`,
         );
@@ -250,6 +313,7 @@ export class SorobanService {
         operationName: 'sorobanResolveRound',
         retries: this.MAX_RETRIES,
       }
+      )
     );
 
     if (!result.success) {
@@ -276,8 +340,9 @@ export class SorobanService {
     await this.ready;
     if (!this.initialized) return null;
     
-    const result = await withTimeout(
-      async () => {
+    const result = await this.callWithBreaker("sorobanGetActiveRound", () =>
+      withTimeout(
+        async () => {
         const tx = await this.client!.get_active_round();
         return tx.result;
       },
@@ -286,6 +351,8 @@ export class SorobanService {
         operationName: 'sorobanGetActiveRound',
         retries: 1, // Only retry once for read-only
       }
+      ),
+      null,
     );
 
     if (!result.success) {
@@ -308,8 +375,9 @@ export class SorobanService {
   async mintInitial(userAddress: string): Promise<number> {
     await this.ensureInitialized();
     
-    const result = await withTimeout(
-      async () => {
+    const result = await this.callWithBreaker("sorobanMintInitial", () =>
+      withTimeout(
+        async () => {
         logger.debug(`Initiating Soroban mintInitial: user=${userAddress}`);
         const tx = await this.client!.mint_initial({ user: userAddress });
         await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
@@ -320,6 +388,7 @@ export class SorobanService {
         operationName: 'sorobanMintInitial',
         retries: this.MAX_RETRIES,
       }
+      )
     );
 
     if (!result.success) {
@@ -349,8 +418,9 @@ export class SorobanService {
     await this.ready;
     if (!this.initialized) return 0;
     
-    const result = await withTimeout(
-      async () => {
+    const result = await this.callWithBreaker("sorobanGetBalance", () =>
+      withTimeout(
+        async () => {
         const tx = await this.client!.balance({ user: userAddress });
         return Number(tx.result) / 10_000_000;
       },
@@ -359,6 +429,8 @@ export class SorobanService {
         operationName: 'sorobanGetBalance',
         retries: 1, // Only retry once for read-only
       }
+      ),
+      0,
     );
 
     if (!result.success) {
