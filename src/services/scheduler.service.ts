@@ -10,13 +10,32 @@ class SchedulerService {
   private cronTasks: ScheduledTask[] = [];
 
   /**
+   * Notification retention window in days, controlled by NOTIFICATION_RETENTION_DAYS env var.
+   * Defaults to 30 days if unset or invalid.
+   */
+  static getRetentionDays(): number {
+    const raw = process.env.NOTIFICATION_RETENTION_DAYS;
+    if (!raw) return 30;
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+  }
+
+  /**
+   * Cleanup cron expression, controlled by NOTIFICATION_CLEANUP_CRON env var.
+   * Defaults to daily at 2:00 AM ("0 2 * * *").
+   */
+  static getCleanupCronExpression(): string {
+    return process.env.NOTIFICATION_CLEANUP_CRON || "0 2 * * *";
+  }
+
+  /**
    * Start the scheduler
    */
   start(): void {
-    // Schedule notification cleanup: Run daily at 2 AM (always active)
-    logger.info("Starting notification cleanup scheduler (daily at 2:00 AM)");
+    const cleanupCron = SchedulerService.getCleanupCronExpression();
+    logger.info(`Starting notification cleanup scheduler (cron: "${cleanupCron}", retention: ${SchedulerService.getRetentionDays()} days)`);
     this.cronTasks.push(
-      cron.schedule("0 2 * * *", async () => {
+      cron.schedule(cleanupCron, async () => {
         await this.cleanupOldNotifications();
       }),
     );
@@ -128,15 +147,17 @@ class SchedulerService {
   }
 
   /**
-   * Cleanup old notifications (older than 30 days)
+   * Cleanup old notifications older than NOTIFICATION_RETENTION_DAYS (default 30).
    * @visibleForTesting
    */
   async cleanupOldNotifications(): Promise<void> {
+    const retentionDays = SchedulerService.getRetentionDays();
+    logger.info(`Notification cleanup started (retention: ${retentionDays} days)`);
     try {
       const deletedCount =
-        await notificationService.cleanupOldNotifications(30);
+        await notificationService.cleanupOldNotifications(retentionDays);
       logger.info(
-        `Notification cleanup completed: Deleted ${deletedCount} notifications`,
+        `Notification cleanup completed: deleted ${deletedCount} notification(s) older than ${retentionDays} day(s)`,
       );
     } catch (error) {
       logger.error("Error in notification cleanup scheduler:", error);

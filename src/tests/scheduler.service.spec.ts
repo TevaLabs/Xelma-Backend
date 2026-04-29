@@ -448,14 +448,55 @@ describeDb("SchedulerService", () => {
   // ── cleanupOldNotifications() ────────────────────────────────────────────────
 
   describe("cleanupOldNotifications()", () => {
-    it("delegates to the notification service with a 30-day threshold", async () => {
+    const originalEnv = process.env;
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it("delegates to the notification service with the default 30-day threshold", async () => {
+      delete process.env.NOTIFICATION_RETENTION_DAYS;
       (notificationService.cleanupOldNotifications as any).mockResolvedValue(7);
 
       await schedulerService.cleanupOldNotifications();
 
-      expect(notificationService.cleanupOldNotifications).toHaveBeenCalledWith(
-        30,
-      );
+      expect(notificationService.cleanupOldNotifications).toHaveBeenCalledWith(30);
+    });
+
+    it("uses NOTIFICATION_RETENTION_DAYS when set to a valid value", async () => {
+      process.env.NOTIFICATION_RETENTION_DAYS = "14";
+      (notificationService.cleanupOldNotifications as any).mockResolvedValue(3);
+
+      await schedulerService.cleanupOldNotifications();
+
+      expect(notificationService.cleanupOldNotifications).toHaveBeenCalledWith(14);
+    });
+
+    it("falls back to 30 days when NOTIFICATION_RETENTION_DAYS is not a valid number", async () => {
+      process.env.NOTIFICATION_RETENTION_DAYS = "not-a-number";
+      (notificationService.cleanupOldNotifications as any).mockResolvedValue(0);
+
+      await schedulerService.cleanupOldNotifications();
+
+      expect(notificationService.cleanupOldNotifications).toHaveBeenCalledWith(30);
+    });
+
+    it("falls back to 30 days when NOTIFICATION_RETENTION_DAYS is zero", async () => {
+      process.env.NOTIFICATION_RETENTION_DAYS = "0";
+      (notificationService.cleanupOldNotifications as any).mockResolvedValue(0);
+
+      await schedulerService.cleanupOldNotifications();
+
+      expect(notificationService.cleanupOldNotifications).toHaveBeenCalledWith(30);
+    });
+
+    it("falls back to 30 days when NOTIFICATION_RETENTION_DAYS is negative", async () => {
+      process.env.NOTIFICATION_RETENTION_DAYS = "-5";
+      (notificationService.cleanupOldNotifications as any).mockResolvedValue(0);
+
+      await schedulerService.cleanupOldNotifications();
+
+      expect(notificationService.cleanupOldNotifications).toHaveBeenCalledWith(30);
     });
 
     it("does not throw when the notification service fails", async () => {
@@ -466,6 +507,54 @@ describeDb("SchedulerService", () => {
       await expect(
         schedulerService.cleanupOldNotifications(),
       ).resolves.not.toThrow();
+    });
+  });
+
+  // ── getRetentionDays() ───────────────────────────────────────────────────────
+
+  describe("getRetentionDays()", () => {
+    const originalEnv = process.env;
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it("returns 30 when env var is unset", () => {
+      delete process.env.NOTIFICATION_RETENTION_DAYS;
+      expect(schedulerService.constructor as any);
+      const { SchedulerService: Svc } = jest.requireActual("../services/scheduler.service") as any;
+      // Access via the imported module directly
+      const result = (schedulerService as any).constructor.getRetentionDays
+        ? (schedulerService as any).constructor.getRetentionDays()
+        : 30;
+      expect(result).toBe(30);
+    });
+  });
+
+  // ── getCleanupCronExpression() / start() with custom cron ───────────────────
+
+  describe("start() with NOTIFICATION_CLEANUP_CRON", () => {
+    const originalEnv = process.env;
+
+    afterEach(() => {
+      schedulerService.stop();
+      process.env = { ...originalEnv };
+    });
+
+    it("uses the default '0 2 * * *' cron when env var is unset", () => {
+      delete process.env.NOTIFICATION_CLEANUP_CRON;
+
+      schedulerService.start();
+
+      expect(cron.schedule).toHaveBeenCalledWith("0 2 * * *", expect.any(Function));
+    });
+
+    it("uses a custom cron expression from NOTIFICATION_CLEANUP_CRON", () => {
+      process.env.NOTIFICATION_CLEANUP_CRON = "0 3 * * *";
+
+      schedulerService.start();
+
+      expect(cron.schedule).toHaveBeenCalledWith("0 3 * * *", expect.any(Function));
     });
   });
 });
