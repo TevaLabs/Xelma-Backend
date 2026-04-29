@@ -79,6 +79,20 @@ export const priceOracleUpdatesTotal = new Counter({
   registers: [metricsRegistry],
 });
 
+export const circuitBreakerStateChangesTotal = new Counter({
+  name: 'circuit_breaker_state_changes_total',
+  help: 'Total number of circuit breaker state transitions',
+  labelNames: ['breaker', 'from_state', 'to_state', 'reason'] as const,
+  registers: [metricsRegistry],
+});
+
+export const circuitBreakerState = new Gauge({
+  name: 'circuit_breaker_state',
+  help: 'Current circuit breaker state as one-hot labels',
+  labelNames: ['breaker', 'state'] as const,
+  registers: [metricsRegistry],
+});
+
 // ---------------------------------------------------------------------------
 // DB / Prisma pool settings (low-cardinality)
 // ---------------------------------------------------------------------------

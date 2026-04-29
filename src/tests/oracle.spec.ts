@@ -11,6 +11,7 @@ describe('PriceOracle', () => {
     mockedAxios.get.mockReset();
     (priceOracle as any).price = null;
     (priceOracle as any).lastUpdatedAt = null;
+    (priceOracle as any).breaker.reset();
   });
 
   it('stores fetched prices as Decimal and preserves exact string precision', async () => {

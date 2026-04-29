@@ -768,9 +768,17 @@ Run the test suite with Jest:
 # Run all tests
 npm test
 
+# Run unit tests with coverage thresholds
+npm run test:unit:coverage
+
+# Run the full local CI check
+npm run ci
+
 # Run tests in watch mode
 npm run test:watch
 ```
+
+Coverage thresholds are enforced in `jest.config.ts` for lines, branches, functions, and statements. The current floor is intentionally conservative and excludes tests, mocks, generated files, scripts, and vendored bindings so the gate tracks application code. CI runs `npm run test:unit:coverage`, prints the Jest coverage summary, uploads `coverage/`, and fails when the thresholds are not met.
 
 Current test coverage includes:
 - Education tip service tests
@@ -787,7 +795,10 @@ Current test coverage includes:
 | `npm run dev` | Start development server with hot-reload |
 | `npm run build` | Compile TypeScript to JavaScript |
 | `npm test` | Run Jest test suite |
+| `npm run test:coverage` | Run Jest with coverage reporting and thresholds |
+| `npm run test:unit:coverage` | Run unit tests with coverage reporting and thresholds |
 | `npm run test:watch` | Run tests in watch mode |
+| `npm run ci` | Run lint, build, unit coverage, and integration tests |
 | `npm run prisma:generate` | Generate Prisma client |
 | `npm run prisma:migrate` | Run database migrations |
 | `npm run docs:openapi` | Generate OpenAPI JSON spec |

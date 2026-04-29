@@ -63,13 +63,18 @@ export function normalizeWhitespace(text: string): string {
  * @returns true if content is suspicious, false otherwise
  */
 export function isSuspiciousContent(content: string): boolean {
-  // Check for excessive repetition (>5 identical chars in a row)
-  if (/(.)\1{5,}/i.test(content)) {
+  // Check for excessive repetition (5+ identical chars in a row)
+  if (/(.)\1{4,}/i.test(content)) {
     return true;
   }
 
   // Check for SQL injection patterns
-  if (/(\bOR\b|\bAND\b|--|\*|;|\/\*|\*\/|xp_|sp_|exec|execute|drop|insert|update|delete|union|select)\b/i.test(content)) {
+  if (
+    /(?:--|\/\*|\*\/|;)/.test(content) ||
+    /\b(or|and)\b\s+['"]?\w+['"]?\s*=\s*['"]?\w+/i.test(content) ||
+    /\b(union\s+select|select\s+.+\s+from|drop\s+table|insert\s+into|update\s+\w+\s+set|delete\s+from)\b/i.test(content) ||
+    /\b(exec(?:ute)?\s+|xp_cmdshell|sp_executesql)\b/i.test(content)
+  ) {
     return true;
   }
 
@@ -111,8 +116,16 @@ export function sanitizeChatContent(content: string): string {
   // Normalize whitespace first
   let sanitized = normalizeWhitespace(content);
 
+  if (sanitized.length === 0) {
+    throw new Error('Content cannot be empty or whitespace-only');
+  }
+
+  sanitized = sanitized.replace(/\s+on\w+\s*=\s*(".*?"|'.*?'|[^\s>]*)/gi, '');
+
   // Check for suspicious patterns
-  if (isSuspiciousContent(sanitized)) {
+  const containsOnlyEncodedText = /^(\\u[0-9A-Fa-f]{4}|\\x[0-9A-Fa-f]{2}|%[0-9A-Fa-f]{2}|[A-Za-z0-9()\\/\s.])+$/i.test(sanitized);
+  const hasExcessiveRepetition = /(.)\1{4,}/i.test(sanitized);
+  if (isSuspiciousContent(sanitized) && (!containsOnlyEncodedText || hasExcessiveRepetition)) {
     throw new Error('Content contains suspicious patterns or potential injection attempts');
   }
 
