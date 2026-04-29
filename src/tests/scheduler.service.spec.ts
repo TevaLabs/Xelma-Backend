@@ -160,9 +160,13 @@ describeDb("SchedulerService", () => {
     it("does not schedule tasks when AUTO_RESOLVE_ENABLED is not set", () => {
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(1);
+      expect(cron.schedule).toHaveBeenCalledTimes(2);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
+        expect.any(Function),
+      );
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "0 3 * * *",
         expect.any(Function),
       );
     });
@@ -172,19 +176,23 @@ describeDb("SchedulerService", () => {
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(1);
+      expect(cron.schedule).toHaveBeenCalledTimes(2);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),
       );
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "0 3 * * *",
+        expect.any(Function),
+      );
     });
 
-    it('schedules exactly two tasks when AUTO_RESOLVE_ENABLED is "true"', () => {
+    it('schedules exactly three tasks when AUTO_RESOLVE_ENABLED is "true"', () => {
       process.env.AUTO_RESOLVE_ENABLED = "true";
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(2);
+      expect(cron.schedule).toHaveBeenCalledTimes(3);
     });
 
     it("uses the default 30-second interval in the auto-resolve cron expression", () => {
