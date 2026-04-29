@@ -1,6 +1,7 @@
 import cron, { ScheduledTask } from "node-cron";
 import resolutionService from "./resolution.service";
 import notificationService from "./notification.service";
+import retentionService from "./retention.service";
 import priceOracle from "./oracle";
 import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
@@ -37,6 +38,14 @@ class SchedulerService {
     this.cronTasks.push(
       cron.schedule(cleanupCron, async () => {
         await this.cleanupOldNotifications();
+      }),
+    );
+
+    // Schedule retention policy execution: Run daily at 3 AM (always active)
+    logger.info("Starting retention policy scheduler (daily at 3:00 AM)");
+    this.cronTasks.push(
+      cron.schedule("0 3 * * *", async () => {
+        await this.runRetentionPolicies();
       }),
     );
 
@@ -161,6 +170,26 @@ class SchedulerService {
       );
     } catch (error) {
       logger.error("Error in notification cleanup scheduler:", error);
+    }
+  }
+
+  /**
+   * Run retention policies for challenges and chat messages
+   * @visibleForTesting
+   */
+  async runRetentionPolicies(): Promise<void> {
+    try {
+      logger.info("Starting scheduled retention policy execution");
+      const results = await retentionService.runAllPolicies();
+      
+      // Log summary
+      const summary = results.map(r => 
+        `${r.entity}: ${r.deletedCount} records deleted`
+      ).join(", ");
+      
+      logger.info(`Retention policy execution completed: ${summary}`);
+    } catch (error) {
+      logger.error("Error in retention policy scheduler:", error);
     }
   }
 }

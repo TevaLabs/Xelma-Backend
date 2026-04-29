@@ -224,13 +224,10 @@ export function createApp(): Express {
     });
   });
 
-  // 404 handler
-  app.use((req: Request, res: Response) => {
-    res.status(404).json({
-      error: "NotFoundError",
-      message: `Route ${req.method} ${req.path} not found`,
-      code: "NOT_FOUND",
-    });
+  // 404 handler - forward to error handler for consistent response format
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const { NotFoundError } = require('./utils/errors');
+    next(new NotFoundError(`Route ${req.method} ${req.path} not found`));
   });
 
   // Centralized error handler (must be last)
