@@ -25,6 +25,7 @@ TypeScript/Node.js backend for the [Xelma](https://github.com/TevaLabs/Xelma-Blo
   - [Leaderboard & User Stats](#leaderboard--user-stats)
   - [WebSocket Events](#websocket-events)
 - [Testing](#testing)
+- [Migration Safety](#migration-safety)
 - [Scripts](#scripts)
 - [Troubleshooting](#troubleshooting)
 - [Related Repositories](#related-repositories)
@@ -784,6 +785,18 @@ Current test coverage includes:
 - Education tip service tests
 - Education tip route tests
 - Round service tests
+
+---
+
+## Migration Safety
+
+Schema changes should follow the migration checklist in [docs/migration-safety.md](docs/migration-safety.md). Use it before opening PRs that edit `prisma/schema.prisma`, add files under `prisma/migrations/`, or require production backfills.
+
+At minimum, migration PRs should include:
+- A before/after behavior summary.
+- Risk notes for locks, backfills, and compatibility with the previous application version.
+- Verification output for Prisma generation, migration, and targeted tests.
+- A rollback plan that preserves production data.
 
 ---
 
