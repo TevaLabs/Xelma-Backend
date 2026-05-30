@@ -225,6 +225,12 @@ Xelma-Backend/
   - Locks rounds after 30 seconds (configurable)
   - Controlled by `ROUND_SCHEDULER_ENABLED` environment variable
 
+> **API-only mode**: Set `API_ONLY=true` to start the HTTP server with
+> all schedulers, oracle polling, and the WebSocket price ticker
+> disabled. This is the recommended setup for split deployments — one
+> dedicated worker process runs background jobs while one or more
+> stateless processes serve HTTP — and for safer local debugging.
+
 #### **9. Notification Service (`notification.service.ts`)**
 - **Purpose**: Creates and delivers notifications to users
 - **Types**: WIN, LOSS, ROUND_START, BONUS_AVAILABLE, ANNOUNCEMENT
@@ -432,6 +438,9 @@ SOROBAN_ORACLE_SECRET=S...your-oracle-secret-key
 ROUND_SCHEDULER_ENABLED=false  # Set to 'true' to enable automated rounds
 ROUND_SCHEDULER_MODE=UP_DOWN   # or 'LEGENDS'
 
+# API-only startup mode (skip oracle polling, schedulers, and price ticker)
+API_ONLY=false  # Set to 'true' to run as a stateless HTTP API only
+
 # Price Oracle Configuration
 ORACLE_POLLING_INTERVAL_MS=10000    # Interval between price updates (ms)
 ORACLE_REQUEST_TIMEOUT_MS=5000     # Network timeout for requests (ms)
@@ -504,6 +513,41 @@ npm run build
 npm start
 ```
 
+### Render Parity Local Profile
+
+To reproduce the runtime behavior of the Render deployment on your machine,
+use the `start:render-parity` script. This sets `NODE_ENV=production`
+before launching the built server so the same code paths Render hits
+fire locally — CORS is strict (`CLIENT_URL` must be set, no wildcard
+origin), error responses match production, and logging runs at
+production verbosity.
+
+```bash
+# 1) Build first (start:render-parity expects dist/)
+npm run build
+
+# 2) Run with production-shaped environment
+CLIENT_URL=http://localhost:5173 \
+JWT_SECRET="$(openssl rand -base64 32)" \
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/xelma_local" \
+npm run start:render-parity
+```
+
+Required env vars for parity (matches what Render's environment supplies):
+
+| Variable | Why it matters in render-parity mode |
+|---|---|
+| `NODE_ENV=production` | Set by the script. Enables strict CORS and production logging. |
+| `CLIENT_URL` | **Required.** Strict CORS will reject all origins if unset. |
+| `ALLOWED_ORIGINS` | Optional comma-separated extra origins. |
+| `JWT_SECRET` | Required for startup. Use a cryptographically strong value. |
+| `DATABASE_URL` | Required. Point at a local Postgres. |
+| `SOROBAN_CONTRACT_ID` / `SOROBAN_ADMIN_SECRET` / `SOROBAN_ORACLE_SECRET` | Optional; only needed if you want on-chain calls. |
+
+If you hit a CORS error from your frontend in this mode, hit
+`GET /api/admin/cors-diagnostics?origin=<your-origin>` with an admin
+token to see exactly which origins this process accepts.
+
 ### Verify Server is Running
 
 ```bash
@@ -518,6 +562,36 @@ Expected response:
   "timestamp": "2026-02-23T12:00:00.000Z"
 }
 ```
+
+---
+
+### Dead-letter queue for failed notifications and events
+
+Notification creation and WebSocket emits go through a dead-letter queue
+(DLQ) so a transient DB blip, a not-yet-initialized socket layer, or a
+runtime exception in `emit` does not silently drop a user-facing event.
+
+How it works:
+
+- `notificationService.createNotification(...)` records a `FailedDispatch`
+  row on `NOTIFICATION_CREATE` errors (the original error still rethrows
+  so callers behave the same).
+- `websocketService.emit*(...)` records a `FailedDispatch` row whenever
+  the socket layer is not initialized or the underlying `emit` throws.
+  The emit itself is fire-and-forget — the caller's hot path is never
+  broken by a DLQ persistence failure.
+- Rows have `attempts`, `lastError`, and `status` (`PENDING`, `RETRYING`,
+  `RESOLVED`, `ABANDONED`) so an operator can triage stuck dispatches.
+
+Operator endpoints (admin-only, gated by `requireAdmin`):
+
+- `GET  /api/admin/dead-letter` — list entries, newest first. Query
+  params: `status`, `channel`, `limit`, `offset`.
+- `POST /api/admin/dead-letter/:id/retry` — replay a single entry; sets
+  `RESOLVED` on success, bumps `attempts` and moves to `ABANDONED` once
+  the cap (default 5) is reached.
+- `POST /api/admin/dead-letter/retry-all` — replay every `PENDING` /
+  `RETRYING` entry (capped, oldest first). Returns a counts summary.
 
 ---
 

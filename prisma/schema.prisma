@@ -51,6 +51,18 @@ enum TransactionType {
   DEPOSIT
 }
 
+enum DispatchChannel {
+  NOTIFICATION_CREATE
+  WEBSOCKET_EMIT
+}
+
+enum DispatchStatus {
+  PENDING
+  RETRYING
+  RESOLVED
+  ABANDONED
+}
+
 // =======================
 // Models
 // =======================
@@ -237,6 +249,31 @@ model MultiplayerSession {
   @@unique([userId])
   @@index([walletAddress])
   @@index([lastSeenAt])
+}
+
+/// Dead-letter queue row for a notification or websocket dispatch that
+/// failed at runtime. Keeps the original payload so an operator (or a
+/// scheduled retry job) can replay the dispatch later without losing the
+/// signal. `attempts` and `lastError` track how the entry has aged so a
+/// stuck row can be triaged from `/api/admin/dead-letter`.
+model FailedDispatch {
+  id        String          @id @default(uuid())
+  channel   DispatchChannel
+  eventName String?
+  userId    String?
+  payload   Json
+  attempts  Int             @default(1)
+  status    DispatchStatus  @default(PENDING)
+  lastError String          @db.VarChar(1000)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  lastRetryAt DateTime?
+  resolvedAt  DateTime?
+
+  @@index([channel])
+  @@index([status])
+  @@index([createdAt])
+  @@index([userId])
 }
 
 model RateLimitMetric {

@@ -12,6 +12,7 @@ export interface AppConfig {
   nodeEnv: "development" | "production" | "test";
   clientUrl: string;
   logLevel: string;
+  apiOnly: boolean;
 }
 
 export interface JwtConfig {
@@ -92,6 +93,7 @@ function buildConfig(): Config {
       ["error", "warn", "info", "http", "verbose", "debug", "silly"] as const,
       "info",
     ),
+    apiOnly: v.boolean(env.API_ONLY, false),
   };
 
   const jwt: JwtConfig = {

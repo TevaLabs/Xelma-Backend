@@ -22,6 +22,7 @@
     "install-bindings": "node scripts/install-bindings.js",
     "preinstall": "node scripts/install-bindings.js || true",
     "postinstall": "npm run build",
+    "start:render-parity": "NODE_ENV=production node dist/index.js",
     "docs:openapi": "node dist/scripts/generate-openapi.js",
     "docs:postman": "node dist/scripts/export-postman.js",
     "prisma:generate": "prisma generate",

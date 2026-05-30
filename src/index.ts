@@ -15,12 +15,15 @@ import websocketService from './services/websocket.service';
 import schedulerService from './services/scheduler.service';
 import roundSchedulerService from './services/round-scheduler.service';
 import logger from './utils/logger';
+import { validateVendoredBindings } from './utils/bindings-validator';
 import { errorHandler } from './middleware/errorHandler.middleware';
 import { metricsMiddleware } from './middleware/metrics.middleware';
 import { requestIdMiddleware } from './middleware/requestId.middleware';
 import metricsRoutes from './routes/metrics.routes';
 import adminMetricsRoutes from './routes/admin-metrics.routes';
 import errorsRoutes from './routes/errors.routes';
+import corsDiagnosticsRoutes from './routes/admin-cors-diagnostics.routes';
+import deadLetterRoutes from './routes/admin-dead-letter.routes';
 import chatRoutes from "./routes/chat.routes";
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './docs/openapi';
@@ -32,39 +35,8 @@ const envFile = process.env.NODE_ENV === 'test' ? '.env.test' : '.env';
 dotenv.config({ path: path.resolve(process.cwd(), envFile), override: false });
 dotenv.config({ override: false });
 
-/**
- * Resolve the CORS origin allowlist for Express HTTP routes.
- * Mirrors the logic in socket.ts getCorsOrigins() so both layers
- * enforce the same policy.
- */
-export function getHttpCorsOrigins(): string | string[] | boolean {
-  const clientUrl = process.env.CLIENT_URL;
-  const isProduction = process.env.NODE_ENV === 'production';
-
-  if (isProduction) {
-    if (!clientUrl) {
-      throw new Error(
-        'CLIENT_URL environment variable is required in production. ' +
-        'HTTP CORS cannot use wildcard origin (*) in production.',
-      );
-    }
-    const additional = process.env.ALLOWED_ORIGINS;
-    if (additional) {
-      return [clientUrl, ...additional.split(',').map((o) => o.trim()).filter(Boolean)];
-    }
-    return clientUrl;
-  }
-
-  if (!clientUrl) {
-    return true; // Allow all origins in development when CLIENT_URL is unset
-  }
-
-  const additional = process.env.ALLOWED_ORIGINS;
-  if (additional) {
-    return [clientUrl, ...additional.split(',').map((o) => o.trim()).filter(Boolean)];
-  }
-  return clientUrl;
-}
+export { getHttpCorsOrigins } from './utils/cors';
+import { getHttpCorsOrigins } from './utils/cors';
 
 /**
  * Apply security headers to every response.
@@ -90,8 +62,35 @@ const validateEnv = (): void => {
   }
 };
 
+/**
+ * Validate the vendored @tevalabs/xelma-bindings package at startup so a
+ * stale or partial vendor surfaces immediately, instead of as an opaque
+ * "Cannot find module" deep inside the Soroban service later. Only logs —
+ * never throws — because API-only deployments may run without Soroban.
+ */
+function logBindingsValidation(): void {
+  const result = validateVendoredBindings();
+  if (result.ok) {
+    logger.info('Vendored bindings OK', {
+      vendorPath: result.info.vendorPath,
+      packageName: result.info.packageName,
+      commitSha: result.info.commitSha,
+    });
+  } else {
+    logger.warn(
+      'Vendored bindings validation failed; Soroban integration may fail at runtime',
+      {
+        vendorPath: result.info.vendorPath,
+        errors: result.errors,
+        commitSha: result.info.commitSha,
+      },
+    );
+  }
+}
+
 // Execute validation immediately
 validateEnv();
+logBindingsValidation();
 
 /**
  * Create and configure the Express app without starting any background
@@ -138,6 +137,8 @@ export function createApp(): Express {
   app.use("/api/notifications", notificationsRoutes);
   app.use("/api/admin/metrics", adminMetricsRoutes);
   app.use("/api/errors", errorsRoutes);
+  app.use("/api/admin/cors-diagnostics", corsDiagnosticsRoutes);
+  app.use("/api/admin/dead-letter", deadLetterRoutes);
 
   // Prometheus metrics endpoint
   app.use('/metrics', metricsRoutes);
@@ -244,37 +245,64 @@ interface ServerHandle {
 }
 
 /**
+ * Returns true when the process should run as a stateless API only —
+ * no oracle polling, no cron schedulers, no WebSocket price ticker.
+ * Useful for split deployments where one process owns background work
+ * and others serve HTTP, and for safer local debugging.
+ */
+export function isApiOnlyMode(): boolean {
+  const raw = process.env.API_ONLY;
+  if (!raw) return false;
+  return raw.toLowerCase() === "true";
+}
+
+/**
  * Start background services, bind to a port, and return a handle that
  * can be used to shut everything down cleanly.
+ *
+ * When API_ONLY=true, schedulers, oracle polling, and the WebSocket
+ * price ticker are skipped. The HTTP server (and Socket.IO transport)
+ * still come up, so request-driven endpoints remain available.
  */
 export function startServer(app: Express): ServerHandle {
   const PORT = process.env.PORT || 3000;
   const httpServer = createServer(app);
+  const apiOnly = isApiOnlyMode();
 
   // Initialize Socket.IO with JWT authentication
   initializeSocket(httpServer);
 
-  // Start Oracle Polling
-  priceOracle.startPolling();
+  let priceInterval: NodeJS.Timeout | null = null;
 
-  // Initialize Schedulers
-  schedulerService.start();
-  roundSchedulerService.start();
+  if (apiOnly) {
+    logger.info("API_ONLY=true: skipping oracle polling, schedulers, and WebSocket price ticker");
+  } else {
+    // Start Oracle Polling
+    priceOracle.startPolling();
 
-  // Emit price updates via WebSocket
-  const priceInterval = setInterval(() => {
-    const price = priceOracle.getPriceString();
-    if (price !== null) {
-      websocketService.emitPriceUpdate("XLM", price);
-    }
-  }, 5000);
+    // Initialize Schedulers
+    schedulerService.start();
+    roundSchedulerService.start();
+
+    // Emit price updates via WebSocket
+    priceInterval = setInterval(() => {
+      const price = priceOracle.getPriceString();
+      if (price !== null) {
+        websocketService.emitPriceUpdate("XLM", price);
+      }
+    }, 5000);
+  }
 
   const cleanup = async () => {
     logger.info("Shutting down gracefully...");
-    clearInterval(priceInterval);
-    priceOracle.stopPolling();
-    schedulerService.stop();
-    roundSchedulerService.stop();
+    if (priceInterval) {
+      clearInterval(priceInterval);
+    }
+    if (!apiOnly) {
+      priceOracle.stopPolling();
+      schedulerService.stop();
+      roundSchedulerService.stop();
+    }
     httpServer.close();
     await prisma.$disconnect();
     logger.info("Shutdown complete");
