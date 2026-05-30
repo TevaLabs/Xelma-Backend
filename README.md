@@ -467,6 +467,33 @@ Prisma’s Postgres connector reads pool/timeouts via connection string query pa
 - **Visibility**: scrape `/metrics` and look for `db_pool_settings_info` to see the effective values.
 - **Validation**: invalid values are rejected at startup via config validation.
 
+#### Redis Cache Configuration
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `REDIS_URL` | Redis connection URL | *None* (cache disabled if not set) |
+| `REDIS_CACHE_ENABLED` | Explicitly enable/disable Redis cache | `true` if `REDIS_URL` is set |
+| `REDIS_CACHE_PREFIX` | Prefix for all cache keys | `xelma:cache` |
+| `REDIS_CACHE_DEBUG` | Enable verbose Redis cache logging | `false` |
+| `REDIS_FAIL_COOLDOWN_MS` | Circuit-breaker cooldown period after failure | `10000` (10s) |
+| `REDIS_CONNECT_TIMEOUT_MS` | Redis connection timeout | `2000` (2s) |
+
+**Redis Circuit-Breaker Behavior**
+- When Redis fails, the backend enters bypass mode for `REDIS_FAIL_COOLDOWN_MS`
+- During bypass, all cache operations return null and fall back to the database
+- The circuit-breaker automatically retries after the cooldown period
+- Prometheus metrics track bypasses, errors, and cache health
+
+**Redis Cache Metrics (Prometheus)**
+The following metrics are exposed at `/metrics`:
+- `redis_cache_hits_total` - Total cache hits
+- `redis_cache_misses_total` - Total cache misses
+- `redis_cache_sets_total` - Total cache set operations
+- `redis_cache_invalidations_total` - Total namespace invalidations
+- `redis_cache_bypasses_total` - Total cache bypasses (Redis unavailable/disabled)
+- `redis_cache_errors_total` - Total Redis operation errors
+- `redis_cache_enabled` - Current cache state (1=enabled, 0=bypassed)
+
 ### 3. Set Up Database
 
 ```bash
