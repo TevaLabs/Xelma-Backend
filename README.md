@@ -803,6 +803,55 @@ Current test coverage includes:
 | `npm run prisma:migrate` | Run database migrations |
 | `npm run docs:openapi` | Generate OpenAPI JSON spec |
 | `npm run docs:postman` | Export Postman collection |
+| `npm run scorecard` | Run the production-readiness scorecard (see [#197](https://github.com/TevaLabs/Xelma-Backend/issues/197)) |
+
+---
+
+## Error Code Catalog (#196)
+
+Every error response from the API carries a stable machine-readable
+`code` (in addition to the HTTP status) so clients can branch on the
+specific failure without parsing prose. The canonical list lives in
+[`src/utils/errors.ts`](src/utils/errors.ts) as `ERROR_CATALOG` and is
+also exposed as JSON at `GET /api/errors` for client codegen.
+
+A drift test (`src/tests/error-catalog.spec.ts`) pins the catalog to
+the `ErrorCode` enum, so adding a new code without a catalog entry
+fails CI.
+
+| HTTP | Code | Description |
+|------|------|-------------|
+| 400 | `VALIDATION_ERROR` | Body / query / params failed schema validation. See `error.details`. |
+| 401 | `AUTHENTICATION_ERROR` | Missing / invalid credentials. Re-authenticate. |
+| 401 | `INVALID_CHALLENGE` | Signed challenge does not match a known issued challenge. |
+| 401 | `CHALLENGE_EXPIRED` | Challenge TTL elapsed. Request a new one. |
+| 401 | `CHALLENGE_USED` | Challenge already consumed (one-shot). |
+| 401 | `INVALID_SIGNATURE` | Signature does not verify against wallet + challenge. |
+| 403 | `AUTHORIZATION_ERROR` | Authenticated, not permitted. |
+| 404 | `NOT_FOUND` | Resource does not exist. |
+| 409 | `CONFLICT` | Generic state conflict. |
+| 409 | `ROUND_ALREADY_RESOLVED` | Round outcome already final. |
+| 409 | `DUPLICATE_PREDICTION` | User already predicted on this round. |
+| 409 | `ACTIVE_ROUND_EXISTS` | A round of the requested mode is already active. |
+| 422 | `BUSINESS_RULE_VIOLATION` | Generic domain rule violation. |
+| 422 | `INSUFFICIENT_FUNDS` | Not enough balance. |
+| 422 | `ROUND_NOT_ACTIVE` | Round is not in `ACTIVE` status. |
+| 422 | `ROUND_LOCKED` | Round is locked before resolution. |
+| 500 | `CONFIGURATION_ERROR` | Server misconfiguration. Operator action required. |
+| 500 | `INTERNAL_SERVER_ERROR` | Unexpected. Retry; include `requestId` if reporting. |
+| 503 | `EXTERNAL_SERVICE_ERROR` | Upstream (DB, RPC, oracle) failure. Retry with backoff. |
+
+---
+
+## Production-Readiness Scorecard (#197)
+
+`npm run scorecard` runs a small, zero-dependency set of "is this repo
+ready to deploy?" heuristics and prints a green / yellow / red
+breakdown. CI runs the same script in its own job
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) and fails the
+build only when a **required** check fails — soft "nice to have"
+checks emit warnings without blocking merges. New checks live in
+[`scripts/production-readiness-scorecard.js`](scripts/production-readiness-scorecard.js).
 
 ---
 

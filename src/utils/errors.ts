@@ -110,3 +110,169 @@ export class ConfigurationError extends AppError {
     super(message, 500, code);
   }
 }
+
+/**
+ * Unified backend error code catalog (#196).
+ *
+ * Single source of truth that maps every {@link ErrorCode} to the
+ * HTTP status the API will use, the error class that produces it, and
+ * a short, human-readable description an API consumer can act on.
+ *
+ * Consumed by:
+ *   - The README for the public error reference table.
+ *   - The OpenAPI doc so each error appears alongside the endpoints
+ *     that can return it.
+ *   - The unit test that pins the catalog and prevents drift from
+ *     the actual ErrorCode enum.
+ */
+export interface ErrorCatalogEntry {
+  /** Machine-readable code shipped on the wire in `error.code`. */
+  code: ErrorCode;
+  /** HTTP status this error maps to in responses. */
+  status: number;
+  /** Name of the AppError subclass that emits this code. */
+  errorClass: string;
+  /** Short, action-oriented description for API consumers. */
+  description: string;
+}
+
+export const ERROR_CATALOG: readonly ErrorCatalogEntry[] = [
+  {
+    code: ErrorCode.VALIDATION_ERROR,
+    status: 400,
+    errorClass: "ValidationError",
+    description:
+      "Request body, query string, or path params failed schema validation. " +
+      "Fix the offending fields described in `error.details`.",
+  },
+  {
+    code: ErrorCode.AUTHENTICATION_ERROR,
+    status: 401,
+    errorClass: "AuthenticationError",
+    description:
+      "Missing, malformed, or invalid credentials. Acquire a fresh JWT via " +
+      "the wallet challenge → connect flow and retry.",
+  },
+  {
+    code: ErrorCode.AUTHORIZATION_ERROR,
+    status: 403,
+    errorClass: "AuthorizationError",
+    description:
+      "Authenticated, but not permitted for this resource or action.",
+  },
+  {
+    code: ErrorCode.NOT_FOUND,
+    status: 404,
+    errorClass: "NotFoundError",
+    description: "The requested resource does not exist.",
+  },
+  {
+    code: ErrorCode.CONFLICT,
+    status: 409,
+    errorClass: "ConflictError",
+    description:
+      "The request conflicts with current server state. Re-read the resource " +
+      "and retry.",
+  },
+  {
+    code: ErrorCode.BUSINESS_RULE_VIOLATION,
+    status: 422,
+    errorClass: "BusinessRuleError",
+    description:
+      "Request was well-formed but violated a domain rule (e.g. round closed, " +
+      "duplicate prediction).",
+  },
+  {
+    code: ErrorCode.EXTERNAL_SERVICE_ERROR,
+    status: 503,
+    errorClass: "ExternalServiceError",
+    description:
+      "Upstream dependency (database, Soroban RPC, oracle) is unavailable or " +
+      "returned an unexpected error. Retry with backoff.",
+  },
+  {
+    code: ErrorCode.CONFIGURATION_ERROR,
+    status: 500,
+    errorClass: "ConfigurationError",
+    description:
+      "Server misconfiguration detected at runtime. Operators must intervene; " +
+      "client retry will not help.",
+  },
+  {
+    code: ErrorCode.INTERNAL_SERVER_ERROR,
+    status: 500,
+    errorClass: "AppError",
+    description:
+      "Unexpected server error. Retry; if it persists, include the response's " +
+      "`requestId` when filing a bug.",
+  },
+  {
+    code: ErrorCode.INVALID_CHALLENGE,
+    status: 401,
+    errorClass: "AuthenticationError",
+    description:
+      "The signed challenge does not match any known issued challenge. Restart " +
+      "the wallet sign-in from the challenge endpoint.",
+  },
+  {
+    code: ErrorCode.CHALLENGE_EXPIRED,
+    status: 401,
+    errorClass: "AuthenticationError",
+    description: "Challenge TTL has elapsed. Request a new challenge and sign it again.",
+  },
+  {
+    code: ErrorCode.CHALLENGE_USED,
+    status: 401,
+    errorClass: "AuthenticationError",
+    description:
+      "Challenge has already been consumed (challenges are one-shot). Request " +
+      "a fresh one.",
+  },
+  {
+    code: ErrorCode.INVALID_SIGNATURE,
+    status: 401,
+    errorClass: "AuthenticationError",
+    description:
+      "Signature does not verify against the supplied wallet address and " +
+      "challenge payload.",
+  },
+  {
+    code: ErrorCode.INSUFFICIENT_FUNDS,
+    status: 422,
+    errorClass: "BusinessRuleError",
+    description:
+      "Wallet does not have the required balance for the requested operation.",
+  },
+  {
+    code: ErrorCode.ROUND_NOT_ACTIVE,
+    status: 422,
+    errorClass: "BusinessRuleError",
+    description: "Target round is not in ACTIVE status and cannot accept this action.",
+  },
+  {
+    code: ErrorCode.ROUND_LOCKED,
+    status: 422,
+    errorClass: "BusinessRuleError",
+    description:
+      "Round has been locked ahead of resolution; predictions are no longer accepted.",
+  },
+  {
+    code: ErrorCode.ROUND_ALREADY_RESOLVED,
+    status: 409,
+    errorClass: "ConflictError",
+    description: "Round has already been resolved and its outcome is final.",
+  },
+  {
+    code: ErrorCode.DUPLICATE_PREDICTION,
+    status: 409,
+    errorClass: "ConflictError",
+    description: "User already has a prediction for this round.",
+  },
+  {
+    code: ErrorCode.ACTIVE_ROUND_EXISTS,
+    status: 409,
+    errorClass: "ConflictError",
+    description:
+      "An active round of the requested mode already exists; start cannot proceed.",
+  },
+];
