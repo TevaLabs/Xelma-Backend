@@ -289,3 +289,29 @@ model RateLimitMetric {
   @@index([key])
 }
 
+/// Idempotency key storage for safe client retries.
+/// 
+/// Stores the result of idempotent operations (like prediction submission)
+/// so that if a client retries with the same idempotency key, the server
+/// returns the cached result instead of executing the operation again.
+/// 
+/// This prevents duplicate predictions when clients retry after network timeouts.
+/// Keys are scoped by userId + endpoint to prevent cross-user collisions.
+/// 
+/// Retention: rows older than 24 hours can be safely deleted.
+model IdempotencyKey {
+  id              String   @id @default(uuid())
+  userId          String
+  endpoint        String
+  idempotencyKey  String
+  requestHash     String   // Hash of request body to detect mutations
+  responseStatus  Int      // HTTP status code (200, 400, etc.)
+  responseBody    Json     // Cached response to return on retry
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime // 24 hours from creation
+
+  @@unique([userId, endpoint, idempotencyKey])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
