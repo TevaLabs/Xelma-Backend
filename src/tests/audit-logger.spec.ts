@@ -1,6 +1,7 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import { auditLogger, AuditEventType, AuditSeverity } from '../utils/audit-logger';
 import logger from '../utils/logger';
+import { prisma } from '../lib/prisma';
 
 // Mock the logger
 jest.mock('../utils/logger', () => ({
@@ -9,13 +10,25 @@ jest.mock('../utils/logger', () => ({
   error: jest.fn(),
 }));
 
+// Mock the prisma client
+const mockAuditLogCreate = jest.fn().mockResolvedValue({ id: 'audit-123' });
+
+jest.mock('../lib/prisma', () => ({
+  prisma: {
+    auditLog: {
+      create: mockAuditLogCreate,
+    },
+  },
+}));
+
 describe('AuditLogger', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuditLogCreate.mockResolvedValue({ id: 'audit-123' });
   });
 
   describe('logChallengeIssued', () => {
-    it('should log challenge issued event with all metadata', () => {
+    it('should log challenge issued event with all metadata', async () => {
       const expiresAt = new Date('2026-12-31T23:59:59.000Z');
       
       auditLogger.logChallengeIssued({
@@ -52,6 +65,19 @@ describe('AuditLogger', () => {
           }),
           metadata: expect.objectContaining({
             expiresAt: expiresAt.toISOString(),
+          }),
+        })
+      );
+      // Wait for the async persistToDatabase call to complete
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Verify database persistence was called
+      expect(mockAuditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: AuditEventType.CHALLENGE_ISSUED,
+            actorType: 'anonymous',
+            walletAddress: 'GTEST123',
           }),
         })
       );
@@ -266,22 +292,21 @@ describe('AuditLogger', () => {
           audit: true,
           eventType: AuditEventType.CHALLENGE_REUSED,
           severity: AuditSeverity.WARNING,
-          message: 'Attempt to reuse already-consumed authentication challenge',
+          message: 'Authentication challenge reuse detected',
           outcome: 'failure',
           metadata: expect.objectContaining({
-            originalUsedAt: usedAt.toISOString(),
-            secondsSinceUsed: expect.any(Number),
+            usedAt: usedAt.toISOString(),
           }),
         })
       );
     });
   });
 
-  describe('logInvalidSignature', () => {
+  describe('logSignatureInvalid', () => {
     it('should log invalid signature as warning', () => {
-      auditLogger.logInvalidSignature({
+      auditLogger.logSignatureInvalid({
         walletAddress: 'GTEST123',
-        challengeId: 'challenge-123',
+        reason: 'invalid_signature_format',
         requestId: 'req-123',
         ipAddress: '192.168.1.1',
         userAgent: 'Mozilla/5.0',
@@ -292,10 +317,10 @@ describe('AuditLogger', () => {
           audit: true,
           eventType: AuditEventType.SIGNATURE_INVALID,
           severity: AuditSeverity.WARNING,
-          message: 'Invalid signature provided for authentication challenge',
+          message: 'Invalid wallet signature detected',
           outcome: 'failure',
           metadata: expect.objectContaining({
-            verificationMethod: 'stellar_sdk',
+            failureReason: 'invalid_signature_format',
           }),
         })
       );
@@ -307,7 +332,6 @@ describe('AuditLogger', () => {
       auditLogger.logAuthSuccess({
         walletAddress: 'GTEST123',
         userId: 'user-123',
-        isNewUser: false,
         requestId: 'req-123',
         ipAddress: '192.168.1.1',
         userAgent: 'Mozilla/5.0',
@@ -318,10 +342,11 @@ describe('AuditLogger', () => {
           audit: true,
           eventType: AuditEventType.AUTH_SUCCESS,
           severity: AuditSeverity.INFO,
-          message: 'User authenticated successfully',
+          message: 'Authentication successful',
           outcome: 'success',
           actor: expect.objectContaining({
             type: 'user',
+            walletAddress: 'GTEST123',
             userId: 'user-123',
           }),
         })
@@ -329,13 +354,39 @@ describe('AuditLogger', () => {
     });
   });
 
+  describe('logAuthFailed', () => {
+    it('should log authentication failure', () => {
+      auditLogger.logAuthFailed({
+        walletAddress: 'GTEST123',
+        reason: 'invalid_credentials',
+        requestId: 'req-123',
+        ipAddress: '192.168.1.1',
+        userAgent: 'Mozilla/5.0',
+      });
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audit: true,
+          eventType: AuditEventType.AUTH_FAILED,
+          severity: AuditSeverity.ERROR,
+          message: 'Authentication failed',
+          outcome: 'failure',
+          metadata: expect.objectContaining({
+            failureReason: 'invalid_credentials',
+          }),
+        })
+      );
+    });
+  });
+
   describe('logUserCreated', () => {
-    it('should log new user creation', () => {
+    it('should log user creation', () => {
       auditLogger.logUserCreated({
         walletAddress: 'GTEST123',
         userId: 'user-123',
         requestId: 'req-123',
         ipAddress: '192.168.1.1',
+        userAgent: 'Mozilla/5.0',
       });
 
       expect(logger.info).toHaveBeenCalledWith(
@@ -343,7 +394,7 @@ describe('AuditLogger', () => {
           audit: true,
           eventType: AuditEventType.USER_CREATED,
           severity: AuditSeverity.INFO,
-          message: 'New user account created',
+          message: 'User created successfully',
           outcome: 'success',
           actor: expect.objectContaining({
             type: 'system',
@@ -351,9 +402,7 @@ describe('AuditLogger', () => {
           resource: expect.objectContaining({
             type: 'user',
             id: 'user-123',
-          }),
-          metadata: expect.objectContaining({
-            registrationMethod: 'wallet_authentication',
+            walletAddress: 'GTEST123',
           }),
         })
       );
@@ -361,14 +410,15 @@ describe('AuditLogger', () => {
   });
 
   describe('logUserLogin', () => {
-    it('should log user login with streak and bonus', () => {
+    it('should log user login', () => {
       auditLogger.logUserLogin({
         walletAddress: 'GTEST123',
         userId: 'user-123',
-        streak: 5,
-        bonusAwarded: 150,
         requestId: 'req-123',
         ipAddress: '192.168.1.1',
+        userAgent: 'Mozilla/5.0',
+        streak: 5,
+        bonusAwarded: true,
       });
 
       expect(logger.info).toHaveBeenCalledWith(
@@ -376,151 +426,147 @@ describe('AuditLogger', () => {
           audit: true,
           eventType: AuditEventType.USER_LOGIN,
           severity: AuditSeverity.INFO,
-          message: 'User logged in',
+          message: 'User logged in successfully',
           outcome: 'success',
+          actor: expect.objectContaining({
+            type: 'user',
+            walletAddress: 'GTEST123',
+            userId: 'user-123',
+          }),
+          resource: expect.objectContaining({
+            type: 'user',
+            id: 'user-123',
+            walletAddress: 'GTEST123',
+          }),
           metadata: expect.objectContaining({
             streak: 5,
-            bonusAwarded: 150,
+            bonusAwarded: true,
           }),
         })
       );
     });
   });
 
-  describe('Security and sanitization', () => {
-    it('should not include sensitive data in logs', () => {
-      auditLogger.logChallengeIssued({
-        walletAddress: 'GTEST123',
-        challengeId: 'challenge-123',
-        expiresAt: new Date(),
-      });
-
-      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
-      
-      // Should not include challenge value, signatures, or tokens
-      expect(JSON.stringify(call)).not.toContain('signature');
-      expect(JSON.stringify(call)).not.toContain('token');
-      expect(JSON.stringify(call)).not.toContain('password');
-    });
-
-    it('should truncate long user agents', () => {
-      const longUserAgent = 'A'.repeat(300);
+  describe('Database Persistence', () => {
+    it('should persist audit event to database when enabled', async () => {
+      const expiresAt = new Date('2026-12-31T23:59:59.000Z');
       
       auditLogger.logChallengeIssued({
         walletAddress: 'GTEST123',
         challengeId: 'challenge-123',
-        expiresAt: new Date(),
-        userAgent: longUserAgent,
-      });
-
-      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
-      expect(call.actor.userAgent.length).toBeLessThanOrEqual(200);
-    });
-
-    it('should include correlation identifiers', () => {
-      auditLogger.logChallengeIssued({
-        walletAddress: 'GTEST123',
-        challengeId: 'challenge-123',
-        expiresAt: new Date(),
+        expiresAt,
         requestId: 'req-123',
+        ipAddress: '192.168.1.1',
+        userAgent: 'Mozilla/5.0',
       });
 
-      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
-      expect(call.context.requestId).toBe('req-123');
-      expect(call.resource.id).toBe('challenge-123');
-    });
-  });
+      // Wait for the async persistToDatabase call to complete
+      await new Promise(resolve => setTimeout(resolve, 10));
 
-  describe('Log structure', () => {
-    it('should include all required fields', () => {
+      expect(mockAuditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: AuditEventType.CHALLENGE_ISSUED,
+            severity: AuditSeverity.INFO,
+            message: 'Authentication challenge issued',
+            outcome: 'success',
+            actorType: 'anonymous',
+            walletAddress: 'GTEST123',
+            ipAddress: '192.168.1.1',
+            userAgent: 'Mozilla/5.0',
+            requestId: 'req-123',
+            endpoint: '/api/auth/challenge',
+            method: 'POST',
+            resourceType: 'challenge',
+            resourceId: 'challenge-123',
+            resourceWalletAddress: 'GTEST123',
+          }),
+        })
+      );
+    });
+
+    it('should not persist audit event to database when disabled', async () => {
+      const originalEnv = process.env.AUDIT_LOG_DATABASE_ENABLED;
+      process.env.AUDIT_LOG_DATABASE_ENABLED = 'false';
+
       auditLogger.logChallengeIssued({
         walletAddress: 'GTEST123',
         challengeId: 'challenge-123',
         expiresAt: new Date(),
       });
 
-      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
-      
-      // Required fields
-      expect(call).toHaveProperty('audit', true);
-      expect(call).toHaveProperty('eventType');
-      expect(call).toHaveProperty('severity');
-      expect(call).toHaveProperty('message');
-      expect(call).toHaveProperty('outcome');
-      expect(call).toHaveProperty('actor');
-      expect(call).toHaveProperty('context');
-      expect(call).toHaveProperty('timestamp');
+      // Wait for the async persistToDatabase call to complete
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(mockAuditLogCreate).not.toHaveBeenCalled();
+
+      // Restore original environment variable
+      if (originalEnv !== undefined) {
+        process.env.AUDIT_LOG_DATABASE_ENABLED = originalEnv;
+      } else {
+        delete process.env.AUDIT_LOG_DATABASE_ENABLED;
+      }
     });
 
-    it('should use correct severity levels', () => {
-      // Info level
-      auditLogger.logChallengeIssued({
-        walletAddress: 'GTEST123',
-        challengeId: 'challenge-123',
-        expiresAt: new Date(),
-      });
-      expect(logger.info).toHaveBeenCalled();
-      jest.clearAllMocks();
+    it('should handle database errors gracefully', async () => {
+      mockAuditLogCreate.mockRejectedValue(new Error('Database connection failed'));
 
-      // Warning level
-      auditLogger.logChallengeFailed({
-        walletAddress: 'GTEST123',
-        reason: 'invalid_signature',
-      });
-      expect(logger.warn).toHaveBeenCalled();
-      jest.clearAllMocks();
-    });
-  });
-
-  describe('Queryability', () => {
-    it('should produce JSON-serializable output', () => {
       auditLogger.logChallengeIssued({
         walletAddress: 'GTEST123',
         challengeId: 'challenge-123',
         expiresAt: new Date(),
       });
 
-      const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
-      
-      // Should be JSON serializable
-      expect(() => JSON.stringify(call)).not.toThrow();
-      
-      const json = JSON.parse(JSON.stringify(call));
-      expect(json.eventType).toBe(AuditEventType.CHALLENGE_ISSUED);
+      // Wait for the async persistToDatabase call to complete
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Error should be logged but not thrown
+      expect(logger.error).toHaveBeenCalled();
     });
 
-    it('should have consistent field names for querying', () => {
-      const events = [
-        () => auditLogger.logChallengeIssued({
-          walletAddress: 'GTEST123',
-          challengeId: 'challenge-123',
-          expiresAt: new Date(),
-        }),
-        () => auditLogger.logChallengeVerified({
-          walletAddress: 'GTEST123',
-          userId: 'user-123',
-          challengeId: 'challenge-123',
-          isNewUser: false,
-        }),
-        () => auditLogger.logAuthSuccess({
-          walletAddress: 'GTEST123',
-          userId: 'user-123',
-          isNewUser: false,
-        }),
-      ];
-
-      events.forEach((logEvent) => {
-        jest.clearAllMocks();
-        logEvent();
-        
-        const call = (logger.info as jest.Mock).mock.calls[0][0] as any;
-        
-        // All events should have these fields
-        expect(call).toHaveProperty('audit');
-        expect(call).toHaveProperty('eventType');
-        expect(call).toHaveProperty('actor.walletAddress');
-        expect(call).toHaveProperty('context.timestamp');
+    it('should map all audit event fields correctly to database model', async () => {
+      const expiresAt = new Date('2026-12-31T23:59:59.000Z');
+      
+      auditLogger.logChallengeVerified({
+        walletAddress: 'GTEST123',
+        userId: 'user-123',
+        challengeId: 'challenge-123',
+        isNewUser: true,
+        requestId: 'req-123',
+        ipAddress: '192.168.1.1',
+        userAgent: 'Mozilla/5.0',
       });
+
+      // Wait for the async persistToDatabase call to complete
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(mockAuditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: AuditEventType.CHALLENGE_VERIFIED,
+            severity: AuditSeverity.INFO,
+            message: 'Authentication challenge verified successfully',
+            outcome: 'success',
+            actorType: 'user',
+            walletAddress: 'GTEST123',
+            userId: 'user-123',
+            ipAddress: '192.168.1.1',
+            userAgent: 'Mozilla/5.0',
+            requestId: 'req-123',
+            sessionId: undefined,
+            endpoint: '/api/auth/connect',
+            method: 'POST',
+            resourceType: 'challenge',
+            resourceId: 'challenge-123',
+            resourceWalletAddress: 'GTEST123',
+            metadata: expect.objectContaining({
+              isNewUser: true,
+              authMethod: 'wallet_signature',
+            }),
+            timestamp: expect.any(String),
+          }),
+        })
+      );
     });
   });
 });

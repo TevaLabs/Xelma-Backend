@@ -10,6 +10,7 @@ interface RetentionPolicy {
 interface RetentionConfig {
   authChallenges: RetentionPolicy;
   chatMessages: RetentionPolicy;
+  auditLogs: RetentionPolicy;
 }
 
 interface RetentionResult {
@@ -33,6 +34,11 @@ class RetentionService {
       chatMessages: {
         enabled: process.env.RETENTION_CHAT_MESSAGES_ENABLED !== "false",
         ttlDays: parseInt(process.env.RETENTION_CHAT_MESSAGES_TTL_DAYS || "90", 10),
+        batchSize: parseInt(process.env.RETENTION_BATCH_SIZE || "1000", 10),
+      },
+      auditLogs: {
+        enabled: process.env.RETENTION_AUDIT_LOGS_ENABLED !== "false",
+        ttlDays: parseInt(process.env.RETENTION_AUDIT_LOGS_TTL_DAYS || "90", 10),
         batchSize: parseInt(process.env.RETENTION_BATCH_SIZE || "1000", 10),
       },
     };
@@ -158,6 +164,57 @@ class RetentionService {
   }
 
   /**
+   * Clean up old audit logs
+   */
+  async cleanupAuditLogs(): Promise<RetentionResult> {
+    const startTime = Date.now();
+    const policy = this.config.auditLogs;
+
+    if (!policy.enabled) {
+      logger.info("Audit logs retention policy is disabled");
+      return {
+        entity: "auditLogs",
+        deletedCount: 0,
+        cutoffDate: new Date(),
+        executionTime: 0,
+      };
+    }
+
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - policy.ttlDays);
+
+      logger.info(
+        `Starting audit logs cleanup (TTL: ${policy.ttlDays} days, cutoff: ${cutoffDate.toISOString()})`,
+      );
+
+      const result = await prisma.auditLog.deleteMany({
+        where: {
+          timestamp: {
+            lt: cutoffDate,
+          },
+        },
+      });
+
+      const executionTime = Date.now() - startTime;
+
+      logger.info(
+        `Audit logs cleanup completed: Deleted ${result.count} records in ${executionTime}ms`,
+      );
+
+      return {
+        entity: "auditLogs",
+        deletedCount: result.count,
+        cutoffDate,
+        executionTime,
+      };
+    } catch (error) {
+      logger.error("Failed to cleanup audit logs:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Run all retention policies
    */
   async runAllPolicies(): Promise<RetentionResult[]> {
@@ -173,6 +230,10 @@ class RetentionService {
       // Run chat messages cleanup
       const chatResult = await this.cleanupChatMessages();
       results.push(chatResult);
+
+      // Run audit logs cleanup
+      const auditResult = await this.cleanupAuditLogs();
+      results.push(auditResult);
 
       const totalDeleted = results.reduce((sum, r) => sum + r.deletedCount, 0);
       const totalTime = results.reduce((sum, r) => sum + r.executionTime, 0);
@@ -194,6 +255,7 @@ class RetentionService {
   async getDeletionPreview(): Promise<{
     authChallenges: { count: number; cutoffDate: Date };
     chatMessages: { count: number; cutoffDate: Date };
+    auditLogs: { count: number; cutoffDate: Date };
   }> {
     try {
       const authCutoff = new Date();
@@ -202,7 +264,10 @@ class RetentionService {
       const chatCutoff = new Date();
       chatCutoff.setDate(chatCutoff.getDate() - this.config.chatMessages.ttlDays);
 
-      const [authCount, chatCount] = await Promise.all([
+      const auditCutoff = new Date();
+      auditCutoff.setDate(auditCutoff.getDate() - this.config.auditLogs.ttlDays);
+
+      const [authCount, chatCount, auditCount] = await Promise.all([
         prisma.authChallenge.count({
           where: {
             OR: [
@@ -216,6 +281,11 @@ class RetentionService {
             createdAt: { lt: chatCutoff },
           },
         }),
+        prisma.auditLog.count({
+          where: {
+            timestamp: { lt: auditCutoff },
+          },
+        }),
       ]);
 
       return {
@@ -226,6 +296,10 @@ class RetentionService {
         chatMessages: {
           count: chatCount,
           cutoffDate: chatCutoff,
+        },
+        auditLogs: {
+          count: auditCount,
+          cutoffDate: auditCutoff,
         },
       };
     } catch (error) {
@@ -246,6 +320,10 @@ class RetentionService {
 
     if (this.config.chatMessages.ttlDays < 1) {
       errors.push("Chat messages TTL must be at least 1 day");
+    }
+
+    if (this.config.auditLogs.ttlDays < 1) {
+      errors.push("Audit logs TTL must be at least 1 day");
     }
 
     if (this.config.authChallenges.batchSize < 1) {
