@@ -225,6 +225,12 @@ Xelma-Backend/
   - Locks rounds after 30 seconds (configurable)
   - Controlled by `ROUND_SCHEDULER_ENABLED` environment variable
 
+> **API-only mode**: Set `API_ONLY=true` to start the HTTP server with
+> all schedulers, oracle polling, and the WebSocket price ticker
+> disabled. This is the recommended setup for split deployments — one
+> dedicated worker process runs background jobs while one or more
+> stateless processes serve HTTP — and for safer local debugging.
+
 #### **9. Notification Service (`notification.service.ts`)**
 - **Purpose**: Creates and delivers notifications to users
 - **Types**: WIN, LOSS, ROUND_START, BONUS_AVAILABLE, ANNOUNCEMENT
@@ -296,6 +302,7 @@ Xelma-Backend/
 #### **System Endpoints**
 - `GET /` - Health check with timestamp
 - `GET /health` - Detailed health check (uptime, status)
+- `GET /metrics` - Prometheus metrics for HTTP, schedulers, oracle, predictions, WebSocket, rate limits, and DB pool settings
 - `GET /api/price` - Current XLM/USD price as a decimal string with staleness info
 - `GET /api-docs` - Swagger UI documentation
 - `GET /api-docs.json` - OpenAPI specification
@@ -310,8 +317,17 @@ Xelma-Backend/
 - **`requireOracle`**: Ensures user has ORACLE role
 
 #### **Rate Limiter Middleware (`rateLimiter.middleware.ts`)**
-- Prevents API abuse by limiting requests per IP
-- Configurable limits per endpoint
+- Prevents API abuse with per-IP and per-user limits
+- Single prediction submit: 10 requests/minute per user
+- Batch prediction submit: **3 requests/minute per user** (stricter; each batch may include up to 50 predictions)
+- Batch leaderboard lookup: 10 requests/minute per user
+- Auth, chat, admin round creation, and oracle resolve endpoints have tailored policies
+- Rate-limit hits are recorded for the admin metrics dashboard (`GET /api/admin/metrics/rate-limits`)
+
+#### **Route Authorization Registry (`src/security/route-auth.registry.ts`)**
+- Canonical list of API routes and required auth levels (`public`, `authenticated`, `admin`, `oracle`)
+- `src/tests/security.spec.ts` and `src/tests/route-auth.registry.spec.ts` fail CI when the registry drifts from implemented routes
+- Role middleware (`requireAdmin`, `requireOracle`, `authenticateUser`) is built on a shared `requireRole` helper in `auth.middleware.ts`
 
 ---
 
@@ -432,6 +448,9 @@ SOROBAN_ORACLE_SECRET=S...your-oracle-secret-key
 ROUND_SCHEDULER_ENABLED=false  # Set to 'true' to enable automated rounds
 ROUND_SCHEDULER_MODE=UP_DOWN   # or 'LEGENDS'
 
+# API-only startup mode (skip oracle polling, schedulers, and price ticker)
+API_ONLY=false  # Set to 'true' to run as a stateless HTTP API only
+
 # Price Oracle Configuration
 ORACLE_POLLING_INTERVAL_MS=10000    # Interval between price updates (ms)
 ORACLE_REQUEST_TIMEOUT_MS=5000     # Network timeout for requests (ms)
@@ -494,13 +513,37 @@ The following metrics are exposed at `/metrics`:
 - `redis_cache_errors_total` - Total Redis operation errors
 - `redis_cache_enabled` - Current cache state (1=enabled, 0=bypassed)
 
+#### Metrics contract
+
+`GET /metrics` exposes Prometheus text-format metrics with only
+low-cardinality labels. Labels intentionally avoid user IDs, wallet addresses,
+round IDs, socket IDs, request bodies, and secrets.
+
+Core application metrics include:
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `http_requests_total` | `method`, `route`, `status_code` | HTTP request volume by normalized Express route |
+| `http_request_duration_seconds` | `method`, `route`, `status_code` | HTTP latency histogram |
+| `http_errors_total` | `method`, `route`, `status_code` | HTTP 4xx/5xx responses |
+| `predictions_placed_total` | none | Successful prediction submissions |
+| `rounds_started_total` | `mode` | Rounds created by game mode |
+| `rounds_resolved_total` | `mode` | Rounds resolved by game mode |
+| `price_oracle_updates_total` | none | Successful oracle price refreshes |
+| `price_oracle_fetch_failures_total` | `reason` | Oracle refresh failures |
+| `scheduler_runs_total` | `job`, `outcome` | Scheduler executions |
+| `scheduler_items_processed_total` | `job`, `outcome` | Items processed by scheduler jobs |
+| `socket_connections_active` | none | Current Socket.IO connections |
+| `websocket_emits_total` | `event`, `outcome` | WebSocket dispatch attempts |
+| `websocket_connection_events_total` | `event`, `authenticated` | Socket connect/disconnect events
+
 ### 3. Set Up Database
 
 ```bash
-# Generate Prisma client
-npm run prisma:generate
+# Generate Prisma client and apply committed migrations
+npm run db:prepare
 
-# Run migrations
+# Create a new development migration when changing prisma/schema.prisma
 npm run prisma:migrate
 
 # (Optional) Seed database with sample data
@@ -521,6 +564,20 @@ npm run dev
 
 The server will start on `http://localhost:3000` with auto-reload on file changes.
 
+### Local Render-Parity Bootstrap
+
+Use one command when you want local startup to perform the same Prisma
+preparation Render performs before booting the service:
+
+```bash
+npm run dev:render-parity
+```
+
+This runs `prisma generate`, applies committed migrations with
+`prisma migrate deploy`, then starts the hot-reload dev server. It expects a
+local `.env` with at least `DATABASE_URL` and `JWT_SECRET`; copy
+`.env.example` to `.env` if you are starting from a fresh checkout.
+
 ### Production Mode
 
 ```bash
@@ -530,6 +587,41 @@ npm run build
 # Start production server
 npm start
 ```
+
+### Render Parity Local Profile
+
+To reproduce the runtime behavior of the Render deployment on your machine,
+use the `start:render-parity` script. This sets `NODE_ENV=production`
+before launching the built server so the same code paths Render hits
+fire locally — CORS is strict (`CLIENT_URL` must be set, no wildcard
+origin), error responses match production, and logging runs at
+production verbosity.
+
+```bash
+# 1) Build first (start:render-parity expects dist/)
+npm run build
+
+# 2) Run with production-shaped environment
+CLIENT_URL=http://localhost:5173 \
+JWT_SECRET="$(openssl rand -base64 32)" \
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/xelma_local" \
+npm run start:render-parity
+```
+
+Required env vars for parity (matches what Render's environment supplies):
+
+| Variable | Why it matters in render-parity mode |
+|---|---|
+| `NODE_ENV=production` | Set by the script. Enables strict CORS and production logging. |
+| `CLIENT_URL` | **Required.** Strict CORS will reject all origins if unset. |
+| `ALLOWED_ORIGINS` | Optional comma-separated extra origins. |
+| `JWT_SECRET` | Required for startup. Use a cryptographically strong value. |
+| `DATABASE_URL` | Required. Point at a local Postgres. |
+| `SOROBAN_CONTRACT_ID` / `SOROBAN_ADMIN_SECRET` / `SOROBAN_ORACLE_SECRET` | Optional; only needed if you want on-chain calls. |
+
+If you hit a CORS error from your frontend in this mode, hit
+`GET /api/admin/cors-diagnostics?origin=<your-origin>` with an admin
+token to see exactly which origins this process accepts.
 
 ### Verify Server is Running
 
@@ -545,6 +637,36 @@ Expected response:
   "timestamp": "2026-02-23T12:00:00.000Z"
 }
 ```
+
+---
+
+### Dead-letter queue for failed notifications and events
+
+Notification creation and WebSocket emits go through a dead-letter queue
+(DLQ) so a transient DB blip, a not-yet-initialized socket layer, or a
+runtime exception in `emit` does not silently drop a user-facing event.
+
+How it works:
+
+- `notificationService.createNotification(...)` records a `FailedDispatch`
+  row on `NOTIFICATION_CREATE` errors (the original error still rethrows
+  so callers behave the same).
+- `websocketService.emit*(...)` records a `FailedDispatch` row whenever
+  the socket layer is not initialized or the underlying `emit` throws.
+  The emit itself is fire-and-forget — the caller's hot path is never
+  broken by a DLQ persistence failure.
+- Rows have `attempts`, `lastError`, and `status` (`PENDING`, `RETRYING`,
+  `RESOLVED`, `ABANDONED`) so an operator can triage stuck dispatches.
+
+Operator endpoints (admin-only, gated by `requireAdmin`):
+
+- `GET  /api/admin/dead-letter` — list entries, newest first. Query
+  params: `status`, `channel`, `limit`, `offset`.
+- `POST /api/admin/dead-letter/:id/retry` — replay a single entry; sets
+  `RESOLVED` on success, bumps `attempts` and moves to `ABANDONED` once
+  the cap (default 5) is reached.
+- `POST /api/admin/dead-letter/retry-all` — replay every `PENDING` /
+  `RETRYING` entry (capped, oldest first). Returns a counts summary.
 
 ---
 
@@ -674,6 +796,7 @@ GET /api/rounds/active
 POST /api/predictions/submit
 Authorization: Bearer YOUR_JWT_TOKEN
 Content-Type: application/json
+Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
 
 # For UP_DOWN mode:
 {
@@ -692,6 +815,13 @@ Content-Type: application/json
   }
 }
 ```
+
+`Idempotency-Key` is optional but recommended for clients that may retry a
+submit request after network failure. The same authenticated user can retry the
+same request body with the same key for 10 minutes and receive the cached
+response. Reusing the same key with a different request body returns `409` with
+code `IDEMPOTENCY_KEY_CONFLICT`; generate a fresh key for a new prediction
+attempt.
 
 **Response:**
 ```json
@@ -820,6 +950,7 @@ Current test coverage includes:
 |--------|-------------|
 | `npm start` | Run production server (requires build) |
 | `npm run dev` | Start development server with hot-reload |
+| `npm run dev:render-parity` | Generate Prisma client, apply committed migrations, then start dev server |
 | `npm run build` | Compile TypeScript to JavaScript |
 | `npm test` | Run Jest test suite |
 | `npm run test:coverage` | Run Jest with coverage reporting and thresholds |
@@ -828,8 +959,60 @@ Current test coverage includes:
 | `npm run ci` | Run lint, build, unit coverage, and integration tests |
 | `npm run prisma:generate` | Generate Prisma client |
 | `npm run prisma:migrate` | Run database migrations |
-| `npm run docs:openapi` | Generate OpenAPI JSON spec |
+| `npm run prisma:migrate:deploy` | Apply committed migrations without creating new migration files |
+| `npm run db:prepare` | Run Prisma generate and migrate deploy |
+| `npm run docs:openapi` | Generate OpenAPI JSON spec to `docs/openapi.json` |
+| `npm run docs:verify` | Regenerate OpenAPI and verify required paths are documented (CI gate) |
 | `npm run docs:postman` | Export Postman collection |
+| `npm run scorecard` | Run the production-readiness scorecard (see [#197](https://github.com/TevaLabs/Xelma-Backend/issues/197)) |
+
+---
+
+## Error Code Catalog (#196)
+
+Every error response from the API carries a stable machine-readable
+`code` (in addition to the HTTP status) so clients can branch on the
+specific failure without parsing prose. The canonical list lives in
+[`src/utils/errors.ts`](src/utils/errors.ts) as `ERROR_CATALOG` and is
+also exposed as JSON at `GET /api/errors` for client codegen.
+
+A drift test (`src/tests/error-catalog.spec.ts`) pins the catalog to
+the `ErrorCode` enum, so adding a new code without a catalog entry
+fails CI.
+
+| HTTP | Code | Description |
+|------|------|-------------|
+| 400 | `VALIDATION_ERROR` | Body / query / params failed schema validation. See `error.details`. |
+| 401 | `AUTHENTICATION_ERROR` | Missing / invalid credentials. Re-authenticate. |
+| 401 | `INVALID_CHALLENGE` | Signed challenge does not match a known issued challenge. |
+| 401 | `CHALLENGE_EXPIRED` | Challenge TTL elapsed. Request a new one. |
+| 401 | `CHALLENGE_USED` | Challenge already consumed (one-shot). |
+| 401 | `INVALID_SIGNATURE` | Signature does not verify against wallet + challenge. |
+| 403 | `AUTHORIZATION_ERROR` | Authenticated, not permitted. |
+| 404 | `NOT_FOUND` | Resource does not exist. |
+| 409 | `CONFLICT` | Generic state conflict. |
+| 409 | `ROUND_ALREADY_RESOLVED` | Round outcome already final. |
+| 409 | `DUPLICATE_PREDICTION` | User already predicted on this round. |
+| 409 | `ACTIVE_ROUND_EXISTS` | A round of the requested mode is already active. |
+| 422 | `BUSINESS_RULE_VIOLATION` | Generic domain rule violation. |
+| 422 | `INSUFFICIENT_FUNDS` | Not enough balance. |
+| 422 | `ROUND_NOT_ACTIVE` | Round is not in `ACTIVE` status. |
+| 422 | `ROUND_LOCKED` | Round is locked before resolution. |
+| 500 | `CONFIGURATION_ERROR` | Server misconfiguration. Operator action required. |
+| 500 | `INTERNAL_SERVER_ERROR` | Unexpected. Retry; include `requestId` if reporting. |
+| 503 | `EXTERNAL_SERVICE_ERROR` | Upstream (DB, RPC, oracle) failure. Retry with backoff. |
+
+---
+
+## Production-Readiness Scorecard (#197)
+
+`npm run scorecard` runs a small, zero-dependency set of "is this repo
+ready to deploy?" heuristics and prints a green / yellow / red
+breakdown. CI runs the same script in its own job
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) and fails the
+build only when a **required** check fails — soft "nice to have"
+checks emit warnings without blocking merges. New checks live in
+[`scripts/production-readiness-scorecard.js`](scripts/production-readiness-scorecard.js).
 
 ---
 

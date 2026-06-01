@@ -4,9 +4,17 @@
  * Uses mocked Prisma so no database is required.
  * All assertions are against the Express HTTP layer (createApp / supertest).
  */
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "@jest/globals";
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from "@jest/globals";
 import request from "supertest";
 import { Express } from "express";
+import { UserRole } from "@prisma/client";
+import {
+  getAdminRoutes,
+  getOracleRoutes,
+  registryKey,
+  RouteAuthLevel,
+  ROUTE_AUTH_REGISTRY,
+} from "../security/route-auth.registry";
 
 jest.mock("../lib/prisma", () => ({
   prisma: {
@@ -25,14 +33,18 @@ jest.mock("../lib/prisma", () => ({
   },
 }));
 
+const passthroughLimiter = (_req: any, _res: any, next: any) => next();
+
 jest.mock("../middleware/rateLimiter.middleware", () => ({
-  challengeRateLimiter: (_req: any, _res: any, next: any) => next(),
-  connectRateLimiter: (_req: any, _res: any, next: any) => next(),
-  authRateLimiter: (_req: any, _res: any, next: any) => next(),
-  chatMessageRateLimiter: (_req: any, _res: any, next: any) => next(),
-  predictionRateLimiter: (_req: any, _res: any, next: any) => next(),
-  adminRoundRateLimiter: (_req: any, _res: any, next: any) => next(),
-  oracleResolveRateLimiter: (_req: any, _res: any, next: any) => next(),
+  challengeRateLimiter: passthroughLimiter,
+  connectRateLimiter: passthroughLimiter,
+  authRateLimiter: passthroughLimiter,
+  chatMessageRateLimiter: passthroughLimiter,
+  predictionRateLimiter: passthroughLimiter,
+  batchPredictionRateLimiter: passthroughLimiter,
+  batchLeaderboardRateLimiter: passthroughLimiter,
+  adminRoundRateLimiter: passthroughLimiter,
+  oracleResolveRateLimiter: passthroughLimiter,
 }));
 
 const originalEnv = process.env;
@@ -332,5 +344,90 @@ describe("getHttpCorsOrigins()", () => {
     expect(result).not.toContain("");
     expect(result).toContain("https://app.example.com");
     expect(result).toContain("https://staging.example.com");
+  });
+});
+
+// ── Route authorization registry (drift prevention) ─────────────────────────
+
+describe("Route authorization registry", () => {
+  it("has unique registry keys for every documented route", () => {
+    const keys = ROUTE_AUTH_REGISTRY.map(registryKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("blocks non-admin users from admin registry routes", async () => {
+    setEnv({ NODE_ENV: "development", JWT_SECRET: "test-secret" });
+    jest.resetModules();
+
+    const { prisma: freshPrisma } = require("../lib/prisma") as {
+      prisma: { user: { findUnique: jest.Mock } };
+    };
+    const { generateToken: freshGenerateToken } = require("../utils/jwt.util");
+
+    const regularUser = {
+      id: "user-regular",
+      walletAddress: "GUSER_REGULAR_TEST_AAAAAAAAAAAAAAA",
+      role: UserRole.USER,
+    };
+    freshPrisma.user.findUnique.mockResolvedValue(regularUser);
+    const token = freshGenerateToken(
+      regularUser.id,
+      regularUser.walletAddress,
+      regularUser.role,
+    );
+
+    const { createApp } = require("../index");
+    const app = createApp();
+
+    for (const route of getAdminRoutes()) {
+      const path = route.path.replace(":id", "test-id");
+      const method = route.method.toLowerCase() as "get" | "post";
+      const req = request(app)[method](path).set("Authorization", `Bearer ${token}`);
+      const res = await req;
+
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it("blocks regular users from starting rounds (oracle/admin only actions)", async () => {
+    setEnv({ NODE_ENV: "development", JWT_SECRET: "test-secret" });
+    jest.resetModules();
+
+    const { prisma: freshPrisma } = require("../lib/prisma") as {
+      prisma: { user: { findUnique: jest.Mock } };
+    };
+    const { generateToken: freshGenerateToken } = require("../utils/jwt.util");
+
+    const regularUser = {
+      id: "user-regular-2",
+      walletAddress: "GUSER_REGULAR2_TEST_AAAAAAAAAAAAAA",
+      role: UserRole.USER,
+    };
+    freshPrisma.user.findUnique.mockResolvedValue(regularUser);
+    const token = freshGenerateToken(
+      regularUser.id,
+      regularUser.walletAddress,
+      regularUser.role,
+    );
+
+    const { createApp } = require("../index");
+    const app = createApp();
+
+    const res = await request(app)
+      .post("/api/rounds/start")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ mode: 0, startPrice: 0.5, duration: 60 });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("documents oracle routes separately from admin routes", () => {
+    const oracleOnly = getOracleRoutes().filter(
+      (r) => r.auth === RouteAuthLevel.ORACLE,
+    );
+    expect(oracleOnly.length).toBeGreaterThan(0);
+    expect(getAdminRoutes().some((r) => r.path === "/api/rounds/:id/resolve")).toBe(
+      false,
+    );
   });
 });

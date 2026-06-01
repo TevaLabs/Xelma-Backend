@@ -10,25 +10,626 @@
       "url": "http://localhost:3000"
     }
   ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Paste a JWT like: Bearer <token>"
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Standard error response returned by all API endpoints on failure.",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error class name (e.g. ValidationError, AuthenticationError, NotFoundError)",
+            "example": "ValidationError"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable description of the error",
+            "example": "walletAddress is required"
+          },
+          "code": {
+            "type": "string",
+            "description": "Machine-readable error code for programmatic handling",
+            "example": "VALIDATION_ERROR"
+          },
+          "details": {
+            "type": "array",
+            "description": "Field-level validation details (present on validation errors only)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "example": "walletAddress"
+                },
+                "message": {
+                  "type": "string",
+                  "example": "walletAddress is required"
+                }
+              },
+              "required": [
+                "field",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "code"
+        ]
+      },
+      "RateLimitResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ErrorResponse"
+          }
+        ],
+        "example": {
+          "error": "AppError",
+          "message": "Too many requests from this IP, please try again after 15 minutes",
+          "code": "RATE_LIMIT_EXCEEDED"
+        }
+      },
+      "AuthChallengeRequest": {
+        "type": "object",
+        "properties": {
+          "walletAddress": {
+            "type": "string",
+            "description": "Stellar wallet public key (G...)",
+            "example": "GBRPYHIL2C2V3F5YQZ4H6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B"
+          }
+        },
+        "required": [
+          "walletAddress"
+        ],
+        "additionalProperties": false
+      },
+      "AuthChallengeResponse": {
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "example": "random-challenge-string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "challenge",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "AuthConnectRequest": {
+        "type": "object",
+        "properties": {
+          "walletAddress": {
+            "type": "string",
+            "description": "Stellar wallet public key (G...)"
+          },
+          "challenge": {
+            "type": "string",
+            "description": "Challenge previously returned from /challenge"
+          },
+          "signature": {
+            "type": "string",
+            "description": "Signature over the challenge"
+          }
+        },
+        "required": [
+          "walletAddress",
+          "challenge",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "AuthConnectResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "JWT access token"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "walletAddress": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "lastLoginAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "walletAddress",
+              "createdAt",
+              "lastLoginAt"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "token",
+          "user"
+        ],
+        "additionalProperties": false
+      },
+      "LeaderboardResponse": {
+        "type": "object",
+        "properties": {
+          "leaderboard": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "userPosition": {
+            "type": "object",
+            "nullable": true
+          },
+          "totalUsers": {
+            "type": "number"
+          },
+          "lastUpdated": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaderboard",
+          "totalUsers",
+          "lastUpdated"
+        ],
+        "additionalProperties": true
+      },
+      "RoundResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "UP_DOWN",
+              "LEGENDS"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ACTIVE",
+              "LOCKED",
+              "RESOLVED",
+              "CANCELLED"
+            ]
+          },
+          "startPrice": {
+            "type": "string",
+            "description": "Decimal string"
+          },
+          "endPrice": {
+            "type": "string",
+            "nullable": true,
+            "description": "Decimal string (set on resolution)"
+          },
+          "startTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Timestamp of resolution"
+          },
+          "poolUp": {
+            "type": "string",
+            "description": "Decimal string"
+          },
+          "poolDown": {
+            "type": "string",
+            "description": "Decimal string"
+          },
+          "sorobanRoundId": {
+            "type": "string",
+            "nullable": true
+          },
+          "priceRanges": {
+            "type": "array",
+            "nullable": true,
+            "description": "LEGENDS mode only. Range matching uses inclusive lower bounds and exclusive upper bounds, except the final range upper bound is inclusive.",
+            "items": {
+              "$ref": "#/components/schemas/LegendsPriceRange"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "status",
+          "startPrice",
+          "startTime",
+          "endTime"
+        ],
+        "additionalProperties": true
+      },
+      "LegendsPriceRange": {
+        "type": "object",
+        "description": "Selectable LEGENDS range. Pool tracks total amount staked in the range.",
+        "properties": {
+          "min": {
+            "type": "number",
+            "description": "Inclusive lower bound of the range"
+          },
+          "max": {
+            "type": "number",
+            "description": "Exclusive upper bound of the range (inclusive only for the final configured range)"
+          },
+          "pool": {
+            "type": "number",
+            "description": "Current total staked amount in this range",
+            "example": 125.5
+          }
+        },
+        "required": [
+          "min",
+          "max"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
   "tags": [
-    { "name": "auth", "description": "Wallet authentication and JWT issuance" },
-    { "name": "leaderboard", "description": "Leaderboard and rankings" },
-    { "name": "rounds", "description": "Round management and resolution" },
-    { "name": "predictions", "description": "Prediction placement and queries" },
-    { "name": "education", "description": "Educational content" },
-    { "name": "user", "description": "User profile & balance (planned)" }
+    {
+      "name": "auth",
+      "description": "Wallet authentication and JWT issuance"
+    },
+    {
+      "name": "user",
+      "description": "User profile, balance, stats, and transactions"
+    },
+    {
+      "name": "leaderboard",
+      "description": "Leaderboard and rankings"
+    },
+    {
+      "name": "rounds",
+      "description": "Round management and resolution"
+    },
+    {
+      "name": "predictions",
+      "description": "Prediction placement and queries"
+    },
+    {
+      "name": "education",
+      "description": "Educational guides and tips"
+    },
+    {
+      "name": "chat",
+      "description": "Global chat messaging"
+    },
+    {
+      "name": "notifications",
+      "description": "User notifications management"
+    },
+    {
+      "name": "Admin",
+      "description": "Administrative and operational endpoints"
+    }
   ],
   "paths": {
+    "/api/admin/cors-diagnostics": {
+      "get": {
+        "summary": "Resolved CORS origin allowlist for HTTP and Socket.IO",
+        "description": "Returns the effective CORS configuration that this process is\nenforcing right now, so operators can debug origin-mismatch\nerrors against frontends without needing shell access.\nAdmin only. Exposes only the resolved allowlist plus the\nconfig-shaping env vars (`NODE_ENV`, `CLIENT_URL`,\n`ALLOWED_ORIGINS`). No secrets are returned, and an optional\n`?origin=` query parameter reports whether that origin would\nbe accepted.\n",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "origin",
+            "schema": {
+              "type": "string"
+            },
+            "description": "An origin to test against the resolved allowlist."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resolved CORS configuration"
+          }
+        }
+      }
+    },
+    "/api/admin/dead-letter": {
+      "get": {
+        "summary": "List failed notification/event dispatches",
+        "description": "Returns the dead-letter queue contents, newest first. Admin only.\nUse `?status=` and `?channel=` to filter; defaults to all rows.\n",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin/dead-letter/retry-all": {
+      "post": {
+        "summary": "Replay every pending/retrying dispatch in the DLQ",
+        "description": "Admin only. Returns a counts summary.",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin/dead-letter/{id}/retry": {
+      "post": {
+        "summary": "Replay a single DLQ entry",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin/metrics/rate-limits": {
+      "get": {
+        "summary": "Rate-limit activity summary",
+        "description": "Returns statistics about rate-limit hits and operator-facing suspicious activity\nfor auth, prediction, and chat endpoints. Admin only.\n",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Number of records to return for each category"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rate-limit metrics summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "topEndpoints": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "endpoint": {
+                            "type": "string"
+                          },
+                          "hits": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "topAbusers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "endpoint": {
+                            "type": "string"
+                          },
+                          "hits": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "recentEvents": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "endpoint": {
+                            "type": "string"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "ip": {
+                            "type": "string"
+                          },
+                          "userId": {
+                            "type": "string"
+                          },
+                          "timestamp": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "suspiciousActivity": {
+                      "type": "object",
+                      "description": "Auth, prediction, and chat abuse heuristics for operators",
+                      "properties": {
+                        "lookbackHours": {
+                          "type": "integer"
+                        },
+                        "hitThreshold": {
+                          "type": "integer"
+                        },
+                        "byCategory": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "category": {
+                                "type": "string",
+                                "enum": [
+                                  "auth",
+                                  "prediction",
+                                  "chat"
+                                ]
+                              },
+                              "hits": {
+                                "type": "integer"
+                              },
+                              "uniqueKeys": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        },
+                        "flaggedActors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "endpoint": {
+                                "type": "string"
+                              },
+                              "hits": {
+                                "type": "integer"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "userId": {
+                                "type": "string"
+                              },
+                              "ip": {
+                                "type": "string"
+                              },
+                              "lastSeenAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/metrics/rate-limits/clear": {
+      "post": {
+        "summary": "Clear old rate-limit metrics",
+        "description": "Deletes rate-limit records older than a specific number of days. Admin only.",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "schema": {
+              "type": "integer",
+              "default": 7
+            },
+            "description": "Clear records older than this many days"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Number of records deleted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/api/auth/challenge": {
       "post": {
-        "tags": ["auth"],
         "summary": "Request a wallet authentication challenge",
-        "description": "Step 1 of wallet authentication. Returns a one-time challenge string for the wallet to sign.\n\nRate limit: 10 requests per 15 minutes per IP. On limit, responds with 429.",
+        "description": "Step 1 of wallet authentication. Returns a one-time challenge string for the wallet to sign.\\n\nRate limit: **10 requests per 15 minutes per IP**. On limit, responds with **429**.\n",
+        "tags": [
+          "auth"
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/AuthChallengeRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/AuthChallengeRequest"
+              },
               "example": {
                 "walletAddress": "GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX"
               }
@@ -40,7 +641,9 @@
             "description": "Challenge created",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/AuthChallengeResponse" },
+                "schema": {
+                  "$ref": "#/components/schemas/AuthChallengeResponse"
+                },
                 "example": {
                   "challenge": "random-challenge-string",
                   "expiresAt": "2026-01-29T00:00:00.000Z"
@@ -73,7 +676,13 @@
             "description": "Too many requests",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/RateLimitResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitResponse"
+                },
+                "example": {
+                  "error": "Too Many Requests",
+                  "message": "Too many challenge requests from this IP, please try again after 15 minutes"
+                }
               }
             }
           },
@@ -88,19 +697,29 @@
               }
             }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X POST \"$API_BASE_URL/api/auth/challenge\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"walletAddress\":\"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\"}'\n"
+          }
+        ]
       }
     },
     "/api/auth/connect": {
       "post": {
-        "tags": ["auth"],
         "summary": "Verify signature and authenticate wallet",
-        "description": "Step 2 of wallet authentication. Verifies the signature for the challenge and returns a JWT.\n\nRate limit: 5 requests per 15 minutes per IP. On limit, responds with 429.",
+        "description": "Step 2 of wallet authentication. Verifies the signature for the challenge and returns a JWT.\\n\nRate limit: **5 requests per 15 minutes per IP**. On limit, responds with **429**.\n",
+        "tags": [
+          "auth"
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/AuthConnectRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/AuthConnectRequest"
+              },
               "example": {
                 "walletAddress": "GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX",
                 "challenge": "random-challenge-string",
@@ -114,7 +733,9 @@
             "description": "Authenticated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/AuthConnectResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/AuthConnectResponse"
+                }
               }
             }
           },
@@ -135,7 +756,10 @@
               "application/json": {
                 "examples": {
                   "invalidSignature": {
-                    "value": { "error": "Authentication Error", "message": "Invalid signature" }
+                    "value": {
+                      "error": "Authentication Error",
+                      "message": "Invalid signature"
+                    }
                   },
                   "expiredChallenge": {
                     "value": {
@@ -151,7 +775,13 @@
             "description": "Too many requests",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/RateLimitResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitResponse"
+                },
+                "example": {
+                  "error": "Too Many Requests",
+                  "message": "Too many authentication attempts from this IP, please try again after 15 minutes"
+                }
               }
             }
           },
@@ -159,7 +789,150 @@
             "description": "Internal server error",
             "content": {
               "application/json": {
-                "example": { "error": "Internal Server Error", "message": "Failed to authenticate wallet" }
+                "example": {
+                  "error": "Internal Server Error",
+                  "message": "Failed to authenticate wallet"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X POST \"$API_BASE_URL/api/auth/connect\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"walletAddress\":\"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\"challenge\":\"random-challenge-string\",\"signature\":\"base64-or-hex-signature\"}'\n"
+          }
+        ]
+      }
+    },
+    "/api/chat/send": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Send a chat message",
+        "description": "Authenticated users only. Rate limit: **5 messages per minute per user**. On limit, responds with **429**.\n",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Message created"
+          },
+          "429": {
+            "description": "Too many messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/education/guides": {
+      "get": {
+        "summary": "Get educational guides",
+        "description": "Returns a structured list of static educational guides grouped by category.",
+        "tags": [
+          "education"
+        ],
+        "responses": {
+          "200": {
+            "description": "Education guides",
+            "content": {
+              "application/json": {
+                "example": {
+                  "guides": [],
+                  "categories": {
+                    "volatility": [],
+                    "stellar": [],
+                    "oracles": []
+                  },
+                  "total": 0
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Internal Server Error",
+                  "message": "Failed to fetch education guides"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X GET \"$API_BASE_URL/api/education/guides\"\n"
+          }
+        ]
+      }
+    },
+    "/errors": {
+      "get": {
+        "summary": "Backend error code catalog (#196)",
+        "description": "Returns the canonical list of error codes the API can emit, along\nwith the HTTP status, the AppError subclass, and a short\nhuman-readable description for each. Use this to build client-side\nerror-handling switches and to drive the public docs.\n",
+        "tags": [
+          "Meta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Catalog of error codes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "entries": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "integer"
+                          },
+                          "errorClass": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -168,20 +941,31 @@
     },
     "/api/leaderboard": {
       "get": {
-        "tags": ["leaderboard"],
         "summary": "Get the global leaderboard",
-        "description": "Returns the global leaderboard. Bearer authentication is optional; if provided, the API may include the requesting user's position.\n\nQuery params support pagination.",
+        "description": "Returns the global leaderboard. Bearer authentication is **optional**; if provided, the API may include the requesting user's position.\\n\nQuery params support pagination.\n",
+        "tags": [
+          "leaderboard"
+        ],
         "parameters": [
           {
             "in": "query",
             "name": "limit",
-            "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 },
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            },
             "description": "Max number of entries to return (max 500)"
           },
           {
             "in": "query",
             "name": "offset",
-            "schema": { "type": "integer", "minimum": 0, "default": 0 },
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
             "description": "Pagination offset"
           }
         ],
@@ -190,7 +974,9 @@
             "description": "Leaderboard payload",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/LeaderboardResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/LeaderboardResponse"
+                }
               }
             }
           },
@@ -198,19 +984,442 @@
             "description": "Internal server error",
             "content": {
               "application/json": {
-                "example": { "error": "Internal Server Error", "message": "Failed to fetch leaderboard" }
+                "example": {
+                  "error": "Internal Server Error",
+                  "message": "Failed to fetch leaderboard"
+                }
               }
             }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X GET \"$API_BASE_URL/api/leaderboard?limit=100&offset=0\"\n"
+          }
+        ]
+      }
+    },
+    "/api/leaderboard/batch": {
+      "post": {
+        "summary": "Get leaderboard positions for multiple users",
+        "description": "Retrieve leaderboard positions and stats for multiple users in a single request.\nEach user lookup is processed independently. Partial success is supported.\nMaximum 100 user IDs per request.\n",
+        "tags": [
+          "leaderboard"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "description": "Array of user IDs to query"
+                  }
+                },
+                "required": [
+                  "userIds"
+                ]
+              },
+              "example": {
+                "userIds": [
+                  "user-id-1",
+                  "user-id-2",
+                  "user-id-3"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch user positions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "description": "true if at least one query succeeded"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/BatchUserPositionResult"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "results": [
+                    {
+                      "userId": "user-id-1",
+                      "position": {
+                        "rank": 15,
+                        "userId": "user-id-1",
+                        "walletAddress": "GBRPY...4B",
+                        "totalEarnings": 125.5,
+                        "totalPredictions": 42,
+                        "accuracy": 73.81,
+                        "modeStats": {
+                          "upDown": {
+                            "wins": 20,
+                            "losses": 10,
+                            "earnings": 85.25,
+                            "accuracy": 66.67
+                          },
+                          "legends": {
+                            "wins": 12,
+                            "losses": 8,
+                            "earnings": 40.25,
+                            "accuracy": 60
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "userId": "user-id-2",
+                      "error": "User not found"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "emptyUserIds": {
+                    "value": {
+                      "error": "At least one user ID is required"
+                    }
+                  },
+                  "tooManyUserIds": {
+                    "value": {
+                      "error": "Maximum 100 user IDs per query"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No token provided"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Failed to fetch batch user positions"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X POST \"$API_BASE_URL/api/leaderboard/batch\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -H \"Authorization: Bearer $TOKEN\" \\\\\n  -d '{\"userIds\":[\"user-id-1\",\"user-id-2\"]}'\n"
+          }
+        ]
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Prometheus metrics",
+        "description": "Returns all application and process metrics in Prometheus text format. Scrape this endpoint with a Prometheus instance.\n",
+        "tags": [
+          "Observability"
+        ],
+        "responses": {
+          "200": {
+            "description": "Prometheus text exposition format",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics/readiness": {
+      "get": {
+        "summary": "Schema compatibility readiness check",
+        "description": "Compares on-disk Prisma migrations against the migrations applied in the database. Returns 200 when the schema is compatible, 503 when migrations are pending or the database is unreachable.\n",
+        "tags": [
+          "Observability"
+        ],
+        "responses": {
+          "200": {
+            "description": "Schema is compatible and the service is ready.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "database": {
+                      "type": "string",
+                      "enum": [
+                        "healthy",
+                        "unreachable"
+                      ]
+                    },
+                    "schema": {
+                      "type": "string",
+                      "enum": [
+                        "compatible",
+                        "outdated",
+                        "unknown"
+                      ]
+                    },
+                    "appliedMigrations": {
+                      "type": "integer"
+                    },
+                    "totalMigrations": {
+                      "type": "integer"
+                    },
+                    "pendingMigrations": {
+                      "type": "integer"
+                    },
+                    "pendingNames": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "ready": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Schema is outdated or database is unreachable."
+          }
+        }
+      }
+    },
+    "/api/predictions/submit": {
+      "post": {
+        "tags": [
+          "Predictions"
+        ],
+        "summary": "Submit a prediction",
+        "description": "Submit a prediction for a round. Supports idempotency via Idempotency-Key header for safe retries.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Unique key for idempotent request handling. Duplicate identical requests return the cached response for 10 minutes; reuse with a different request body returns 409."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "roundId",
+                  "amount",
+                  "side"
+                ],
+                "properties": {
+                  "roundId": {
+                    "type": "string"
+                  },
+                  "amount": {
+                    "type": "number"
+                  },
+                  "side": {
+                    "type": "string",
+                    "enum": [
+                      "UP",
+                      "DOWN"
+                    ]
+                  },
+                  "priceRange": {
+                    "type": "object",
+                    "properties": {
+                      "min": {
+                        "type": "number"
+                      },
+                      "max": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prediction submitted"
+          },
+          "409": {
+            "description": "Idempotency key reused with a different request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "ConflictError",
+                  "message": "Idempotency key reused with different request body",
+                  "code": "IDEMPOTENCY_KEY_CONFLICT"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/predictions/batch-submit": {
+      "post": {
+        "tags": [
+          "Predictions"
+        ],
+        "summary": "Submit multiple predictions at once",
+        "description": "Batch submit up to 50 predictions. Rate limit: **3 batch requests per minute per user** (stricter than single submit). On limit, responds with **429**.\n",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "predictions"
+                ],
+                "properties": {
+                  "predictions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "roundId",
+                        "amount"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Predictions processed"
+          },
+          "429": {
+            "description": "Too many batch requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/predictions/user": {
+      "get": {
+        "tags": [
+          "Predictions"
+        ],
+        "summary": "Get user predictions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of predictions"
+          }
+        }
+      }
+    },
+    "/api/predictions/round/{roundId}": {
+      "get": {
+        "tags": [
+          "Predictions"
+        ],
+        "summary": "Get predictions for a round",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "roundId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of predictions"
           }
         }
       }
     },
     "/api/rounds/start": {
       "post": {
-        "tags": ["rounds"],
         "summary": "Start a new prediction round",
         "description": "Admin-only. Starts a new round for a given mode, start price, and duration.",
-        "security": [{ "bearerAuth": [] }],
+        "tags": [
+          "rounds"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -218,81 +1427,260 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "mode": { "type": "integer", "enum": [0, 1], "description": "0 (UP_DOWN) or 1 (LEGENDS)" },
-                  "startPrice": { "type": "number", "description": "Starting price (must be > 0)" },
-                  "duration": { "type": "integer", "description": "Duration in seconds (must be > 0)" }
+                  "mode": {
+                    "type": "integer",
+                    "description": "0 (UP_DOWN) or 1 (LEGENDS)",
+                    "enum": [
+                      0,
+                      1
+                    ]
+                  },
+                  "startPrice": {
+                    "type": "number",
+                    "description": "Starting price (must be > 0)"
+                  },
+                  "duration": {
+                    "type": "integer",
+                    "description": "Duration in seconds (must be > 0)"
+                  },
+                  "priceRanges": {
+                    "type": "array",
+                    "description": "Optional LEGENDS-only custom ranges; if omitted, default ranges are generated from startPrice.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "min": {
+                          "type": "number"
+                        },
+                        "max": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "min",
+                        "max"
+                      ]
+                    }
+                  }
                 },
-                "required": ["mode", "startPrice", "duration"]
+                "required": [
+                  "mode",
+                  "startPrice",
+                  "duration"
+                ]
+              },
+              "example": {
+                "mode": 1,
+                "startPrice": 0.1234,
+                "duration": 300,
+                "priceRanges": [
+                  {
+                    "min": 0.1,
+                    "max": 0.12
+                  },
+                  {
+                    "min": 0.12,
+                    "max": 0.14
+                  },
+                  {
+                    "min": 0.14,
+                    "max": 0.16
+                  }
+                ]
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Round started" },
-          "400": { "description": "Validation error" },
-          "401": { "description": "Unauthorized" },
-          "403": { "description": "Forbidden (admin role required)" },
-          "500": { "description": "Internal server error" }
-        }
+          "200": {
+            "description": "Round started",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "round": {
+                    "id": "round-id",
+                    "mode": "UP_DOWN",
+                    "status": "ACTIVE",
+                    "startTime": "2026-01-29T00:00:00.000Z",
+                    "endTime": "2026-01-29T00:05:00.000Z",
+                    "startPrice": 0.1234,
+                    "sorobanRoundId": "1",
+                    "priceRanges": []
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (missing/invalid token)",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (admin role required)",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict - active round already exists",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/RateLimitResponse"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X POST \"$API_BASE_URL/api/rounds/start\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -H \"Authorization: Bearer $TOKEN\" \\\\\n  -d '{\"mode\":0,\"startPrice\":0.1234,\"duration\":300}'\n"
+          }
+        ]
       }
     },
     "/api/rounds/{id}": {
       "get": {
-        "tags": ["rounds"],
         "summary": "Get a round by ID",
+        "tags": [
+          "rounds"
+        ],
         "parameters": [
-          { "in": "path", "name": "id", "required": true, "schema": { "type": "string" }, "description": "Round ID" }
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Round ID"
+          }
         ],
         "responses": {
-          "200": { "description": "Round found" },
-          "404": { "description": "Round not found" },
-          "500": { "description": "Internal server error" }
-        }
-      }
-    },
-    "/api/rounds/active": {
-      "get": {
-        "tags": ["rounds"],
-        "summary": "Get active rounds",
-        "responses": { "200": { "description": "Active rounds" }, "500": { "description": "Internal server error" } }
-      }
-    },
-    "/api/rounds/{id}/resolve": {
-      "post": {
-        "tags": ["rounds"],
-        "summary": "Resolve a round with the final price",
-        "description": "Oracle-only (or Admin). Resolves the round and computes winners.",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [
-          { "in": "path", "name": "id", "required": true, "schema": { "type": "string" }, "description": "Round ID" }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": { "finalPrice": { "type": "number", "description": "Final price (must be > 0)" } },
-                "required": ["finalPrice"]
+          "200": {
+            "description": "Round found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "round": {}
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Round not found",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
               }
             }
           }
         },
-        "responses": {
-          "200": { "description": "Round resolved" },
-          "400": { "description": "Validation error" },
-          "401": { "description": "Unauthorized" },
-          "403": { "description": "Forbidden (oracle/admin required)" },
-          "500": { "description": "Internal server error" }
-        }
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X GET \"$API_BASE_URL/api/rounds/round-id\"\n"
+          }
+        ]
       }
     },
-    "/api/predictions/submit": {
+    "/api/rounds/active": {
+      "get": {
+        "summary": "Get active rounds",
+        "tags": [
+          "rounds"
+        ],
+        "responses": {
+          "200": {
+            "description": "Active rounds",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "rounds": []
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X GET \"$API_BASE_URL/api/rounds/active\"\n"
+          }
+        ]
+      }
+    },
+    "/api/rounds/{id}/resolve": {
       "post": {
-        "tags": ["predictions"],
-        "summary": "Submit a prediction for a round",
-        "description": "Authenticated users only.",
-        "security": [{ "bearerAuth": [] }],
+        "summary": "Resolve a round with the final price",
+        "description": "Oracle-only (or Admin). Resolves the round and computes winners. LEGENDS uses inclusive-lower/exclusive-upper range matching, with final range upper-bound inclusive.",
+        "tags": [
+          "rounds"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Round ID"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -300,141 +1688,90 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "roundId": { "type": "string" },
-                  "userId": { "type": "string" },
-                  "amount": { "type": "number" },
-                  "side": { "type": "string" },
-                  "priceRange": { "type": "string" }
+                  "finalPrice": {
+                    "type": "number",
+                    "description": "Final price (must be > 0)"
+                  }
                 },
-                "required": ["roundId", "userId", "amount"]
+                "required": [
+                  "finalPrice"
+                ]
+              },
+              "example": {
+                "finalPrice": 0.2345
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Prediction submitted" },
-          "400": { "description": "Validation error" },
-          "401": { "description": "Unauthorized" },
-          "500": { "description": "Internal server error" }
-        }
-      }
-    },
-    "/api/predictions/user/{userId}": {
-      "get": {
-        "tags": ["predictions"],
-        "summary": "Get all predictions for a user",
-        "parameters": [
-          { "in": "path", "name": "userId", "required": true, "schema": { "type": "string" }, "description": "User ID" }
-        ],
-        "responses": { "200": { "description": "Predictions list" }, "500": { "description": "Internal server error" } }
-      }
-    },
-    "/api/predictions/round/{roundId}": {
-      "get": {
-        "tags": ["predictions"],
-        "summary": "Get all predictions for a round",
-        "parameters": [
-          { "in": "path", "name": "roundId", "required": true, "schema": { "type": "string" }, "description": "Round ID" }
-        ],
-        "responses": { "200": { "description": "Predictions list" }, "500": { "description": "Internal server error" } }
-      }
-    },
-    "/api/education/guides": {
-      "get": {
-        "tags": ["education"],
-        "summary": "Get educational guides",
-        "description": "Returns a structured list of static educational guides grouped by category.",
-        "responses": { "200": { "description": "Education guides" }, "500": { "description": "Internal server error" } }
-      }
-    }
-  },
-  "components": {
-    "securitySchemes": {
-      "bearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-        "description": "Paste a JWT like: Bearer <token>"
-      }
-    },
-    "schemas": {
-      "ErrorResponse": {
-        "type": "object",
-        "properties": {
-          "error": { "type": "string" },
-          "message": { "type": "string" }
-        },
-        "required": ["error"],
-        "additionalProperties": true
-      },
-      "RateLimitResponse": {
-        "allOf": [{ "$ref": "#/components/schemas/ErrorResponse" }],
-        "example": {
-          "error": "Too Many Requests",
-          "message": "Too many requests from this IP, please try again after 15 minutes"
-        }
-      },
-      "AuthChallengeRequest": {
-        "type": "object",
-        "properties": {
-          "walletAddress": {
-            "type": "string",
-            "description": "Stellar wallet public key (G...)"
+          "200": {
+            "description": "Round resolved",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "round": {
+                    "id": "round-id",
+                    "status": "RESOLVED",
+                    "startPrice": 0.1234,
+                    "endPrice": 0.2345,
+                    "resolvedAt": "2026-01-29T00:10:00.000Z",
+                    "predictions": 10,
+                    "winners": 4,
+                    "legendsPayoutRule": "winner payout = stake + (stake / winningPool) * losingPool"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (oracle/admin required)",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/RateLimitResponse"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
           }
         },
-        "required": ["walletAddress"],
-        "additionalProperties": false
-      },
-      "AuthChallengeResponse": {
-        "type": "object",
-        "properties": {
-          "challenge": { "type": "string" },
-          "expiresAt": { "type": "string", "format": "date-time" }
-        },
-        "required": ["challenge", "expiresAt"],
-        "additionalProperties": false
-      },
-      "AuthConnectRequest": {
-        "type": "object",
-        "properties": {
-          "walletAddress": { "type": "string" },
-          "challenge": { "type": "string" },
-          "signature": { "type": "string" }
-        },
-        "required": ["walletAddress", "challenge", "signature"],
-        "additionalProperties": false
-      },
-      "AuthConnectResponse": {
-        "type": "object",
-        "properties": {
-          "token": { "type": "string" },
-          "user": {
-            "type": "object",
-            "properties": {
-              "id": { "type": "string" },
-              "walletAddress": { "type": "string" },
-              "createdAt": { "type": "string", "format": "date-time" },
-              "lastLoginAt": { "type": "string", "format": "date-time" }
-            },
-            "required": ["id", "walletAddress", "createdAt", "lastLoginAt"],
-            "additionalProperties": true
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X POST \"$API_BASE_URL/api/rounds/round-id/resolve\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -H \"Authorization: Bearer $TOKEN\" \\\\\n  -d '{\"finalPrice\":0.2345}'\n"
           }
-        },
-        "required": ["token", "user"],
-        "additionalProperties": false
-      },
-      "LeaderboardResponse": {
-        "type": "object",
-        "properties": {
-          "leaderboard": { "type": "array", "items": { "type": "object" } },
-          "userPosition": { "type": "object", "nullable": true },
-          "totalUsers": { "type": "number" },
-          "lastUpdated": { "type": "string" }
-        },
-        "required": ["leaderboard", "totalUsers", "lastUpdated"],
-        "additionalProperties": true
+        ]
       }
     }
   }
 }
-

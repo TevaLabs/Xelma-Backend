@@ -8,11 +8,34 @@ import { sendMessageSchema } from '../schemas/chat.schema';
 const router = Router();
 
 /**
- * POST /api/chat/send
- * Send a new chat message (Authenticated users only, rate limited)
- *
- * Body: { content: string }
- * Response: { success: true, message: ChatMessage }
+ * @openapi
+ * /api/chat/send:
+ *   post:
+ *     tags: [Chat]
+ *     summary: Send a chat message
+ *     description: |
+ *       Authenticated users only. Rate limit: **5 messages per minute per user**. On limit, responds with **429**.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [content]
+ *             properties:
+ *               content:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Message created
+ *       429:
+ *         description: Too many messages
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RateLimitResponse'
  */
 router.post('/send', authenticateUser, chatMessageRateLimiter, validate(sendMessageSchema), (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {

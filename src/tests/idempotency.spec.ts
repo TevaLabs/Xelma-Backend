@@ -1,172 +1,565 @@
-import { jest, describe, it, expect, beforeEach } from "@jest/globals";
-import { RoundLifecycleOutcome } from "../types/round.types";
+import {
+   describe,
+   it,
+   expect,
+   beforeEach,
+   afterEach,
+   jest,
+} from '@jest/globals';
+import {
+   checkIdempotency,
+   storeIdempotencyResult,
+   cleanupExpiredIdempotencyKeys,
+   isValidIdempotencyKey,
+} from '../utils/idempotency.util';
+import { prisma } from '../lib/prisma';
 
-// Mock Prisma
-jest.mock("../lib/prisma", () => ({
-  prisma: {
-    round: {
-      findUnique: jest.fn(),
-      update: jest.fn(),
-      findMany: jest.fn(),
-    },
-    prediction: {
-      update: jest.fn(),
-    },
-    user: {
-      update: jest.fn(),
-    },
-    $transaction: jest.fn((callback: any) => callback()),
-  },
-}));
+describe('Idempotency Utility', () => {
+   const userId = 'test-user-123';
+   const endpoint = '/api/predictions/submit';
+   const idempotencyKey = 'test-key-uuid-1234-5678';
+   const requestBody = { roundId: 'round-1', amount: 100, side: 'UP' };
 
-// Mock other services
-jest.mock("../services/soroban.service", () => ({
-  createRound: jest.fn(),
-  resolveRound: jest.fn(),
-}));
+   beforeEach(async () => {
+      // Clean up any existing test data
+      await prisma.idempotencyKey.deleteMany({
+         where: { userId },
+      });
+   });
 
-jest.mock("../services/websocket.service", () => ({
-  emitRoundStarted: jest.fn(),
-  emitRoundLocked: jest.fn(),
-  emitRoundResolved: jest.fn(),
-  emitNotification: jest.fn(),
-}));
+   afterEach(async () => {
+      // Clean up after each test
+      await prisma.idempotencyKey.deleteMany({
+         where: { userId },
+      });
+   });
 
-jest.mock("../services/notification.service", () => ({
-  createNotification: jest.fn(),
-}));
-
-jest.mock("../services/education-tip.service", () => ({
-  generateTip: jest.fn(),
-}));
-
-import { prisma } from "../lib/prisma";
-import roundService from "../services/round.service";
-import resolutionService from "../services/resolution.service";
-
-describe("Round Idempotency", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  describe("lockRound", () => {
-    it("should lock an active round and return UPDATED", async () => {
-      const roundId = "round-1";
-      (prisma.round.findUnique as any).mockResolvedValue({
-        id: roundId,
-        status: "ACTIVE",
+   describe('isValidIdempotencyKey', () => {
+      it('should accept valid UUID format', () => {
+         expect(
+            isValidIdempotencyKey('550e8400-e29b-41d4-a716-446655440000')
+         ).toBe(true);
       });
 
-      const outcome = await roundService.lockRound(roundId);
-
-      expect(outcome).toBe(RoundLifecycleOutcome.UPDATED);
-      expect(prisma.round.update).toHaveBeenCalledWith({
-        where: { id: roundId },
-        data: { status: "LOCKED" },
-      });
-    });
-
-    it("should return ALREADY_LOCKED if the round is already locked", async () => {
-      const roundId = "round-1";
-      (prisma.round.findUnique as any).mockResolvedValue({
-        id: roundId,
-        status: "LOCKED",
+      it('should accept alphanumeric with hyphens', () => {
+         expect(isValidIdempotencyKey('test-key-123')).toBe(true);
       });
 
-      const outcome = await roundService.lockRound(roundId);
-
-      expect(outcome).toBe(RoundLifecycleOutcome.ALREADY_LOCKED);
-      expect(prisma.round.update).not.toHaveBeenCalled();
-    });
-
-    it("should return NO_OP if the round is already resolved", async () => {
-      const roundId = "round-1";
-      (prisma.round.findUnique as any).mockResolvedValue({
-        id: roundId,
-        status: "RESOLVED",
+      it('should accept alphanumeric with underscores', () => {
+         expect(isValidIdempotencyKey('test_key_123')).toBe(true);
       });
 
-      const outcome = await roundService.lockRound(roundId);
-
-      expect(outcome).toBe(RoundLifecycleOutcome.NO_OP);
-      expect(prisma.round.update).not.toHaveBeenCalled();
-    });
-
-    it("should return NO_OP if the round does not exist", async () => {
-      const roundId = "round-non-existent";
-      (prisma.round.findUnique as any).mockResolvedValue(null);
-
-      const outcome = await roundService.lockRound(roundId);
-
-      expect(outcome).toBe(RoundLifecycleOutcome.NO_OP);
-      expect(prisma.round.update).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("resolveRound", () => {
-    it("should resolve a locked round and return UPDATED", async () => {
-      const roundId = "round-1";
-      const mockRound = {
-        id: roundId,
-        status: "LOCKED",
-        mode: "UP_DOWN",
-        startPrice: 0.1,
-        poolUp: 100,
-        poolDown: 100,
-        predictions: [],
-      };
-      (prisma.round.findUnique as any).mockResolvedValue(mockRound);
-
-      const result = await resolutionService.resolveRound(roundId, 0.11);
-
-      expect(result.outcome).toBe(RoundLifecycleOutcome.UPDATED);
-      expect(prisma.round.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: roundId },
-          data: expect.objectContaining({
-            status: "RESOLVED",
-            endPrice: 0.11,
-          }),
-        }),
-      );
-    });
-
-    it("should return ALREADY_RESOLVED if the round is already resolved", async () => {
-      const roundId = "round-1";
-      const mockRound = {
-        id: roundId,
-        status: "RESOLVED",
-        mode: "UP_DOWN",
-      };
-      (prisma.round.findUnique as any).mockResolvedValue(mockRound);
-
-      const result = await resolutionService.resolveRound(roundId, 0.11);
-
-      expect(result.outcome).toBe(RoundLifecycleOutcome.ALREADY_RESOLVED);
-      expect(prisma.round.update).not.toHaveBeenCalled();
-    });
-
-    it("should return NO_OP if the round does not exist", async () => {
-      const roundId = "round-non-existent";
-      (prisma.round.findUnique as any).mockResolvedValue(null);
-
-      const result = await resolutionService.resolveRound(roundId, 0.11);
-
-      expect(result.outcome).toBe(RoundLifecycleOutcome.NO_OP);
-      expect(prisma.round.update).not.toHaveBeenCalled();
-    });
-
-    it("should return NO_OP if the round status is CANCELLED", async () => {
-      const roundId = "round-1";
-      (prisma.round.findUnique as any).mockResolvedValue({
-        id: roundId,
-        status: "CANCELLED",
+      it('should reject empty string', () => {
+         expect(isValidIdempotencyKey('')).toBe(false);
       });
 
-      const result = await resolutionService.resolveRound(roundId, 0.11);
+      it('should reject too short key', () => {
+         expect(isValidIdempotencyKey('short')).toBe(false);
+      });
 
-      expect(result.outcome).toBe(RoundLifecycleOutcome.NO_OP);
-      expect(prisma.round.update).not.toHaveBeenCalled();
-    });
-  });
+      it('should reject special characters', () => {
+         expect(isValidIdempotencyKey('test@key#123')).toBe(false);
+      });
+
+      it('should reject null/undefined', () => {
+         expect(isValidIdempotencyKey(null as any)).toBe(false);
+         expect(isValidIdempotencyKey(undefined as any)).toBe(false);
+      });
+   });
+
+   describe('checkIdempotency', () => {
+      it('should return isIdempotent=false for new key', async () => {
+         const result = await checkIdempotency(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody
+         );
+
+         expect(result.isIdempotent).toBe(false);
+         expect(result.cachedResponse).toBeUndefined();
+      });
+
+      it('should return cached response for duplicate request', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+
+         // Store first request
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            responseBody
+         );
+
+         // Check second request with same key
+         const result = await checkIdempotency(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody
+         );
+
+         expect(result.isIdempotent).toBe(true);
+         expect(result.cachedResponse).toBeDefined();
+         expect(result.cachedResponse?.status).toBe(200);
+         expect(result.cachedResponse?.body).toEqual(responseBody);
+      });
+
+      it('should detect request body mutation', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+
+         // Store first request
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            responseBody
+         );
+
+         // Check with different request body
+         const mutatedBody = { ...requestBody, amount: 200 };
+         const result = await checkIdempotency(
+            userId,
+            endpoint,
+            idempotencyKey,
+            mutatedBody
+         );
+
+         expect(result.isIdempotent).toBe(true);
+         expect(result.error).toBeDefined();
+         expect(result.error).toContain('different request body');
+      });
+
+      it('should handle expired keys', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+
+         // Store with past expiration
+         const expiresAt = new Date();
+         expiresAt.setHours(expiresAt.getHours() - 1);
+
+         await prisma.idempotencyKey.create({
+            data: {
+               userId,
+               endpoint,
+               idempotencyKey,
+               requestHash: 'hash123',
+               responseStatus: 200,
+               responseBody,
+               expiresAt,
+            },
+         });
+
+         // Check should treat as new request
+         const result = await checkIdempotency(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody
+         );
+
+         expect(result.isIdempotent).toBe(false);
+
+         // Expired key should be deleted
+         const remaining = await prisma.idempotencyKey.findUnique({
+            where: {
+               userId_endpoint_idempotencyKey: {
+                  userId,
+                  endpoint,
+                  idempotencyKey,
+               },
+            },
+         });
+
+         expect(remaining).toBeNull();
+      });
+
+      it('should scope keys by userId', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+         const otherUserId = 'other-user-456';
+
+         // Store for first user
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            responseBody
+         );
+
+         // Check for different user with same key
+         const result = await checkIdempotency(
+            otherUserId,
+            endpoint,
+            idempotencyKey,
+            requestBody
+         );
+
+         expect(result.isIdempotent).toBe(false);
+      });
+
+      it('should scope keys by endpoint', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+         const otherEndpoint = '/api/predictions/batch-submit';
+
+         // Store for first endpoint
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            responseBody
+         );
+
+         // Check for different endpoint with same key
+         const result = await checkIdempotency(
+            userId,
+            otherEndpoint,
+            idempotencyKey,
+            requestBody
+         );
+
+         expect(result.isIdempotent).toBe(false);
+      });
+   });
+
+   describe('storeIdempotencyResult', () => {
+      it('should store new idempotency result', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            responseBody
+         );
+
+         const stored = await prisma.idempotencyKey.findUnique({
+            where: {
+               userId_endpoint_idempotencyKey: {
+                  userId,
+                  endpoint,
+                  idempotencyKey,
+               },
+            },
+         });
+
+         expect(stored).toBeDefined();
+         expect(stored?.responseStatus).toBe(200);
+         expect(stored?.responseBody).toEqual(responseBody);
+      });
+
+      it('should update existing idempotency result', async () => {
+         const responseBody1 = { success: true, prediction: { id: 'pred-1' } };
+         const responseBody2 = { success: true, prediction: { id: 'pred-2' } };
+
+         // Store first result
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            responseBody1
+         );
+
+         // Update with new result
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            responseBody2
+         );
+
+         const stored = await prisma.idempotencyKey.findUnique({
+            where: {
+               userId_endpoint_idempotencyKey: {
+                  userId,
+                  endpoint,
+                  idempotencyKey,
+               },
+            },
+         });
+
+         expect(stored?.responseBody).toEqual(responseBody2);
+      });
+
+      it('should set expiration to 10 minutes by default', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+         const beforeStore = new Date();
+
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            responseBody
+         );
+
+         const stored = await prisma.idempotencyKey.findUnique({
+            where: {
+               userId_endpoint_idempotencyKey: {
+                  userId,
+                  endpoint,
+                  idempotencyKey,
+               },
+            },
+         });
+
+         const afterStore = new Date();
+         const expectedExpiry = new Date(beforeStore);
+         expectedExpiry.setMinutes(expectedExpiry.getMinutes() + 10);
+
+         expect(stored?.expiresAt.getTime()).toBeGreaterThanOrEqual(
+            expectedExpiry.getTime() - 1000
+         );
+         expect(stored?.expiresAt.getTime()).toBeLessThanOrEqual(
+            afterStore.getTime() + 10 * 60 * 1000 + 1000
+         );
+      });
+
+      it('should respect custom ttlMinutes', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+         const beforeStore = new Date();
+
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            responseBody,
+            { ttlMinutes: 15 }
+         );
+
+         const stored = await prisma.idempotencyKey.findUnique({
+            where: {
+               userId_endpoint_idempotencyKey: {
+                  userId,
+                  endpoint,
+                  idempotencyKey,
+               },
+            },
+         });
+
+         const expectedExpiry = new Date(beforeStore);
+         expectedExpiry.setMinutes(expectedExpiry.getMinutes() + 15);
+
+         expect(stored?.expiresAt.getTime()).toBeGreaterThanOrEqual(
+            expectedExpiry.getTime() - 1000
+         );
+      });
+
+      it('keeps ttlHours backwards compatible', async () => {
+         const beforeStore = new Date();
+
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            { success: true },
+            { ttlHours: 1 }
+         );
+
+         const stored = await prisma.idempotencyKey.findUnique({
+            where: {
+               userId_endpoint_idempotencyKey: {
+                  userId,
+                  endpoint,
+                  idempotencyKey,
+               },
+            },
+         });
+
+         const expectedExpiry = new Date(beforeStore);
+         expectedExpiry.setHours(expectedExpiry.getHours() + 1);
+         expect(stored?.expiresAt.getTime()).toBeGreaterThanOrEqual(
+            expectedExpiry.getTime() - 1000
+         );
+      });
+   });
+
+   describe('cleanupExpiredIdempotencyKeys', () => {
+      it('should delete expired keys', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+
+         // Create expired key
+         const expiresAt = new Date();
+         expiresAt.setHours(expiresAt.getHours() - 1);
+
+         await prisma.idempotencyKey.create({
+            data: {
+               userId,
+               endpoint,
+               idempotencyKey: 'expired-key',
+               requestHash: 'hash123',
+               responseStatus: 200,
+               responseBody,
+               expiresAt,
+            },
+         });
+
+         // Create valid key
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            'valid-key',
+            requestBody,
+            200,
+            responseBody
+         );
+
+         // Run cleanup
+         const deleted = await cleanupExpiredIdempotencyKeys();
+
+         expect(deleted).toBe(1);
+
+         // Verify expired key is gone
+         const expiredKey = await prisma.idempotencyKey.findUnique({
+            where: {
+               userId_endpoint_idempotencyKey: {
+                  userId,
+                  endpoint,
+                  idempotencyKey: 'expired-key',
+               },
+            },
+         });
+
+         expect(expiredKey).toBeNull();
+
+         // Verify valid key still exists
+         const validKey = await prisma.idempotencyKey.findUnique({
+            where: {
+               userId_endpoint_idempotencyKey: {
+                  userId,
+                  endpoint,
+                  idempotencyKey: 'valid-key',
+               },
+            },
+         });
+
+         expect(validKey).toBeDefined();
+      });
+
+      it('should handle cleanup with no expired keys', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+
+         // Create only valid keys
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            'key-1',
+            requestBody,
+            200,
+            responseBody
+         );
+
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            'key-2',
+            requestBody,
+            200,
+            responseBody
+         );
+
+         // Run cleanup
+         const deleted = await cleanupExpiredIdempotencyKeys();
+
+         expect(deleted).toBe(0);
+
+         // Verify all keys still exist
+         const keys = await prisma.idempotencyKey.findMany({
+            where: { userId },
+         });
+
+         expect(keys.length).toBe(2);
+      });
+   });
+
+   describe('Integration: Full idempotency flow', () => {
+      it('should handle complete request retry scenario', async () => {
+         const responseBody = { success: true, prediction: { id: 'pred-1' } };
+
+         // First request - new key
+         let result = await checkIdempotency(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody
+         );
+         expect(result.isIdempotent).toBe(false);
+
+         // Store result
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            responseBody
+         );
+
+         // Retry with same key - should get cached response
+         result = await checkIdempotency(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody
+         );
+         expect(result.isIdempotent).toBe(true);
+         expect(result.cachedResponse?.body).toEqual(responseBody);
+
+         // Another retry - should still get cached response
+         result = await checkIdempotency(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody
+         );
+         expect(result.isIdempotent).toBe(true);
+         expect(result.cachedResponse?.body).toEqual(responseBody);
+      });
+
+      it('should handle error response caching', async () => {
+         const errorResponse = {
+            success: false,
+            error: 'Insufficient balance',
+         };
+
+         // Store error response
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            400,
+            errorResponse
+         );
+
+         // Retry should return cached error
+         const result = await checkIdempotency(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody
+         );
+
+         expect(result.isIdempotent).toBe(true);
+         expect(result.cachedResponse?.status).toBe(400);
+         expect(result.cachedResponse?.body).toEqual(errorResponse);
+      });
+   });
 });

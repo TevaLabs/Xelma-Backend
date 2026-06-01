@@ -7,10 +7,12 @@ const router = Router();
 
 /**
  * @openapi
- * /admin/metrics/rate-limits:
+ * /api/admin/metrics/rate-limits:
  *   get:
  *     summary: Rate-limit activity summary
- *     description: Returns statistics about rate-limit hits and potential abuse patterns. Admin only.
+ *     description: |
+ *       Returns statistics about rate-limit hits and operator-facing suspicious activity
+ *       for auth, prediction, and chat endpoints. Admin only.
  *     tags:
  *       - Admin
  *     security:
@@ -68,6 +70,46 @@ const router = Router();
  *                       timestamp:
  *                         type: string
  *                         format: date-time
+ *                 suspiciousActivity:
+ *                   type: object
+ *                   description: Auth, prediction, and chat abuse heuristics for operators
+ *                   properties:
+ *                     lookbackHours:
+ *                       type: integer
+ *                     hitThreshold:
+ *                       type: integer
+ *                     byCategory:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           category:
+ *                             type: string
+ *                             enum: [auth, prediction, chat]
+ *                           hits:
+ *                             type: integer
+ *                           uniqueKeys:
+ *                             type: integer
+ *                     flaggedActors:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           key:
+ *                             type: string
+ *                           endpoint:
+ *                             type: string
+ *                           hits:
+ *                             type: integer
+ *                           category:
+ *                             type: string
+ *                           userId:
+ *                             type: string
+ *                           ip:
+ *                             type: string
+ *                           lastSeenAt:
+ *                             type: string
+ *                             format: date-time
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
@@ -86,7 +128,7 @@ router.get('/rate-limits', requireAdmin, async (req: Request, res: Response) => 
 
 /**
  * @openapi
- * /admin/metrics/rate-limits/clear:
+ * /api/admin/metrics/rate-limits/clear:
  *   post:
  *     summary: Clear old rate-limit metrics
  *     description: Deletes rate-limit records older than a specific number of days. Admin only.

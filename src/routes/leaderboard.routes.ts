@@ -6,6 +6,7 @@ import {
   AuthenticatedRequest,
   optionalAuthentication,
 } from "../middleware/auth.middleware";
+import { batchLeaderboardRateLimiter } from "../middleware/rateLimiter.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { batchLeaderboardQuerySchema } from "../schemas/predictions.schema";
 import { AppError } from "../utils/errors";
@@ -186,6 +187,7 @@ router.get(
 router.post(
   "/batch",
   authenticateUser,
+  batchLeaderboardRateLimiter,
   validate(batchLeaderboardQuerySchema),
   (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {

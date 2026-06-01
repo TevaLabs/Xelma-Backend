@@ -1,5 +1,7 @@
+import { DispatchChannel } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
+import deadLetterQueueService from "./dead-letter-queue.service";
 
 interface NotificationPreferences {
   win?: boolean;
@@ -97,8 +99,34 @@ class NotificationService {
       return notification;
     } catch (error) {
       logger.error("Failed to create notification:", error);
+      // Persist to the dead-letter queue so the dispatch is never silently
+      // lost. The DLQ helper swallows its own errors, so this path is safe
+      // for callers that handle the rethrow below.
+      await deadLetterQueueService.record({
+        channel: DispatchChannel.NOTIFICATION_CREATE,
+        eventName: input.type,
+        userId: input.userId,
+        payload: input,
+        error,
+      });
       throw error;
     }
+  }
+
+  /**
+   * Replay handler for the DLQ. Skips the preference check because at
+   * record time the caller already decided this notification should fire.
+   */
+  async createNotificationForRetry(input: CreateNotificationInput): Promise<any> {
+    return prisma.notification.create({
+      data: {
+        userId: input.userId,
+        type: input.type,
+        title: input.title,
+        message: input.message,
+        data: input.data || null,
+      },
+    });
   }
 
   /**
