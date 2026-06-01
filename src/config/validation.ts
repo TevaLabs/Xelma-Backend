@@ -1,7 +1,12 @@
 export class ConfigValidationError extends Error {
   constructor(public readonly errors: string[]) {
     super(
-      `Configuration validation failed:\n${errors.map((e) => `  - ${e}`).join("\n")}`,
+      [
+        "Configuration validation failed:",
+        ...errors.map((e) => `  - ${e}`),
+        "",
+        "Create or update .env from .env.example, then restart the server.",
+      ].join("\n"),
     );
     this.name = "ConfigValidationError";
   }
@@ -36,7 +41,9 @@ class ConfigValidator {
 
   required(value: string | undefined, name: string): string {
     if (!value || value.trim().length === 0) {
-      this.errors.push(`${name} is required but not set`);
+      this.errors.push(
+        `${name} is required but not set. Add ${name}=... to .env or your deployment environment.`,
+      );
       return "";
     }
     return value.trim();
@@ -79,7 +86,9 @@ class ConfigValidator {
     const raw = value?.trim();
     if (!raw) {
       if (fallback !== undefined) return fallback;
-      this.errors.push(`${name} is required but not set`);
+      this.errors.push(
+        `${name} is required but not set. Add ${name}=... to .env or your deployment environment.`,
+      );
       return "";
     }
     try {
@@ -115,7 +124,9 @@ class ConfigValidator {
 
   sensitiveRequired(value: string | undefined, name: string): string {
     if (!value || value.trim().length === 0) {
-      this.errors.push(`${name} is required and must not be empty`);
+      this.errors.push(
+        `${name} is required and must not be empty. Generate a real secret and set ${name}=... in .env or your deployment environment.`,
+      );
       return "";
     }
     const trimmed = value.trim();

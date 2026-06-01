@@ -293,7 +293,7 @@ describe('Idempotency Utility', () => {
          expect(stored?.responseBody).toEqual(responseBody2);
       });
 
-      it('should set expiration to 24 hours by default', async () => {
+      it('should set expiration to 10 minutes by default', async () => {
          const responseBody = { success: true, prediction: { id: 'pred-1' } };
          const beforeStore = new Date();
 
@@ -318,17 +318,17 @@ describe('Idempotency Utility', () => {
 
          const afterStore = new Date();
          const expectedExpiry = new Date(beforeStore);
-         expectedExpiry.setHours(expectedExpiry.getHours() + 24);
+         expectedExpiry.setMinutes(expectedExpiry.getMinutes() + 10);
 
          expect(stored?.expiresAt.getTime()).toBeGreaterThanOrEqual(
             expectedExpiry.getTime() - 1000
          );
          expect(stored?.expiresAt.getTime()).toBeLessThanOrEqual(
-            afterStore.getTime() + 1000
+            afterStore.getTime() + 10 * 60 * 1000 + 1000
          );
       });
 
-      it('should respect custom TTL', async () => {
+      it('should respect custom ttlMinutes', async () => {
          const responseBody = { success: true, prediction: { id: 'pred-1' } };
          const beforeStore = new Date();
 
@@ -339,6 +339,37 @@ describe('Idempotency Utility', () => {
             requestBody,
             200,
             responseBody,
+            { ttlMinutes: 15 }
+         );
+
+         const stored = await prisma.idempotencyKey.findUnique({
+            where: {
+               userId_endpoint_idempotencyKey: {
+                  userId,
+                  endpoint,
+                  idempotencyKey,
+               },
+            },
+         });
+
+         const expectedExpiry = new Date(beforeStore);
+         expectedExpiry.setMinutes(expectedExpiry.getMinutes() + 15);
+
+         expect(stored?.expiresAt.getTime()).toBeGreaterThanOrEqual(
+            expectedExpiry.getTime() - 1000
+         );
+      });
+
+      it('keeps ttlHours backwards compatible', async () => {
+         const beforeStore = new Date();
+
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            200,
+            { success: true },
             { ttlHours: 1 }
          );
 
@@ -354,7 +385,6 @@ describe('Idempotency Utility', () => {
 
          const expectedExpiry = new Date(beforeStore);
          expectedExpiry.setHours(expectedExpiry.getHours() + 1);
-
          expect(stored?.expiresAt.getTime()).toBeGreaterThanOrEqual(
             expectedExpiry.getTime() - 1000
          );

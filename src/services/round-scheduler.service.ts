@@ -5,6 +5,10 @@ import logger from '../utils/logger';
 import { withDistributedLock } from '../utils/distributed-lock';
 import { prisma } from '../lib/prisma';
 import { toNumber } from '../utils/decimal.util';
+import {
+   schedulerItemsProcessedTotal,
+   schedulerRunsTotal,
+} from '../metrics/application.metrics';
 
 class RoundSchedulerService {
    private cronTasks: ScheduledTask[] = [];
@@ -59,6 +63,10 @@ class RoundSchedulerService {
             logger.warn(
                '[Round Scheduler] Skipping round creation: invalid price from oracle'
             );
+            schedulerRunsTotal.inc({
+               job: 'round_create',
+               outcome: 'skipped',
+            });
             return;
          }
 
@@ -66,6 +74,10 @@ class RoundSchedulerService {
             logger.warn(
                '[Round Scheduler] Skipping round creation: oracle price data is stale'
             );
+            schedulerRunsTotal.inc({
+               job: 'round_create',
+               outcome: 'skipped',
+            });
             return;
          }
 
@@ -84,6 +96,10 @@ class RoundSchedulerService {
             logger.info(
                `[Round Scheduler] Skipping round creation: active ${mode} round already exists (${existingActiveRound.id})`
             );
+            schedulerRunsTotal.inc({
+               job: 'round_create',
+               outcome: 'no_op',
+            });
             return;
          }
 
@@ -96,11 +112,27 @@ class RoundSchedulerService {
          logger.info(
             `[Round Scheduler] Created round ${round.id}, mode=${mode}, startPrice=${startPrice.toFixed(4)}`
          );
+         schedulerItemsProcessedTotal.inc({
+            job: 'round_create',
+            outcome: 'success',
+         });
+         schedulerRunsTotal.inc({
+            job: 'round_create',
+            outcome: 'success',
+         });
       } catch (error: any) {
          if (error.code === 'ACTIVE_ROUND_EXISTS') {
             logger.info(`[Round Scheduler] ${error.message}`);
+            schedulerRunsTotal.inc({
+               job: 'round_create',
+               outcome: 'no_op',
+            });
          } else {
             logger.error('[Round Scheduler] Failed to create round:', error);
+            schedulerRunsTotal.inc({
+               job: 'round_create',
+               outcome: 'failure',
+            });
          }
       }
    }
@@ -126,14 +158,30 @@ class RoundSchedulerService {
          });
 
          if (expiredCount === 0) {
+            schedulerRunsTotal.inc({
+               job: 'round_close',
+               outcome: 'no_op',
+            });
             return;
          }
 
          await roundService.autoLockExpiredRounds();
 
          logger.info(`[Round Scheduler] Locked ${expiredCount} expired rounds`);
+         schedulerItemsProcessedTotal.inc(
+            { job: 'round_close', outcome: 'success' },
+            expiredCount
+         );
+         schedulerRunsTotal.inc({
+            job: 'round_close',
+            outcome: 'success',
+         });
       } catch (error) {
          logger.error('[Round Scheduler] Failed to close rounds:', error);
+         schedulerRunsTotal.inc({
+            job: 'round_close',
+            outcome: 'failure',
+         });
       }
    }
 

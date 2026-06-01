@@ -27,6 +27,7 @@ export enum ErrorCode {
   ROUND_ALREADY_RESOLVED = "ROUND_ALREADY_RESOLVED",
   DUPLICATE_PREDICTION = "DUPLICATE_PREDICTION",
   ACTIVE_ROUND_EXISTS = "ACTIVE_ROUND_EXISTS",
+  IDEMPOTENCY_KEY_CONFLICT = "IDEMPOTENCY_KEY_CONFLICT",
 }
 
 export interface ErrorDetail {
@@ -274,5 +275,13 @@ export const ERROR_CATALOG: readonly ErrorCatalogEntry[] = [
     errorClass: "ConflictError",
     description:
       "An active round of the requested mode already exists; start cannot proceed.",
+  },
+  {
+    code: ErrorCode.IDEMPOTENCY_KEY_CONFLICT,
+    status: 409,
+    errorClass: "ConflictError",
+    description:
+      "The Idempotency-Key was already used for a different request payload. " +
+      "Retry the original payload or generate a new key.",
   },
 ];

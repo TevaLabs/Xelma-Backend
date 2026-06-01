@@ -7,6 +7,10 @@ import logger from '../utils/logger';
 import { withDistributedLock } from '../utils/distributed-lock';
 import { prisma } from '../lib/prisma';
 import { RoundLifecycleOutcome } from '../types/round.types';
+import {
+   schedulerItemsProcessedTotal,
+   schedulerRunsTotal,
+} from '../metrics/application.metrics';
 
 class SchedulerService {
    private cronTasks: ScheduledTask[] = [];
@@ -125,6 +129,10 @@ class SchedulerService {
          });
 
          if (expiredRounds.length === 0) {
+            schedulerRunsTotal.inc({
+               job: 'auto_resolve_rounds',
+               outcome: 'no_op',
+            });
             return;
          }
 
@@ -137,6 +145,10 @@ class SchedulerService {
             logger.warn(
                'Cannot auto-resolve rounds: Invalid price from oracle'
             );
+            schedulerRunsTotal.inc({
+               job: 'auto_resolve_rounds',
+               outcome: 'skipped',
+            });
             return;
          }
 
@@ -144,6 +156,10 @@ class SchedulerService {
             logger.warn(
                'Cannot auto-resolve rounds: Oracle price data is stale'
             );
+            schedulerRunsTotal.inc({
+               job: 'auto_resolve_rounds',
+               outcome: 'skipped',
+            });
             return;
          }
 
@@ -159,6 +175,10 @@ class SchedulerService {
                   logger.warn(
                      `Auto-resolution skipped for round ${round.id}: empty result`
                   );
+                  schedulerItemsProcessedTotal.inc({
+                     job: 'auto_resolve_rounds',
+                     outcome: 'skipped',
+                  });
                   continue;
                }
 
@@ -166,17 +186,37 @@ class SchedulerService {
                   logger.info(
                      `Auto-resolved round ${round.id} with price ${currentPrice.toString()}`
                   );
+                  schedulerItemsProcessedTotal.inc({
+                     job: 'auto_resolve_rounds',
+                     outcome: 'success',
+                  });
                } else if (
                   result.outcome === RoundLifecycleOutcome.ALREADY_RESOLVED
                ) {
                   logger.info(`Round ${round.id} was already resolved`);
+                  schedulerItemsProcessedTotal.inc({
+                     job: 'auto_resolve_rounds',
+                     outcome: 'no_op',
+                  });
                }
             } catch (error) {
                logger.error(`Failed to auto-resolve round ${round.id}:`, error);
+               schedulerItemsProcessedTotal.inc({
+                  job: 'auto_resolve_rounds',
+                  outcome: 'failure',
+               });
             }
          }
+         schedulerRunsTotal.inc({
+            job: 'auto_resolve_rounds',
+            outcome: 'success',
+         });
       } catch (error) {
          logger.error('Error in auto-resolution scheduler:', error);
+         schedulerRunsTotal.inc({
+            job: 'auto_resolve_rounds',
+            outcome: 'failure',
+         });
       }
    }
 
@@ -208,8 +248,20 @@ class SchedulerService {
          logger.info(
             `Notification cleanup completed: deleted ${deletedCount} notification(s) older than ${retentionDays} day(s)`
          );
+         schedulerItemsProcessedTotal.inc(
+            { job: 'notification_cleanup', outcome: 'success' },
+            deletedCount
+         );
+         schedulerRunsTotal.inc({
+            job: 'notification_cleanup',
+            outcome: 'success',
+         });
       } catch (error) {
          logger.error('Error in notification cleanup scheduler:', error);
+         schedulerRunsTotal.inc({
+            job: 'notification_cleanup',
+            outcome: 'failure',
+         });
       }
    }
 
@@ -241,8 +293,22 @@ class SchedulerService {
             .join(', ');
 
          logger.info(`Retention policy execution completed: ${summary}`);
+         for (const result of results) {
+            schedulerItemsProcessedTotal.inc(
+               { job: 'retention_policies', outcome: 'success' },
+               result.deletedCount
+            );
+         }
+         schedulerRunsTotal.inc({
+            job: 'retention_policies',
+            outcome: 'success',
+         });
       } catch (error) {
          logger.error('Error in retention policy scheduler:', error);
+         schedulerRunsTotal.inc({
+            job: 'retention_policies',
+            outcome: 'failure',
+         });
       }
    }
 }

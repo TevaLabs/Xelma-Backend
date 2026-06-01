@@ -27,6 +27,7 @@ import {
    parseRoundPriceRanges,
    validateUserPriceRange,
 } from '../utils/price-range.util';
+import { roundsResolvedTotal } from '../metrics/application.metrics';
 
 function isValidRange(range: any): range is RoundPriceRange {
    return (
@@ -144,6 +145,10 @@ export class ResolutionService {
 
          // Invalidate leaderboard after transaction commits
          void invalidateNamespace('leaderboard');
+
+         if (result?.outcome === RoundLifecycleOutcome.UPDATED && result.round) {
+            roundsResolvedTotal.inc({ mode: result.round.mode });
+         }
 
          // Generate educational tip outside transaction (non-critical)
          try {

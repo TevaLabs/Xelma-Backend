@@ -16,10 +16,29 @@ import predictionService from '../services/prediction.service';
 import {
    checkIdempotency,
    isValidIdempotencyKey,
+   storeIdempotencyResult,
 } from '../utils/idempotency.util';
-import { ValidationError } from '../utils/errors';
+import { ConflictError, ErrorCode, ValidationError } from '../utils/errors';
+import { toNumber } from '../utils/decimal.util';
 
 const router = Router();
+const SUBMIT_PREDICTION_ENDPOINT = '/api/predictions/submit';
+
+function buildSubmitPredictionResponse(prediction: any) {
+   return {
+      success: true,
+      prediction: {
+         id: prediction.id,
+         roundId: prediction.roundId,
+         userId: prediction.userId,
+         amount: toNumber(prediction.amount),
+         side: prediction.side,
+         priceRange: prediction.priceRange ?? null,
+         createdAt:
+            prediction.createdAt?.toISOString?.() ?? prediction.createdAt,
+      },
+   };
+}
 
 /**
  * @openapi
@@ -35,7 +54,7 @@ const router = Router();
  *         name: Idempotency-Key
  *         schema:
  *           type: string
- *         description: Unique key for idempotent request handling (UUID recommended)
+ *         description: Unique key for idempotent request handling. Duplicate identical requests return the cached response for 10 minutes; reuse with a different request body returns 409.
  *     requestBody:
  *       required: true
  *       content:
@@ -50,7 +69,7 @@ const router = Router();
  *                 type: number
  *               side:
  *                 type: string
- *                 enum: [up, down]
+ *                 enum: [UP, DOWN]
  *               priceRange:
  *                 type: object
  *                 properties:
@@ -61,6 +80,16 @@ const router = Router();
  *     responses:
  *       200:
  *         description: Prediction submitted
+ *       409:
+ *         description: Idempotency key reused with a different request body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: ConflictError
+ *               message: Idempotency key reused with different request body
+ *               code: IDEMPOTENCY_KEY_CONFLICT
  */
 router.post(
    '/submit',
@@ -86,7 +115,7 @@ router.post(
          if (idempotencyKey) {
             const idempotencyCheck = await checkIdempotency(
                userId,
-               '/api/predictions/submit',
+               SUBMIT_PREDICTION_ENDPOINT,
                idempotencyKey,
                { roundId, amount, side, priceRange }
             );
@@ -102,7 +131,10 @@ router.post(
             }
 
             if (idempotencyCheck.error) {
-               throw new ValidationError(idempotencyCheck.error);
+               throw new ConflictError(
+                  idempotencyCheck.error,
+                  ErrorCode.IDEMPOTENCY_KEY_CONFLICT
+               );
             }
          }
 
@@ -111,14 +143,23 @@ router.post(
             roundId,
             amount,
             side,
-            priceRange,
-            idempotencyKey
+            priceRange
          );
 
-         res.json({
-            success: true,
-            prediction,
-         });
+         const responseBody = buildSubmitPredictionResponse(prediction);
+
+         if (idempotencyKey) {
+            await storeIdempotencyResult(
+               userId,
+               SUBMIT_PREDICTION_ENDPOINT,
+               idempotencyKey,
+               { roundId, amount, side, priceRange },
+               200,
+               responseBody
+            );
+         }
+
+         res.json(responseBody);
       } catch (error) {
          next(error);
       }

@@ -8,6 +8,7 @@ import { ConflictError, ValidationError, ErrorCode } from "../utils/errors";
 import { RoundLifecycleOutcome } from "../types/round.types";
 import { Decimal } from "@prisma/client/runtime/library";
 import { toDecimal, toNumber } from "../utils/decimal.util";
+import { roundsStartedTotal } from "../metrics/application.metrics";
 
 interface LegendsPriceRange {
   min: number;
@@ -97,6 +98,7 @@ export class RoundService {
       logger.info(
         `Round created: ${round.id}, mode=${mode}, sorobanId=${sorobanRoundId}`,
       );
+      roundsStartedTotal.inc({ mode });
 
       // Emit round started event
       websocketService.emitRoundStarted(round);

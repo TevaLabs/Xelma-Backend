@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma';
  * Configuration for idempotency key handling
  */
 export interface IdempotencyConfig {
+   ttlMinutes?: number;
    ttlHours?: number;
    hashAlgorithm?: string;
 }
@@ -26,16 +27,31 @@ export interface IdempotencyCheckResult {
  * Default configuration
  */
 const DEFAULT_CONFIG: IdempotencyConfig = {
-   ttlHours: 24,
+   ttlMinutes: 10,
    hashAlgorithm: 'sha256',
 };
+
+function stableStringify(value: any): string {
+   if (value === null || typeof value !== 'object') {
+      return JSON.stringify(value) ?? 'undefined';
+   }
+
+   if (Array.isArray(value)) {
+      return `[${value.map(stableStringify).join(',')}]`;
+   }
+
+   return `{${Object.keys(value)
+      .sort()
+      .map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(',')}}`;
+}
 
 /**
  * Generates a hash of the request body for mutation detection
  * Ensures that retries with different payloads are treated as new requests
  */
 function hashRequestBody(body: any): string {
-   const bodyStr = JSON.stringify(body);
+   const bodyStr = stableStringify(body);
    return createHash('sha256').update(bodyStr).digest('hex');
 }
 
@@ -69,8 +85,6 @@ export async function checkIdempotency(
    requestBody: any,
    config: IdempotencyConfig = {}
 ): Promise<IdempotencyCheckResult> {
-   const finalConfig = { ...DEFAULT_CONFIG, ...config };
-
    try {
       // Hash the request body to detect mutations
       const requestHash = hashRequestBody(requestBody);
@@ -180,12 +194,14 @@ export async function storeIdempotencyResult(
    responseBody: any,
    config: IdempotencyConfig = {}
 ): Promise<void> {
-   const finalConfig = { ...DEFAULT_CONFIG, ...config };
-
    try {
       const requestHash = hashRequestBody(requestBody);
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + (finalConfig.ttlHours || 24));
+      const ttlMinutes =
+         config.ttlMinutes ??
+         (config.ttlHours !== undefined
+            ? config.ttlHours * 60
+            : DEFAULT_CONFIG.ttlMinutes!);
+      const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
 
       // Upsert idempotency key (update if exists, create if not)
       await prisma.idempotencyKey.upsert({

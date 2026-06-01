@@ -6,6 +6,8 @@
    "scripts": {
       "start": "node dist/index.js",
       "dev": "nodemon src/index.ts",
+      "db:prepare": "prisma generate && prisma migrate deploy",
+      "dev:render-parity": "npm run db:prepare && npm run dev",
       "lint": "tsc --noEmit",
       "build": "tsc",
       "test": "jest",
@@ -27,7 +29,8 @@
       "docs:verify": "node scripts/verify-openapi-sync.js",
       "docs:postman": "node dist/scripts/export-postman.js",
       "prisma:generate": "prisma generate",
-      "prisma:migrate": "prisma migrate dev"
+      "prisma:migrate": "prisma migrate dev",
+      "prisma:migrate:deploy": "prisma migrate deploy"
    },
    "keywords": [],
    "author": "",

@@ -5,6 +5,10 @@ import { TimeoutResult, withTimeout } from '../utils/timeout-wrapper';
 import { CircuitBreaker, CircuitBreakerOpenError } from '../utils/circuit-breaker';
 import { Decimal } from '@prisma/client/runtime/library';
 import config from '../config';
+import {
+  priceOracleFetchFailuresTotal,
+  priceOracleUpdatesTotal,
+} from '../metrics/application.metrics';
 
 class PriceOracle {
   private static instance: PriceOracle;
@@ -118,11 +122,15 @@ class PriceOracle {
       const fetchedPrice = result.data;
       this.price = fetchedPrice;
       this.lastUpdatedAt = new Date();
+      priceOracleUpdatesTotal.inc();
       logger.info(`Fetched XLM price: $${toDecimalString(fetchedPrice)}`, {
         durationMs: result.durationMs,
         retriesUsed: result.retriesUsed,
       });
     } else {
+      priceOracleFetchFailuresTotal.inc({
+        reason: result.timedOut ? 'timeout' : 'upstream_error',
+      });
       logger.error(
         'Failed to fetch price from CoinGecko after retries',
         {
