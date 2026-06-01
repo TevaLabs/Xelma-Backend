@@ -14,6 +14,7 @@ import { asyncHandler } from "../middleware/errorHandler.middleware";
 import {
   getBatchUserPositions,
   getLeaderboard,
+  getLeaderboardCursor,
 } from "../services/leaderboard.service";
 
 const router = Router();
@@ -33,6 +34,7 @@ const leaderboardQuerySchema = z.object({
     }, z.number().int().min(0))
     .optional()
     .default(0),
+  cursor: z.string().optional(),
 });
 
 /**
@@ -41,8 +43,17 @@ const leaderboardQuerySchema = z.object({
  *   get:
  *     summary: Get the global leaderboard
  *     description: |
- *       Returns the global leaderboard. Bearer authentication is **optional**; if provided, the API may include the requesting user's position.\n
- *       Query params support pagination.
+ *       Returns the global leaderboard. Bearer authentication is **optional**; if provided,
+ *       the API includes the requesting user's position.
+ *
+ *       Supports two pagination modes:
+ *
+ *       **Cursor mode** (recommended for large datasets): pass `cursor` from a previous
+ *       response's `pagination.nextCursor` to load the next page. Efficient for deep pages.
+ *
+ *       **Offset mode**: pass `offset` to skip rows. Backward-compatible with existing clients.
+ *
+ *       When `cursor` is present, `offset` is ignored.
  *     tags: [leaderboard]
  *     parameters:
  *       - in: query
@@ -52,7 +63,11 @@ const leaderboardQuerySchema = z.object({
  *       - in: query
  *         name: offset
  *         schema: { type: integer, minimum: 0, default: 0 }
- *         description: Pagination offset
+ *         description: Pagination offset (offset mode, ignored when cursor is present)
+ *       - in: query
+ *         name: cursor
+ *         schema: { type: string }
+ *         description: Opaque cursor from pagination.nextCursor (cursor mode)
  *     responses:
  *       200:
  *         description: Leaderboard payload
@@ -60,13 +75,10 @@ const leaderboardQuerySchema = z.object({
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/LeaderboardResponse'
+ *       400:
+ *         description: Validation error
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             example:
- *               error: Internal Server Error
- *               message: Failed to fetch leaderboard
  *     x-codeSamples:
  *       - lang: cURL
  *         source: |
@@ -78,16 +90,24 @@ router.get(
   optionalAuthentication,
   validate(leaderboardQuerySchema, "query"),
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const { limit, offset } = req.query as unknown as {
+    const { limit, offset, cursor } = req.query as unknown as {
       limit: number;
       offset: number;
+      cursor?: string;
     };
 
     const userId = req.user?.userId;
 
     try {
-      const leaderboard = await getLeaderboard(limit, offset, userId);
-      res.json(leaderboard);
+      if (cursor) {
+        // Cursor mode
+        const result = await getLeaderboardCursor(limit, cursor, userId);
+        return res.json(result);
+      }
+
+      // Offset mode (existing behaviour)
+      const result = await getLeaderboard(limit, offset, userId);
+      return res.json(result);
     } catch (error) {
       if (error instanceof AppError) {
         throw error;

@@ -4,6 +4,8 @@ import { authenticateUser, AuthenticatedRequest } from '../middleware/auth.middl
 import { chatMessageRateLimiter } from '../middleware/rateLimiter.middleware';
 import { validate } from '../middleware/validate.middleware';
 import { sendMessageSchema } from '../schemas/chat.schema';
+import { unifiedPaginationSchema } from '../schemas/pagination.schema';
+import { ValidationError } from '../utils/errors';
 
 const router = Router();
 
@@ -54,25 +56,76 @@ router.post('/send', authenticateUser, chatMessageRateLimiter, validate(sendMess
 }) as any);
 
 /**
- * GET /api/chat/history
- * Get chat history (last 50 messages)
+ * @openapi
+ * /api/chat/history:
+ *   get:
+ *     tags: [Chat]
+ *     summary: Get chat history
+ *     description: |
+ *       Returns recent chat messages. Supports two pagination modes:
  *
- * Query params:
- *   - limit: number (optional, default: 50, max: 50)
+ *       **Cursor mode** (recommended for real-time chat): pass `cursor` from a
+ *       previous response to load the next (older) page. Messages are returned
+ *       oldest-first within each page.
  *
- * Response: { success: true, messages: ChatMessage[], count: number }
+ *       **Offset mode**: pass `offset` to skip rows. Backward-compatible with
+ *       existing clients that only pass `limit`.
+ *
+ *       When `cursor` is present, offset is ignored.
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 50, default: 50 }
+ *         description: Number of messages per page (max 50)
+ *       - in: query
+ *         name: cursor
+ *         schema: { type: string }
+ *         description: Opaque cursor from pagination.nextCursor (cursor mode)
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, minimum: 0, default: 0 }
+ *         description: Number of rows to skip (offset mode, ignored when cursor is present)
+ *     responses:
+ *       200:
+ *         description: Chat history page
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ChatHistoryResponse'
+ *       400:
+ *         description: Validation error
  */
-router.get('/history', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/history', validate(unifiedPaginationSchema, 'query'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const requestedLimit = parseInt(req.query.limit as string) || 50;
-    const limit = Math.min(requestedLimit, 50); // Cap at 50
+    // After validate() the query is coerced and typed
+    const { limit: rawLimit, offset, cursor } = req.query as unknown as {
+      limit: number;
+      offset: number;
+      cursor?: string;
+    };
 
-    const messages = await chatService.getHistory(limit);
+    // Chat history caps at 50 messages per page
+    const limit = Math.min(rawLimit, 50);
 
-    res.json({
+    if (cursor) {
+      // Cursor mode
+      const result = await chatService.getHistoryCursor(limit, cursor);
+      return res.json({
+        success: true,
+        messages: result.data,
+        pagination: result.pagination,
+      });
+    }
+
+    // Offset mode (backward-compatible: if neither cursor nor offset is
+    // provided, offset defaults to 0 and we return the latest messages)
+    const result = await chatService.getHistoryOffset(limit, offset);
+    return res.json({
       success: true,
-      messages,
-      count: messages.length,
+      messages: result.data,
+      pagination: result.pagination,
+      // Legacy fields kept for backward compatibility
+      count: result.data.length,
     });
   } catch (error) {
     next(error);

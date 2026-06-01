@@ -10,9 +10,16 @@ import {
 } from "../lib/redis";
 import {
   LeaderboardEntry,
+  LeaderboardCursorResponse,
   LeaderboardResponse,
 } from "../types/leaderboard.types";
 import { toDecimal, toNumber } from "../utils/decimal.util";
+import {
+  buildCursorMeta,
+  buildOffsetMeta,
+  decodeCursor,
+  trimSentinel,
+} from "../utils/pagination.util";
 
 const LEADERBOARD_CACHE_NAMESPACE = "leaderboard";
 const LEADERBOARD_CACHE_TTL_SECONDS = parseInt(

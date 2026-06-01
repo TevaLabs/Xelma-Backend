@@ -3,6 +3,14 @@ import websocketService from './websocket.service';
 import logger from '../utils/logger';
 import { sanitizeChatContent, validateContentLength } from '../utils/sanitization.util';
 import { ChatMessage } from '../types/chat.types';
+import {
+  buildCursorMeta,
+  buildOffsetMeta,
+  CursorPage,
+  decodeCursor,
+  OffsetPage,
+  trimSentinel,
+} from '../utils/pagination.util';
 
 // Profanity blocklist - case-insensitive matching
 const PROFANITY_LIST = [
@@ -89,7 +97,8 @@ class ChatService {
   }
 
   /**
-   * Get chat history (last N messages, default 50)
+   * Get chat history (last N messages, default 50).
+   * Legacy method – kept for backward compatibility.
    */
   async getHistory(limit: number = 50): Promise<ChatMessage[]> {
     const messages = await prisma.message.findMany({
@@ -114,6 +123,97 @@ class ChatService {
       content: msg.content,
       createdAt: msg.createdAt.toISOString(),
     }));
+  }
+
+  /**
+   * Get chat history with cursor-based pagination.
+   *
+   * Cursor encodes `{ createdAt, id }` of the oldest message on the
+   * previous page. Passing it returns the next (older) page.
+   *
+   * Messages are returned oldest-first within each page (natural chat order).
+   *
+   * @param limit  - page size (1–50)
+   * @param cursor - opaque cursor from a previous response (optional)
+   */
+  async getHistoryCursor(
+    limit: number = 50,
+    cursor?: string,
+  ): Promise<CursorPage<ChatMessage>> {
+    const decoded = decodeCursor<{ createdAt: string; id: string }>(cursor);
+
+    // Fetch limit+1 rows to detect whether a next page exists (sentinel trick)
+    const rows = await prisma.message.findMany({
+      take: limit + 1,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(decoded
+        ? {
+            cursor: { id: decoded.id },
+            skip: 1, // skip the cursor row itself
+          }
+        : {}),
+      include: {
+        user: {
+          select: { walletAddress: true },
+        },
+      },
+    });
+
+    const pagination = buildCursorMeta(limit, rows, (row) => ({
+      createdAt: row.createdAt.toISOString(),
+      id: row.id,
+    }));
+
+    const pageRows = trimSentinel(rows, limit);
+
+    // Reverse so oldest message is first (natural chat order)
+    const messages: ChatMessage[] = pageRows.reverse().map((msg) => ({
+      id: msg.id,
+      userId: msg.userId,
+      walletAddress: this.maskWalletAddress(msg.user.walletAddress),
+      content: msg.content,
+      createdAt: msg.createdAt.toISOString(),
+    }));
+
+    return { data: messages, pagination };
+  }
+
+  /**
+   * Get chat history with offset/limit pagination.
+   *
+   * @param limit  - page size (1–50)
+   * @param offset - number of rows to skip (≥0)
+   */
+  async getHistoryOffset(
+    limit: number = 50,
+    offset: number = 0,
+  ): Promise<OffsetPage<ChatMessage>> {
+    const [rows, total] = await Promise.all([
+      prisma.message.findMany({
+        take: limit,
+        skip: offset,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: { walletAddress: true },
+          },
+        },
+      }),
+      prisma.message.count(),
+    ]);
+
+    const pagination = buildOffsetMeta(limit, offset, total);
+
+    // Reverse so oldest message is first (natural chat order)
+    const messages: ChatMessage[] = rows.reverse().map((msg) => ({
+      id: msg.id,
+      userId: msg.userId,
+      walletAddress: this.maskWalletAddress(msg.user.walletAddress),
+      content: msg.content,
+      createdAt: msg.createdAt.toISOString(),
+    }));
+
+    return { data: messages, pagination };
   }
 
   /**

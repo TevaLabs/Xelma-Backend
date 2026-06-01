@@ -2,6 +2,14 @@ import { DispatchChannel } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
 import deadLetterQueueService from "./dead-letter-queue.service";
+import {
+  buildCursorMeta,
+  buildOffsetMeta,
+  CursorPage,
+  decodeCursor,
+  OffsetPage,
+  trimSentinel,
+} from "../utils/pagination.util";
 
 interface NotificationPreferences {
   win?: boolean;
@@ -19,7 +27,19 @@ interface CreateNotificationInput {
   data?: any;
 }
 
-interface PaginatedResponse {
+/** Serialised shape of a single notification row returned to callers. */
+export interface NotificationDto {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  data: any;
+  isRead: boolean;
+  createdAt: string;
+}
+
+/** @deprecated Use OffsetPage<NotificationDto> instead. */
+interface LegacyPaginatedResponse {
   notifications: any[];
   total: number;
   limit: number;
@@ -130,18 +150,17 @@ class NotificationService {
   }
 
   /**
-   * Get paginated notifications for a user
+   * Get paginated notifications for a user (offset/limit mode).
+   * @deprecated Prefer getUserNotificationsCursor for new clients.
    */
   async getUserNotifications(
     userId: string,
     limit: number = 20,
     offset: number = 0,
     unreadOnly: boolean = false,
-  ): Promise<PaginatedResponse> {
+  ): Promise<LegacyPaginatedResponse> {
     try {
-      // Ensure limit doesn't exceed max
       const finalLimit = Math.min(limit, 100);
-
       const where = unreadOnly ? { userId, isRead: false } : { userId };
 
       const [notifications, total] = await Promise.all([
@@ -164,6 +183,107 @@ class NotificationService {
       logger.error("Failed to fetch user notifications:", error);
       throw error;
     }
+  }
+
+  /**
+   * Get notifications with offset/limit pagination – standardised envelope.
+   */
+  async getUserNotificationsOffset(
+    userId: string,
+    limit: number = 20,
+    offset: number = 0,
+    unreadOnly: boolean = false,
+  ): Promise<OffsetPage<NotificationDto>> {
+    try {
+      const where = unreadOnly ? { userId, isRead: false } : { userId };
+
+      const [rows, total] = await Promise.all([
+        prisma.notification.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: offset,
+          take: limit,
+        }),
+        prisma.notification.count({ where }),
+      ]);
+
+      return {
+        data: rows.map(this.toDto),
+        pagination: buildOffsetMeta(limit, offset, total),
+      };
+    } catch (error) {
+      logger.error("Failed to fetch user notifications (offset):", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get notifications with cursor-based pagination.
+   *
+   * Cursor encodes `{ createdAt, id }` of the last row on the previous page.
+   * Passing it returns the next (older) page.
+   *
+   * @param userId    - authenticated user
+   * @param limit     - page size (1–100)
+   * @param cursor    - opaque cursor from a previous response (optional)
+   * @param unreadOnly - when true, only unread notifications are returned
+   */
+  async getUserNotificationsCursor(
+    userId: string,
+    limit: number = 20,
+    cursor?: string,
+    unreadOnly: boolean = false,
+  ): Promise<CursorPage<NotificationDto>> {
+    try {
+      const decoded = decodeCursor<{ createdAt: string; id: string }>(cursor);
+      const where = unreadOnly ? { userId, isRead: false } : { userId };
+
+      const rows = await prisma.notification.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        ...(decoded
+          ? {
+              cursor: { id: decoded.id },
+              skip: 1,
+            }
+          : {}),
+      });
+
+      const pagination = buildCursorMeta(limit, rows, (row) => ({
+        createdAt: row.createdAt.toISOString(),
+        id: row.id,
+      }));
+
+      return {
+        data: trimSentinel(rows, limit).map(this.toDto),
+        pagination,
+      };
+    } catch (error) {
+      logger.error("Failed to fetch user notifications (cursor):", error);
+      throw error;
+    }
+  }
+
+  /** Map a raw Prisma Notification row to the public DTO shape. */
+  private toDto(n: {
+    id: string;
+    type: string;
+    title: string;
+    message: string;
+    data: any;
+    isRead: boolean;
+    createdAt: Date;
+  }): NotificationDto {
+    return {
+      id: n.id,
+      type: n.type,
+      title: n.title,
+      message: n.message,
+      data: n.data,
+      isRead: n.isRead,
+      createdAt: n.createdAt.toISOString(),
+    };
   }
 
   /**

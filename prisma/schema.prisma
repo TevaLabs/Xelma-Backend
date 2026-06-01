@@ -199,6 +199,9 @@ model Notification {
   data      Json?
   isRead    Boolean          @default(false)
   createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, isRead, createdAt])
 }
 
 model UserStats {
