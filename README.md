@@ -906,7 +906,32 @@ npm run ci
 
 # Run tests in watch mode
 npm run test:watch
+
+# Repeatable load baselines for prediction throughput + websocket fanout (#21)
+npm run test:load
 ```
+
+### Load test harness (#21)
+
+`npm run test:load` runs `src/tests/performance.spec.ts`, which exercises:
+
+- **Single-request latency baselines** for auth, active rounds, and prediction submit (#152).
+- **Concurrent prediction throughput** — N parallel `POST /api/predictions/submit` requests with aggregate RPS and p95 latency assertions.
+- **WebSocket fanout** — M clients join the `round` room and must receive `prediction:placed` within the configured p95 budget.
+
+The harness lives in `src/tests/load-test.harness.ts` and uses mocked Prisma/Soroban so it stays repeatable in CI without a live database. Tune thresholds via env vars (see `.env.example` → “Load / performance test harness”):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LOAD_TEST_PREDICTION_CONCURRENCY` | `10` | Max in-flight prediction requests |
+| `LOAD_TEST_PREDICTION_ITERATIONS` | `30` | Total prediction requests per run |
+| `LOAD_TEST_PREDICTION_MIN_RPS` | `5` | Minimum acceptable throughput |
+| `LOAD_TEST_PREDICTION_P95_MS` | `500` | Max p95 latency for predictions |
+| `LOAD_TEST_WS_CLIENTS` | `20` | Connected sockets for fanout test |
+| `LOAD_TEST_WS_MIN_DELIVERY_RATE` | `1` | Minimum delivery ratio (0–1) |
+| `LOAD_TEST_WS_P95_MS` | `250` | Max p95 fanout delivery time |
+
+Each run prints `[LOAD]` summary lines to stdout for before/after comparisons in PRs.
 
 Coverage thresholds are enforced in `jest.config.ts` for lines, branches, functions, and statements. The current floor is intentionally conservative and excludes tests, mocks, generated files, scripts, and vendored bindings so the gate tracks application code. CI runs `npm run test:unit:coverage`, prints the Jest coverage summary, uploads `coverage/`, and fails when the thresholds are not met.
 
@@ -929,6 +954,7 @@ Current test coverage includes:
 | `npm run test:coverage` | Run Jest with coverage reporting and thresholds |
 | `npm run test:unit:coverage` | Run unit tests with coverage reporting and thresholds |
 | `npm run test:watch` | Run tests in watch mode |
+| `npm run test:load` | Run repeatable load baselines for prediction throughput and websocket fanout (#21) |
 | `npm run ci` | Run lint, build, unit coverage, and integration tests |
 | `npm run prisma:generate` | Generate Prisma client |
 | `npm run prisma:migrate` | Run database migrations |

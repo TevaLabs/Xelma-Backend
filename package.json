@@ -14,6 +14,7 @@
       "test:unit": "TEST_TYPE=unit jest",
       "test:unit:coverage": "TEST_TYPE=unit jest --coverage",
       "test:integration": "TEST_TYPE=integration jest",
+      "test:load": "TEST_TYPE=integration jest performance.spec.ts --testTimeout=60000",
       "test:coverage": "jest --coverage",
       "test:watch": "jest --watch",
       "test:db:setup": "node scripts/setup-test-db.js",
