@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { DispatchChannel } from '@prisma/client';
 import logger from '../utils/logger';
 import deadLetterQueueService from './dead-letter-queue.service';
+import { websocketEmitsTotal } from '../metrics/application.metrics';
 
 /**
  * Centralized event names so DLQ replay can map a stored `eventName` back
@@ -54,6 +55,7 @@ class WebSocketService {
   private safeEmit(input: SafeEmitInput): void {
     if (!this.io) {
       logger.warn(`WebSocket not initialized, cannot emit ${input.event}`);
+      websocketEmitsTotal.inc({ event: input.event, outcome: 'unavailable' });
       // fire-and-forget — DLQ helper swallows its own errors
       void deadLetterQueueService.record({
         channel: DispatchChannel.WEBSOCKET_EMIT,
@@ -67,8 +69,10 @@ class WebSocketService {
 
     try {
       this.io.to(input.room).emit(input.event, input.payload);
+      websocketEmitsTotal.inc({ event: input.event, outcome: 'success' });
     } catch (err) {
       logger.error(`Failed to emit ${input.event}`, { error: err });
+      websocketEmitsTotal.inc({ event: input.event, outcome: 'failure' });
       void deadLetterQueueService.record({
         channel: DispatchChannel.WEBSOCKET_EMIT,
         eventName: input.event,

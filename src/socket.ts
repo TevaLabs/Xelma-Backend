@@ -8,6 +8,10 @@ import multiplayerSessionService from './services/multiplayer-session.service';
 import { ChatMessage } from './types/chat.types';
 import logger from './utils/logger';
 import { initializeSocketAdapter } from './utils/socket-adapter';
+import {
+   setSocketConnectionsActive,
+   websocketConnectionEventsTotal,
+} from './metrics/application.metrics';
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
@@ -206,6 +210,7 @@ export function checkStaleConnections(
       } else {
          // Socket already gone but disconnect event never fired — clean up now.
          connectionRegistry.delete(socketId);
+         setSocketConnectionsActive(connectionRegistry.size);
       }
       removed++;
    }
@@ -250,6 +255,7 @@ export function checkExpiredTokenSockets(
          socket.disconnect(false);
       } else {
          connectionRegistry.delete(socketId);
+         setSocketConnectionsActive(connectionRegistry.size);
       }
       notified++;
    }
@@ -403,6 +409,11 @@ export async function initializeSocket(
          connectedAt: Date.now(),
          lastSeenAt: Date.now(),
          tokenExpiresAt: socket.tokenExpiresAt,
+      });
+      setSocketConnectionsActive(connectionRegistry.size);
+      websocketConnectionEventsTotal.inc({
+         event: 'connect',
+         authenticated: String(Boolean(socket.userId)),
       });
 
       // Announce the heartbeat contract so clients can tune their reconnect
@@ -609,6 +620,11 @@ export async function initializeSocket(
 
       socket.on('disconnect', reason => {
          connectionRegistry.delete(socket.id);
+         setSocketConnectionsActive(connectionRegistry.size);
+         websocketConnectionEventsTotal.inc({
+            event: 'disconnect',
+            authenticated: String(Boolean(socket.userId)),
+         });
          logger.info(`Client disconnected: ${socket.id}, reason: ${reason}`);
          if (socket.userId) {
             void multiplayerSessionService.recordDisconnect(socket.userId);

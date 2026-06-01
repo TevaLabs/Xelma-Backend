@@ -23,6 +23,7 @@ describe('runPreflightChecks', () => {
     const result = runPreflightChecks(env);
     expect(result.ok).toBe(false);
     expect(result.errors.some(e => e.includes('JWT_SECRET'))).toBe(true);
+    expect(result.errors.some(e => e.includes('.env.example'))).toBe(true);
   });
 
   it('fails when DATABASE_URL is missing', () => {
@@ -44,6 +45,7 @@ describe('runPreflightChecks', () => {
     const result = runPreflightChecks(env);
     expect(result.ok).toBe(false);
     expect(result.errors.some(e => e.includes('too short'))).toBe(true);
+    expect(result.errors.some(e => e.includes('openssl rand -base64 32'))).toBe(true);
   });
 
   it('warns when REDIS_URL has an unexpected scheme', () => {
@@ -95,6 +97,7 @@ describe('assertPreflightOrExit', () => {
       expect(err).toBeInstanceOf(PreflightError);
       const pf = err as PreflightError;
       expect(pf.failures.length).toBeGreaterThanOrEqual(2);
+      expect(pf.message).toContain('cp .env.example .env');
     }
   });
 });

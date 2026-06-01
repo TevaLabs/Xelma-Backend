@@ -319,6 +319,7 @@ Xelma-Backend/
 #### **System Endpoints**
 - `GET /` - Health check with timestamp
 - `GET /health` - Detailed health check (uptime, status)
+- `GET /metrics` - Prometheus metrics for HTTP, schedulers, oracle, predictions, WebSocket, rate limits, and DB pool settings
 - `GET /api/price` - Current XLM/USD price as a decimal string with staleness info
 - `GET /api-docs` - Swagger UI documentation
 - `GET /api-docs.json` - OpenAPI specification
@@ -502,36 +503,37 @@ Prisma’s Postgres connector reads pool/timeouts via connection string query pa
 - **Visibility**: scrape `/metrics` and look for `db_pool_settings_info` to see the effective values.
 - **Validation**: invalid values are rejected at startup via config validation.
 
-#### Leaderboard cache tuning
+#### Metrics contract
 
-| Variable | Description | Default |
+`GET /metrics` exposes Prometheus text-format metrics with only
+low-cardinality labels. Labels intentionally avoid user IDs, wallet addresses,
+round IDs, socket IDs, request bodies, and secrets.
+
+Core application metrics include:
+
+| Metric | Labels | Meaning |
 | --- | --- | --- |
-| `LEADERBOARD_CACHE_TTL_SECONDS` | TTL for the per-page JSON cache entry. | `60` |
-| `LEADERBOARD_ZSET_TTL_SECONDS` | Safety-net TTL for the materialized sorted set. `0` disables automatic expiry; the set is invalidated explicitly after every round resolution. | `300` |
-
-The leaderboard uses a two-layer caching strategy:
-
-1. **Materialized sorted set (ZSET)** — Redis sorted set keyed by `totalEarnings`. Rank lookups are O(log N) instead of a full-table `COUNT(*)`. The set is updated after every `updateUserStatsForRound` call and flushed whenever the `leaderboard` namespace is invalidated.
-2. **Versioned JSON page cache** — The assembled leaderboard page (with wallet masking, accuracy, mode stats) is stored in the existing versioned namespace cache with a short TTL. This avoids re-fetching `UserStats` rows on every HTTP request.
-
-When Redis is unavailable both layers degrade gracefully to direct DB queries.
-
-#### Transactional outbox tuning (Issue #18)
-
-| Variable | Description | Default |
-| --- | --- | --- |
-| `OUTBOX_POLL_INTERVAL_SECONDS` | How often the outbox poller runs. | `10` |
-| `OUTBOX_BATCH_SIZE` | Rows processed per poll cycle (max 500). | `50` |
-| `OUTBOX_MAX_ATTEMPTS` | Dispatch attempts before a row is marked `FAILED` and escalated to the DLQ. | `3` |
-| `OUTBOX_RETENTION_DAYS` | Days to keep `PROCESSED` rows before cleanup. | `7` |
+| `http_requests_total` | `method`, `route`, `status_code` | HTTP request volume by normalized Express route |
+| `http_request_duration_seconds` | `method`, `route`, `status_code` | HTTP latency histogram |
+| `http_errors_total` | `method`, `route`, `status_code` | HTTP 4xx/5xx responses |
+| `predictions_placed_total` | none | Successful prediction submissions |
+| `rounds_started_total` | `mode` | Rounds created by game mode |
+| `rounds_resolved_total` | `mode` | Rounds resolved by game mode |
+| `price_oracle_updates_total` | none | Successful oracle price refreshes |
+| `price_oracle_fetch_failures_total` | `reason` | Oracle refresh failures |
+| `scheduler_runs_total` | `job`, `outcome` | Scheduler executions |
+| `scheduler_items_processed_total` | `job`, `outcome` | Items processed by scheduler jobs |
+| `socket_connections_active` | none | Current Socket.IO connections |
+| `websocket_emits_total` | `event`, `outcome` | WebSocket dispatch attempts |
+| `websocket_connection_events_total` | `event`, `authenticated` | Socket connect/disconnect events |
 
 ### 3. Set Up Database
 
 ```bash
-# Generate Prisma client
-npm run prisma:generate
+# Generate Prisma client and apply committed migrations
+npm run db:prepare
 
-# Run migrations
+# Create a new development migration when changing prisma/schema.prisma
 npm run prisma:migrate
 
 # (Optional) Seed database with sample data
@@ -551,6 +553,20 @@ npm run dev
 ```
 
 The server will start on `http://localhost:3000` with auto-reload on file changes.
+
+### Local Render-Parity Bootstrap
+
+Use one command when you want local startup to perform the same Prisma
+preparation Render performs before booting the service:
+
+```bash
+npm run dev:render-parity
+```
+
+This runs `prisma generate`, applies committed migrations with
+`prisma migrate deploy`, then starts the hot-reload dev server. It expects a
+local `.env` with at least `DATABASE_URL` and `JWT_SECRET`; copy
+`.env.example` to `.env` if you are starting from a fresh checkout.
 
 ### Production Mode
 
@@ -770,6 +786,7 @@ GET /api/rounds/active
 POST /api/predictions/submit
 Authorization: Bearer YOUR_JWT_TOKEN
 Content-Type: application/json
+Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
 
 # For UP_DOWN mode:
 {
@@ -788,6 +805,13 @@ Content-Type: application/json
   }
 }
 ```
+
+`Idempotency-Key` is optional but recommended for clients that may retry a
+submit request after network failure. The same authenticated user can retry the
+same request body with the same key for 10 minutes and receive the cached
+response. Reusing the same key with a different request body returns `409` with
+code `IDEMPOTENCY_KEY_CONFLICT`; generate a fresh key for a new prediction
+attempt.
 
 **Response:**
 ```json
@@ -916,6 +940,7 @@ Current test coverage includes:
 |--------|-------------|
 | `npm start` | Run production server (requires build) |
 | `npm run dev` | Start development server with hot-reload |
+| `npm run dev:render-parity` | Generate Prisma client, apply committed migrations, then start dev server |
 | `npm run build` | Compile TypeScript to JavaScript |
 | `npm test` | Run Jest test suite |
 | `npm run test:coverage` | Run Jest with coverage reporting and thresholds |
@@ -924,6 +949,8 @@ Current test coverage includes:
 | `npm run ci` | Run lint, build, unit coverage, and integration tests |
 | `npm run prisma:generate` | Generate Prisma client |
 | `npm run prisma:migrate` | Run database migrations |
+| `npm run prisma:migrate:deploy` | Apply committed migrations without creating new migration files |
+| `npm run db:prepare` | Run Prisma generate and migrate deploy |
 | `npm run docs:openapi` | Generate OpenAPI JSON spec to `docs/openapi.json` |
 | `npm run docs:verify` | Regenerate OpenAPI and verify required paths are documented (CI gate) |
 | `npm run docs:postman` | Export Postman collection |

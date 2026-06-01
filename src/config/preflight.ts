@@ -20,7 +20,12 @@ export interface PreflightResult {
 }
 
 /** Variables that MUST be present for the server to function at all. */
-const REQUIRED_VARS: string[] = ['JWT_SECRET', 'DATABASE_URL'];
+const REQUIRED_VARS: Record<string, string> = {
+  JWT_SECRET:
+    'Generate a strong value, for example: openssl rand -base64 32',
+  DATABASE_URL:
+    'Expected format: postgresql://user:pass@host:5432/database',
+};
 
 /** Minimum Node.js major version required (mirrors package.json engines). */
 const MIN_NODE_MAJOR = 22;
@@ -29,9 +34,13 @@ const MIN_NODE_MAJOR = 22;
 const MIN_JWT_SECRET_LENGTH = 16;
 
 function checkRequiredEnvVars(env: NodeJS.ProcessEnv): string[] {
-  return REQUIRED_VARS.filter(
-    name => !env[name] || env[name]!.trim().length === 0,
-  ).map(name => `Missing required environment variable: ${name}`);
+  return Object.entries(REQUIRED_VARS)
+    .filter(([name]) => !env[name] || env[name]!.trim().length === 0)
+    .map(
+      ([name, guidance]) =>
+        `Missing required environment variable: ${name}. ${guidance}. ` +
+        `Set it in .env (see .env.example) or in your deployment secrets.`,
+    );
 }
 
 function checkNodeVersion(): string[] {
@@ -55,7 +64,8 @@ function checkDatabaseUrl(env: NodeJS.ProcessEnv): string[] {
   } catch {
     return [
       `DATABASE_URL is not a valid URL. ` +
-        `Expected format: postgresql://user:pass@host:port/db`,
+        `Expected format: postgresql://user:pass@host:5432/db. ` +
+        `Copy .env.example to .env and update DATABASE_URL for your local database.`,
     ];
   }
 }
@@ -66,7 +76,8 @@ function checkJwtSecretStrength(env: NodeJS.ProcessEnv): string[] {
   if (secret.trim().length < MIN_JWT_SECRET_LENGTH) {
     return [
       `JWT_SECRET is too short (${secret.trim().length} chars). ` +
-        `Minimum length is ${MIN_JWT_SECRET_LENGTH} characters.`,
+        `Minimum length is ${MIN_JWT_SECRET_LENGTH} characters. ` +
+        `Generate one with: openssl rand -base64 32`,
     ];
   }
   return [];
@@ -146,7 +157,12 @@ export function assertPreflightOrExit(
       `  Node.js : ${result.nodeVersion}`,
       `  Env     : ${result.environment}`,
       '',
-      'Fix the issues above and restart the server.',
+      'Local setup:',
+      '  1. cp .env.example .env',
+      '  2. Fill in DATABASE_URL and JWT_SECRET',
+      '  3. npm run dev:render-parity or npm run dev',
+      '',
+      'Deployment setup: configure the same variables as secrets/env vars.',
       '',
     ];
 

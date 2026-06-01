@@ -12,7 +12,7 @@ import {
 } from '../utils/errors';
 import logger from '../utils/logger';
 import { retryOrThrow } from '../utils/retry.util';
-import { storeIdempotencyResult } from '../utils/idempotency.util';
+import { predictionsPlacedTotal } from '../metrics/application.metrics';
 import {
    findRangeByBounds,
    parseRoundPriceRanges,
@@ -31,7 +31,6 @@ export class PredictionService {
       amount: number,
       side?: 'UP' | 'DOWN',
       priceRange?: UserPriceRange,
-      idempotencyKey?: string
    ): Promise<any> {
       // Wrap with retry logic to handle transient DB conflicts and race conditions
       return retryOrThrow(
@@ -41,8 +40,7 @@ export class PredictionService {
                roundId,
                amount,
                side,
-               priceRange,
-               idempotencyKey
+               priceRange
             ),
          'submitPrediction',
          {
@@ -64,7 +62,6 @@ export class PredictionService {
       amount: number,
       side?: 'UP' | 'DOWN',
       priceRange?: UserPriceRange,
-      idempotencyKey?: string
    ): Promise<any> {
       try {
          const prediction = await prisma.$transaction(async tx => {
@@ -275,29 +272,7 @@ export class PredictionService {
          // Invalidate leaderboard after prediction write affects user stats.
          void invalidateNamespace('leaderboard');
 
-         // Store idempotency result if key provided
-         if (idempotencyKey) {
-            const responseBody = {
-               success: true,
-               prediction: {
-                  id: prediction.id,
-                  roundId: prediction.roundId,
-                  userId: prediction.userId,
-                  amount: toNumber(prediction.amount),
-                  side: prediction.side,
-                  priceRange: prediction.priceRange,
-                  createdAt: prediction.createdAt,
-               },
-            };
-            void storeIdempotencyResult(
-               userId,
-               '/api/predictions/submit',
-               idempotencyKey,
-               { roundId, amount, side, priceRange },
-               200,
-               responseBody
-            );
-         }
+         predictionsPlacedTotal.inc();
 
          return prediction;
       } catch (error) {
