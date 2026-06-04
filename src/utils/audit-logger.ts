@@ -1,11 +1,15 @@
 /**
  * Audit Logger for Security-Critical Events
- * 
+ *
  * Provides structured audit logging for authentication and authorization events
  * with safe metadata (no secrets) and correlation identifiers.
+ *
+ * Audit events are logged to Winston logger and optionally persisted to the database
+ * via the AuditLog model (controlled by AUDIT_LOG_DATABASE_ENABLED environment variable).
  */
 
 import logger from './logger';
+import { prisma } from '../lib/prisma';
 
 /**
  * Audit event types for authentication lifecycle
@@ -125,6 +129,53 @@ class AuditLogger {
       default:
         logger.info(logEntry);
         break;
+    }
+
+    // Persist to database (fire-and-forget, non-blocking)
+    this.persistToDatabase(event);
+  }
+
+  /**
+   * Persist audit event to database
+   * Uses fire-and-forget pattern to avoid blocking the application
+   */
+  private async persistToDatabase(event: AuditEvent): Promise<void> {
+    // Check if database persistence is enabled
+    const dbEnabled = process.env.AUDIT_LOG_DATABASE_ENABLED !== 'false';
+
+    if (!dbEnabled) {
+      return;
+    }
+
+    try {
+      await prisma.auditLog.create({
+        data: {
+          eventType: event.eventType,
+          severity: event.severity,
+          message: event.message,
+          outcome: event.outcome,
+          actorType: event.actor.type,
+          walletAddress: event.actor.walletAddress,
+          userId: event.actor.userId,
+          ipAddress: event.actor.ipAddress,
+          userAgent: event.actor.userAgent,
+          requestId: event.context.requestId,
+          sessionId: event.context.sessionId,
+          endpoint: event.context.endpoint,
+          method: event.context.method,
+          resourceType: event.resource?.type,
+          resourceId: event.resource?.id,
+          resourceWalletAddress: event.resource?.walletAddress,
+          metadata: event.metadata as any,
+          timestamp: new Date(event.context.timestamp),
+        },
+      });
+    } catch (error) {
+      // Log error but don't throw to avoid breaking the application
+      logger.error('Failed to persist audit log to database', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        eventType: event.eventType,
+      });
     }
   }
 

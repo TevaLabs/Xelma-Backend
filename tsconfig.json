@@ -15,7 +15,8 @@
     "declarationMap": true,
     "sourceMap": true,
     "typeRoots": ["./node_modules/@types", "./src/types"],
-    "noImplicitAny": false
+    "noImplicitAny": false,
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

@@ -360,6 +360,39 @@ The application uses **PostgreSQL** via **Prisma ORM**. Key models:
 - **UserStats**: Aggregated performance metrics per game mode
 - **Transaction**: Balance change history (bonus, win, loss, etc.)
 - **AuthChallenge**: Wallet signature challenges for authentication
+- **AuditLog**: Security audit trail for authentication and authorization events
+
+---
+
+### Data Retention & Audit Logging
+
+The backend implements automated data retention policies to control storage growth while maintaining security audit trails.
+
+#### Audit Logging
+
+All authentication and authorization events are logged for security monitoring and compliance:
+
+- **Events Logged**: Challenge lifecycle (issued, verified, failed, expired, invalidated), authentication success/failure, user creation/login
+- **Storage**: Audit events are persisted to the `AuditLog` table in the database
+- **Configuration**: Controlled by `AUDIT_LOG_DATABASE_ENABLED` (default: `true`)
+- **Fallback**: When database persistence is disabled, events are only logged to Winston (files/console)
+
+#### Retention Policies
+
+The retention service automatically cleans up old data based on configurable time-to-live (TTL) policies:
+
+| Entity | Environment Variable | Default TTL | Purpose |
+|--------|---------------------|-------------|---------|
+| Auth Challenges | `RETENTION_AUTH_CHALLENGES_TTL_DAYS` | 7 days | Remove expired and old authentication challenges |
+| Chat Messages | `RETENTION_CHAT_MESSAGES_TTL_DAYS` | 90 days | Archive old chat messages |
+| Audit Logs | `RETENTION_AUDIT_LOGS_TTL_DAYS` | 90 days | Maintain security audit trail for compliance |
+
+**Configuration**:
+- Enable/disable each policy via `RETENTION_*_ENABLED` (default: `true`)
+- Batch size for deletion operations: `RETENTION_BATCH_SIZE` (default: 1000)
+- Retention service can be run on-demand or via cron scheduler
+
+**Implementation**: See [src/services/retention.service.ts](src/services/retention.service.ts)
 
 See [prisma/schema.prisma](prisma/schema.prisma) for full schema.
 
