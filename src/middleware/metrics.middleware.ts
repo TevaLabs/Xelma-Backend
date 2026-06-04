@@ -8,6 +8,52 @@ import {
 export * from '../metrics/application.metrics';
 
 // ---------------------------------------------------------------------------
+// Redis cache metrics
+// ---------------------------------------------------------------------------
+
+export const redisCacheHitsTotal = new Counter({
+  name: 'redis_cache_hits_total',
+  help: 'Total number of Redis cache hits',
+  registers: [metricsRegistry],
+});
+
+export const redisCacheMissesTotal = new Counter({
+  name: 'redis_cache_misses_total',
+  help: 'Total number of Redis cache misses',
+  registers: [metricsRegistry],
+});
+
+export const redisCacheSetsTotal = new Counter({
+  name: 'redis_cache_sets_total',
+  help: 'Total number of Redis cache set operations',
+  registers: [metricsRegistry],
+});
+
+export const redisCacheInvalidationsTotal = new Counter({
+  name: 'redis_cache_invalidations_total',
+  help: 'Total number of Redis cache namespace invalidations',
+  registers: [metricsRegistry],
+});
+
+export const redisCacheBypassesTotal = new Counter({
+  name: 'redis_cache_bypasses_total',
+  help: 'Total number of cache bypasses (Redis unavailable or disabled)',
+  registers: [metricsRegistry],
+});
+
+export const redisCacheErrorsTotal = new Counter({
+  name: 'redis_cache_errors_total',
+  help: 'Total number of Redis cache operation errors',
+  registers: [metricsRegistry],
+});
+
+export const redisCacheEnabled = new Gauge({
+  name: 'redis_cache_enabled',
+  help: 'Whether Redis cache is currently enabled (1) or bypassed (0)',
+  registers: [metricsRegistry],
+});
+
+// ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
 

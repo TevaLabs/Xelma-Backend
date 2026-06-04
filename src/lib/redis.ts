@@ -1,5 +1,14 @@
 import { createClient } from "redis";
 import logger from "../utils/logger";
+import {
+  redisCacheHitsTotal,
+  redisCacheMissesTotal,
+  redisCacheSetsTotal,
+  redisCacheInvalidationsTotal,
+  redisCacheBypassesTotal,
+  redisCacheErrorsTotal,
+  redisCacheEnabled,
+} from "../middleware/metrics.middleware";
 
 type CacheMetrics = {
   enabled: boolean;
@@ -70,6 +79,8 @@ async function ensureClient(): Promise<RedisClient | null> {
   if (lastRedisFailureAtMs > 0 && Date.now() - lastRedisFailureAtMs < cooldownMs) {
     metrics.enabled = false;
     metrics.bypasses += 1;
+    redisCacheBypassesTotal.inc();
+    redisCacheEnabled.set(0);
     return null;
   }
 
@@ -77,6 +88,7 @@ async function ensureClient(): Promise<RedisClient | null> {
   if (clientConnecting) return clientConnecting;
 
   metrics.enabled = true;
+  redisCacheEnabled.set(1);
 
   clientConnecting = (async () => {
     try {
@@ -107,6 +119,8 @@ async function ensureClient(): Promise<RedisClient | null> {
     } catch (error) {
       metrics.enabled = false;
       metrics.errors += 1;
+      redisCacheErrorsTotal.inc();
+      redisCacheEnabled.set(0);
       lastRedisFailureAtMs = Date.now();
       logger.warn("Redis unavailable, bypassing cache", {
         error: error instanceof Error ? error.message : String(error),
@@ -136,6 +150,7 @@ async function getNamespaceVersion(namespace: string): Promise<number> {
     return Number.isFinite(parsed) ? parsed : 0;
   } catch (error) {
     metrics.errors += 1;
+    redisCacheErrorsTotal.inc();
     logger.warn("Failed to read namespace version; bypassing cache", {
       namespace,
       error: error instanceof Error ? error.message : String(error),
@@ -162,17 +177,20 @@ export async function invalidateNamespace(namespace: string): Promise<void> {
   const redisClient = await ensureClient();
   if (!redisClient) {
     metrics.bypasses += 1;
+    redisCacheBypassesTotal.inc();
     return;
   }
 
   try {
     await redisClient.incr(namespaceVersionKey(namespace));
     metrics.invalidations += 1;
+    redisCacheInvalidationsTotal.inc();
     if (redisCacheDebug) {
       logger.info("Redis cache namespace invalidated", { namespace });
     }
   } catch (error) {
     metrics.errors += 1;
+    redisCacheErrorsTotal.inc();
     logger.warn("Failed to invalidate cache namespace", {
       namespace,
       error: error instanceof Error ? error.message : String(error),
@@ -184,6 +202,7 @@ export async function getJsonFromCache<T>(namespace: string, rawKey: string): Pr
   const redisClient = await ensureClient();
   if (!redisClient) {
     metrics.bypasses += 1;
+    redisCacheBypassesTotal.inc();
     return null;
   }
 
@@ -192,6 +211,7 @@ export async function getJsonFromCache<T>(namespace: string, rawKey: string): Pr
     const raw = await redisClient.get(cacheKey);
     if (!raw) {
       metrics.misses += 1;
+      redisCacheMissesTotal.inc();
       if (redisCacheDebug) {
         logger.info("Redis cache miss", { namespace, rawKey });
       }
@@ -199,18 +219,21 @@ export async function getJsonFromCache<T>(namespace: string, rawKey: string): Pr
     }
 
     metrics.hits += 1;
+    redisCacheHitsTotal.inc();
     if (redisCacheDebug) {
       logger.info("Redis cache hit", { namespace, rawKey });
     }
     return JSON.parse(raw) as T;
   } catch (error) {
     metrics.errors += 1;
+    redisCacheErrorsTotal.inc();
     logger.warn("Failed to read cache entry; bypassing cache", {
       namespace,
       rawKey,
       error: error instanceof Error ? error.message : String(error),
     });
     metrics.misses += 1;
+    redisCacheMissesTotal.inc();
     return null;
   }
 }
@@ -224,6 +247,7 @@ export async function setJsonToCache<T>(
   const redisClient = await ensureClient();
   if (!redisClient) {
     metrics.bypasses += 1;
+    redisCacheBypassesTotal.inc();
     return;
   }
 
@@ -233,11 +257,13 @@ export async function setJsonToCache<T>(
   try {
     await redisClient.set(cacheKey, JSON.stringify(value), { EX: safeTtlSeconds });
     metrics.sets += 1;
+    redisCacheSetsTotal.inc();
     if (redisCacheDebug) {
       logger.info("Redis cache set", { namespace, rawKey, ttlSeconds: safeTtlSeconds });
     }
   } catch (error) {
     metrics.errors += 1;
+    redisCacheErrorsTotal.inc();
     logger.warn("Failed to write cache entry; bypassing cache", {
       namespace,
       rawKey,
