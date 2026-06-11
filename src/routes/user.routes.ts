@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
+import { validate } from "../middleware/validate.middleware";
+import { updateProfileSchema } from "../schemas/user.schema";
 import { NotFoundError } from "../utils/errors";
 
 const router = Router();
@@ -121,6 +123,7 @@ router.get("/stats", authenticateUser, (async (req: AuthenticatedRequest, res: R
 router.patch(
   "/profile",
   authenticateUser,
+  validate(updateProfileSchema),
   (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const userId = req.user.userId;

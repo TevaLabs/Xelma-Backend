@@ -51,6 +51,37 @@ enum TransactionType {
   DEPOSIT
 }
 
+enum DispatchChannel {
+  NOTIFICATION_CREATE
+  WEBSOCKET_EMIT
+}
+
+enum DispatchStatus {
+  PENDING
+  RETRYING
+  RESOLVED
+  ABANDONED
+}
+
+/// Outbox event type — mirrors DispatchChannel but lives on the outbox
+/// model so the two concerns (outbox vs. DLQ) stay independent.
+enum OutboxEventType {
+  NOTIFICATION_CREATE
+  WEBSOCKET_EMIT
+}
+
+/// Outbox event status lifecycle:
+///   PENDING   → picked up by the poller
+///   PROCESSING → poller is actively dispatching (prevents double-dispatch)
+///   PROCESSED  → successfully dispatched; eligible for cleanup
+///   FAILED     → all retry attempts exhausted; escalated to DLQ
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
 // =======================
 // Models
 // =======================
@@ -73,13 +104,14 @@ model User {
 
 
   // Relations
-  messages       Message[]
-  predictions    Prediction[]
-  rounds         Round[]
-  notifications  Notification[]
-  authChallenges AuthChallenge[]
-  stats          UserStats?
-  transactions   Transaction[]
+  messages            Message[]
+  predictions         Prediction[]
+  rounds              Round[]
+  notifications       Notification[]
+  authChallenges      AuthChallenge[]
+  stats               UserStats?
+  transactions        Transaction[]
+  multiplayerSessions MultiplayerSession[]
 }
 
 model Message {
@@ -167,6 +199,9 @@ model Notification {
   data      Json?
   isRead    Boolean          @default(false)
   createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, isRead, createdAt])
 }
 
 model UserStats {
@@ -207,6 +242,99 @@ model Transaction {
   @@index([type])
 }
 
+/// Multiplayer session metadata persisted across socket disconnects.
+///
+/// Powers reconnect continuity (Issue #194): when an authenticated client
+/// reconnects after a transient drop, the server can look up its prior
+/// rooms and resume membership without forcing the client to re-discover
+/// state. Rows are upserted by `userId` (one active session row per user),
+/// so a fresh login transparently replaces a stale row.
+///
+/// Storage notes:
+///   - `rooms` is a JSON-encoded `string[]` of room names the user joined.
+///   - `metadata` is opaque JSON for future per-game state (last round,
+///     pending message, etc.); writers must keep it bounded.
+///   - `disconnectedAt` is null while the session is live; setting it
+///     marks the session as resumable until cleaned up by retention.
+model MultiplayerSession {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletAddress  String
+  socketId       String?
+  rooms          Json     @default("[]")
+  metadata       Json?
+  connectedAt    DateTime @default(now())
+  lastSeenAt     DateTime @default(now())
+  disconnectedAt DateTime?
+
+  @@unique([userId])
+  @@index([walletAddress])
+  @@index([lastSeenAt])
+}
+
+/// Dead-letter queue row for a notification or websocket dispatch that
+/// failed at runtime. Keeps the original payload so an operator (or a
+/// scheduled retry job) can replay the dispatch later without losing the
+/// signal. `attempts` and `lastError` track how the entry has aged so a
+/// stuck row can be triaged from `/api/admin/dead-letter`.
+model FailedDispatch {
+  id        String          @id @default(uuid())
+  channel   DispatchChannel
+  eventName String?
+  userId    String?
+  payload   Json
+  attempts  Int             @default(1)
+  status    DispatchStatus  @default(PENDING)
+  lastError String          @db.VarChar(1000)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  lastRetryAt DateTime?
+  resolvedAt  DateTime?
+
+  @@index([channel])
+  @@index([status])
+  @@index([createdAt])
+  @@index([userId])
+}
+
+/// Transactional outbox for notification and websocket side-effects (Issue #18).
+///
+/// Every row is written *inside* the same Prisma transaction that commits
+/// the business state change (payout, prediction, etc.). A background poller
+/// reads PENDING rows and dispatches them, then marks them PROCESSED.
+/// If dispatch fails after MAX_OUTBOX_ATTEMPTS the row is marked FAILED and
+/// escalated to the FailedDispatch DLQ for operator review.
+///
+/// This guarantees at-least-once delivery: a side-effect can never be
+/// silently dropped because the process crashed between the DB commit and
+/// the in-process notification call.
+///
+/// Storage notes:
+///   - `aggregateId` is the business entity id (roundId, predictionId, …).
+///   - `aggregateType` is a short label ("round", "prediction", …).
+///   - `payload` is the full data needed to reconstruct the dispatch.
+///   - `attempts` starts at 0 and is incremented on each dispatch attempt.
+///   - `processedAt` is set when status transitions to PROCESSED.
+///   - Rows older than OUTBOX_RETENTION_DAYS (default 7) can be deleted.
+model OutboxEvent {
+  id            String            @id @default(uuid())
+  eventType     OutboxEventType
+  aggregateId   String
+  aggregateType String
+  payload       Json
+  status        OutboxEventStatus @default(PENDING)
+  attempts      Int               @default(0)
+  lastError     String?           @db.VarChar(1000)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  processedAt   DateTime?
+
+  @@index([status, createdAt])
+  @@index([aggregateId])
+  @@index([eventType])
+}
+
 model RateLimitMetric {
   id        String   @id @default(uuid())
   endpoint  String
@@ -218,5 +346,31 @@ model RateLimitMetric {
   @@index([endpoint])
   @@index([timestamp])
   @@index([key])
+}
+
+/// Idempotency key storage for safe client retries.
+/// 
+/// Stores the result of idempotent operations (like prediction submission)
+/// so that if a client retries with the same idempotency key, the server
+/// returns the cached result instead of executing the operation again.
+/// 
+/// This prevents duplicate predictions when clients retry after network timeouts.
+/// Keys are scoped by userId + endpoint to prevent cross-user collisions.
+/// 
+/// Retention: rows older than 24 hours can be safely deleted.
+model IdempotencyKey {
+  id              String   @id @default(uuid())
+  userId          String
+  endpoint        String
+  idempotencyKey  String
+  requestHash     String   // Hash of request body to detect mutations
+  responseStatus  Int      // HTTP status code (200, 400, etc.)
+  responseBody    Json     // Cached response to return on retry
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime // 24 hours from creation
+
+  @@unique([userId, endpoint, idempotencyKey])
+  @@index([userId])
+  @@index([expiresAt])
 }
 

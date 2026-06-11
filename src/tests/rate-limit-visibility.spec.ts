@@ -74,6 +74,9 @@ describe('Rate Limit Visibility', () => {
     expect(response.body).toHaveProperty('topEndpoints');
     expect(response.body).toHaveProperty('topAbusers');
     expect(response.body).toHaveProperty('recentEvents');
+    expect(response.body).toHaveProperty('suspiciousActivity');
+    expect(response.body.suspiciousActivity).toHaveProperty('byCategory');
+    expect(response.body.suspiciousActivity).toHaveProperty('flaggedActors');
   });
 
   it('should deny access to rate limit metrics for regular users', async () => {

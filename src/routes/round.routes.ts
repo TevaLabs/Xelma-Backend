@@ -19,7 +19,7 @@ import {
 } from "../types/round.types";
 import logger from "../utils/logger";
 import { toNumber } from "../utils/decimal.util";
-import { invalidateNamespace } from "../lib/redis";
+import { invalidateNamespace, invalidateLeaderboardSortedSet } from "../lib/redis";
 
 const router = Router();
 
@@ -318,6 +318,7 @@ router.post(
 
       // Invalidate leaderboard cache after prediction write.
       void invalidateNamespace("leaderboard");
+      void invalidateLeaderboardSortedSet();
 
       const response: SubmitPredictionResponse = {
         predictionId: prediction.id,

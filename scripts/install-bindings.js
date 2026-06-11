@@ -56,6 +56,15 @@ function main() {
     run(`git fetch --depth=1 origin ${BRANCH}`, tmp);
     run("git checkout FETCH_HEAD", tmp);
 
+    let commitSha = "";
+    try {
+      commitSha = execSync("git rev-parse HEAD", { cwd: tmp })
+        .toString()
+        .trim();
+    } catch (e) {
+      console.warn("[install-bindings] could not resolve upstream SHA:", e.message);
+    }
+
     const srcDir = path.join(tmp, SUBDIR);
 
     console.log("[install-bindings] Installing bindings dependencies…");
@@ -81,6 +90,12 @@ function main() {
 
     // Patch the package.json: rename to @tevalabs/xelma-bindings and add CJS export
     patchPackageJson(path.join(DEST, "package.json"));
+
+    // Record the resolved upstream SHA so the runtime validator can surface
+    // the vendor version at startup (see src/utils/bindings-validator.ts).
+    if (commitSha) {
+      fs.writeFileSync(path.join(DEST, ".commit-sha"), `${commitSha}\n`);
+    }
 
     console.log("[install-bindings] Done ✓");
   } finally {

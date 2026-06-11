@@ -20,6 +20,7 @@ import {
 import { validate } from "../middleware/validate.middleware";
 import { challengeSchema, connectSchema } from "../schemas/auth.schema";
 import { AuthenticationError, ErrorCode } from "../utils/errors";
+import { auditLogger } from "../utils/audit-logger";
 
 const router = Router();
 
@@ -87,16 +88,38 @@ router.post(
   challengeRateLimiter,
   validate(challengeSchema),
   async (req: Request, res: Response, next: NextFunction) => {
+    const requestId = (req as any).requestId;
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.get('user-agent');
+    
     try {
       const { walletAddress }: ChallengeRequestBody = req.body;
 
       // Clean up existing unused challenges for this wallet (enforce one-active-challenge policy)
+      const deletedChallenges = await prisma.authChallenge.findMany({
+        where: {
+          walletAddress,
+          isUsed: false,
+        },
+        select: { challenge: true },
+      });
+      
       await prisma.authChallenge.deleteMany({
         where: {
           walletAddress,
           isUsed: false,
         },
       });
+      
+      // Log invalidation of replaced challenges
+      for (const oldChallenge of deletedChallenges) {
+        auditLogger.logChallengeInvalidated({
+          walletAddress,
+          challengeId: oldChallenge.challenge,
+          reason: 'replaced',
+          requestId,
+        });
+      }
 
       // Generate new challenge
       const challenge = generateChallenge();
@@ -110,6 +133,16 @@ router.post(
           expiresAt,
           isUsed: false,
         },
+      });
+
+      // Audit log: Challenge issued
+      auditLogger.logChallengeIssued({
+        walletAddress,
+        challengeId: challenge,
+        expiresAt,
+        requestId,
+        ipAddress,
+        userAgent,
       });
 
       const response: ChallengeResponse = {
@@ -194,6 +227,10 @@ router.post(
   connectRateLimiter,
   validate(connectSchema),
   async (req: Request, res: Response, next: NextFunction) => {
+    const requestId = (req as any).requestId;
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.get('user-agent');
+    
     try {
       const { walletAddress, challenge, signature }: ConnectRequestBody =
         req.body;
@@ -223,17 +260,56 @@ router.post(
         });
 
         if (!existingChallenge || existingChallenge.walletAddress !== walletAddress) {
+          // Audit log: Challenge not found or wallet mismatch
+          auditLogger.logChallengeFailed({
+            walletAddress,
+            challengeId: challenge,
+            reason: existingChallenge ? 'wallet_mismatch' : 'challenge_not_found',
+            requestId,
+            ipAddress,
+            userAgent,
+          });
+          
           return next(new AuthenticationError("Invalid or expired challenge", ErrorCode.INVALID_CHALLENGE));
         }
 
         if (existingChallenge.isUsed) {
+          // Audit log: Challenge reuse attempt
+          auditLogger.logChallengeReused({
+            walletAddress,
+            challengeId: challenge,
+            usedAt: existingChallenge.usedAt || existingChallenge.createdAt,
+            requestId,
+            ipAddress,
+            userAgent,
+          });
+          
           return next(new AuthenticationError("Challenge has already been used", ErrorCode.CHALLENGE_USED));
         }
 
         if (isChallengeExpired(existingChallenge.expiresAt)) {
+          // Audit log: Challenge expired
+          auditLogger.logChallengeExpired({
+            walletAddress,
+            challengeId: challenge,
+            expiresAt: existingChallenge.expiresAt,
+            requestId,
+            ipAddress,
+          });
+          
           return next(new AuthenticationError("Challenge has expired. Please request a new one.", ErrorCode.CHALLENGE_EXPIRED));
         }
 
+        // Audit log: Generic challenge failure
+        auditLogger.logChallengeFailed({
+          walletAddress,
+          challengeId: challenge,
+          reason: 'challenge_not_found',
+          requestId,
+          ipAddress,
+          userAgent,
+        });
+        
         return next(new AuthenticationError("Invalid or expired challenge", ErrorCode.INVALID_CHALLENGE));
       }
 
@@ -245,12 +321,24 @@ router.post(
       );
 
       if (!isValidSignature) {
+        // Audit log: Invalid signature
+        auditLogger.logInvalidSignature({
+          walletAddress,
+          challengeId: challenge,
+          requestId,
+          ipAddress,
+          userAgent,
+        });
+        
         return next(new AuthenticationError("Invalid signature", ErrorCode.INVALID_SIGNATURE));
       }
 
+      // Audit log: Challenge verified successfully
       let user = await prisma.user.findUnique({
         where: { walletAddress },
       });
+      
+      const isNewUser = !user;
 
       let bonusAmount = 0;
       let newStreak = 0;
@@ -278,9 +366,17 @@ router.post(
           data: {
             userId: user.id,
             amount: bonusAmount,
-            type: "BONUS", // Using string literal if Enum not available yet, or TransactionType.BONUS
+            type: "BONUS",
             description: "Welcome Bonus",
           },
+        });
+        
+        // Audit log: User created
+        auditLogger.logUserCreated({
+          walletAddress,
+          userId: user.id,
+          requestId,
+          ipAddress,
         });
       } else {
         // Check for daily login bonus
@@ -345,11 +441,42 @@ router.post(
         });
       }
 
+      // Audit log: Challenge verified
+      auditLogger.logChallengeVerified({
+        walletAddress,
+        userId: user.id,
+        challengeId: challenge,
+        isNewUser,
+        requestId,
+        ipAddress,
+        userAgent,
+      });
+
+      // Audit log: Authentication success
+      auditLogger.logAuthSuccess({
+        walletAddress,
+        userId: user.id,
+        isNewUser,
+        requestId,
+        ipAddress,
+        userAgent,
+      });
+
+      // Audit log: User login
+      auditLogger.logUserLogin({
+        walletAddress,
+        userId: user.id,
+        streak: newStreak,
+        bonusAwarded: bonusAmount,
+        requestId,
+        ipAddress,
+      });
+
       // Generate JWT token
       const token = generateToken(user.id, user.walletAddress, user.role);
 
       // Clean up old used challenges for this user (housekeeping)
-      await prisma.authChallenge.deleteMany({
+      const oldChallenges = await prisma.authChallenge.findMany({
         where: {
           walletAddress,
           isUsed: true,
@@ -357,7 +484,28 @@ router.post(
             lt: new Date(Date.now() - 24 * 60 * 60 * 1000), // Older than 24 hours
           },
         },
+        select: { challenge: true },
       });
+      
+      await prisma.authChallenge.deleteMany({
+        where: {
+          walletAddress,
+          isUsed: true,
+          usedAt: {
+            lt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+          },
+        },
+      });
+      
+      // Log cleanup of old challenges
+      for (const oldChallenge of oldChallenges) {
+        auditLogger.logChallengeInvalidated({
+          walletAddress,
+          challengeId: oldChallenge.challenge,
+          reason: 'cleanup',
+          requestId,
+        });
+      }
 
       const response: ConnectResponse & { bonus?: number; streak?: number } = {
         token,

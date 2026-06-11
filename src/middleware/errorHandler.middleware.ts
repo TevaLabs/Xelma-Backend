@@ -10,8 +10,10 @@ import logger from '../utils/logger';
 export interface ErrorResponse {
   error: string;
   message: string;
-  code?: string;
+  code: string;
+  requestId?: string;
   details?: { field: string; message: string }[];
+  timestamp?: string;
 }
 
 /**
@@ -75,12 +77,14 @@ export function errorHandler(
 
   const isDev = process.env.NODE_ENV === 'development';
   const requestId = (req as any).requestId;
+  const timestamp = new Date().toISOString();
 
   logger.error(`[${appError.code}] ${req.method} ${req.path} → ${appError.statusCode}`, {
     code: appError.code,
     statusCode: appError.statusCode,
     message: appError.message,
     requestId,
+    timestamp,
     ...(appError.details && { details: appError.details }),
     ...(isDev && err instanceof Error && { stack: err.stack }),
   });
@@ -89,6 +93,8 @@ export function errorHandler(
     error: appError.name,
     message: appError.message,
     code: appError.code,
+    requestId,
+    timestamp,
     ...(appError.details && { details: appError.details }),
     ...(isDev && err instanceof Error && { stack: err.stack }),
   };

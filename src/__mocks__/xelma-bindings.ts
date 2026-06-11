@@ -22,6 +22,11 @@ export enum RoundMode {
   Precision = 1,
 }
 
+export type OraclePayload = {
+  final_price: bigint;
+  timestamp: bigint;
+};
+
 export class Client {
   constructor(_opts: unknown) {}
   balance(_params: unknown)                { return mockTx(BigInt(0)); }

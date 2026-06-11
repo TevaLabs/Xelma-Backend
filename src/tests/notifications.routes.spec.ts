@@ -297,4 +297,119 @@ describe("Notifications Routes & Ownership (Issue #78)", () => {
       expect(typeof res.body.deletedCount).toBe("number");
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Pagination contract tests (Issue #19)
+  // -------------------------------------------------------------------------
+
+  describe("GET /api/notifications – pagination contracts", () => {
+    it("offset mode: response includes pagination meta with total, limit, offset", async () => {
+      const res = await request(app)
+        .get("/api/notifications?limit=10&offset=0")
+        .set("Authorization", `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.pagination).toBeDefined();
+      expect(res.body.pagination.limit).toBe(10);
+      expect(res.body.pagination.offset).toBe(0);
+      expect(typeof res.body.pagination.total).toBe("number");
+      expect(typeof res.body.pagination.hasNextPage).toBe("boolean");
+      // Legacy fields still present for backward compatibility
+      expect(typeof res.body.total).toBe("number");
+      expect(typeof res.body.limit).toBe("number");
+      expect(typeof res.body.offset).toBe("number");
+    });
+
+    it("offset mode: hasNextPage is false when all results fit on one page", async () => {
+      // notifAList has 1 item; limit=10 → no next page
+      const res = await request(app)
+        .get("/api/notifications?limit=10&offset=0")
+        .set("Authorization", `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.pagination.hasNextPage).toBe(false);
+    });
+
+    it("returns 400 for limit=0", async () => {
+      const res = await request(app)
+        .get("/api/notifications?limit=0")
+        .set("Authorization", `Bearer ${tokenA}`);
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 for limit > 100", async () => {
+      const res = await request(app)
+        .get("/api/notifications?limit=101")
+        .set("Authorization", `Bearer ${tokenA}`);
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 for negative offset", async () => {
+      const res = await request(app)
+        .get("/api/notifications?offset=-1")
+        .set("Authorization", `Bearer ${tokenA}`);
+      expect(res.status).toBe(400);
+    });
+
+    it("cursor mode: returns pagination.nextCursor and hasNextPage", async () => {
+      // Return limit+1 rows to trigger hasNextPage=true
+      const manyNotifs = Array.from({ length: 6 }, (_, i) => ({
+        id: `cursor-notif-${i}`,
+        userId: USER_A_ID,
+        type: "WIN",
+        title: "Win",
+        message: "You won",
+        isRead: false,
+        data: null,
+        createdAt: new Date(Date.now() - i * 1000),
+      }));
+      mockNotificationFindMany.mockResolvedValueOnce(manyNotifs);
+
+      const { encodeCursor } = await import("../utils/pagination.util");
+      const cursor = encodeCursor({ createdAt: new Date().toISOString(), id: "some-id" });
+
+      const res = await request(app)
+        .get(`/api/notifications?limit=5&cursor=${cursor}`)
+        .set("Authorization", `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.pagination).toBeDefined();
+      expect(res.body.pagination.hasNextPage).toBe(true);
+      expect(typeof res.body.pagination.nextCursor).toBe("string");
+      // No offset/total in cursor mode
+      expect(res.body.pagination.total).toBeUndefined();
+      expect(res.body.pagination.offset).toBeUndefined();
+    });
+
+    it("cursor mode: nextCursor is null on the last page", async () => {
+      // Return fewer rows than limit → last page
+      mockNotificationFindMany.mockResolvedValueOnce(notifAList);
+
+      const { encodeCursor } = await import("../utils/pagination.util");
+      const cursor = encodeCursor({ createdAt: new Date().toISOString(), id: "some-id" });
+
+      const res = await request(app)
+        .get(`/api/notifications?limit=10&cursor=${cursor}`)
+        .set("Authorization", `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.pagination.hasNextPage).toBe(false);
+      expect(res.body.pagination.nextCursor).toBeNull();
+    });
+
+    it("cursor mode: offset is ignored when cursor is present", async () => {
+      mockNotificationFindMany.mockResolvedValueOnce(notifAList);
+
+      const { encodeCursor } = await import("../utils/pagination.util");
+      const cursor = encodeCursor({ createdAt: new Date().toISOString(), id: "some-id" });
+
+      const res = await request(app)
+        .get(`/api/notifications?limit=10&cursor=${cursor}&offset=99`)
+        .set("Authorization", `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      // Cursor mode response has no offset field
+      expect(res.body.pagination.offset).toBeUndefined();
+    });
+  });
 });

@@ -50,3 +50,24 @@ export function verifyToken(token: string): JwtPayload | null {
     return null;
   }
 }
+
+export type TokenVerifyResult =
+  | { valid: true; payload: JwtPayload }
+  | { valid: false; expired: true }
+  | { valid: false; expired: false };
+
+/**
+ * Verify a token and distinguish between expiry and other failures.
+ * Used by the Socket.IO auth middleware to emit the correct error event.
+ */
+export function verifyTokenDetailed(token: string): TokenVerifyResult {
+  try {
+    const payload = jwt.verify(token, getJwtSecret()) as JwtPayload;
+    return { valid: true, payload };
+  } catch (error: any) {
+    if (error?.name === 'TokenExpiredError') {
+      return { valid: false, expired: true };
+    }
+    return { valid: false, expired: false };
+  }
+}

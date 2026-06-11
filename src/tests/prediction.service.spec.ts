@@ -9,13 +9,15 @@ jest.mock("../lib/prisma", () => {
   const round = { findUnique: jest.fn(), update: jest.fn() };
   const prediction = { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn() };
   const user = { findUnique: jest.fn(), update: jest.fn() };
+  const outboxEvent = { create: jest.fn().mockResolvedValue({ id: "outbox-1" }) };
   return {
     prisma: {
       round,
       prediction,
       user,
+      outboxEvent,
       $transaction: jest.fn((fn: (tx: any) => Promise<any>) =>
-        fn({ round, prediction, user })
+        fn({ round, prediction, user, outboxEvent })
       ),
     },
   };
