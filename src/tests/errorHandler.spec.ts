@@ -12,6 +12,7 @@ import {
   ExternalServiceError,
 } from "../utils/errors";
 import { errorHandler } from "../middleware/errorHandler.middleware";
+import { notFound } from "../middleware/notFound.middleware";
 import { requestIdMiddleware } from "../middleware/requestId.middleware";
 
 /** Build a minimal Express app with one route that throws the given error */
@@ -192,22 +193,28 @@ describe("errorHandler middleware", () => {
     const res = await request(app).get("/test");
     expect(res.body.stack).toBeUndefined();
 
-    process.env.NODE_ENV = originalEnv;
+    if (originalEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalEnv;
+    }
   });
 });
 
 describe("errorHandler via createApp routes", () => {
-  // Import createApp lazily to use the real app with all routes mounted
   let app: express.Express;
 
   beforeAll(() => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    app = require("../index").createApp();
+    app = express();
+    app.use(requestIdMiddleware);
+    // notFound must be registered after routes and before errorHandler.
+    app.use(notFound);
+    app.use(errorHandler);
   });
 
-  it.skip("404 handler returns structured NotFoundError shape", async () => {
+  it("404 handler returns structured NotFoundError shape", async () => {
     const res = await request(app).get("/api/nonexistent-route-xyz");
-    
+
     // Basic assertions
     expect(res.status).toBe(404);
     expect(res.body).toHaveProperty("error");
