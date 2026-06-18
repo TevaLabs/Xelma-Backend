@@ -102,6 +102,8 @@ export class RoundService {
 
       // Emit round started event
       websocketService.emitRoundStarted(round);
+      // Canonical round_update for frontend realtime UX
+      websocketService.emitRoundUpdate(round);
 
       // Create and broadcast ROUND_START notification to all users
       try {
@@ -205,12 +207,14 @@ export class RoundService {
         return RoundLifecycleOutcome.NO_OP;
       }
 
-      await prisma.round.update({
-        where: { id: roundId },
-        data: { status: "LOCKED" },
+      const updatedRound = await prisma.round.update({
+         where: { id: roundId },
+         data: { status: "LOCKED" },
       });
 
       logger.info(`Round locked: ${roundId}`);
+      // Broadcast status change so frontend can disable the prediction form
+      websocketService.emitRoundUpdate(updatedRound);
       return RoundLifecycleOutcome.UPDATED;
     } catch (error) {
       logger.error("Failed to lock round:", error);

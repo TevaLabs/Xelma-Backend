@@ -1,6 +1,7 @@
 import sorobanService from './soroban.service';
 import logger from '../utils/logger';
 import educationTipService from './education-tip.service';
+import websocketService from './websocket.service';
 import { prisma } from '../lib/prisma';
 import { invalidateNamespace } from '../lib/redis';
 import { OutboxEventType } from '@prisma/client';
@@ -146,6 +147,10 @@ export class ResolutionService {
 
          if (result?.outcome === RoundLifecycleOutcome.UPDATED && result.round) {
             roundsResolvedTotal.inc({ mode: result.round.mode });
+            // Emit backward-compat resolved event
+            websocketService.emitRoundResolved(result.round);
+            // Emit canonical round_update so frontend gets the full resolved snapshot
+            websocketService.emitRoundUpdate(result.round);
          }
 
          // Generate educational tip outside transaction (non-critical)
