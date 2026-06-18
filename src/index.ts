@@ -27,6 +27,7 @@ import roundSchedulerService from './services/round-scheduler.service';
 import logger from './utils/logger';
 import { validateVendoredBindings } from './utils/bindings-validator';
 import { errorHandler } from './middleware/errorHandler.middleware';
+import { notFound } from './middleware/notFound.middleware';
 import { metricsMiddleware } from './middleware/metrics.middleware';
 import { requestIdMiddleware } from './middleware/requestId.middleware';
 import metricsRoutes from './routes/metrics.routes';
@@ -261,13 +262,9 @@ export function createApp(): Express {
       });
    });
 
-   // 404 handler - forward to error handler for consistent response format
-   app.use((req: Request, res: Response, next: NextFunction) => {
-      const { NotFoundError } = require('./utils/errors');
-      next(new NotFoundError(`Route ${req.method} ${req.path} not found`));
-   });
-
-   // Centralized error handler (must be last)
+   // Terminal middleware order matters: notFound catches unmatched routes,
+   // then errorHandler serializes every error into the standard JSON shape.
+   app.use(notFound);
    app.use(errorHandler);
 
    return app;

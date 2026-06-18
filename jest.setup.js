@@ -8,7 +8,7 @@ dotenv.config({ override: false });
 
 // Ensure JWT_SECRET is set so validateEnv() in src/index.ts does not process.exit(1) when tests import createApp.
 if (!process.env.JWT_SECRET) {
-  process.env.JWT_SECRET = 'test-jwt-secret';
+  process.env.JWT_SECRET = 'test-jwt-secret-value';
 }
 
 const DUMMY_DB_URL = 'postgresql://test_user:test_pass@localhost:5432/test_db?schema=public';
