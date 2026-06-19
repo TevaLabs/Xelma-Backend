@@ -3,7 +3,8 @@ import { prisma } from "../lib/prisma";
 import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { updateProfileSchema } from "../schemas/user.schema";
-import { NotFoundError } from "../utils/errors";
+import { NotFoundError, ValidationError } from "../utils/errors";
+import { getMockWalletStats } from "../data/mockData";
 
 const router = Router();
 
@@ -193,6 +194,29 @@ router.get(
       next(error);
     }
   }) as any,
+);
+
+/**
+ * GET /api/user/:address/stats
+ * Returns mock wallet stats for a Stellar address (hackathon MVP)
+ */
+router.get(
+  "/:address/stats",
+  (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+
+      // Stellar public keys: 56 characters starting with 'G'
+      if (!address || !/^G[A-Z2-7]{55}$/.test(address)) {
+        return next(new ValidationError("Invalid Stellar address"));
+      }
+
+      const stats = getMockWalletStats(address);
+      return res.json({ success: true, stats });
+    } catch (error) {
+      next(error);
+    }
+  },
 );
 
 /**
