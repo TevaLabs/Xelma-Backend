@@ -35,6 +35,8 @@ import errorsRoutes from './routes/errors.routes';
 import corsDiagnosticsRoutes from './routes/admin-cors-diagnostics.routes';
 import deadLetterRoutes from './routes/admin-dead-letter.routes';
 import chatRoutes from './routes/chat.routes';
+import healthRoutes from './routes/health';
+import statsRoutes from './routes/stats';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './docs/openapi';
 import { initializeSocket } from './socket';
@@ -162,6 +164,8 @@ export function createApp(): Express {
    app.use('/api/errors', errorsRoutes);
    app.use('/api/admin/cors-diagnostics', corsDiagnosticsRoutes);
    app.use('/api/admin/dead-letter', deadLetterRoutes);
+   app.use('/api/health', healthRoutes);
+   app.use('/api/stats', statsRoutes);
 
    // Prometheus metrics endpoint
    app.use('/metrics', metricsRoutes);
