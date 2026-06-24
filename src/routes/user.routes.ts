@@ -195,6 +195,57 @@ router.get(
   }) as any,
 );
 
+router.get(
+  "/:address/history",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+
+      const limit = parseInt(req.query.limit as string) || 20;
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      // Mock data until DB/on-chain integration exists
+      const history = [
+        {
+          roundId: "round-001",
+          asset: "XLM",
+          mode: "updown",
+          amount: 100,
+          side: "UP",
+          result: "WIN",
+          payout: 180,
+          timestamp: new Date().toISOString(),
+        },
+        {
+          roundId: "round-002",
+          asset: "BTC",
+          mode: "legends",
+          amount: 50,
+          predictedPrice: 105000,
+          result: "LOSS",
+          payout: 0,
+          timestamp: new Date().toISOString(),
+        },
+      ];
+
+      const paginatedHistory = history.slice(offset, offset + limit);
+
+      return res.json({
+        success: true,
+        address,
+        data: paginatedHistory,
+        pagination: {
+          limit,
+          offset,
+          total: history.length,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 /**
  * GET /api/user/:walletAddress/public-profile
  * Public profile view for any user
