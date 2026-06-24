@@ -20,6 +20,7 @@ import {
    validateUserPriceRange,
 } from '../utils/price-range.util';
 import sorobanService from './soroban.service';
+import websocketService from './websocket.service';
 
 export class PredictionService {
    /**
@@ -274,6 +275,33 @@ export class PredictionService {
          void invalidateLeaderboardSortedSet();
 
          predictionsPlacedTotal.inc();
+
+         // Emit pool_update so the frontend sees live stake distribution.
+         // Fire-and-forget: a DB error here must not fail the prediction response.
+         void (async () => {
+            try {
+               const updatedRound = await prisma.round.findUnique({
+                  where: { id: roundId },
+                  select: {
+                     id: true,
+                     mode: true,
+                     poolUp: true,
+                     poolDown: true,
+                     priceRanges: true,
+                  },
+               });
+               if (updatedRound) {
+                  websocketService.emitPoolUpdate(roundId, {
+                     mode: updatedRound.mode,
+                     poolUp: updatedRound.poolUp ? toNumber(updatedRound.poolUp as any) : null,
+                     poolDown: updatedRound.poolDown ? toNumber(updatedRound.poolDown as any) : null,
+                     priceRanges: updatedRound.priceRanges,
+                  });
+               }
+            } catch (poolErr) {
+               logger.warn(`pool_update emit failed for round ${roundId}: ${(poolErr as Error).message}`);
+            }
+         })();
 
          return prediction;
       } catch (error) {

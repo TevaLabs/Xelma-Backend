@@ -494,6 +494,40 @@ export async function initializeSocket(
          }
       });
 
+      // Join a per-round room so clients receive events scoped to a specific
+      // active round (round_update, pool_update, prediction:placed, price:update).
+      // No authentication required — all of these are public data.
+      socket.on('join:round:id', (data: { roundId: string }) => {
+         const roundId = data?.roundId;
+         if (!roundId || typeof roundId !== 'string') {
+            socket.emit('error', { message: 'join:round:id requires a roundId string' });
+            return;
+         }
+         const roomName = `round:${roundId}`;
+         socket.join(roomName);
+         logger.info(`Socket ${socket.id} joined room: ${roomName}`);
+         socket.emit('room:joined', { room: roomName, roundId });
+         if (socket.userId) {
+            void multiplayerSessionService.addRoom(socket.userId, roomName);
+         }
+      });
+
+      // Leave per-round room
+      socket.on('leave:round:id', (data: { roundId: string }) => {
+         const roundId = data?.roundId;
+         if (!roundId || typeof roundId !== 'string') {
+            socket.emit('error', { message: 'leave:round:id requires a roundId string' });
+            return;
+         }
+         const roomName = `round:${roundId}`;
+         socket.leave(roomName);
+         logger.info(`Socket ${socket.id} left room: ${roomName}`);
+         socket.emit('room:left', { room: roomName, roundId });
+         if (socket.userId) {
+            void multiplayerSessionService.removeRoom(socket.userId, roomName);
+         }
+      });
+
       // Join chat room (requires authentication)
       socket.on('join:chat', () => {
          if (!socket.userId) {

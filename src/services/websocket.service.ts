@@ -10,7 +10,9 @@ import { websocketEmitsTotal } from '../metrics/application.metrics';
  */
 export const WebSocketEvents = {
   RoundStarted: 'round:started',
+  RoundUpdate: 'round_update',
   PredictionPlaced: 'prediction:placed',
+  PoolUpdate: 'pool_update',
   RoundResolved: 'round:resolved',
   PriceUpdate: 'price:update',
   ChatMessage: 'chat:message',
@@ -84,6 +86,17 @@ class WebSocketService {
   }
 
   /**
+   * Fan-out a single event to multiple rooms in one call.
+   * Each room emission is independent — a failure in one does not
+   * prevent the others from being attempted.
+   */
+  private safeEmitToRooms(rooms: string[], event: WebSocketEventName, payload: any, userId?: string | null): void {
+    for (const room of rooms) {
+      this.safeEmit({ room, event, payload, userId });
+    }
+  }
+
+  /**
    * Replay handler used by the DLQ. Re-emits an event using the stored
    * payload. Throws if the socket layer is still not initialized so the
    * DLQ records another attempt instead of falsely resolving the row.
@@ -107,7 +120,8 @@ class WebSocketService {
   }
 
   /**
-   * Emit event when a new round starts
+   * Emit event when a new round starts (backward-compat).
+   * Also fans out to the per-round room `round:<id>`.
    */
   emitRoundStarted(round: any): void {
     const payload = {
@@ -119,8 +133,35 @@ class WebSocketService {
       startPrice: round.startPrice,
       priceRanges: round.priceRanges,
     };
-    this.safeEmit({ room: 'round', event: WebSocketEvents.RoundStarted, payload });
+    this.safeEmitToRooms(['round', `round:${round.id}`], WebSocketEvents.RoundStarted, payload);
     logger.info(`Emitted round:started for round ${round.id}`);
+  }
+
+  /**
+   * Emit a unified `round_update` event whenever a round changes status
+   * (ACTIVE → LOCKED → RESOLVED).  Broadcasts to:
+   *   • `round`          — generic room all subscribers join
+   *   • `round:<id>`     — per-round room for targeted subscriptions
+   *
+   * @param round - The updated round object from the database.
+   */
+  emitRoundUpdate(round: any): void {
+    const payload = {
+      id: round.id,
+      mode: round.mode,
+      status: round.status,
+      startTime: round.startTime,
+      endTime: round.endTime,
+      startPrice: round.startPrice,
+      endPrice: round.endPrice ?? null,
+      resolvedAt: round.resolvedAt ?? null,
+      poolUp: round.poolUp ?? null,
+      poolDown: round.poolDown ?? null,
+      priceRanges: round.priceRanges ?? null,
+      updatedAt: round.updatedAt,
+    };
+    this.safeEmitToRooms(['round', `round:${round.id}`], WebSocketEvents.RoundUpdate, payload);
+    logger.info(`Emitted round_update for round ${round.id} (status=${round.status})`);
   }
 
   /**
@@ -139,7 +180,8 @@ class WebSocketService {
   }
 
   /**
-   * Emit event when a round is resolved
+   * Emit event when a round is resolved (backward-compat).
+   * Also fans out to the per-round room `round:<id>`.
    */
   emitRoundResolved(round: any): void {
     const payload = {
@@ -151,12 +193,46 @@ class WebSocketService {
       predictions: round.predictions?.length || 0,
       winners: round.predictions?.filter((p: any) => p.won === true).length || 0,
     };
-    this.safeEmit({ room: 'round', event: WebSocketEvents.RoundResolved, payload });
+    this.safeEmitToRooms(['round', `round:${round.id}`], WebSocketEvents.RoundResolved, payload);
     logger.info(`Emitted round:resolved for round ${round.id}`);
   }
 
   /**
-   * Emit price update event
+   * Emit a `pool_update` event after a prediction is placed.
+   * Carries the latest pool sizes so the frontend can update stake
+   * distribution in real time without polling.
+   *
+   * Broadcasts to:
+   *   • `round`          — generic room
+   *   • `round:<id>`     — per-round room
+   *
+   * @param roundId   - The round that was updated.
+   * @param poolData  - Pool snapshot: poolUp/poolDown (UP_DOWN) or priceRanges (LEGENDS).
+   */
+  emitPoolUpdate(
+    roundId: string,
+    poolData: {
+      mode: string;
+      poolUp?: number | null;
+      poolDown?: number | null;
+      priceRanges?: any;
+    }
+  ): void {
+    const payload = {
+      roundId,
+      mode: poolData.mode,
+      poolUp: poolData.poolUp ?? null,
+      poolDown: poolData.poolDown ?? null,
+      priceRanges: poolData.priceRanges ?? null,
+      timestamp: new Date().toISOString(),
+    };
+    this.safeEmitToRooms(['round', `round:${roundId}`], WebSocketEvents.PoolUpdate, payload);
+    logger.info(`Emitted pool_update for round ${roundId}`);
+  }
+
+  /**
+   * Emit price update event (XLM price tick, every ~5 s).
+   * Delivered to the generic `round` room — no auth required.
    */
   emitPriceUpdate(asset: string, price: number | string): void {
     const payload = {
@@ -168,7 +244,7 @@ class WebSocketService {
   }
 
   /**
-   * Emit chat message to chat room
+   * Emit chat message to chat room.
    */
   emitChatMessage(message: any): void {
     this.safeEmit({ room: 'chat', event: WebSocketEvents.ChatMessage, payload: message });
