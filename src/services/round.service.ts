@@ -9,6 +9,12 @@ import { RoundLifecycleOutcome } from "../types/round.types";
 import { Decimal } from "@prisma/client/runtime/library";
 import { toDecimal, toNumber } from "../utils/decimal.util";
 import { roundsStartedTotal } from "../metrics/application.metrics";
+import config from "../config";
+import {
+  ActiveRoundSource,
+  mapDatabaseActiveRound,
+  mapSorobanActiveRound,
+} from "../utils/soroban-round.mapper";
 
 interface LegendsPriceRange {
   min: number;
@@ -162,6 +168,42 @@ export class RoundService {
       logger.error("Failed to get round:", error);
       throw error;
     }
+  }
+
+  /**
+   * Gets active rounds from Soroban when available, otherwise from the database.
+   * Set ROUNDS_MOCK_MODE=true to force database-only reads for local development.
+   */
+  async getActiveRoundsWithFallback(): Promise<{
+    source: ActiveRoundSource;
+    rounds: any[];
+  }> {
+    if (!config.app.roundsMockMode) {
+      try {
+        const onChainRound = await sorobanService.getActiveRound();
+        if (onChainRound) {
+          return {
+            source: "soroban",
+            rounds: [mapSorobanActiveRound(onChainRound)],
+          };
+        }
+      } catch (error) {
+        logger.warn(
+          "Failed to fetch active round from Soroban; falling back to database",
+          error,
+        );
+      }
+    }
+
+    const dbRounds = await this.getActiveRounds();
+    if (dbRounds.length > 0) {
+      return {
+        source: "database",
+        rounds: dbRounds.map((round) => mapDatabaseActiveRound(round)),
+      };
+    }
+
+    return { source: "none", rounds: [] };
   }
 
   /**

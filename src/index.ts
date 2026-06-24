@@ -15,6 +15,7 @@ import { createServer, Server as HttpServer } from 'http';
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
 import roundsRoutes from './routes/rounds.routes';
+import betsRoutes from './routes/bets.routes';
 import predictionsRoutes from './routes/predictions.routes';
 import educationRoutes from './routes/education.routes';
 import leaderboardRoutes from './routes/leaderboard.routes';
@@ -153,6 +154,7 @@ export function createApp(): Express {
    app.use('/api/auth', authRoutes);
    app.use('/api/user', userRoutes);
    app.use('/api/rounds', roundsRoutes);
+   app.use('/api/bets', betsRoutes);
    app.use('/api/predictions', predictionsRoutes);
    app.use('/api/education', educationRoutes);
    app.use('/api/leaderboard', leaderboardRoutes);

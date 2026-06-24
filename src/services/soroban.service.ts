@@ -58,9 +58,9 @@ export class SorobanService {
       const adminSecret = process.env.SOROBAN_ADMIN_SECRET;
       const oracleSecret = process.env.SOROBAN_ORACLE_SECRET;
 
-      if (!contractId || !adminSecret || !oracleSecret) {
+      if (!contractId) {
         logger.warn(
-          "Soroban configuration or bindings missing. Soroban integration DISABLED.",
+          "SOROBAN_CONTRACT_ID not set. Soroban integration DISABLED.",
         );
         this.initialized = false;
         return;
@@ -74,11 +74,17 @@ export class SorobanService {
         rpcUrl,
       });
 
-      this.adminKeypair = Keypair.fromSecret(adminSecret);
-      this.oracleKeypair = Keypair.fromSecret(oracleSecret);
-      this.initialized = true;
+      if (adminSecret && oracleSecret) {
+        this.adminKeypair = Keypair.fromSecret(adminSecret);
+        this.oracleKeypair = Keypair.fromSecret(oracleSecret);
+        logger.info("Soroban service initialized (read-write)");
+      } else {
+        logger.info(
+          "Soroban service initialized (read-only; write keys not configured)",
+        );
+      }
 
-      logger.info("Soroban service initialized successfully");
+      this.initialized = true;
     } catch (error) {
       logger.error("Failed to initialize Soroban service:", error);
       this.initialized = false;

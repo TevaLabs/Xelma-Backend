@@ -1846,6 +1846,30 @@ npx prisma migrate status
 
 ---
 
+## Hackathon API Rate Limits
+
+The lightweight hackathon server (`src/app.ts`, default port **3001**) applies per-IP throttling with [`express-rate-limit`](https://github.com/express-rate-limit/express-rate-limit) via `src/middleware/rateLimiter.ts`.
+
+| Limiter | Scope | Window | Max requests |
+| --- | --- | --- | --- |
+| `apiRateLimiter` | All `/api/*` routes | 1 minute | 100 |
+| `writeRateLimiter` | `POST`, `PUT`, `PATCH`, `DELETE` | 1 minute | 20 |
+| `betRateLimiter` | `POST /api/rounds/:id/bet` | 1 minute | 5 |
+
+When a client exceeds a limit, the API returns **429** with retry guidance:
+
+```json
+{
+  "error": "Too Many Requests",
+  "message": "Too many bet submissions from this IP. Please wait before placing another bet.",
+  "retryAfter": 60
+}
+```
+
+The `RateLimit-*` and `Retry-After` response headers are also set (`standardHeaders: true`).
+
+---
+
 ## Related Repositories
 
 - **Smart Contract**: [TevaLabs/Xelma-Blockchain](https://github.com/TevaLabs/Xelma-Blockchain)

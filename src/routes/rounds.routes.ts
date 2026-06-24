@@ -140,6 +140,46 @@ router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSc
 
 /**
  * @swagger
+ * /api/rounds/active:
+ *   get:
+ *     summary: Get active rounds
+ *     description: Returns the on-chain active round when Soroban is configured; falls back to database rounds when RPC is unavailable or ROUNDS_MOCK_MODE=true.
+ *     tags: [rounds]
+ *     responses:
+ *       200:
+ *         description: Active rounds
+ *         content:
+ *           application/json:
+ *             example:
+ *               success: true
+ *               source: soroban
+ *               rounds: []
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             $ref: '#/components/schemas/ErrorResponse'
+ *     x-codeSamples:
+ *       - lang: cURL
+ *         source: |
+ *           curl -X GET "$API_BASE_URL/api/rounds/active"
+ */
+router.get('/active', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { source, rounds } = await roundService.getActiveRoundsWithFallback();
+
+        res.json({
+            success: true,
+            source,
+            rounds,
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * @swagger
  * /api/rounds/{id}:
  *   get:
  *     summary: Get a round by ID
@@ -186,43 +226,6 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
         res.json({
             success: true,
             round,
-        });
-    } catch (error) {
-        next(error);
-    }
-});
-
-/**
- * @swagger
- * /api/rounds/active:
- *   get:
- *     summary: Get active rounds
- *     tags: [rounds]
- *     responses:
- *       200:
- *         description: Active rounds
- *         content:
- *           application/json:
- *             example:
- *               success: true
- *               rounds: []
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             $ref: '#/components/schemas/ErrorResponse'
- *     x-codeSamples:
- *       - lang: cURL
- *         source: |
- *           curl -X GET "$API_BASE_URL/api/rounds/active"
- */
-router.get('/active', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const rounds = await roundService.getActiveRounds();
-
-        res.json({
-            success: true,
-            rounds,
         });
     } catch (error) {
         next(error);
