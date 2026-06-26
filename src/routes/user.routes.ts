@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { updateProfileSchema } from "../schemas/user.schema";
+import { offsetPaginationSchema } from "../schemas/pagination.schema";
 import { NotFoundError } from "../utils/errors";
 import sorobanService from "../services/soroban.service";
 
@@ -241,6 +242,80 @@ router.get(
       next(error);
     }
   }) as any,
+);
+
+/**
+ * GET /api/user/:address/history
+ * Paginated bet (prediction) history for a Stellar address.
+ * Public endpoint — no authentication required.
+ */
+router.get(
+  "/:address/history",
+  validate(offsetPaginationSchema, "query"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+      const { limit, offset } = req.query as unknown as { limit: number; offset: number };
+
+      const user = await prisma.user.findUnique({
+        where: { walletAddress: address },
+        select: { id: true },
+      });
+
+      if (!user) {
+        return res.json({
+          success: true,
+          data: [],
+          pagination: { limit, offset, total: 0 },
+        });
+      }
+
+      const [predictions, total] = await prisma.$transaction([
+        prisma.prediction.findMany({
+          where: { userId: user.id },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          skip: offset,
+          include: {
+            round: {
+              select: {
+                id: true,
+                mode: true,
+                startPrice: true,
+                endPrice: true,
+                status: true,
+                startTime: true,
+                endTime: true,
+                resolvedAt: true,
+              },
+            },
+          },
+        }),
+        prisma.prediction.count({ where: { userId: user.id } }),
+      ]);
+
+      const history = predictions.map((p: any) => ({
+        roundId: p.roundId,
+        asset: "XLM",
+        mode: p.round.mode,
+        amount: p.amount,
+        side: p.side,
+        predictedPrice: p.priceRange,
+        result: p.won === null ? "PENDING" : p.won ? "WIN" : "LOSS",
+        payout: p.payout,
+        timestamp: p.createdAt,
+        roundStatus: p.round.status,
+      }));
+
+      return res.json({
+        success: true,
+        data: history,
+        pagination: { limit, offset, total },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 );
 
 /**

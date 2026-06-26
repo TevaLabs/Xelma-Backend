@@ -25,6 +25,7 @@ import sorobanService from './services/soroban.service';
 import websocketService from './services/websocket.service';
 import schedulerService from './services/scheduler.service';
 import roundSchedulerService from './services/round-scheduler.service';
+import oracleService from './services/oracle.service';
 import logger from './utils/logger';
 import { validateVendoredBindings } from './utils/bindings-validator';
 import { errorHandler } from './middleware/errorHandler.middleware';
@@ -36,6 +37,7 @@ import errorsRoutes from './routes/errors.routes';
 import corsDiagnosticsRoutes from './routes/admin-cors-diagnostics.routes';
 import deadLetterRoutes from './routes/admin-dead-letter.routes';
 import chatRoutes from './routes/chat.routes';
+import tournamentsRoutes from './routes/tournaments.routes';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './docs/openapi';
 import { initializeSocket } from './socket';
@@ -160,6 +162,7 @@ export function createApp(): Express {
    app.use('/api/leaderboard', leaderboardRoutes);
    app.use('/api/chat', chatRoutes);
    app.use('/api/notifications', notificationsRoutes);
+   app.use('/api/tournaments', tournamentsRoutes);
    app.use('/api/admin/metrics', adminMetricsRoutes);
    app.use('/api/errors', errorsRoutes);
    app.use('/api/admin/cors-diagnostics', corsDiagnosticsRoutes);
@@ -326,6 +329,7 @@ export async function startServer(app: Express): Promise<ServerHandle> {
       // Initialize Schedulers
       schedulerService.start();
       roundSchedulerService.start();
+      oracleService.start();
 
       // Emit price updates via WebSocket
       priceInterval = setInterval(() => {
@@ -344,6 +348,7 @@ export async function startServer(app: Express): Promise<ServerHandle> {
       if (!apiOnly) {
          priceOracle.stopPolling();
          roundSchedulerService.stop();
+         oracleService.stop();
       }
       // Always stop the general scheduler (outbox poller, cleanup jobs)
       schedulerService.stop();

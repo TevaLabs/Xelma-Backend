@@ -1846,6 +1846,191 @@ npx prisma migrate status
 
 ---
 
+## Hackathon Quick-Start
+
+This section is designed so a new developer can boot and test the API in minutes.
+
+### 1. Setup
+
+```bash
+git clone https://github.com/TevaLabs/Xelma-Backend.git
+cd Xelma-Backend
+npm install
+cp .env.example .env
+# Edit .env → set DATABASE_URL and JWT_SECRET at minimum
+npm run prisma:generate
+npm run prisma:migrate
+npm run dev
+```
+
+The server starts on `http://localhost:3001` (or the `PORT` in `.env`).
+
+### 2. Required Environment Variables
+
+| Variable | Example | Purpose |
+|---|---|---|
+| `PORT` | `3001` | Server listen port |
+| `DATABASE_URL` | `postgresql://user:pass@localhost:5432/xelma` | PostgreSQL connection |
+| `JWT_SECRET` | `my-secret-key` | Signs JWT tokens (app refuses to start without it) |
+| `COINGECKO_API_URL` | `https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd` | Price oracle source |
+| `STELLAR_RPC_URL` | `https://soroban-testnet.stellar.org` | Stellar/Soroban RPC |
+| `CONTRACT_ID` | *(your deployed contract)* | Soroban prediction market contract |
+
+> **Note**: For hackathon MVP, the backend uses PostgreSQL for persistence. In-memory store is not used.
+
+### 3. Hackathon Endpoint Curl Examples
+
+#### Health Check
+
+```bash
+curl http://localhost:3001/health
+```
+
+#### Get XLM Price
+
+```bash
+curl http://localhost:3001/api/price
+```
+
+#### Auth: Request Challenge
+
+```bash
+curl -X POST http://localhost:3001/api/auth/challenge \
+  -H "Content-Type: application/json" \
+  -d '{"walletAddress": "GXXX...YOUR_STELLAR_ADDRESS"}'
+```
+
+#### Auth: Connect (verify signature, get JWT)
+
+```bash
+curl -X POST http://localhost:3001/api/auth/connect \
+  -H "Content-Type: application/json" \
+  -d '{
+    "walletAddress": "GXXX...YOUR_STELLAR_ADDRESS",
+    "challenge": "CHALLENGE_FROM_ABOVE",
+    "signature": "BASE64_SIGNATURE"
+  }'
+```
+
+#### Get Active Rounds
+
+```bash
+curl http://localhost:3001/api/rounds/active
+```
+
+#### Get Round by ID
+
+```bash
+curl http://localhost:3001/api/rounds/ROUND_ID
+```
+
+#### Submit Prediction (requires JWT)
+
+```bash
+curl -X POST http://localhost:3001/api/predictions/submit \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT" \
+  -d '{"roundId": "ROUND_ID", "amount": 10, "side": "UP"}'
+```
+
+#### Get User Profile (requires JWT)
+
+```bash
+curl http://localhost:3001/api/user/profile \
+  -H "Authorization: Bearer YOUR_JWT"
+```
+
+#### Get User Balance (requires JWT)
+
+```bash
+curl http://localhost:3001/api/user/balance \
+  -H "Authorization: Bearer YOUR_JWT"
+```
+
+#### Get User Stats (requires JWT)
+
+```bash
+curl http://localhost:3001/api/user/stats \
+  -H "Authorization: Bearer YOUR_JWT"
+```
+
+#### Get Bet History by Address
+
+```bash
+curl "http://localhost:3001/api/user/GXXX.../history?limit=20&offset=0"
+```
+
+#### Get Public Profile
+
+```bash
+curl http://localhost:3001/api/user/GXXX.../public-profile
+```
+
+#### Get On-chain User Stats
+
+```bash
+curl http://localhost:3001/api/user/GXXX.../stats
+```
+
+#### Get Transactions (requires JWT)
+
+```bash
+curl "http://localhost:3001/api/user/transactions?page=1&limit=20" \
+  -H "Authorization: Bearer YOUR_JWT"
+```
+
+#### Get Leaderboard
+
+```bash
+curl "http://localhost:3001/api/leaderboard?limit=10&offset=0"
+```
+
+#### List Tournaments
+
+```bash
+curl "http://localhost:3001/api/tournaments?limit=10&offset=0"
+```
+
+#### Get Tournament Detail
+
+```bash
+curl http://localhost:3001/api/tournaments/t-001
+```
+
+#### Get Education Guides
+
+```bash
+curl http://localhost:3001/api/education/guides
+```
+
+#### Send Chat Message (requires JWT)
+
+```bash
+curl -X POST http://localhost:3001/api/chat/send \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT" \
+  -d '{"content": "Hello everyone!"}'
+```
+
+#### Get Chat History
+
+```bash
+curl "http://localhost:3001/api/chat/history?limit=50"
+```
+
+#### Get Notifications (requires JWT)
+
+```bash
+curl "http://localhost:3001/api/notifications?limit=20&offset=0" \
+  -H "Authorization: Bearer YOUR_JWT"
+```
+
+#### Swagger UI
+
+Open [http://localhost:3001/api-docs](http://localhost:3001/api-docs) in a browser for interactive API documentation.
+
+---
+
 ## Hackathon API Rate Limits
 
 The lightweight hackathon server (`src/app.ts`, default port **3001**) applies per-IP throttling with [`express-rate-limit`](https://github.com/express-rate-limit/express-rate-limit) via `src/middleware/rateLimiter.ts`.
