@@ -1,4 +1,5 @@
 import logger from "../utils/logger";
+import sorobanService from "./soroban.service";
 
 export interface UpDownBetInput {
   address: string;
@@ -13,21 +14,27 @@ export interface PrecisionBetInput {
 }
 
 /**
- * Hackathon stub — records bet intent for frontend integration.
- * TODO: Call contract via Xelma TypeScript bindings — bets must go on-chain;
- * this endpoint is logging/analytics only for now.
+ * Records bet intent or submits on-chain depending on BET_STUB_MODE.
  */
 export class BetService {
-  recordUpDownBet(input: UpDownBetInput): void {
-    // TODO: Call contract via Xelma TypeScript bindings — bets must go on-chain;
-    // this endpoint is logging/analytics only for now
-    logger.info("UP/DOWN bet stub recorded", input);
+  async recordUpDownBet(input: UpDownBetInput): Promise<{ state: string; txHash?: string }> {
+    if (process.env.BET_STUB_MODE === "true") {
+      logger.info("UP/DOWN bet stub recorded", input);
+      return { state: "stub" };
+    }
+    
+    logger.info("Placing UP/DOWN bet on-chain", input);
+    return await sorobanService.placeBet(input.address, input.amount, input.side);
   }
 
-  recordPrecisionBet(input: PrecisionBetInput): void {
-    // TODO: Call contract via Xelma TypeScript bindings — bets must go on-chain;
-    // this endpoint is logging/analytics only for now
-    logger.info("Precision bet stub recorded", input);
+  async recordPrecisionBet(input: PrecisionBetInput): Promise<{ state: string; txHash?: string }> {
+    if (process.env.BET_STUB_MODE === "true") {
+      logger.info("Precision bet stub recorded", input);
+      return { state: "stub" };
+    }
+    
+    logger.info("Placing Precision bet on-chain", input);
+    return await sorobanService.placePrecisionBet(input.address, input.amount, input.predictedPrice);
   }
 }
 

@@ -109,7 +109,6 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
       JWT_SECRET: ci-test-secret
-      TEST_TYPE: integration
 
     services:
       postgres:
@@ -143,4 +142,4 @@ jobs:
         run: npx prisma migrate deploy
 
       - name: Run integration tests
-        run: npm run test:integration
+        run: npx jest --selectProjects integration

@@ -7,6 +7,8 @@ import { adminRoundRateLimiter, oracleResolveRateLimiter } from '../middleware/r
 import { validate } from '../middleware/validate.middleware';
 import { startRoundSchema, resolveRoundSchema } from '../schemas/rounds.schema';
 import { NotFoundError } from '../utils/errors';
+import config from '../config';
+import simulationService from '../services/simulation.service';
 
 const router = Router();
 
@@ -335,5 +337,66 @@ router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(re
         next(error);
     }
 }) as any);
+
+/**
+ * @swagger
+ * /api/rounds/{id}/simulate:
+ *   post:
+ *     summary: Simulate a round resolution (Non-Production QA Endpoint)
+ *     description: Simulates payout distribution for frontend QA without placing real bets or mutating the round status. Disabled in production unless ENABLE_SIMULATION=true.
+ *     tags: [rounds]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: Round ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               finalPrice: { type: number, description: Simulated final price }
+ *             required: [finalPrice]
+ *     responses:
+ *       200:
+ *         description: Simulation results showing winners, losers, and payout mock
+ *       400:
+ *         description: Validation error
+ *       403:
+ *         description: Disabled in production
+ *       404:
+ *         description: Round not found
+ */
+router.post('/:id/simulate', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        if (config.app.nodeEnv === 'production' && !config.app.enableSimulation) {
+            return res.status(403).json({ success: false, error: 'Simulation disabled in production unless ENABLE_SIMULATION=true' });
+        }
+        
+        const { id } = req.params;
+        const { finalPrice } = req.body;
+        
+        if (finalPrice === undefined || finalPrice === null) {
+            return res.status(400).json({ success: false, error: 'finalPrice is required' });
+        }
+        
+        const result = await simulationService.simulateRound(id, finalPrice);
+        if (!result) {
+            return res.status(404).json({ success: false, error: 'Round not found' });
+        }
+        
+        res.json({
+            success: true,
+            roundId: id,
+            simulatedPrice: finalPrice,
+            ...result
+        });
+    } catch (error) {
+        next(error);
+    }
+});
 
 export default router;

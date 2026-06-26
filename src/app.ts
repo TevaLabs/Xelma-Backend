@@ -8,11 +8,19 @@ import statsRoutes from './routes/stats';
 import roundsRoutes from './routes/rounds';
 import leaderboardRoutes from './routes/leaderboard';
 import { apiRateLimiter, writeRateLimiter } from './middleware/rateLimiter';
+import { getHttpCorsOrigins } from './utils/cors';
 
 const app: Application = express();
 
 app.use(express.json());
-app.use(cors({ origin: true }));
+app.use(
+  cors({
+    origin: getHttpCorsOrigins(),
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
+    credentials: true,
+  })
+);
 app.use(helmet());
 app.use(morgan('combined'));
 
