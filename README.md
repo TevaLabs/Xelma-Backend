@@ -936,6 +936,72 @@ attempt.
 
 ---
 
+### Bet Endpoints
+
+#### Submit an UP/DOWN Bet
+
+```bash
+POST /api/bets/up-down
+Authorization: Bearer YOUR_JWT_TOKEN
+Content-Type: application/json
+Idempotency-Key: a5b7-c9d8-e2f4-77a8-33b2
+
+{
+  "address": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+  "amount": 10,
+  "side": "UP"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Bet recorded (stub)",
+  "state": "stub"
+}
+```
+
+#### Submit a Precision Bet
+
+```bash
+POST /api/bets/precision
+Authorization: Bearer YOUR_JWT_TOKEN
+Content-Type: application/json
+Idempotency-Key: a5b7-c9d8-e2f4-77a8-33b2
+
+{
+  "address": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+  "amount": 5,
+  "predictedPrice": 0.12
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Bet placed on-chain",
+  "state": "on-chain-success",
+  "txHash": "0x123..."
+}
+```
+
+#### Bet Creation Idempotency
+
+Both `/api/bets/up-down` and `/api/bets/precision` endpoints support safe client retries using the optional `Idempotency-Key` header.
+
+* **Idempotency-Key Header**: Optional. Standard string format (alphanumeric with hyphens/underscores, 8-255 characters).
+* **TTL (Time-To-Live)**: 24 hours. Stored idempotency records are kept for 24 hours (or as configured via `BET_IDEMPOTENCY_TTL_HOURS` environment variable) and then pruned by the daily scheduler.
+* **Retry Semantics**:
+  * **First Successful Request**: Performs the bet operation (either stub or submits on-chain) and caches the response.
+  * **Duplicate Request (Same Key & Body)**: Returns the original cached response with HTTP 200 without creating a duplicate bet or executing on-chain transactions again.
+  * **Mutation Check (Same Key, Different Body)**: Returns HTTP 409 Conflict with code `CONFLICT` and error code `IDEMPOTENCY_KEY_CONFLICT` to protect against unintentional reuse of keys across different operations.
+  * **Concurrency Protection**: Simultaneous concurrent requests with the identical key are coordinated using database-level locks. Only one request will execute the operation, while other concurrent retries safely block/wait for the result and receive the same response, preventing double-betting under high latency or race conditions.
+  * **Failures/Retries**: If the initial operation fails (e.g., Soroban network error or database timeout), the temporary lock is automatically released, allowing subsequent retries to execute the bet again instead of caching a failed state.
+
+---
+
 ### Leaderboard & User Stats
 
 #### Get Global Leaderboard
