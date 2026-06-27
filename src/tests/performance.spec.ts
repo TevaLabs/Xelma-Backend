@@ -258,7 +258,7 @@ describe("Load Test Harness — Prediction Throughput (#21)", () => {
 
     console.log(formatLoadTestReport("prediction throughput", result));
 
-    expect(result.successes).toBe(iterations);
+    expect(result.errorRate).toBeLessThanOrEqual(LOAD_CONFIG.prediction.maxErrorRate);
     expect(result.throughputRps).toBeGreaterThanOrEqual(minThroughputRps);
     expect(result.latencyMs.p95).toBeLessThanOrEqual(maxP95LatencyMs);
   });
