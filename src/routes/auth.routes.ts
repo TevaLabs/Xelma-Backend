@@ -222,35 +222,34 @@ router.post(
  *             -H "Content-Type: application/json" \\
  *             -d '{"walletAddress":"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX","challenge":"random-challenge-string","signature":"base64-or-hex-signature"}'
  */
-router.post(
-  "/connect",
-  connectRateLimiter,
-  validate(connectSchema),
-  async (req: Request, res: Response, next: NextFunction) => {
-    const requestId = (req as any).requestId;
-    const ipAddress = req.ip || req.socket.remoteAddress;
-    const userAgent = req.get('user-agent');
-    
-    try {
-      const { walletAddress, challenge, signature }: ConnectRequestBody =
-        req.body;
+const connectHandler = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<Response | void> => {
+  const requestId = (req as any).requestId;
+  const ipAddress = req.ip || req.socket.remoteAddress;
+  const userAgent = req.get('user-agent');
 
-      // Use atomic update to consume challenge (prevent race conditions)
-      const now = new Date();
-      const updateResult = await prisma.authChallenge.updateMany({
-        where: {
-          challenge,
-          walletAddress,
-          isUsed: false,
-          expiresAt: {
-            gt: now,
-          },
+  try {
+    const { walletAddress, challenge, signature }: ConnectRequestBody = req.body;
+
+    // Use atomic update to consume challenge (prevent race conditions)
+    const now = new Date();
+    const updateResult = await prisma.authChallenge.updateMany({
+      where: {
+        challenge,
+        walletAddress,
+        isUsed: false,
+        expiresAt: {
+          gt: now,
         },
-        data: {
-          isUsed: true,
-          usedAt: now,
-        },
-      });
+      },
+      data: {
+        isUsed: true,
+        usedAt: now,
+      },
+    });
 
       // If no rows were updated, the challenge is invalid, expired, or already used
       if (updateResult.count === 0) {
@@ -523,7 +522,20 @@ router.post(
     } catch (error) {
       next(error);
     }
-  },
+  };
+
+router.post(
+  "/connect",
+  connectRateLimiter,
+  validate(connectSchema),
+  connectHandler,
+);
+
+router.post(
+  "/verify",
+  connectRateLimiter,
+  validate(connectSchema),
+  connectHandler,
 );
 
 export default router;

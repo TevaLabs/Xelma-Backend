@@ -14,6 +14,7 @@ export interface AppConfig {
   logLevel: string;
   apiOnly: boolean;
   roundsMockMode: boolean;
+  enableSimulation: boolean;
 }
 
 export interface JwtConfig {
@@ -96,6 +97,7 @@ function buildConfig(): Config {
     ),
     apiOnly: v.boolean(env.API_ONLY, false),
     roundsMockMode: v.boolean(env.ROUNDS_MOCK_MODE, false),
+    enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
   };
 
   const jwt: JwtConfig = {

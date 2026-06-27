@@ -24,6 +24,7 @@ import {
    parseRoundPriceRanges,
    validateUserPriceRange,
 } from '../utils/price-range.util';
+import { calculatePayout } from '../utils/payout.util';
 import { roundsResolvedTotal } from '../metrics/application.metrics';
 
 function isValidRange(range: any): range is RoundPriceRange {
@@ -251,8 +252,7 @@ export class ResolutionService {
          if (prediction.side === winningSide) {
             // Winner: gets bet back + proportional share of losing pool (decimal-safe)
             const predAmount = toDecimal(prediction.amount);
-            const share = decMul(decDiv(predAmount, winningPool), losingPool);
-            const payout = decAdd(predAmount, share);
+            const payout = calculatePayout(predAmount, winningPool, losingPool);
 
             await db.prediction.update({
                where: { id: prediction.id },
@@ -531,11 +531,7 @@ export class ResolutionService {
          ) {
             // Winner (decimal-safe)
             const predAmount = toDecimal(prediction.amount);
-            const share = decMul(
-               decDiv(predAmount, decWinningPool),
-               decLosingPool
-            );
-            const payout = decAdd(predAmount, share);
+            const payout = calculatePayout(predAmount, decWinningPool, decLosingPool);
 
             await db.prediction.update({
                where: { id: prediction.id },

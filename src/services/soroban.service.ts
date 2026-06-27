@@ -233,7 +233,7 @@ export class SorobanService {
     userAddress: string,
     amount: number | string,
     side: "UP" | "DOWN",
-  ): Promise<void> {
+  ): Promise<{ state: string; txHash?: string }> {
     await this.ensureInitialized();
     
     const result = await this.callWithBreaker("sorobanPlaceBet", () =>
@@ -256,8 +256,9 @@ export class SorobanService {
           amount: amountInStroops,
           side: betSide,
         });
-        await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        return undefined;
+        const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+        // Return a generic state, or the tx hash if the bindings expose it
+        return { state: "on-chain-success", txHash: (res as any).hash };
       },
       {
         timeoutMs: this.CALL_TIMEOUT_MS,
@@ -280,6 +281,66 @@ export class SorobanService {
       durationMs: result.durationMs,
       retriesUsed: result.retriesUsed,
     });
+
+    return result.data!;
+  }
+
+  /**
+   * Places a precision prediction on the Soroban contract.
+   * 
+   * Uses timeout wrapper with retry logic.
+   */
+  async placePrecisionBet(
+    userAddress: string,
+    amount: number | string,
+    predictedPrice: number | string,
+  ): Promise<{ state: string; txHash?: string }> {
+    await this.ensureInitialized();
+    
+    const result = await this.callWithBreaker("sorobanPlacePrecisionBet", () =>
+      withTimeout(
+        async () => {
+        logger.debug(
+          `Initiating Soroban placePrecisionBet: user=${userAddress}, amount=${amount}, predictedPrice=${predictedPrice}`,
+        );
+
+        // Amount in stroops (1 XLM = 10^7 stroops)
+        const amountInStroops = BigInt(toDecimal(amount).mul(10_000_000).toFixed(0));
+        
+        // Price scaled to 4 decimal places
+        const priceScaled = BigInt(toDecimal(predictedPrice).mul(10_000).toFixed(0));
+
+        const tx = await this.client!.place_precision_prediction({
+          user: userAddress,
+          amount: amountInStroops,
+          predicted_price: priceScaled,
+        });
+        const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+        return { state: "on-chain-success", txHash: (res as any).hash };
+      },
+      {
+        timeoutMs: this.CALL_TIMEOUT_MS,
+        operationName: 'sorobanPlacePrecisionBet',
+        retries: this.MAX_RETRIES,
+      }
+      )
+    );
+
+    if (!result.success) {
+      logger.error("Failed to place precision bet on Soroban after retries", {
+        error: result.error?.message,
+        timedOut: result.timedOut,
+        durationMs: result.durationMs,
+      });
+      throw new Error(`Soroban contract error: ${result.error?.message}`);
+    }
+
+    logger.info("Precision bet placed successfully on Soroban", {
+      durationMs: result.durationMs,
+      retriesUsed: result.retriesUsed,
+    });
+
+    return result.data!;
   }
 
   /**

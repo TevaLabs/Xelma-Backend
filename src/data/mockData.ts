@@ -1,25 +1,25 @@
 // TODO: Replace with PostgreSQL database
 export type MockPredictionRound =
   | {
-      id: string;
-      asset: string;
-      mode: 'updown';
-      status: 'live' | 'new';
-      startPrice: number;
-      poolUp: number;
-      poolDown: number;
-      closesAt: string;
-    }
+    id: string;
+    asset: string;
+    mode: 'updown';
+    status: 'live' | 'new';
+    startPrice: number;
+    poolUp: number;
+    poolDown: number;
+    closesAt: string;
+  }
   | {
-      id: string;
-      asset: string;
-      mode: 'precision';
-      status: 'live' | 'new';
-      startPrice: number;
-      totalPool: number;
-      predictionCount: number;
-      closesAt: string;
-    };
+    id: string;
+    asset: string;
+    mode: 'precision';
+    status: 'live' | 'new';
+    startPrice: number;
+    totalPool: number;
+    predictionCount: number;
+    closesAt: string;
+  };
 
 const minutesFromNow = (minutes: number): string =>
   new Date(Date.now() + minutes * 60 * 1000).toISOString();
@@ -176,3 +176,30 @@ export const mockData = {
   },
   leaderboard: mockLeaderboard,
 };
+
+/**
+ * Static mock constants used as a fallback by the stats service when the
+ * database is empty or unreachable.
+ *
+ * FALLBACK MODE: when `GET /api/stats` returns `"isFallback": true`, the
+ * numbers below are being served instead of live DB aggregates.  This happens
+ * in two situations:
+ *
+ *   1. The data store is genuinely empty (no rounds, no users, no bets yet).
+ *      Typical during local development before any gameplay has occurred.
+ *
+ *   2. The database connection failed at query time (misconfigured DATABASE_URL,
+ *      network partition, migration not yet applied, etc.).
+ *
+ * Operators can tell which case they're in by checking server logs:
+ *   - "DB query failed, using mock fallback" → case 2 (infra issue)
+ *   - No such log line but isFallback=true → case 1 (empty store, expected)
+ *
+ * To stop seeing fallback mode, create at least one round, user, or prediction
+ * in the database, or fix the DATABASE_URL / run `npm run db:prepare`.
+ */
+export const MOCK_PLATFORM_STATS = {
+  totalRounds: 0,
+  totalUsers: 0,
+  totalBets: 0,
+} as const;

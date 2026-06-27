@@ -641,4 +641,8 @@ export async function initializeSocket(
    return io;
 }
 
+export async function initWebSocket(httpServer: HTTPServer): Promise<void> {
+   await initializeSocket(httpServer);
+}
+
 export default { initializeSocket };

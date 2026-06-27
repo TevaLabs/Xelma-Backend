@@ -28,8 +28,21 @@ interface SafeEmitInput {
   userId?: string | null;
 }
 
-class WebSocketService {
+export class WebSocketService {
+  private static _singleton = new WebSocketService();
   private io: SocketIOServer | null = null;
+
+  static get instance(): WebSocketService {
+    return WebSocketService._singleton;
+  }
+
+  static emitRoundUpdate(round: any): void {
+    WebSocketService.instance.emitRoundStarted(round);
+  }
+
+  static emitPriceUpdate(payload: { asset: string; price: number | string }): void {
+    WebSocketService.instance.emitPriceUpdate(payload.asset, payload.price);
+  }
 
   /**
    * Initialize the WebSocket service with Socket.IO instance
@@ -215,4 +228,4 @@ class WebSocketService {
   }
 }
 
-export default new WebSocketService();
+export default WebSocketService.instance;

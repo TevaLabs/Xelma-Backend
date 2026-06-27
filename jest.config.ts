@@ -106,22 +106,11 @@ const integrationConfig: Config = {
   testTimeout: 30000,
 };
 
-// Determine which config to use based on TEST_TYPE env var
-const testType = process.env.TEST_TYPE || "all";
-let config: Config;
-
-if (testType === "unit") {
-  config = unitConfig;
-} else if (testType === "integration") {
-  config = integrationConfig;
-} else {
-  // Default: run both (for local development and backward compatibility)
-  config = {
-    ...baseConfig,
-    testMatch: ["**/*.spec.ts"],
-    setupFiles: ["<rootDir>/jest.setup.js"],
-    projects: [unitConfig, integrationConfig],
-  };
-}
+const config: Config = {
+  ...baseConfig,
+  testMatch: ["**/*.spec.ts"],
+  setupFiles: ["<rootDir>/jest.setup.js"],
+  projects: [unitConfig, integrationConfig],
+};
 
 export default config;

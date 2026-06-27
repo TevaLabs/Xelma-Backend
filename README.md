@@ -967,21 +967,41 @@ socket.on('new_message', (message) => {
 Run the test suite with Jest:
 
 ```bash
-# Run all tests
+# Run all tests (unit + integration)
 npm test
+
+# Run unit tests only
+npm run test:unit
 
 # Run unit tests with coverage thresholds
 npm run test:unit:coverage
 
-# Run the full local CI check
-npm run ci
+# Run integration tests only (requires PostgreSQL — see DATABASE_URL in .env)
+npm run test:integration
 
-# Run tests in watch mode
+# Run all tests with coverage
+npm run test:coverage
+
+# Run tests in watch mode (development)
 npm run test:watch
 
-# Repeatable load baselines for prediction throughput + websocket fanout (#21)
+# Run the full local CI check (lint + build + unit coverage + integration)
+npm run ci
+
+# Run the legacy hackathon node:test suite
+npm run test:hackathon
+
+# Run load/performance baselines
 npm run test:load
 ```
+
+Coverage thresholds are enforced in `jest.config.ts`. The current floors are:
+- Branches: 70%
+- Functions: 50%
+- Lines: 35%
+- Statements: 35%
+
+CI runs `npm run test:unit:coverage` (unit tests with coverage upload) and `npm run test:integration` (integration tests against a PostgreSQL service container) as separate parallel jobs.
 
 ### Load test harness (#21)
 

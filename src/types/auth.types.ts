@@ -34,8 +34,10 @@ export interface JwtPayload {
 
 export interface AuthRequest extends Request {
   user?: JwtPayload;
+  walletAddress?: string;
 }
 
 export interface AuthenticatedRequest extends Request {
   user: JwtPayload;
+  walletAddress: string;
 }
