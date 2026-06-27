@@ -84,6 +84,20 @@ jobs:
           # ─────────────────────────────────────────────────────
           echo "Staging deployment placeholder — see README for setup instructions"
 
+
+      - name: Wait for service to be ready
+        run: |
+          echo "Waiting 30s for Render to route traffic to the new instance..."
+          sleep 30
+
+      - name: Run smoke tests (staging)
+        env:
+          SMOKE_BASE_URL: ${{ vars.STAGING_URL }}
+          SMOKE_TIMEOUT_MS: "15000"
+          SMOKE_RETRIES: "5"
+          SMOKE_RETRY_DELAY: "5000"
+        run: node scripts/smoke-test.js
+
       - name: Record deployment
         run: |
           echo "## Staging Deployment" >> "$GITHUB_STEP_SUMMARY"
@@ -145,6 +159,20 @@ jobs:
           # command (e.g., rsync, docker push, fly deploy, etc.)
           # ─────────────────────────────────────────────────────
           echo "Production deployment placeholder — see README for setup instructions"
+
+
+      - name: Wait for service to be ready
+        run: |
+          echo "Waiting 30s for Render to route traffic to the new instance..."
+          sleep 30
+
+      - name: Run smoke tests (production)
+        env:
+          SMOKE_BASE_URL: ${{ vars.PRODUCTION_URL }}
+          SMOKE_TIMEOUT_MS: "15000"
+          SMOKE_RETRIES: "5"
+          SMOKE_RETRY_DELAY: "5000"
+        run: node scripts/smoke-test.js
 
       - name: Record deployment
         run: |
