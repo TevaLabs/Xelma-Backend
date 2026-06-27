@@ -1,7 +1,25 @@
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import request from 'supertest';
+
+// Mock Stellar and Soroban services to prevent loading @stellar/stellar-sdk (which contains ESM files that Jest fails to parse)
+jest.mock('../services/stellar.service', () => ({
+  isValidStellarAddress: (address: string) => address && address.startsWith('G') && address.length === 56,
+  verifySignature: jest.fn(),
+}));
+
+jest.mock('../services/soroban.service', () => ({
+  getUserStats: jest.fn(),
+  getPendingWinnings: jest.fn(),
+  getHealth: jest.fn(),
+}));
+
 import app from '../app';
 
 describe('Hackathon HTTP Endpoints (Integration)', () => {
+  afterAll(async () => {
+    const { pool } = require('../db/db');
+    await pool.end();
+  });
   describe('GET /api/health', () => {
     it('returns ok status and timestamp', async () => {
       const res = await request(app).get('/api/health');
