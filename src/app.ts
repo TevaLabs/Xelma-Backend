@@ -8,11 +8,15 @@ import healthRoutes from './routes/health';
 import statsRoutes from './routes/stats';
 import roundsRoutes from './routes/rounds';
 import leaderboardRoutes from './routes/leaderboard';
+import userRoutes from './routes/user';
+import chatRoutes from './routes/chat.routes';
+import notificationsRoutes from './routes/notifications.routes';
 import { apiRateLimiter, writeRateLimiter } from './middleware/rateLimiter';
 import { getHttpCorsOrigins } from './utils/cors';
 import { notFoundHandler } from './middleware/notFound';
-import { errorHandler } from './middleware/errorHandler.middleware';
+import { errorHandler } from './middleware/errorHandler';
 import { hackathonSwaggerSpec } from './docs/hackathon-openapi';
+import config from './config';
 
 export interface CreateAppOptions {
   includeErrorHandlers?: boolean;
@@ -44,8 +48,16 @@ export function createApp(options: CreateAppOptions = {}): Application {
   app.use('/api/stats', statsRoutes);
   app.use('/api/rounds', roundsRoutes);
   app.use('/api/leaderboard', leaderboardRoutes);
+  app.use('/api/user', userRoutes);
+
+  if (config.app.enableMultiplayerSocial) {
+    app.use('/api/chat', chatRoutes);
+    app.use('/api/notifications', notificationsRoutes);
+  }
+
   app.use('/api', routes);
 
+  // Centralized 404 and Error handlers registered last in the Express stack
   if (includeErrorHandlers) {
     app.use(notFoundHandler);
     app.use(errorHandler);

@@ -7,6 +7,8 @@ import logger from '../utils/logger';
 import { withDistributedLock } from '../utils/distributed-lock';
 import { prisma } from '../lib/prisma';
 import { RoundLifecycleOutcome } from '../types/round.types';
+import websocketService from './websocket.service';
+import outboxService, { OutboxDispatchHandlers, getOutboxPollIntervalSeconds } from './outbox.service';
 import {
    schedulerItemsProcessedTotal,
    schedulerRunsTotal,

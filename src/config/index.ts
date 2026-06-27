@@ -16,6 +16,7 @@ export interface AppConfig {
   roundsMockMode: boolean;
   dataMode: "mock" | "live";
   enableSimulation: boolean;
+  enableMultiplayerSocial: boolean;
 }
 
 export interface JwtConfig {
@@ -102,6 +103,7 @@ function buildConfig(): Config {
     roundsMockMode: v.boolean(env.ROUNDS_MOCK_MODE, false),
     dataMode: v.oneOf(env.DATA_MODE, "DATA_MODE", ["mock", "live"] as const, "live"),
     enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
+    enableMultiplayerSocial: v.boolean(env.ENABLE_MULTIPLAYER_SOCIAL, true),
   };
 
   const jwt: JwtConfig = {

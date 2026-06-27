@@ -32,7 +32,7 @@ const metrics: CacheMetrics = {
 
 const redisCacheDebug = process.env.REDIS_CACHE_DEBUG === "true";
 
-type RedisClient = ReturnType<typeof createClient>;
+type RedisClient = any;
 
 let client: RedisClient | null = null;
 let clientConnecting: Promise<RedisClient | null> | null = null;

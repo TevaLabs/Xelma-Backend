@@ -1,10 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { betRateLimiter } from '../middleware/rateLimiter';
-import { getMockRounds } from '../data/mockData';
 import { validate } from '../middleware/validate.middleware';
 import { upDownBetSchema, precisionBetSchema } from '../schemas/bets.schema';
 import config from '../config';
 import roundService from '../services/round.service';
+import hackathonService from '../services/hackathon.service';
 
 const router = Router();
 
@@ -28,7 +28,8 @@ const router = Router();
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (config.app.dataMode === 'mock') {
-      return res.json(getMockRounds());
+      const rounds = await hackathonService.getRounds();
+      return res.json(rounds);
     }
 
     const { rounds, source } = await roundService.getActiveRoundsWithFallback();
@@ -44,12 +45,26 @@ router.post('/:id/bet', betRateLimiter, (_req, res) => {
 });
 
 // Hackathon mutation endpoints - with Zod validation for consistent error handling
-router.post('/hackathon/up-down/:id/bet', betRateLimiter, validate(upDownBetSchema), (_req, res) => {
-  res.json({ success: true, message: 'Bet recorded (stub)' });
-});
+router.post('/hackathon/up-down/:id/bet', betRateLimiter, validate(upDownBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { address, amount, side } = req.body;
+    await hackathonService.placeBet(id, address, amount, side);
+    res.json({ success: true, message: 'Bet recorded (stub)' });
+  } catch (err) {
+    next(err);
+  }
+}) as any);
 
-router.post('/hackathon/precision/:id/bet', betRateLimiter, validate(precisionBetSchema), (_req, res) => {
-  res.json({ success: true, message: 'Precision bet recorded (stub)' });
-});
+router.post('/hackathon/precision/:id/bet', betRateLimiter, validate(precisionBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { address, amount, predictedPrice } = req.body;
+    await hackathonService.placeBet(id, address, amount, undefined, predictedPrice);
+    res.json({ success: true, message: 'Precision bet recorded (stub)' });
+  } catch (err) {
+    next(err);
+  }
+}) as any);
 
 export default router;

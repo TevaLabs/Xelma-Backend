@@ -208,6 +208,7 @@ export async function getLeaderboard(
     leaderboard,
     userPosition,
     totalUsers: totalUsers ?? 0,
+    pagination: buildOffsetMeta(limit, offset, totalUsers ?? 0),
   };
 
   await setJsonToCache(

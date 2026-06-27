@@ -1949,10 +1949,26 @@ This section is designed so a new developer can boot and test the API in minutes
 git clone https://github.com/TevaLabs/Xelma-Backend.git
 cd Xelma-Backend
 npm install
+
+# 1. Start the PostgreSQL database container (if not running a local instance)
+docker compose up -d postgres
+
+# 2. Copy and customize your environment variables
 cp .env.example .env
-# Edit .env → set DATABASE_URL and JWT_SECRET at minimum
+# Edit .env → set DATABASE_URL and JWT_SECRET
+
+# 3. Generate Prisma client & apply core migrations
 npm run prisma:generate
-npm run prisma:migrate
+npx prisma migrate deploy
+
+# 4. Generate & apply Drizzle migrations for hackathon schema
+npx drizzle-kit generate
+npx ts-node src/db/migrate.ts
+
+# 5. Seed initial mock rounds and user data to Postgres
+npx ts-node src/db/seed.ts
+
+# 6. Start the server
 npm run dev
 ```
 
@@ -1963,13 +1979,15 @@ The server starts on `http://localhost:3001` (or the `PORT` in `.env`).
 | Variable | Example | Purpose |
 |---|---|---|
 | `PORT` | `3001` | Server listen port |
-| `DATABASE_URL` | `postgresql://user:pass@localhost:5432/xelma` | PostgreSQL connection |
+| `DATABASE_URL` | `postgresql://xelma:xelma@localhost:5432/xelma` | PostgreSQL connection |
 | `JWT_SECRET` | `my-secret-key` | Signs JWT tokens (app refuses to start without it) |
+| `DATA_MODE` | `mock` | Hackathon service data mode (set to `mock` to query Drizzle schema tables) |
+| `ENABLE_MULTIPLAYER_SOCIAL` | `true` | Feature flag to enable/disable chat and notifications routes |
 | `COINGECKO_API_URL` | `https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd` | Price oracle source |
 | `STELLAR_RPC_URL` | `https://soroban-testnet.stellar.org` | Stellar/Soroban RPC |
 | `CONTRACT_ID` | *(your deployed contract)* | Soroban prediction market contract |
 
-> **Note**: For hackathon MVP, the backend uses PostgreSQL for persistence. In-memory store is not used.
+> **Note**: For the Hackathon MVP, the backend is fully migrated from in-memory arrays to PostgreSQL via Drizzle ORM for durable persistence of users, rounds, and bets. No in-memory stores are used.
 
 ### 3. Hackathon Endpoint Curl Examples
 
@@ -2059,11 +2077,13 @@ curl "http://localhost:3001/api/user/GXXX.../history?limit=20&offset=0"
 curl http://localhost:3001/api/user/GXXX.../public-profile
 ```
 
-#### Get On-chain User Stats
+#### Get Wallet Stats (returns per-wallet stats from PostgreSQL, echoing the address param)
 
 ```bash
 curl http://localhost:3001/api/user/GXXX.../stats
 ```
+
+> **Note on Feature Flags**: Chat (`/api/chat/*`) and Notification (`/api/notifications/*`) endpoints are feature-gated behind the `ENABLE_MULTIPLAYER_SOCIAL` configuration option. If this option is set to `false`, these endpoints will return a `404 Not Found` JSON response.
 
 #### Get Transactions (requires JWT)
 
