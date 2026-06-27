@@ -64,3 +64,55 @@ export const unifiedPaginationSchema = z.object({
 });
 
 export type UnifiedPaginationParams = z.infer<typeof unifiedPaginationSchema>;
+
+// ---------------------------------------------------------------------------
+// Cursor encoding utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Encodes a `createdAt` Date into a URL-safe opaque cursor string.
+ *
+ * The cursor is base64url-encoded so it is:
+ *   - URL-safe (no `+`, `/`, or `=` padding)
+ *   - Opaque to clients (they should treat it as a black box)
+ *   - Stable (same Date always produces the same cursor)
+ *
+ * @example
+ *   encodeCursor(new Date("2024-06-01T12:00:00.000Z"))
+ *   // → "MjAyNC0wNi0wMVQxMjowMDowMC4wMDBa"
+ */
+export function encodeCursor(createdAt: Date): string {
+  return Buffer.from(createdAt.toISOString()).toString("base64url");
+}
+
+/**
+ * Decodes an opaque cursor string back to a Date.
+ * Throws a `CursorDecodeError` if the cursor is malformed or represents
+ * an invalid date — callers should catch this and return HTTP 400.
+ *
+ * @example
+ *   decodeCursor("MjAyNC0wNi0wMVQxMjowMDowMC4wMDBa")
+ *   // → Date("2024-06-01T12:00:00.000Z")
+ */
+export function decodeCursor(cursor: string): Date {
+  let iso: string;
+  try {
+    iso = Buffer.from(cursor, "base64url").toString("utf8");
+  } catch {
+    throw new CursorDecodeError(`Cannot base64url-decode cursor: "${cursor}"`);
+  }
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) {
+    throw new CursorDecodeError(`Cursor decoded to invalid date: "${iso}"`);
+  }
+  return d;
+}
+
+/** Thrown by `decodeCursor` when a cursor cannot be decoded. */
+export class CursorDecodeError extends Error {
+  readonly statusCode = 400;
+  constructor(message: string) {
+    super(message);
+    this.name = "CursorDecodeError";
+  }
+}
