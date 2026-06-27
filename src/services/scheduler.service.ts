@@ -11,6 +11,11 @@ import {
    schedulerItemsProcessedTotal,
    schedulerRunsTotal,
 } from '../metrics/application.metrics';
+import outboxService, {
+   getOutboxPollIntervalSeconds,
+   OutboxDispatchHandlers,
+} from './outbox.service';
+import websocketService from './websocket.service';
 
 class SchedulerService {
    private cronTasks: ScheduledTask[] = [];

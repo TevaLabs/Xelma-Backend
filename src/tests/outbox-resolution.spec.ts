@@ -64,6 +64,7 @@ jest.mock('../services/education-tip.service', () => ({
 
 jest.mock('../lib/redis', () => ({
   invalidateNamespace: jest.fn(),
+  invalidateLeaderboardSortedSet: jest.fn(),
 }));
 
 // ─── mock logger ─────────────────────────────────────────────────────────────

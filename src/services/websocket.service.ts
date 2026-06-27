@@ -3,6 +3,7 @@ import { DispatchChannel } from '@prisma/client';
 import logger from '../utils/logger';
 import deadLetterQueueService from './dead-letter-queue.service';
 import { websocketEmitsTotal } from '../metrics/application.metrics';
+import { prisma } from '../lib/prisma';
 
 /**
  * Centralized event names so DLQ replay can map a stored `eventName` back
@@ -16,6 +17,8 @@ export const WebSocketEvents = {
   ChatMessage: 'chat:message',
   NotificationNew: 'notification:new',
   NotificationUnreadCount: 'notification:unread-count',
+  RoundUpdate: 'round_update',
+  PriceUpdateV2: 'price_update',
 } as const;
 
 export type WebSocketEventName =
@@ -37,7 +40,7 @@ export class WebSocketService {
   }
 
   static emitRoundUpdate(round: any): void {
-    WebSocketService.instance.emitRoundStarted(round);
+    WebSocketService.instance.emitRoundUpdate(round);
   }
 
   static emitPriceUpdate(payload: { asset: string; price: number | string }): void {
@@ -122,6 +125,9 @@ export class WebSocketService {
   /**
    * Emit event when a new round starts
    */
+  /**
+   * Emit event when a new round starts
+   */
   emitRoundStarted(round: any): void {
     const payload = {
       id: round.id,
@@ -134,6 +140,9 @@ export class WebSocketService {
     };
     this.safeEmit({ room: 'round', event: WebSocketEvents.RoundStarted, payload });
     logger.info(`Emitted round:started for round ${round.id}`);
+
+    // Also emit the real-time round_update event
+    this.emitRoundUpdate(round);
   }
 
   /**
@@ -166,18 +175,65 @@ export class WebSocketService {
     };
     this.safeEmit({ room: 'round', event: WebSocketEvents.RoundResolved, payload });
     logger.info(`Emitted round:resolved for round ${round.id}`);
+
+    // Also emit the real-time round_update event
+    this.emitRoundUpdate(round);
   }
 
   /**
-   * Emit price update event
+   * Emit real-time round status and pool updates to general and round-specific rooms
    */
-  emitPriceUpdate(asset: string, price: number | string): void {
+  emitRoundUpdate(round: any): void {
+    const payload = {
+      id: round.id,
+      mode: round.mode,
+      status: round.status,
+      startTime: round.startTime?.toISOString?.() || round.startTime,
+      endTime: round.endTime?.toISOString?.() || round.endTime,
+      startPrice: round.startPrice ? Number(round.startPrice) : null,
+      endPrice: round.endPrice ? Number(round.endPrice) : null,
+      poolUp: round.poolUp ? Number(round.poolUp) : 0,
+      poolDown: round.poolDown ? Number(round.poolDown) : 0,
+      priceRanges: round.priceRanges,
+      resolvedAt: round.resolvedAt?.toISOString?.() || round.resolvedAt,
+    };
+
+    // Broadcast to general 'round' room
+    this.safeEmit({ room: 'round', event: WebSocketEvents.RoundUpdate, payload });
+
+    // Broadcast to specific round room
+    this.safeEmit({ room: `round:${round.id}`, event: WebSocketEvents.RoundUpdate, payload });
+    logger.info(`Emitted round_update for round ${round.id}`);
+  }
+
+  /**
+   * Emit price update event to general room and each active round's room
+   */
+  async emitPriceUpdate(asset: string, price: number | string): Promise<void> {
     const payload = {
       asset,
       price,
       timestamp: new Date().toISOString(),
     };
+    
+    // Broadcast legacy event to general room
     this.safeEmit({ room: 'round', event: WebSocketEvents.PriceUpdate, payload });
+
+    // Broadcast new real-time price update to general room
+    this.safeEmit({ room: 'round', event: WebSocketEvents.PriceUpdateV2, payload });
+
+    // Broadcast price update to room per active round
+    try {
+      const activeRounds = await prisma.round.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true },
+      });
+      for (const r of activeRounds) {
+        this.safeEmit({ room: `round:${r.id}`, event: WebSocketEvents.PriceUpdateV2, payload });
+      }
+    } catch (err) {
+      logger.error('Failed to broadcast price_update to active round rooms:', err);
+    }
   }
 
   /**

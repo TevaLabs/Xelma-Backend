@@ -475,22 +475,38 @@ export async function initializeSocket(
       }
 
       // Join round room for price updates and round events
-      socket.on('join:round', () => {
-         socket.join('round');
-         logger.info(`Socket ${socket.id} joined room: round`);
-         socket.emit('room:joined', { room: 'round' });
+      socket.on('join:round', (data?: { roundId?: string } | string) => {
+         let roundId: string | undefined;
+         if (typeof data === 'string') {
+            roundId = data;
+         } else if (data && typeof data === 'object') {
+            roundId = data.roundId;
+         }
+
+         const room = roundId ? `round:${roundId}` : 'round';
+         socket.join(room);
+         logger.info(`Socket ${socket.id} joined room: ${room}`);
+         socket.emit('room:joined', { room });
          if (socket.userId) {
-            void multiplayerSessionService.addRoom(socket.userId, 'round');
+            void multiplayerSessionService.addRoom(socket.userId, room);
          }
       });
 
       // Leave round room
-      socket.on('leave:round', () => {
-         socket.leave('round');
-         logger.info(`Socket ${socket.id} left room: round`);
-         socket.emit('room:left', { room: 'round' });
+      socket.on('leave:round', (data?: { roundId?: string } | string) => {
+         let roundId: string | undefined;
+         if (typeof data === 'string') {
+            roundId = data;
+         } else if (data && typeof data === 'object') {
+            roundId = data.roundId;
+         }
+
+         const room = roundId ? `round:${roundId}` : 'round';
+         socket.leave(room);
+         logger.info(`Socket ${socket.id} left room: ${room}`);
+         socket.emit('room:left', { room });
          if (socket.userId) {
-            void multiplayerSessionService.removeRoom(socket.userId, 'round');
+            void multiplayerSessionService.removeRoom(socket.userId, room);
          }
       });
 

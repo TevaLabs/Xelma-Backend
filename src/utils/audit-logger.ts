@@ -148,7 +148,7 @@ class AuditLogger {
     }
 
     try {
-      await prisma.auditLog.create({
+      await (prisma as any).auditLog.create({
         data: {
           eventType: event.eventType,
           severity: event.severity,

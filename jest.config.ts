@@ -38,9 +38,12 @@ const baseConfig: Partial<Config> = {
   testPathIgnorePatterns: [
     "/node_modules/"
   ],
+  transformIgnorePatterns: [
+    "/node_modules/(?!(@stellar|@noble|@tevalabs|uint8array-extras)/)"
+  ],
   moduleFileExtensions: ["ts", "js", "json"],
   transform: {
-    "^.+\\.ts$": ["ts-jest", { tsconfig: "tsconfig.json" }],
+    "^.+\\.(ts|js)$": ["ts-jest", { tsconfig: "tsconfig.json", isolatedModules: true }],
   },
   clearMocks: true,
   moduleNameMapper: {
