@@ -1,3 +1,40 @@
+process.env.REDIS_URL = 'redis://localhost:6379';
+
+const locks = new Map<string, string>();
+const mockRedisClient = {
+   connect: jest.fn().mockImplementation(() => Promise.resolve()),
+   set: jest.fn().mockImplementation((key: string, value: string, options?: any) => {
+      if (options?.NX) {
+         if (locks.has(key)) {
+            return Promise.resolve(null);
+         }
+         locks.set(key, value);
+         return Promise.resolve('OK');
+      }
+      locks.set(key, value);
+      return Promise.resolve('OK');
+   }),
+   eval: jest.fn().mockImplementation((script: string, config: any) => {
+      const key = config?.keys?.[0];
+      const val = config?.arguments?.[0];
+      if (script.includes('del')) {
+         if (locks.get(key) === val) {
+            locks.delete(key);
+            return Promise.resolve(1);
+         }
+         return Promise.resolve(0);
+      }
+      if (locks.get(key) === val) {
+         return Promise.resolve(1);
+      }
+      return Promise.resolve(0);
+   }),
+};
+
+jest.mock('redis', () => ({
+   createClient: jest.fn(() => mockRedisClient),
+}));
+
 import {
    describe,
    it,
@@ -12,6 +49,38 @@ import {
 } from '../utils/distributed-lock';
 
 describe('Distributed Lock', () => {
+   beforeEach(() => {
+      locks.clear();
+      jest.clearAllMocks();
+      mockRedisClient.connect.mockImplementation(() => Promise.resolve());
+      mockRedisClient.set.mockImplementation((key: string, value: string, options?: any) => {
+         if (options?.NX) {
+            if (locks.has(key)) {
+               return Promise.resolve(null);
+            }
+            locks.set(key, value);
+            return Promise.resolve('OK');
+         }
+         locks.set(key, value);
+         return Promise.resolve('OK');
+      });
+      mockRedisClient.eval.mockImplementation((script: string, config: any) => {
+         const key = config?.keys?.[0];
+         const val = config?.arguments?.[0];
+         if (script.includes('del')) {
+            if (locks.get(key) === val) {
+               locks.delete(key);
+               return Promise.resolve(1);
+            }
+            return Promise.resolve(0);
+         }
+         if (locks.get(key) === val) {
+            return Promise.resolve(1);
+         }
+         return Promise.resolve(0);
+      });
+   });
+
    describe('DistributedLock class', () => {
       let lock: DistributedLock;
 
@@ -48,8 +117,7 @@ describe('Distributed Lock', () => {
       });
 
       it('should handle acquire when Redis unavailable', async () => {
-         // This test assumes Redis is not available or connection fails
-         // In a real test environment, you'd mock the Redis client
+         mockRedisClient.connect.mockRejectedValueOnce(new Error('Connection failed'));
          const result = await lock.acquire();
 
          // Should return gracefully with acquired=false
@@ -190,6 +258,7 @@ describe('Distributed Lock', () => {
 
    describe('Error handling', () => {
       it('should handle acquire errors gracefully', async () => {
+         mockRedisClient.connect.mockRejectedValueOnce(new Error('Connection failed'));
          const lock = new DistributedLock('error-lock');
 
          // Should not throw
@@ -199,14 +268,18 @@ describe('Distributed Lock', () => {
       });
 
       it('should handle release errors gracefully', async () => {
+         mockRedisClient.eval.mockRejectedValueOnce(new Error('Eval failed'));
          const lock = new DistributedLock('error-lock');
+         await lock.acquire(); // populate redisClient
 
          // Should not throw
          await expect(lock.release()).resolves.not.toThrow();
       });
 
       it('should handle extend errors gracefully', async () => {
+         mockRedisClient.eval.mockRejectedValueOnce(new Error('Eval failed'));
          const lock = new DistributedLock('error-lock');
+         await lock.acquire(); // populate redisClient
 
          // Should not throw
          const result = await lock.extend();

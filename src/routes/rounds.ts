@@ -4,7 +4,7 @@ import { validate } from '../middleware/validate.middleware';
 import { upDownBetSchema, precisionBetSchema } from '../schemas/bets.schema';
 import config from '../config';
 import roundService from '../services/round.service';
-import hackathonService from '../services/hackathon.service';
+import { toDecimalString } from '../utils/decimal.util';
 
 const router = Router();
 
@@ -33,7 +33,14 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     }
 
     const { rounds, source } = await roundService.getActiveRoundsWithFallback();
-    return res.json({ source, rounds });
+    const serializedRounds = rounds.map((round: any) => ({
+      ...round,
+      startPrice: toDecimalString(round.startPrice),
+      endPrice: round.endPrice !== null && round.endPrice !== undefined ? toDecimalString(round.endPrice) : null,
+      poolUp: toDecimalString(round.poolUp),
+      poolDown: toDecimalString(round.poolDown),
+    }));
+    return res.json({ source, rounds: serializedRounds });
   } catch (err) {
     next(err);
   }

@@ -1,17 +1,11 @@
 import { describe, it, expect, beforeAll, afterEach, beforeEach } from "@jest/globals";
 import request from "supertest";
 import { Express } from "express";
+import { UserRole } from "@prisma/client";
 import { createApp } from "../index";
 import sorobanService from "../services/soroban.service";
-import { generateToken } from "../utils/jwt.util";
 import { UserRole } from "@prisma/client";
-import { prisma } from "../lib/prisma";
-
-jest.mock("../services/stellar.service", () => ({
-  verifySignature: jest.fn().mockResolvedValue(true),
-  isValidStellarAddress: jest.fn().mockReturnValue(true),
-  getAccountInfo: jest.fn().mockResolvedValue(null),
-}));
+import { generateToken } from "../utils/jwt.util";
 
 jest.mock("../services/soroban.service", () => {
   return {
@@ -34,10 +28,6 @@ describe("Bets Routes", () => {
   beforeAll(() => {
     app = createApp();
     token = generateToken("user-1", VALID_ADDRESS, UserRole.USER);
-  });
-
-  beforeEach(async () => {
-    await prisma.idempotencyKey.deleteMany({});
   });
 
   afterEach(async () => {
@@ -95,6 +85,20 @@ describe("Bets Routes", () => {
         success: false,
         error: "Contract interaction failed. Please try again.",
       });
+    });
+
+    it("rejects mismatched wallet address with 403", async () => {
+      const res = await request(app)
+        .post("/api/bets/up-down")
+        .set("Authorization", `Bearer ${validToken}`)
+        .send({
+          address: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          amount: 10,
+          side: "UP",
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/match authenticated user/i);
     });
 
     it("returns 400 when required fields are missing", async () => {

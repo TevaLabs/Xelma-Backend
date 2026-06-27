@@ -1,8 +1,20 @@
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import axios from 'axios';
 import { Decimal } from '@prisma/client/runtime/library';
-import priceOracle from '../services/oracle';
+jest.mock('../config', () => {
+  const actualConfig = jest.requireActual('../config') as any;
+  return {
+    __esModule: true,
+    default: {
+      ...actualConfig.default,
+      oracle: {
+        ...actualConfig.default.oracle,
+        maxRetries: 1,
+      },
+    },
+  };
+});
 
+import priceOracle from '../services/oracle';
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
@@ -22,8 +34,10 @@ describe('PriceOracle', () => {
   });
 
   it('stores fetched prices as Decimal and preserves exact string precision', async () => {
-    mockedAxios.get.mockResolvedValue({
-      data: { stellar: { usd: '0.12345678' } },
+    mockFetchPricesWithFailover.mockResolvedValue({
+      prices: { BTC: 1, ETH: 2, XLM: '0.12345678' },
+      fetchedAt: new Date('2026-01-01T00:00:00.000Z'),
+      source: 'coingecko',
     });
 
     await (priceOracle as any).fetchPrice();
@@ -31,6 +45,8 @@ describe('PriceOracle', () => {
     expect(priceOracle.getPrice()).toBeInstanceOf(Decimal);
     expect(priceOracle.getPriceString()).toBe('0.12345678');
     expect(priceOracle.getPriceNumber()).toBeCloseTo(0.12345678);
+    expect(priceOracle.getActiveSource()).toBe('coingecko');
+    expect(priceOracle.isStale()).toBe(true);
   });
 
   it('exposes null when all providers fail and does not set price', async () => {

@@ -20,7 +20,9 @@ const router = Router();
  *               $ref: '#/components/schemas/PlatformStatsResponse'
  *       500:
  *         description: Failed to retrieve stats
- *
+ */
+
+/**
  * GET /api/stats
  *
  * Returns aggregated platform counters for the landing page.

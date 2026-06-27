@@ -1,4 +1,5 @@
 import { createClient } from "redis";
+import { withTimeout } from "../utils/timeout-wrapper";
 import logger from "../utils/logger";
 
 type CacheMetrics = {
@@ -421,6 +422,51 @@ export async function invalidateLeaderboardSortedSet(): Promise<void> {
     logger.warn("Failed to invalidate leaderboard sorted set", {
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+}
+
+export function getRedisClient(): RedisClient | null {
+  return client;
+}
+
+export async function checkRedisHealth(
+  timeoutMs: number,
+): Promise<{ status: string; durationMs: number; error?: string }> {
+  if (!isRedisCacheEnabled()) {
+    return { status: "bypassed", durationMs: 0 };
+  }
+
+  const start = Date.now();
+  try {
+    const redisClient = await ensureClient();
+    if (!redisClient) {
+      return { status: "unavailable", durationMs: Date.now() - start };
+    }
+
+    const result = await withTimeout(
+      () => redisClient.ping(),
+      {
+        timeoutMs: Math.min(timeoutMs, 1000),
+        operationName: "health-redis-ping",
+        retries: 1,
+      },
+    );
+
+    if (!result.success) {
+      return {
+        status: "degraded",
+        durationMs: Date.now() - start,
+        error: result.error?.message,
+      };
+    }
+
+    return { status: "healthy", durationMs: Date.now() - start };
+  } catch (err) {
+    return {
+      status: "degraded",
+      durationMs: Date.now() - start,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

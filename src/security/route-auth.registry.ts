@@ -48,6 +48,10 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   { method: "GET", path: "/api/rounds/active", auth: RouteAuthLevel.PUBLIC },
   { method: "POST", path: "/api/rounds/:id/resolve", auth: RouteAuthLevel.ORACLE },
 
+  // Bets (JWT required — wallet bound from token)
+  { method: "POST", path: "/api/bets/up-down", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "POST", path: "/api/bets/precision", auth: RouteAuthLevel.AUTHENTICATED },
+
   // Predictions
   { method: "POST", path: "/api/predictions/submit", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "POST", path: "/api/predictions/batch-submit", auth: RouteAuthLevel.AUTHENTICATED },
@@ -84,6 +88,7 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   { method: "POST", path: "/api/admin/dead-letter/:id/retry", auth: RouteAuthLevel.ADMIN },
 
   // System / misc API
+  { method: "GET", path: "/api/prices", auth: RouteAuthLevel.PUBLIC, notes: "Multi-asset price ticker with stale flag" },
   { method: "GET", path: "/api/price", auth: RouteAuthLevel.PUBLIC },
   { method: "GET", path: "/api/errors", auth: RouteAuthLevel.PUBLIC },
   { method: "GET", path: "/metrics", auth: RouteAuthLevel.PUBLIC },

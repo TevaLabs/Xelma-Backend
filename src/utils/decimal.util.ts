@@ -71,8 +71,9 @@ export function decFixed(value: Decimal | number, places: number = 2): string {
 
 /** Serialize Decimal to a fixed-precision string for API boundaries */
 export function toDecimalString(
-  value: Decimal | number | string,
+  value: Decimal | number | string | null | undefined,
   places: number = 8,
-): string {
+): string | null {
+  if (value === null || value === undefined) return null;
   return toDecimal(value).toFixed(places);
 }

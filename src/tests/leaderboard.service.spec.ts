@@ -163,7 +163,7 @@ describe("Leaderboard Service", () => {
     expect(result.userPosition).toBeDefined();
     expect(result.userPosition?.userId).toBe("u2");
     expect(result.userPosition?.rank).toBe(2);
-    expect(result.userPosition?.totalEarnings).toBe(90);
+    expect(result.userPosition?.totalEarnings).toBe("90.00000000");
   });
 
   it("returns undefined user position when the requested user is not found", async () => {
@@ -188,7 +188,7 @@ describe("Leaderboard Service", () => {
     expect(result).toBeDefined();
     expect(result?.rank).toBe(2);
     expect(result?.userId).toBe("u3");
-    expect(result?.totalEarnings).toBe(90);
+    expect(result?.totalEarnings).toBe("90.00000000");
   });
 
   // ── ZSET fast path ──────────────────────────────────────────────────────────

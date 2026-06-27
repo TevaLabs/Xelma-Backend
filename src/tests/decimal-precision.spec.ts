@@ -9,6 +9,7 @@ import {
   decLt,
   decEq,
   decFixed,
+  toDecimalString,
 } from "../utils/decimal.util";
 import { Decimal } from "@prisma/client/runtime/library";
 
@@ -167,5 +168,56 @@ describe("Monetary Precision Scenarios", () => {
     const tiny = toDecimal("0.00000001");
     const sum = decMul(tiny, 100000000); // should be 1.0
     expect(decEq(sum, 1)).toBe(true);
+  });
+});
+
+describe("Decimal String Serialization (API Boundary)", () => {
+  it("toDecimalString returns null for null input", () => {
+    expect(toDecimalString(null)).toBeNull();
+    expect(toDecimalString(undefined)).toBeNull();
+  });
+
+  it("toDecimalString serializes Decimal to fixed 8-decimal string", () => {
+    expect(toDecimalString(new Decimal("1000.33333333"))).toBe("1000.33333333");
+    expect(toDecimalString(new Decimal("0.00000001"))).toBe("0.00000001");
+    expect(toDecimalString(new Decimal("1"))).toBe("1.00000000");
+  });
+
+  it("toDecimalString serializes numbers without float drift", () => {
+    expect(toDecimalString(0.1 + 0.2)).toBe("0.30000000");
+    expect(toDecimalString(0.1)).toBe("0.10000000");
+    expect(toDecimalString(0.3)).toBe("0.30000000");
+  });
+
+  it("toDecimalString serializes strings correctly", () => {
+    expect(toDecimalString("99.99999999")).toBe("99.99999999");
+    expect(toDecimalString("0.12345678")).toBe("0.12345678");
+  });
+
+  it("toDecimalString with custom places truncates trailing digits", () => {
+    expect(toDecimalString(new Decimal("1.23456789"), 2)).toBe("1.23");
+    expect(toDecimalString(new Decimal("0.001"), 4)).toBe("0.0010");
+    expect(toDecimalString(new Decimal("100"), 0)).toBe("100");
+  });
+
+  it("JSON.stringify with Prisma Decimal produces MongoDB-style $numberDecimal, not a plain string", () => {
+    const decimal = new Decimal("1000.33333333");
+    const json = JSON.stringify({ balance: decimal });
+    expect(json).toContain('"$numberDecimal"');
+    expect(json).not.toContain('"1000.33333333"');
+  });
+
+  it("toDecimalString produces a JSON-safe plain string for monetary fields", () => {
+    const decimal = new Decimal("1000.33333333");
+    const serialized = toDecimalString(decimal);
+    const json = JSON.stringify({ balance: serialized });
+    expect(json).toBe('{"balance":"1000.33333333"}');
+    expect(json).not.toContain('"$numberDecimal"');
+  });
+
+  it("serializes fractional edge cases deterministically", () => {
+    expect(toDecimalString(decAdd(0.1, 0.2))).toBe("0.30000000");
+    expect(toDecimalString(decMul(7.77777777, 1))).toBe("7.77777770");
+    expect(toDecimalString(decDiv(1, 3))).toBe("0.33333333");
   });
 });

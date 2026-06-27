@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import roundService from '../services/round.service';
 import resolutionService from '../services/resolution.service';
 import { requireAdmin, requireOracle, AuthenticatedRequest } from '../middleware/auth.middleware';
-import { toDecimal } from '../utils/decimal.util';
+import { toDecimal, toDecimalString } from '../utils/decimal.util';
 import { adminRoundRateLimiter, oracleResolveRateLimiter } from '../middleware/rateLimiter.middleware';
 import { validate } from '../middleware/validate.middleware';
 import { startRoundSchema, resolveRoundSchema } from '../schemas/rounds.schema';
@@ -129,7 +129,7 @@ router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSc
                 status: round.status,
                 startTime: round.startTime,
                 endTime: round.endTime,
-                startPrice: round.startPrice,
+                startPrice: toDecimalString(round.startPrice),
                 sorobanRoundId: round.sorobanRoundId,
                 isSoroban: round.isSoroban,
                 priceRanges: round.priceRanges,
@@ -170,10 +170,18 @@ router.get('/active', async (req: Request, res: Response, next: NextFunction) =>
     try {
         const { source, rounds } = await roundService.getActiveRoundsWithFallback();
 
+        const serializedRounds = rounds.map((round: any) => ({
+            ...round,
+            startPrice: toDecimalString(round.startPrice),
+            endPrice: round.endPrice !== null && round.endPrice !== undefined ? toDecimalString(round.endPrice) : null,
+            poolUp: toDecimalString(round.poolUp),
+            poolDown: toDecimalString(round.poolDown),
+        }));
+
         res.json({
             success: true,
             source,
-            rounds,
+            rounds: serializedRounds,
         });
     } catch (error) {
         next(error);
@@ -225,9 +233,20 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
             return next(new NotFoundError('Round not found'));
         }
 
-        res.json({
+         res.json({
             success: true,
-            round,
+            round: {
+                ...round,
+                startPrice: toDecimalString(round.startPrice),
+                endPrice: round.endPrice !== null && round.endPrice !== undefined ? toDecimalString(round.endPrice) : null,
+                poolUp: toDecimalString(round.poolUp),
+                poolDown: toDecimalString(round.poolDown),
+                predictions: round.predictions?.map((p: any) => ({
+                    ...p,
+                    amount: toDecimalString(p.amount),
+                    payout: p.payout !== null && p.payout !== undefined ? toDecimalString(p.payout) : null,
+                })),
+            },
         });
     } catch (error) {
         next(error);
@@ -326,8 +345,8 @@ router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(re
             round: {
                 id: round.id,
                 status: round.status,
-                startPrice: round.startPrice,
-                endPrice: round.endPrice,
+                startPrice: toDecimalString(round.startPrice),
+                endPrice: round.endPrice !== null && round.endPrice !== undefined ? toDecimalString(round.endPrice) : null,
                 resolvedAt: round.resolvedAt,
                 predictions: round.predictions ? round.predictions.length : 0,
                 winners: round.predictions ? round.predictions.filter((p: any) => p.won === true).length : 0,

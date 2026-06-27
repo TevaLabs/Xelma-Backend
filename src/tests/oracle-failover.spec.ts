@@ -5,6 +5,20 @@ import { Decimal } from '@prisma/client/runtime/library';
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
+jest.mock('../config', () => {
+  const actualConfig = jest.requireActual('../config') as any;
+  return {
+    __esModule: true,
+    default: {
+      ...actualConfig.default,
+      oracle: {
+        ...actualConfig.default.oracle,
+        maxRetries: 1,
+      },
+    },
+  };
+});
+
 // Re-import oracle after mocks are set up to get the singleton
 import priceOracle from '../services/oracle';
 
@@ -123,8 +137,12 @@ describe('PriceOracle — multi-provider failover', () => {
 
   describe('circuit breaker integration', () => {
     it('skips a provider with an open circuit breaker and falls through to the next', async () => {
-      // Trip the CoinGecko circuit breaker (threshold = 3 failures)
-      mockedAxios.get.mockRejectedValue(new Error('CoinGecko down'));
+      mockedAxios.get.mockImplementation((url: string) => {
+        if (String(url).includes('coingecko')) {
+          return Promise.reject(new Error('CoinGecko down'));
+        }
+        return Promise.resolve({ data: { data: { priceUsd: '0.11111111' } } });
+      });
       await (priceOracle as any).fetchPrice();
       await (priceOracle as any).fetchPrice();
       await (priceOracle as any).fetchPrice();

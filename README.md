@@ -2110,6 +2110,24 @@ curl -X POST http://localhost:3001/api/predictions/submit \
   -d '{"roundId": "ROUND_ID", "amount": 10, "side": "UP"}'
 ```
 
+#### Submit UP/DOWN Bet (requires JWT)
+
+Wallet authentication uses the challenge/connect flow above. Bets are bound to the JWT wallet; unauthenticated attempts return `401`.
+
+```bash
+curl -X POST http://localhost:3000/api/bets/up-down \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT" \
+  -d '{"amount": 10, "side": "UP"}'
+```
+
+```bash
+# Unauthenticated — rejected
+curl -X POST http://localhost:3000/api/bets/up-down \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 10, "side": "UP"}'
+```
+
 #### Get User Profile (requires JWT)
 
 ```bash

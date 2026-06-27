@@ -19,27 +19,24 @@ const router = Router();
  *   post:
  *     summary: Submit an UP/DOWN bet (stub)
  *     tags: [bets]
- *     parameters:
- *       - in: header
- *         name: Idempotency-Key
- *         schema:
- *           type: string
- *         required: false
- *         description: Optional idempotency key for safe request retries
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [address, amount, side]
+ *             required: [amount, side]
  *             properties:
- *               address: { type: string }
+ *               address: { type: string, description: "Optional; must match JWT wallet when provided" }
  *               amount: { type: number }
  *               side: { type: string, enum: [UP, DOWN] }
  *     responses:
  *       200:
  *         description: Bet recorded (stub)
+ *       401:
+ *         description: Missing or invalid JWT
  *       400:
  *         description: Validation error
  */
@@ -126,27 +123,24 @@ router.post(
  *   post:
  *     summary: Submit a Precision bet (stub)
  *     tags: [bets]
- *     parameters:
- *       - in: header
- *         name: Idempotency-Key
- *         schema:
- *           type: string
- *         required: false
- *         description: Optional idempotency key for safe request retries
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [address, amount, predictedPrice]
+ *             required: [amount, predictedPrice]
  *             properties:
- *               address: { type: string }
+ *               address: { type: string, description: "Optional; must match JWT wallet when provided" }
  *               amount: { type: number }
  *               predictedPrice: { type: number }
  *     responses:
  *       200:
  *         description: Bet recorded (stub)
+ *       401:
+ *         description: Missing or invalid JWT
  *       400:
  *         description: Validation error
  */

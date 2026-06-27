@@ -374,3 +374,47 @@ model IdempotencyKey {
   @@index([expiresAt])
 }
 
+/// Security audit log for authentication and authorization events.
+/// Stores structured audit events for compliance, security monitoring,
+/// and forensic analysis. Retention policy controls how long logs are kept.
+model AuditLog {
+  id          String   @id @default(uuid())
+  
+  // Event identification
+  eventType   String   @db.VarChar(100)
+  severity    String   @db.VarChar(20)
+  message     String   @db.VarChar(500)
+  outcome     String   @db.VarChar(20)
+  
+  // Actor information
+  actorType   String   @db.VarChar(50)
+  walletAddress String? @db.VarChar(100)
+  userId      String?  @db.VarChar(100)
+  ipAddress   String?  @db.VarChar(45)
+  userAgent   String?  @db.VarChar(500)
+  
+  // Context information
+  requestId   String?  @db.VarChar(100)
+  sessionId   String?  @db.VarChar(100)
+  endpoint    String?  @db.VarChar(200)
+  method      String?  @db.VarChar(10)
+  
+  // Resource information
+  resourceType String? @db.VarChar(50)
+  resourceId   String?  @db.VarChar(100)
+  resourceWalletAddress String? @db.VarChar(100)
+  
+  // Additional metadata (JSON)
+  metadata    Json?
+  
+  // Timestamps
+  timestamp   DateTime @default(now())
+  
+  @@index([eventType])
+  @@index([severity])
+  @@index([timestamp])
+  @@index([walletAddress])
+  @@index([userId])
+  @@index([outcome])
+}
+

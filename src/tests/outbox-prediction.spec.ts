@@ -49,6 +49,7 @@ jest.mock('../services/soroban.service', () => ({
 
 jest.mock('../lib/redis', () => ({
   invalidateNamespace: jest.fn(),
+  invalidateLeaderboardSortedSet: jest.fn(),
 }));
 
 jest.mock('../utils/logger', () => ({
@@ -101,7 +102,17 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
         createdAt: new Date(),
       };
       mockPredictionCreate.mockResolvedValue(created);
-      mockRoundUpdate.mockResolvedValue({});
+      mockRoundUpdate.mockResolvedValue({
+        id: roundId,
+        mode: 'UP_DOWN',
+        status: 'ACTIVE',
+        startTime: new Date(),
+        endTime: new Date(),
+        startPrice: 100,
+        endPrice: null,
+        poolUp: 100,
+        poolDown: 0,
+      });
 
       await predictionService.submitPrediction(userId, roundId, 100, 'UP');
 
@@ -177,7 +188,19 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
         createdAt: new Date(),
       };
       mockPredictionCreate.mockResolvedValue(created);
-      mockRoundUpdate.mockResolvedValue({});
+      mockRoundUpdate.mockResolvedValue({
+        id: roundId,
+        mode: 'LEGENDS',
+        status: 'ACTIVE',
+        startTime: new Date(),
+        endTime: new Date(),
+        startPrice: 100,
+        endPrice: null,
+        priceRanges: [
+          { min: 1, max: 2, pool: 50 },
+          { min: 2, max: 3, pool: 0 },
+        ],
+      });
 
       await predictionService.submitPrediction(userId, roundId, 50, undefined, { min: 1, max: 2 });
 

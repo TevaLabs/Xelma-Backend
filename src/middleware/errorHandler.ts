@@ -15,10 +15,13 @@ export function errorHandler(
     const statusCode = err.statusCode || err.status || 500;
     const errorName = err.name || 'InternalServerError';
     const message = err.message || 'Internal Server Error';
+    const code = err.code || (statusCode === 500 ? 'INTERNAL_SERVER_ERROR' : undefined);
 
     res.status(statusCode).json({
       error: errorName,
       message: message,
+      ...(code ? { code } : {}),
+      ...(err.details ? { details: err.details } : {}),
     });
   } catch (error) {
     console.error('Error in error handler middleware:', error);

@@ -6,6 +6,7 @@ import { updateProfileSchema } from "../schemas/user.schema";
 import { unifiedPaginationSchema, UnifiedPaginationParams } from "../schemas/pagination.schema";
 import { NotFoundError } from "../utils/errors";
 import sorobanService from "../services/soroban.service";
+import { toDecimalString } from "../utils/decimal.util";
 
 const router = Router();
 
@@ -48,7 +49,7 @@ router.get(
         preferences: user.preferences,
         streak: user.streak,
         lastLoginAt: user.lastLoginAt,
-        balance: user.virtualBalance,
+        balance: toDecimalString(user.virtualBalance),
       };
 
       return res.json({
@@ -81,7 +82,7 @@ router.get(
 
       return res.json({
         success: true,
-        balance: user.virtualBalance,
+        balance: toDecimalString(user.virtualBalance),
       });
     } catch (error) {
       next(error);
@@ -103,15 +104,29 @@ router.get("/stats", authenticateUser, (async (req: AuthenticatedRequest, res: R
 
     return res.json({
       success: true,
-      stats: stats || {
-        totalPredictions: 0,
-        correctPredictions: 0,
-        totalEarnings: 0,
-        upDownWins: 0,
-        upDownLosses: 0,
-        legendsWins: 0,
-        legendsLosses: 0,
-      },
+      stats: stats
+        ? {
+            totalPredictions: stats.totalPredictions,
+            correctPredictions: stats.correctPredictions,
+            totalEarnings: toDecimalString(stats.totalEarnings),
+            upDownWins: stats.upDownWins,
+            upDownLosses: stats.upDownLosses,
+            upDownEarnings: toDecimalString(stats.upDownEarnings),
+            legendsWins: stats.legendsWins,
+            legendsLosses: stats.legendsLosses,
+            legendsEarnings: toDecimalString(stats.legendsEarnings),
+          }
+        : {
+            totalPredictions: 0,
+            correctPredictions: 0,
+            totalEarnings: "0",
+            upDownWins: 0,
+            upDownLosses: 0,
+            upDownEarnings: "0",
+            legendsWins: 0,
+            legendsLosses: 0,
+            legendsEarnings: "0",
+          },
     });
   } catch (error) {
     next(error);
@@ -228,9 +243,14 @@ router.get(
         prisma.transaction.count({ where: { userId } }),
       ]);
 
+      const serializedTransactions = transactions.map((tx: any) => ({
+        ...tx,
+        amount: toDecimalString(tx.amount),
+      }));
+
       return res.json({
         success: true,
-        data: transactions,
+        data: serializedTransactions,
         pagination: {
           page,
           limit,
@@ -379,11 +399,11 @@ function mapPrediction(p: any) {
     roundId: p.roundId,
     asset: "XLM",
     mode: p.round.mode,
-    amount: p.amount,
+    amount: toDecimalString(p.amount),
     side: p.side,
     predictedPrice: p.priceRange,
     result: p.won === null ? "PENDING" : p.won ? "WIN" : "LOSS",
-    payout: p.payout,
+    payout: p.payout !== null && p.payout !== undefined ? toDecimalString(p.payout) : null,
     timestamp: p.createdAt,
     roundStatus: p.round.status,
   };

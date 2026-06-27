@@ -30,11 +30,15 @@ const SOCKET_WALLET = 'GSOCKET_TEST_USER___________________________';
 
 const mockUserFindUnique = jest.fn();
 const mockChatSendMessage = jest.fn();
+const mockRoundFindMany = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
    prisma: {
       user: {
          findUnique: (...args: any[]) => mockUserFindUnique(...args),
+      },
+      round: {
+         findMany: (...args: any[]) => mockRoundFindMany(...args),
       },
       $disconnect: jest.fn().mockResolvedValue(undefined),
    },
@@ -739,6 +743,99 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
          for (const id of socketIds) {
             expect(connectionRegistry.has(id)).toBe(false);
          }
+      });
+   });
+
+   describe('Room-per-round events (Issue #226)', () => {
+      beforeEach(() => {
+         mockRoundFindMany.mockReset();
+      });
+
+      it('should emit room:joined when joining a specific round room', async () => {
+         const client = ioClient(baseURL, {
+            transports: ['websocket'],
+            autoConnect: false,
+         });
+
+         client.connect();
+         await waitForConnect(client);
+
+         const joined = waitFor(client, 'room:joined');
+         client.emit('join:round', { roundId: 'round-123' });
+
+         const data = await joined;
+         expect(data).toEqual({ room: 'round:round-123' });
+
+         client.disconnect();
+      });
+
+      it('should emit room:left when leaving a specific round room', async () => {
+         const client = ioClient(baseURL, {
+            transports: ['websocket'],
+            autoConnect: false,
+         });
+
+         client.connect();
+         await waitForConnect(client);
+         client.emit('join:round', 'round-456');
+         await waitFor(client, 'room:joined');
+
+         const left = waitFor(client, 'room:left');
+         client.emit('leave:round', 'round-456');
+
+         const data = await left;
+         expect(data).toEqual({ room: 'round:round-456' });
+
+         client.disconnect();
+      });
+
+      it('should receive round_update and price_update in the specific round room', async () => {
+         mockRoundFindMany.mockResolvedValue([{ id: 'round-789' }]);
+
+         const client = ioClient(baseURL, {
+            transports: ['websocket'],
+            autoConnect: false,
+         });
+
+         client.connect();
+         await waitForConnect(client);
+         client.emit('join:round', 'round-789');
+         await waitFor(client, 'room:joined');
+
+         // 1. Emit round_update via websocketService
+         const roundUpdatePromise = waitFor(client, 'round_update');
+         const websocketService = require('../services/websocket.service').default;
+         websocketService.emitRoundUpdate({
+            id: 'round-789',
+            mode: 'UP_DOWN',
+            status: 'ACTIVE',
+            startTime: new Date(),
+            endTime: new Date(),
+            startPrice: 1.25,
+            poolUp: 100,
+            poolDown: 200,
+         });
+
+         const roundUpdateData = await roundUpdatePromise;
+         expect(roundUpdateData).toMatchObject({
+            id: 'round-789',
+            mode: 'UP_DOWN',
+            status: 'ACTIVE',
+            poolUp: 100,
+            poolDown: 200,
+         });
+
+         // 2. Emit price_update via websocketService
+         const priceUpdatePromise = waitFor(client, 'price_update');
+         await websocketService.emitPriceUpdate('XLM', '1.30');
+
+         const priceUpdateData = await priceUpdatePromise;
+         expect(priceUpdateData).toMatchObject({
+            asset: 'XLM',
+            price: '1.30',
+         });
+
+         client.disconnect();
       });
    });
 });

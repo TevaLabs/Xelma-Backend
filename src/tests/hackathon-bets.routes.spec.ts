@@ -1,7 +1,28 @@
 import { describe, it, expect, beforeEach, afterEach } from "@jest/globals";
 import request from "supertest";
 import { Express } from "express";
-import { createApp } from "../index";
+import { createApp } from "../app";
+
+jest.mock("../middleware/rateLimiter", () => {
+  const mockMiddleware = (req: any, res: any, next: any) => next();
+  return {
+    apiRateLimiter: mockMiddleware,
+    writeRateLimiter: mockMiddleware,
+    betRateLimiter: mockMiddleware,
+  };
+});
+
+jest.mock("../services/hackathon.service", () => {
+  return {
+    __esModule: true,
+    default: {
+      placeBet: jest.fn().mockResolvedValue(undefined),
+      getRounds: jest.fn().mockResolvedValue([]),
+      getLeaderboard: jest.fn().mockResolvedValue([]),
+      getUserStats: jest.fn().mockResolvedValue({}),
+    },
+  };
+});
 
 const VALID_ADDRESS = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 

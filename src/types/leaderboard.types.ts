@@ -3,7 +3,7 @@ import { CursorMeta, OffsetMeta } from "../utils/pagination.util";
 export interface ModeStats {
   wins: number;
   losses: number;
-  earnings: number;
+  earnings: string;
   accuracy: number;
 }
 
@@ -11,7 +11,7 @@ export interface LeaderboardEntry {
   rank: number;
   userId: string;
   walletAddress: string;
-  totalEarnings: number;
+  totalEarnings: string;
   totalPredictions: number;
   accuracy: number;
   modeStats: {

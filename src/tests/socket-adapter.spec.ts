@@ -6,6 +6,16 @@ import {
 } from '../utils/socket-adapter';
 import logger from '../utils/logger';
 
+jest.mock('../utils/logger', () => ({
+   __esModule: true,
+   default: {
+      info: jest.fn((...args: any[]) => console.log('LOGGER INFO:', ...args)),
+      warn: jest.fn((...args: any[]) => console.log('LOGGER WARN:', ...args)),
+      error: jest.fn((...args: any[]) => console.log('LOGGER ERROR:', ...args)),
+      debug: jest.fn(),
+   },
+}));
+
 // Mock Redis client
 jest.mock('redis', () => ({
    createClient: jest.fn(() => ({
@@ -23,11 +33,15 @@ jest.mock('redis', () => ({
 }));
 
 // Mock Socket.IO adapter
-jest.mock('@socket.io/redis-adapter', () => ({
-   createAdapter: jest.fn(() => ({
-      pubClient: {},
-   })),
-}));
+jest.mock('@socket.io/redis-adapter', () => {
+   const MockAdapter = function(this: any) {
+      this.pubClient = {};
+      this.init = () => {};
+   };
+   return {
+      createAdapter: jest.fn(() => MockAdapter),
+   };
+});
 
 describe('Socket Adapter', () => {
    let httpServer: HTTPServer;

@@ -37,8 +37,10 @@ import adminMetricsRoutes from './routes/admin-metrics.routes';
 import errorsRoutes from './routes/errors.routes';
 import corsDiagnosticsRoutes from './routes/admin-cors-diagnostics.routes';
 import deadLetterRoutes from './routes/admin-dead-letter.routes';
+import healthRoutes from './routes/health';
 import chatRoutes from './routes/chat.routes';
 import tournamentsRoutes from './routes/tournaments.routes';
+import pricesRoutes from './routes/prices';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './docs/openapi';
 import { initializeSocket } from './socket';
@@ -169,9 +171,10 @@ export function createApp(): Express {
     app.use('/api/admin/metrics', adminMetricsRoutes);
     app.use('/api/errors', errorsRoutes);
     app.use('/api/admin/cors-diagnostics', corsDiagnosticsRoutes);
-    app.use('/api/admin/dead-letter', deadLetterRoutes);
+     app.use('/api/admin/dead-letter', deadLetterRoutes);
+     app.use('/health', healthRoutes);
 
-    // Versioned API v1 router (same routes, under /api/v1 prefix)
+     // Versioned API v1 router (same routes, under /api/v1 prefix)
     const v1Router = Router();
     v1Router.use('/auth', authRoutes);
     v1Router.use('/user', userRoutes);
@@ -222,69 +225,9 @@ export function createApp(): Express {
          timestamp: new Date().toISOString(),
          status: 'OK',
       });
-   });
+    });
 
-   // Health check endpoint
-   app.get('/health', async (req: Request, res: Response) => {
-      const startTime = Date.now();
-      let dbStatus = 'unhealthy';
-      let dbDurationMs = 0;
-      let overallStatus = 'healthy';
-
-      // Check database connectivity with bounded timeout
-      try {
-         const dbCheckStart = Date.now();
-         await Promise.race([
-            prisma.$queryRaw`SELECT 1`,
-            new Promise((_, reject) =>
-               setTimeout(
-                  () => reject(new Error('DB health check timeout')),
-                  5000
-               )
-            ),
-         ]);
-         dbStatus = 'healthy';
-         dbDurationMs = Date.now() - dbCheckStart;
-         logger.debug('Database health check passed', { dbDurationMs });
-      } catch (dbError: any) {
-         dbStatus = 'unhealthy';
-         dbDurationMs = Date.now() - startTime;
-         overallStatus = 'degraded';
-         logger.warn('Database health check failed', {
-            error: dbError?.message || 'Unknown error',
-            dbDurationMs,
-         });
-      }
-
-      // Check Soroban service health
-      let sorobanHealth;
-      try {
-         sorobanHealth = await sorobanService.getHealth();
-      } catch (error: any) {
-         logger.warn('Soroban health check failed', { error: error?.message });
-         sorobanHealth = { initialized: false, error: 'Health check failed' };
-      }
-
-      const responseCode = overallStatus === 'healthy' ? 200 : 503;
-      const totalDurationMs = Date.now() - startTime;
-
-      res.status(responseCode).json({
-         status: overallStatus,
-         uptime: process.uptime(),
-         timestamp: new Date().toISOString(),
-         durationMs: totalDurationMs,
-         services: {
-            soroban: sorobanHealth,
-            database: {
-               status: dbStatus,
-               durationMs: dbDurationMs,
-               timeout: 5000,
-            },
-         },
-      });
-   });
-
-   // Price Oracle endpoint (returns price_usd as a precise decimal string)
+    // Price Oracle endpoint (returns price_usd as a precise decimal string)
    app.get('/api/price', (req: Request, res: Response) => {
       const price = priceOracle.getPriceString();
       const lastUpdatedAt = priceOracle.getLastUpdatedAt();
@@ -294,6 +237,7 @@ export function createApp(): Express {
          stale: priceOracle.isStale(),
          provider: priceOracle.getLastProvider(),
          lastUpdatedAt: lastUpdatedAt?.toISOString() ?? null,
+         source: priceOracle.getActiveSource(),
          timestamp: new Date().toISOString(),
       });
    });
