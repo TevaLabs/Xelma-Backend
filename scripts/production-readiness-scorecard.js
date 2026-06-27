@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 /**
- * Production-readiness scorecard (#197).
+ * Production-readiness scorecard (#197, #282).
  *
- * Walks a small set of "is this repo ready to run in production?"
- * heuristics that don't require running the app, and prints a green/red
- * scorecard. CI calls this; the exit code is non-zero only when a check
- * marked `required` fails, so the scorecard can ship soft "nice to have"
+ * Walks a set of "is this repo ready to run in production?" heuristics
+ * that don't require running the app, and prints a green/red scorecard.
+ * CI calls this; the exit code is non-zero only when a check marked
+ * `required` fails, so the scorecard can ship soft "nice to have"
  * checks without blocking merges right away.
  *
  * Each check returns:
  *   { name, status: "pass" | "warn" | "fail", required: boolean, detail: string }
+ *
+ * New in #282: checks for tests configured, OpenAPI tooling, env example
+ * completeness, and migration health.
  *
  * Why this lives as a plain Node script:
  *   - It runs before the TypeScript build, so it can flag a missing
@@ -123,6 +126,137 @@ const checks = [
       "Server fails fast without JWT_SECRET; an example placeholder makes that obvious during onboarding.",
   },
 ];
+
+const CRITICAL_ENV_VARS = [
+  "DATABASE_URL",
+  "JWT_SECRET",
+  "PORT",
+  "SOROBAN_CONTRACT_ID",
+  "SOROBAN_RPC_URL",
+];
+
+// Collect all check-related helper functions after the checks array
+// to avoid hoisting issues. New checks are added to the `checks` array.
+const { statSync, readdirSync } = fs;
+
+function migrationDirs() {
+  const dir = path.join(ROOT, "prisma", "migrations");
+  if (!fs.existsSync(dir)) return [];
+  return readdirSync(dir)
+    .map((e) => path.join(dir, e))
+    .filter((p) => statSync(p).isDirectory())
+    .sort();
+}
+
+function specFilesExist() {
+  const testDir = path.join(ROOT, "src", "tests");
+  if (!fs.existsSync(testDir)) return false;
+  return readdirSync(testDir).some((f) => f.endsWith(".spec.ts"));
+}
+
+function missingEnvVars() {
+  const env = readFileMaybe(".env.example");
+  if (!env) return CRITICAL_ENV_VARS;
+  return CRITICAL_ENV_VARS.filter(
+    (v) => !new RegExp(`^${v}\\s*=`, "m").test(env),
+  );
+}
+
+const newChecks = [
+  // ── Tests configured ──────────────────────────────────────────────
+  {
+    name: "Jest configuration is in place",
+    required: true,
+    run: () =>
+      fileExists("jest.config.ts") || fileExists("jest.config.js"),
+    detail:
+      "Jest config (jest.config.ts or jest.config.js) is required. Without it, `npm test` cannot run the test suite.",
+  },
+  {
+    name: "Test spec files exist in src/tests/",
+    required: true,
+    run: () => specFilesExist(),
+    detail:
+      "No .spec.ts files found in src/tests/. Add at least one test to establish the test suite and validate the Jest setup.",
+  },
+
+  // ── OpenAPI tooling ───────────────────────────────────────────────
+  {
+    name: "OpenAPI spec generation source exists",
+    required: true,
+    run: () => fileExists("src/scripts/generate-openapi.ts"),
+    detail:
+      "The OpenAPI generator at src/scripts/generate-openapi.ts is missing. It auto-documents all API routes from Express annotations.",
+  },
+  {
+    name: "OpenAPI spec verification script exists",
+    required: true,
+    run: () => fileExists("scripts/verify-openapi-sync.js"),
+    detail:
+      "scripts/verify-openapi-sync.js checks that the generated openapi.json includes all required route paths. Create it or restore it from version control.",
+  },
+  {
+    name: "Generated OpenAPI spec is committed",
+    required: true,
+    run: () => fileExists("docs/openapi.json"),
+    detail:
+      "docs/openapi.json is the committed API contract. Regenerate it with `npm run build && npm run docs:openapi` and commit the result.",
+  },
+
+  // ── .env.example completeness ─────────────────────────────────────
+  {
+    name: "Critical env vars are documented in .env.example",
+    required: true,
+    run: () => missingEnvVars().length === 0,
+    detail: (() => {
+      const missing = missingEnvVars();
+      if (missing.length === 0) return "";
+      return (
+        `.env.example is missing required env vars: ${missing.join(", ")}. ` +
+        "Add placeholder entries so operators know what configuration is needed."
+      );
+    })(),
+  },
+
+  // ── Migration health ──────────────────────────────────────────────
+  {
+    name: "Database migrations exist",
+    required: true,
+    run: () => migrationDirs().length > 0,
+    detail:
+      "No migrations found in prisma/migrations/. Run `npx prisma migrate dev --name init` to create the initial migration.",
+  },
+  {
+    name: "Schema and migrations appear in sync (mtime check)",
+    required: true,
+    run: () => {
+      const schema = path.join(ROOT, "prisma", "schema.prisma");
+      if (!fs.existsSync(schema)) return false;
+      const dirs = migrationDirs();
+      if (dirs.length === 0) return false;
+      const schemaMtime = statSync(schema).mtimeMs;
+      const latestMtime = statSync(dirs[dirs.length - 1]).mtimeMs;
+      return schemaMtime <= latestMtime + 1000; // 1s tolerance for filesystem skew
+    },
+    detail:
+      "prisma/schema.prisma was modified more recently than the latest migration directory. Run `npx prisma migrate dev` to generate a migration for pending schema changes.",
+  },
+  {
+    name: "Latest migration directory contains migration.sql",
+    required: true,
+    run: () => {
+      const dirs = migrationDirs();
+      if (dirs.length === 0) return false;
+      return readdirSync(dirs[dirs.length - 1]).some((f) =>
+        f.endsWith(".sql"),
+      );
+    },
+    detail:
+      "The most recent migration directory is missing migration.sql. It may be corrupt. Run `npx prisma migrate dev` to regenerate.",
+  },
+];
+
+checks.push(...newChecks);
 
 function statusFor(result) {
   if (result.passed) return "pass";
