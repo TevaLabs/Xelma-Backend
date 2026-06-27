@@ -59,6 +59,8 @@ export interface OracleConfig {
   requestTimeoutMs: number;
   maxRetries: number;
   stalenessThresholdMs: number;
+  coinGeckoUrl: string;
+  coinCapUrl: string;
 }
 
 export interface Config {
@@ -224,6 +226,14 @@ function buildConfig(): Config {
       env.ORACLE_STALENESS_THRESHOLD_MS,
       "ORACLE_STALENESS_THRESHOLD_MS",
       60000,
+    ),
+    coinGeckoUrl: v.optional(
+      env.COINGECKO_API_URL,
+      "https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd",
+    ),
+    coinCapUrl: v.optional(
+      env.COINCAP_API_URL,
+      "https://api.coincap.io/v2/assets/stellar",
     ),
   };
 

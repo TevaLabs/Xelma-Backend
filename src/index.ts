@@ -261,6 +261,7 @@ export function createApp(): Express {
          asset: 'XLM',
          price_usd: price,
          stale: priceOracle.isStale(),
+         provider: priceOracle.getLastProvider(),
          lastUpdatedAt: lastUpdatedAt?.toISOString() ?? null,
          timestamp: new Date().toISOString(),
       });
