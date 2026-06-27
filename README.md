@@ -10,6 +10,7 @@ TypeScript/Node.js backend for the [Xelma](https://github.com/TevaLabs/Xelma-Blo
 - [Key Features](#key-features)
 - [Project Structure](#project-structure)
 - [Architecture](#architecture)
+  - [Entrypoints](#entrypoints)
   - [Core Services](#core-services)
   - [Routes & Endpoints](#routes--endpoints)
   - [Middleware](#middleware)
@@ -149,6 +150,19 @@ Xelma-Backend/
 ---
 
 ## Architecture
+
+### Entrypoints
+
+The repo has two Express applications. **New contributors should always use `npm run dev`.**
+
+| Script | File | Use when |
+|---|---|---|
+| `npm run dev` | `src/index.ts` | Everyday development — full backend, real DB, WebSocket, Soroban |
+| `npm run dev:hackathon` | `src/server.ts` | Demo without a database — mock data only |
+
+See [docs/architecture.md](docs/architecture.md) for the full architecture decision, file map, migration plan, and a checklist for adding new routes.
+
+---
 
 ### Core Services
 
@@ -432,6 +446,41 @@ This will automatically:
 - Install all dependencies including `@tevalabs/xelma-bindings`
 - Run `postinstall` script to build the TypeScript code
 
+### 3. One-Command Local Infra (Docker Compose)
+
+For contributors running **full backend mode** with PostgreSQL (and optional Redis), use Docker Compose:
+
+```bash
+cp .env.docker.example .env
+# Edit .env and set JWT_SECRET at minimum
+
+docker compose up --build
+```
+
+| Service | Port | Health check |
+| --- | --- | --- |
+| API | `3000` | `GET http://localhost:3000/health` |
+| PostgreSQL | `5432` | `pg_isready -U xelma -d xelma` |
+| Redis (optional) | `6379` | `redis-cli ping` |
+
+The API container runs `prisma migrate deploy` on startup before booting `dist/index.js`.
+
+To include Redis (for Socket.IO adapter / distributed locks):
+
+```bash
+docker compose --profile full up --build
+```
+
+**Troubleshooting Docker setup**
+
+| Symptom | Fix |
+| --- | --- |
+| `api` exits immediately | Ensure `.env` exists and `JWT_SECRET` is set |
+| `Can't reach database server` | Wait for `postgres` health check to pass; confirm `DATABASE_URL` uses host `postgres` inside Compose |
+| Port `3000` already in use | Change `PORT` in `.env` and map `3001:3001` (or similar) in `docker-compose.yml` |
+| Migrations fail on first boot | Run `docker compose logs api`; verify Postgres is healthy with `docker compose ps` |
+| Redis connection warnings | Start with `--profile full` or unset `REDIS_URL` for API-only local mode |
+
 ---
 
 ## Environment Setup
@@ -586,7 +635,14 @@ npx prisma db seed
 npm run dev
 ```
 
-The server will start on `http://localhost:3000` with auto-reload on file changes.
+Starts the **production app** (`src/index.ts`) on `http://localhost:3001` with auto-reload. This is the right server for all feature work and bug fixes. Requires `.env` with at least `DATABASE_URL` and `JWT_SECRET` (copy `.env.example` to get started).
+
+```bash
+# Demo server — no database required, mock data only
+npm run dev:hackathon
+```
+
+See [docs/architecture.md](docs/architecture.md) for guidance on which server to run.
 
 ### Local Render-Parity Bootstrap
 
@@ -691,6 +747,22 @@ Operator endpoints (admin-only, gated by `requireAdmin`):
   the cap (default 5) is reached.
 - `POST /api/admin/dead-letter/retry-all` — replay every `PENDING` /
   `RETRYING` entry (capped, oldest first). Returns a counts summary.
+
+---
+
+## API Versioning
+
+The current versioned base URL is `/api/v1`.
+
+All endpoints are accessible under both `/api/v1/*` (versioned) and `/api/*` (legacy alias). The legacy paths (`/api/*`) are deprecated and will be removed on **2027-01-01**.
+
+Clients should migrate to `/api/v1/*` before that date.
+
+Responses from the deprecated legacy paths include the following headers:
+
+- `Deprecation: true`
+- `Sunset: Sat, 01 Jan 2027 00:00:00 GMT`
+- `Link: </api/v1{path}>; rel="successor-version"`
 
 ---
 
@@ -946,21 +1018,41 @@ socket.on('new_message', (message) => {
 Run the test suite with Jest:
 
 ```bash
-# Run all tests
+# Run all tests (unit + integration)
 npm test
+
+# Run unit tests only
+npm run test:unit
 
 # Run unit tests with coverage thresholds
 npm run test:unit:coverage
 
-# Run the full local CI check
-npm run ci
+# Run integration tests only (requires PostgreSQL — see DATABASE_URL in .env)
+npm run test:integration
 
-# Run tests in watch mode
+# Run all tests with coverage
+npm run test:coverage
+
+# Run tests in watch mode (development)
 npm run test:watch
 
-# Repeatable load baselines for prediction throughput + websocket fanout (#21)
+# Run the full local CI check (lint + build + unit coverage + integration)
+npm run ci
+
+# Run the legacy hackathon node:test suite
+npm run test:hackathon
+
+# Run load/performance baselines
 npm run test:load
 ```
+
+Coverage thresholds are enforced in `jest.config.ts`. The current floors are:
+- Branches: 70%
+- Functions: 50%
+- Lines: 35%
+- Statements: 35%
+
+CI runs `npm run test:unit:coverage` (unit tests with coverage upload) and `npm run test:integration` (integration tests against a PostgreSQL service container) as separate parallel jobs.
 
 ### Load test harness (#21)
 
@@ -1010,7 +1102,8 @@ At minimum, migration PRs should include:
 | Script | Description |
 |--------|-------------|
 | `npm start` | Run production server (requires build) |
-| `npm run dev` | Start development server with hot-reload |
+| `npm run dev` | Start the **production** development server (`src/index.ts`) with hot-reload — use this for all feature work |
+| `npm run dev:hackathon` | Start the hackathon demo server (`src/server.ts`) — mock data only, no database required |
 | `npm run dev:render-parity` | Generate Prisma client, apply committed migrations, then start dev server |
 | `npm run build` | Compile TypeScript to JavaScript |
 | `npm test` | Run Jest test suite |
@@ -1856,10 +1949,26 @@ This section is designed so a new developer can boot and test the API in minutes
 git clone https://github.com/TevaLabs/Xelma-Backend.git
 cd Xelma-Backend
 npm install
+
+# 1. Start the PostgreSQL database container (if not running a local instance)
+docker compose up -d postgres
+
+# 2. Copy and customize your environment variables
 cp .env.example .env
-# Edit .env → set DATABASE_URL and JWT_SECRET at minimum
+# Edit .env → set DATABASE_URL and JWT_SECRET
+
+# 3. Generate Prisma client & apply core migrations
 npm run prisma:generate
-npm run prisma:migrate
+npx prisma migrate deploy
+
+# 4. Generate & apply Drizzle migrations for hackathon schema
+npx drizzle-kit generate
+npx ts-node src/db/migrate.ts
+
+# 5. Seed initial mock rounds and user data to Postgres
+npx ts-node src/db/seed.ts
+
+# 6. Start the server
 npm run dev
 ```
 
@@ -1870,13 +1979,15 @@ The server starts on `http://localhost:3001` (or the `PORT` in `.env`).
 | Variable | Example | Purpose |
 |---|---|---|
 | `PORT` | `3001` | Server listen port |
-| `DATABASE_URL` | `postgresql://user:pass@localhost:5432/xelma` | PostgreSQL connection |
+| `DATABASE_URL` | `postgresql://xelma:xelma@localhost:5432/xelma` | PostgreSQL connection |
 | `JWT_SECRET` | `my-secret-key` | Signs JWT tokens (app refuses to start without it) |
+| `DATA_MODE` | `mock` | Hackathon service data mode (set to `mock` to query Drizzle schema tables) |
+| `ENABLE_MULTIPLAYER_SOCIAL` | `true` | Feature flag to enable/disable chat and notifications routes |
 | `COINGECKO_API_URL` | `https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd` | Price oracle source |
 | `STELLAR_RPC_URL` | `https://soroban-testnet.stellar.org` | Stellar/Soroban RPC |
 | `CONTRACT_ID` | *(your deployed contract)* | Soroban prediction market contract |
 
-> **Note**: For hackathon MVP, the backend uses PostgreSQL for persistence. In-memory store is not used.
+> **Note**: For the Hackathon MVP, the backend is fully migrated from in-memory arrays to PostgreSQL via Drizzle ORM for durable persistence of users, rounds, and bets. No in-memory stores are used.
 
 ### 3. Hackathon Endpoint Curl Examples
 
@@ -1984,11 +2095,13 @@ curl "http://localhost:3001/api/user/GXXX.../history?limit=20&offset=0"
 curl http://localhost:3001/api/user/GXXX.../public-profile
 ```
 
-#### Get On-chain User Stats
+#### Get Wallet Stats (returns per-wallet stats from PostgreSQL, echoing the address param)
 
 ```bash
 curl http://localhost:3001/api/user/GXXX.../stats
 ```
+
+> **Note on Feature Flags**: Chat (`/api/chat/*`) and Notification (`/api/notifications/*`) endpoints are feature-gated behind the `ENABLE_MULTIPLAYER_SOCIAL` configuration option. If this option is set to `false`, these endpoints will return a `404 Not Found` JSON response.
 
 #### Get Transactions (requires JWT)
 

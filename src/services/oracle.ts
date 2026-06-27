@@ -1,5 +1,6 @@
 import logger from '../utils/logger';
-import { toDecimal, toNumber, toDecimalString } from '../utils/decimal.util';
+import { toNumber, toDecimalString } from '../utils/decimal.util';
+import { TimeoutResult, withTimeout } from '../utils/timeout-wrapper';
 import { CircuitBreaker, CircuitBreakerOpenError } from '../utils/circuit-breaker';
 import { Decimal } from '@prisma/client/runtime/library';
 import config from '../config';
@@ -7,24 +8,47 @@ import {
   priceOracleFetchFailuresTotal,
   priceOracleUpdatesTotal,
 } from '../metrics/application.metrics';
-import { fetchPricesWithFailover, resolvePriceProviders } from './price-providers';
+import { PriceProvider } from './price-provider.interface';
+import { CoinGeckoProvider } from './providers/coingecko.provider';
+import { CoinCapProvider } from './providers/coincap.provider';
+
+interface ProviderEntry {
+  provider: PriceProvider;
+  breaker: CircuitBreaker;
+}
 
 class PriceOracle {
   private static instance: PriceOracle;
   private price: Decimal | null = null;
+  private lastProvider: string | null = null;
   private readonly POLLING_INTERVAL = config.oracle.pollingIntervalMs;
   private readonly STALENESS_THRESHOLD = config.oracle.stalenessThresholdMs;
-  private readonly breaker = new CircuitBreaker({
-    name: 'price-oracle',
-    failureThreshold: 3,
-    openBackoffMs: 30_000,
-  });
+  private readonly providerChain: ProviderEntry[];
   private pollingInterval: ReturnType<typeof setInterval> | null = null;
   private _running = false;
   private lastUpdatedAt: Date | null = null;
   private activeSource: string | null = null;
 
-  private constructor() {}
+  private constructor() {
+    this.providerChain = [
+      {
+        provider: new CoinGeckoProvider(config.oracle.coinGeckoUrl, this.REQUEST_TIMEOUT),
+        breaker: new CircuitBreaker({
+          name: 'coingecko-price-oracle',
+          failureThreshold: 3,
+          openBackoffMs: 30_000,
+        }),
+      },
+      {
+        provider: new CoinCapProvider(config.oracle.coinCapUrl, this.REQUEST_TIMEOUT),
+        breaker: new CircuitBreaker({
+          name: 'coincap-price-oracle',
+          failureThreshold: 3,
+          openBackoffMs: 30_000,
+        }),
+      },
+    ];
+  }
 
   public static getInstance(): PriceOracle {
     if (!PriceOracle.instance) {
@@ -39,15 +63,11 @@ class PriceOracle {
       return;
     }
     this._running = true;
-
     this.fetchPrice();
     this.pollingInterval = setInterval(() => {
       this.fetchPrice();
     }, this.POLLING_INTERVAL);
-
-    logger.info('Price Oracle polling started', {
-      providers: resolvePriceProviders().map((provider) => provider.name),
-    });
+    logger.info('Price Oracle polling started');
   }
 
   public stopPolling(): void {
@@ -66,35 +86,85 @@ class PriceOracle {
     return this._running;
   }
 
-  private async fetchPrice(): Promise<void> {
-    try {
-      const result = await this.breaker.execute(async () =>
-        fetchPricesWithFailover(resolvePriceProviders()),
-      );
+  private async tryProvider(entry: ProviderEntry): Promise<TimeoutResult<Decimal>> {
+    const { provider, breaker } = entry;
 
-      this.price = toDecimal(result.prices.XLM);
-      this.lastUpdatedAt = result.fetchedAt;
-      this.activeSource = result.source;
-      priceOracleUpdatesTotal.inc();
-      logger.info(`Fetched XLM price: $${toDecimalString(this.price)}`, {
-        source: result.source,
+    try {
+      const result = await breaker.execute(async () => {
+        const timeoutResult = await withTimeout(
+          () => provider.fetchPrice(),
+          {
+            timeoutMs: this.REQUEST_TIMEOUT,
+            operationName: `fetchPriceFrom:${provider.name}`,
+            retries: this.MAX_RETRIES,
+          }
+        );
+
+        if (!timeoutResult.success) {
+          throw timeoutResult.error ?? new Error(`Failed to fetch price from ${provider.name}`);
+        }
+
+        return timeoutResult;
       });
+
+      return result;
     } catch (error) {
       if (error instanceof CircuitBreakerOpenError) {
-        logger.warn('Skipped price fetch because circuit breaker is open', {
+        logger.warn(`Skipped ${provider.name} price fetch — circuit breaker is open`, {
           breaker: error.breakerName,
           nextAttemptAt: error.nextAttemptAt.toISOString(),
+        });
+        return {
+          success: false,
+          error: new Error(`Circuit breaker open for ${provider.name}`),
+          durationMs: 0,
+          retriesUsed: 0,
+          timedOut: false,
+        };
+      }
+
+      return {
+        success: false,
+        error: error instanceof Error ? error : new Error(String(error)),
+        durationMs: 0,
+        retriesUsed: 0,
+        timedOut: error instanceof Error && error.message.includes('timeout'),
+      };
+    }
+  }
+
+  private async fetchPrice(): Promise<void> {
+    for (const entry of this.providerChain) {
+      const result = await this.tryProvider(entry);
+
+      if (result.success && result.data) {
+        this.price = result.data;
+        this.lastProvider = entry.provider.name;
+        this.lastUpdatedAt = new Date();
+        priceOracleUpdatesTotal.inc({ provider: entry.provider.name });
+        logger.info(`Fetched XLM price: $${toDecimalString(result.data)} via ${entry.provider.name}`, {
+          provider: entry.provider.name,
+          durationMs: result.durationMs,
+          retriesUsed: result.retriesUsed,
         });
         return;
       }
 
       priceOracleFetchFailuresTotal.inc({
-        reason: 'upstream_error',
+        reason: result.timedOut ? 'timeout' : 'upstream_error',
+        provider: entry.provider.name,
       });
-      logger.error('Failed to fetch price from configured providers', {
-        error: error instanceof Error ? error.message : String(error),
+      logger.warn(`Price fetch failed for provider ${entry.provider.name}, trying next`, {
+        provider: entry.provider.name,
+        error: result.error?.message,
+        durationMs: result.durationMs,
+        timedOut: result.timedOut,
       });
     }
+
+    logger.error('All price providers failed — price not updated', {
+      providers: this.providerChain.map(e => e.provider.name),
+    });
   }
 
   public getPrice(): Decimal | null {
@@ -107,6 +177,10 @@ class PriceOracle {
 
   public getPriceString(places = 8): string | null {
     return this.price ? toDecimalString(this.price, places) : null;
+  }
+
+  public getLastProvider(): string | null {
+    return this.lastProvider;
   }
 
   public isStale(): boolean {

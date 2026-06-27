@@ -80,13 +80,14 @@ export const predictionsPlacedTotal = new Counter({
 export const priceOracleUpdatesTotal = new Counter({
    name: 'price_oracle_updates_total',
    help: 'Total number of successful price oracle updates fetched',
+   labelNames: ['provider'] as const,
    registers: [metricsRegistry],
 });
 
 export const priceOracleFetchFailuresTotal = new Counter({
    name: 'price_oracle_fetch_failures_total',
    help: 'Total number of failed price oracle fetch attempts',
-   labelNames: ['reason'] as const,
+   labelNames: ['reason', 'provider'] as const,
    registers: [metricsRegistry],
 });
 

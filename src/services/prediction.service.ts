@@ -183,7 +183,7 @@ export class PredictionService {
 
             // 7. Update round pools
             if (round.mode === 'UP_DOWN') {
-               await tx.round.update({
+               const updatedRound = await tx.round.update({
                   where: { id: roundId },
                   data: {
                      poolUp:
@@ -220,6 +220,58 @@ export class PredictionService {
                   },
                });
 
+               // 10. Write round_update websocket outbox event atomically for specific round room
+               await tx.outboxEvent.create({
+                  data: {
+                     eventType: OutboxEventType.WEBSOCKET_EMIT,
+                     aggregateId: roundId,
+                     aggregateType: 'round',
+                     payload: {
+                        eventName: 'round_update',
+                        room: `round:${roundId}`,
+                        data: {
+                           id: updatedRound.id,
+                           mode: updatedRound.mode,
+                           status: updatedRound.status,
+                           startTime: updatedRound.startTime.toISOString(),
+                           endTime: updatedRound.endTime.toISOString(),
+                           startPrice: toNumber(updatedRound.startPrice),
+                           endPrice: updatedRound.endPrice ? toNumber(updatedRound.endPrice) : null,
+                           poolUp: toNumber(updatedRound.poolUp),
+                           poolDown: toNumber(updatedRound.poolDown),
+                           priceRanges: updatedRound.priceRanges,
+                           resolvedAt: updatedRound.resolvedAt ? updatedRound.resolvedAt.toISOString() : null,
+                        },
+                     },
+                  },
+               });
+
+               // 11. Write round_update websocket outbox event atomically for general round room
+               await tx.outboxEvent.create({
+                  data: {
+                     eventType: OutboxEventType.WEBSOCKET_EMIT,
+                     aggregateId: roundId,
+                     aggregateType: 'round',
+                     payload: {
+                        eventName: 'round_update',
+                        room: 'round',
+                        data: {
+                           id: updatedRound.id,
+                           mode: updatedRound.mode,
+                           status: updatedRound.status,
+                           startTime: updatedRound.startTime.toISOString(),
+                           endTime: updatedRound.endTime.toISOString(),
+                           startPrice: toNumber(updatedRound.startPrice),
+                           endPrice: updatedRound.endPrice ? toNumber(updatedRound.endPrice) : null,
+                           poolUp: toNumber(updatedRound.poolUp),
+                           poolDown: toNumber(updatedRound.poolDown),
+                           priceRanges: updatedRound.priceRanges,
+                           resolvedAt: updatedRound.resolvedAt ? updatedRound.resolvedAt.toISOString() : null,
+                        },
+                     },
+                  },
+               });
+
                logger.info(
                   `Prediction submitted (UP_DOWN): user=${userId}, round=${roundId}, side=${side}`
                );
@@ -232,7 +284,7 @@ export class PredictionService {
                   amount
                );
 
-               await tx.round.update({
+               const updatedRound = await tx.round.update({
                   where: { id: roundId },
                   data: {
                      priceRanges:
@@ -256,6 +308,58 @@ export class PredictionService {
                            amount: toNumber(prediction.amount),
                            side: prediction.side,
                            priceRange: prediction.priceRange,
+                        },
+                     },
+                  },
+               });
+
+               // Write round_update websocket outbox event atomically for specific round room
+               await tx.outboxEvent.create({
+                  data: {
+                     eventType: OutboxEventType.WEBSOCKET_EMIT,
+                     aggregateId: roundId,
+                     aggregateType: 'round',
+                     payload: {
+                        eventName: 'round_update',
+                        room: `round:${roundId}`,
+                        data: {
+                           id: updatedRound.id,
+                           mode: updatedRound.mode,
+                           status: updatedRound.status,
+                           startTime: updatedRound.startTime.toISOString(),
+                           endTime: updatedRound.endTime.toISOString(),
+                           startPrice: toNumber(updatedRound.startPrice),
+                           endPrice: updatedRound.endPrice ? toNumber(updatedRound.endPrice) : null,
+                           poolUp: toNumber(updatedRound.poolUp),
+                           poolDown: toNumber(updatedRound.poolDown),
+                           priceRanges: updatedRound.priceRanges,
+                           resolvedAt: updatedRound.resolvedAt ? updatedRound.resolvedAt.toISOString() : null,
+                        },
+                     },
+                  },
+               });
+
+               // Write round_update websocket outbox event atomically for general round room
+               await tx.outboxEvent.create({
+                  data: {
+                     eventType: OutboxEventType.WEBSOCKET_EMIT,
+                     aggregateId: roundId,
+                     aggregateType: 'round',
+                     payload: {
+                        eventName: 'round_update',
+                        room: 'round',
+                        data: {
+                           id: updatedRound.id,
+                           mode: updatedRound.mode,
+                           status: updatedRound.status,
+                           startTime: updatedRound.startTime.toISOString(),
+                           endTime: updatedRound.endTime.toISOString(),
+                           startPrice: toNumber(updatedRound.startPrice),
+                           endPrice: updatedRound.endPrice ? toNumber(updatedRound.endPrice) : null,
+                           poolUp: toNumber(updatedRound.poolUp),
+                           poolDown: toNumber(updatedRound.poolDown),
+                           priceRanges: updatedRound.priceRanges,
+                           resolvedAt: updatedRound.resolvedAt ? updatedRound.resolvedAt.toISOString() : null,
                         },
                      },
                   },

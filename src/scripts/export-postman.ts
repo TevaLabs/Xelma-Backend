@@ -27,14 +27,14 @@ function main() {
 
   converter.convert(
     { type: 'json', data: openapi },
-    { schemaFaker: true, requestNameSource: 'fallback' },
-    (err: unknown, conversionResult: ConversionResult) => {
+    { schemaFaker: true, requestNameSource: 'Fallback' },
+    (err: unknown, conversionResult: any) => {
       if (err) throw err;
       if (!conversionResult?.result) {
         throw new Error(conversionResult?.reason || 'OpenAPI → Postman conversion failed');
       }
 
-      const collection = conversionResult.output?.find((o) => o.type === 'collection')?.data;
+      const collection = conversionResult.output?.find((o: any) => o.type === 'collection')?.data;
       if (!collection) {
         throw new Error('Postman collection missing from conversion output');
       }

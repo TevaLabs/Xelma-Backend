@@ -2,26 +2,69 @@ import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import swaggerUi from 'swagger-ui-express';
 import routes from './routes';
 import healthRoutes from './routes/health';
 import statsRoutes from './routes/stats';
 import roundsRoutes from './routes/rounds';
 import leaderboardRoutes from './routes/leaderboard';
+import userRoutes from './routes/user';
+import chatRoutes from './routes/chat.routes';
+import notificationsRoutes from './routes/notifications.routes';
 import { apiRateLimiter, writeRateLimiter } from './middleware/rateLimiter';
+import { getHttpCorsOrigins } from './utils/cors';
+import { notFoundHandler } from './middleware/notFound';
+import { errorHandler } from './middleware/errorHandler';
+import { hackathonSwaggerSpec } from './docs/hackathon-openapi';
+import config from './config';
 
-const app: Application = express();
+export interface CreateAppOptions {
+  includeErrorHandlers?: boolean;
+}
 
-app.use(express.json());
-app.use(cors({ origin: true }));
-app.use(helmet());
-app.use(morgan('combined'));
+export function createApp(options: CreateAppOptions = {}): Application {
+  const { includeErrorHandlers = true } = options;
+  const app: Application = express();
 
-app.use('/api', apiRateLimiter);
-app.use('/api', writeRateLimiter);
-app.use('/api', healthRoutes);
-app.use('/api', statsRoutes);
-app.use('/api/rounds', roundsRoutes);
-app.use('/api/leaderboard', leaderboardRoutes);
-app.use('/api', routes);
+  app.use(express.json());
+  app.use(
+    cors({
+      origin: getHttpCorsOrigins(),
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
+      credentials: true,
+    })
+  );
+  app.use(helmet());
+  app.use(morgan('combined'));
 
+  app.get('/docs', (_req, res) => res.redirect(302, '/api-docs'));
+  app.get('/api-docs.json', (_req, res) => res.json(hackathonSwaggerSpec));
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(hackathonSwaggerSpec, { explorer: true }));
+
+  app.use('/api', apiRateLimiter);
+  app.use('/api', writeRateLimiter);
+  app.use('/api', healthRoutes);
+  app.use('/api/stats', statsRoutes);
+  app.use('/api/rounds', roundsRoutes);
+  app.use('/api/leaderboard', leaderboardRoutes);
+  app.use('/api/user', userRoutes);
+
+  if (config.app.enableMultiplayerSocial) {
+    app.use('/api/chat', chatRoutes);
+    app.use('/api/notifications', notificationsRoutes);
+  }
+
+  app.use('/api', routes);
+
+  // Centralized 404 and Error handlers registered last in the Express stack
+  if (includeErrorHandlers) {
+    app.use(notFoundHandler);
+    app.use(errorHandler);
+  }
+
+  return app;
+}
+
+const app = createApp();
 export default app;

@@ -30,7 +30,7 @@ function toNumber(value: bigint | number | string): number {
 export function mapSorobanActiveRound(round: SorobanRound): MappedActiveRound {
   const roundId = toNumber(round.round_id);
   const mode =
-    round.mode === RoundMode.Precision || round.mode === 1 ? "LEGENDS" : "UP_DOWN";
+    (round.mode as any) === RoundMode.Precision || (round.mode as any) === 1 ? "LEGENDS" : "UP_DOWN";
 
   return {
     id: `soroban-${roundId}`,

@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "es6",
+    "target": "es2020",
     "module": "commonjs",
     "outDir": "./dist",
     "rootDir": "./src",
@@ -9,18 +9,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": [
-    "src/app.ts",
-    "src/server.ts",
-    "src/middleware/rateLimiter.ts",
-    "src/data/mockData.ts",
-    "src/services/priceService.ts",
-    "src/routes/prices.ts",
-    "src/routes/index.ts",
-    "src/routes/health.ts",
-    "src/routes/stats.ts",
-    "src/routes/rounds.ts",
-    "src/routes/leaderboard.ts",
-    "src/tests/hackathon.test.ts"
-  ]
+  "include": ["src/**/*"],
+  "exclude": ["src/tests/**/*", "src/**/*.spec.ts"]
 }

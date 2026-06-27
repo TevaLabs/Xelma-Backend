@@ -208,6 +208,7 @@ export async function getLeaderboard(
     leaderboard,
     userPosition,
     totalUsers: totalUsers ?? 0,
+    pagination: buildOffsetMeta(limit, offset, totalUsers ?? 0),
   };
 
   await setJsonToCache(
@@ -220,6 +221,101 @@ export async function getLeaderboard(
   return {
     ...payload,
     lastUpdated: new Date().toISOString(),
+  };
+}
+
+/**
+ * Cursor encodes `{ totalEarnings, userId }` of the last entry on the
+ * previous page. Using both fields handles ties in totalEarnings correctly.
+ *
+ * @param limit  - page size (1–500)
+ * @param cursor - opaque cursor from a previous response (optional)
+ * @param userId - authenticated user id for userPosition lookup (optional)
+ */
+export async function getLeaderboardCursor(
+  limit: number = 100,
+  cursor?: string,
+  userId?: string,
+): Promise<LeaderboardCursorResponse> {
+  const decoded = decodeCursor<{ totalEarnings: string; userId: string }>(cursor);
+
+  // Fetch limit+1 rows for the sentinel trick
+  const userStats = await prisma.userStats.findMany({
+    take: limit + 1,
+    orderBy: [{ totalEarnings: "desc" }, { userId: "asc" }],
+    ...(decoded
+      ? {
+          cursor: { userId: decoded.userId },
+          skip: 1,
+        }
+      : {}),
+    include: {
+      user: {
+        select: {
+          id: true,
+          walletAddress: true,
+        },
+      },
+    },
+  });
+
+  // We need the global offset of the first row on this page to compute ranks.
+  // Count how many rows have higher earnings than the cursor row.
+  let rankOffset = 0;
+  if (decoded) {
+    rankOffset = await prisma.userStats.count({
+      where: {
+        totalEarnings: { gt: decoded.totalEarnings },
+      },
+    });
+  }
+
+  const pagination = buildCursorMeta(limit, userStats, (stat) => ({
+    totalEarnings: stat.totalEarnings.toString(),
+    userId: stat.userId,
+  }));
+
+  const pageStats = trimSentinel(userStats, limit);
+
+  const leaderboard: LeaderboardEntry[] = pageStats.map((stat, index) => ({
+    rank: rankOffset + index + 1,
+    userId: stat.user.id,
+    walletAddress: maskWalletAddress(stat.user.walletAddress),
+    totalEarnings: toNumber(stat.totalEarnings),
+    totalPredictions: stat.totalPredictions,
+    accuracy: calculateAccuracy(stat.correctPredictions, stat.totalPredictions),
+    modeStats: {
+      upDown: {
+        wins: stat.upDownWins,
+        losses: stat.upDownLosses,
+        earnings: toNumber(stat.upDownEarnings),
+        accuracy: calculateAccuracy(
+          stat.upDownWins,
+          stat.upDownWins + stat.upDownLosses,
+        ),
+      },
+      legends: {
+        wins: stat.legendsWins,
+        losses: stat.legendsLosses,
+        earnings: toNumber(stat.legendsEarnings),
+        accuracy: calculateAccuracy(
+          stat.legendsWins,
+          stat.legendsWins + stat.legendsLosses,
+        ),
+      },
+    },
+  }));
+
+  let userPosition: LeaderboardEntry | undefined;
+  if (userId) {
+    userPosition = await getUserPosition(userId);
+  }
+
+  return {
+    leaderboard,
+    userPosition,
+    lastUpdated: new Date().toISOString(),
+    pagination,
   };
 }
 

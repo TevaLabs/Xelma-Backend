@@ -12,11 +12,12 @@ export { UserRole };
 // Export AuthRequest and AuthenticatedRequest type for use in routes
 export { AuthRequest, AuthenticatedRequest };
 
-// Extend Express Request to include user
+// Extend Express Request to include authenticated wallet metadata
 declare global {
   namespace Express {
     interface Request {
       user?: JwtPayload;
+      walletAddress?: string;
     }
   }
 }
@@ -63,6 +64,38 @@ function attachUser(req: Request, user: ResolvedUser): void {
 
 function userHasAnyRole(user: ResolvedUser, allowedRoles: UserRole[]): boolean {
   return allowedRoles.includes(user.role);
+}
+
+function attachWalletAddress(req: Request, payload: JwtPayload): void {
+  req.walletAddress = payload.walletAddress;
+  req.user = payload;
+}
+
+/**
+ * Middleware to verify Stellar JWT auth and attach the authenticated wallet address.
+ */
+export async function verifyStellarAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    res.status(401).json({ error: "No token provided" });
+    return;
+  }
+
+  const token = authHeader.substring(7);
+  const decoded = verifyToken(token);
+
+  if (!decoded || !decoded.walletAddress) {
+    res.status(401).json({ error: "Invalid or expired token" });
+    return;
+  }
+
+  attachWalletAddress(req, decoded);
+  next();
 }
 
 /**

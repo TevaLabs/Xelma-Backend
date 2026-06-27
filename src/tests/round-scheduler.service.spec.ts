@@ -20,6 +20,10 @@ jest.mock("../services/round.service", () => ({
   },
 }));
 
+jest.mock("../utils/distributed-lock", () => ({
+  withDistributedLock: jest.fn((lockName: string, fn: () => any) => fn()),
+}));
+
 /**
  * Mock Prisma so these unit tests run without a real database.
  * `closeEligibleRounds` and `createRound` each only touch one method on

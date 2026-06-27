@@ -27,6 +27,7 @@ export interface LoadTestResult {
   total: number;
   successes: number;
   failures: number;
+  errorRate: number;
   durationMs: number;
   throughputRps: number;
   latencyMs: LatencyStats;
@@ -37,6 +38,7 @@ export interface WebSocketFanoutResult {
   clientCount: number;
   deliveredCount: number;
   deliveryRate: number;
+  errorRate: number;
   fanoutMs: LatencyStats;
 }
 
@@ -51,6 +53,7 @@ export interface LoadTestConfig {
     iterations: number;
     minThroughputRps: number;
     maxP95LatencyMs: number;
+    maxErrorRate: number;
   };
   websocket: {
     clientCount: number;
@@ -114,6 +117,10 @@ export function getLoadTestConfig(): LoadTestConfig {
         process.env.LOAD_TEST_PREDICTION_P95_MS,
         500
       ),
+      maxErrorRate: parsePositiveFloat(
+        process.env.LOAD_TEST_PREDICTION_MAX_ERROR_RATE,
+        0.05
+      ),
     },
     websocket: {
       clientCount: parsePositiveInt(process.env.LOAD_TEST_WS_CLIENTS, 20),
@@ -162,13 +169,15 @@ export function summarizeLoadTest(
   durationMs: number
 ): LoadTestResult {
   const successes = samples.filter((sample) => sample.success).length;
+  const failures = samples.length - successes;
   const latencies = samples.map((sample) => sample.latencyMs);
   const safeDurationMs = Math.max(durationMs, 1);
 
   return {
     total: samples.length,
     successes,
-    failures: samples.length - successes,
+    failures,
+    errorRate: samples.length > 0 ? failures / samples.length : 0,
     durationMs: safeDurationMs,
     throughputRps: (samples.length / safeDurationMs) * 1000,
     latencyMs: computeLatencyStats(latencies),
@@ -216,7 +225,7 @@ export function formatLoadTestReport(label: string, result: LoadTestResult): str
   const { latencyMs } = result;
   return [
     `[LOAD] ${label}`,
-    `  total=${result.total} success=${result.successes} fail=${result.failures}`,
+    `  total=${result.total} success=${result.successes} fail=${result.failures} errorRate=${(result.errorRate * 100).toFixed(1)}%`,
     `  duration=${result.durationMs}ms throughput=${result.throughputRps.toFixed(2)} rps`,
     `  latency ms: p50=${latencyMs.p50} p95=${latencyMs.p95} p99=${latencyMs.p99} max=${latencyMs.max}`,
   ].join("\n");
@@ -229,7 +238,7 @@ export function formatFanoutReport(
   const { fanoutMs } = result;
   return [
     `[LOAD] ${label}`,
-    `  clients=${result.clientCount} delivered=${result.deliveredCount} rate=${(result.deliveryRate * 100).toFixed(1)}%`,
+    `  clients=${result.clientCount} delivered=${result.deliveredCount} rate=${(result.deliveryRate * 100).toFixed(1)}% errorRate=${(result.errorRate * 100).toFixed(1)}%`,
     `  fanout ms: p50=${fanoutMs.p50} p95=${fanoutMs.p95} max=${fanoutMs.max}`,
   ].join("\n");
 }
@@ -281,11 +290,13 @@ export async function measureWebSocketFanout(
 
   const deliveredCount = deliveryMs.length;
   const clientCount = clients.length;
+  const deliveryRate = clientCount === 0 ? 0 : deliveredCount / clientCount;
 
   return {
     clientCount,
     deliveredCount,
-    deliveryRate: clientCount === 0 ? 0 : deliveredCount / clientCount,
+    deliveryRate,
+    errorRate: 1 - deliveryRate,
     fanoutMs: computeLatencyStats(deliveryMs),
   };
 }

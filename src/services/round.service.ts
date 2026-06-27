@@ -247,11 +247,12 @@ export class RoundService {
         return RoundLifecycleOutcome.NO_OP;
       }
 
-      await prisma.round.update({
+      const updatedRound = await prisma.round.update({
         where: { id: roundId },
         data: { status: "LOCKED" },
       });
 
+      websocketService.emitRoundUpdate(updatedRound);
       logger.info(`Round locked: ${roundId}`);
       return RoundLifecycleOutcome.UPDATED;
     } catch (error) {

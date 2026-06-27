@@ -11,15 +11,15 @@ jest.mock('../utils/logger', () => ({
 }));
 
 // Mock the prisma client
-const mockAuditLogCreate = jest.fn().mockResolvedValue({ id: 'audit-123' });
-
 jest.mock('../lib/prisma', () => ({
   prisma: {
     auditLog: {
-      create: mockAuditLogCreate,
+      create: jest.fn().mockResolvedValue({ id: 'audit-123' }),
     },
   },
 }));
+
+const mockAuditLogCreate = prisma.auditLog.create as any;
 
 describe('AuditLogger', () => {
   beforeEach(() => {
@@ -292,10 +292,10 @@ describe('AuditLogger', () => {
           audit: true,
           eventType: AuditEventType.CHALLENGE_REUSED,
           severity: AuditSeverity.WARNING,
-          message: 'Authentication challenge reuse detected',
+          message: 'Attempt to reuse already-consumed authentication challenge',
           outcome: 'failure',
           metadata: expect.objectContaining({
-            usedAt: usedAt.toISOString(),
+            originalUsedAt: usedAt.toISOString(),
           }),
         })
       );
@@ -342,7 +342,7 @@ describe('AuditLogger', () => {
           audit: true,
           eventType: AuditEventType.AUTH_SUCCESS,
           severity: AuditSeverity.INFO,
-          message: 'Authentication successful',
+          message: 'User authenticated successfully',
           outcome: 'success',
           actor: expect.objectContaining({
             type: 'user',
@@ -394,7 +394,7 @@ describe('AuditLogger', () => {
           audit: true,
           eventType: AuditEventType.USER_CREATED,
           severity: AuditSeverity.INFO,
-          message: 'User created successfully',
+          message: 'New user account created',
           outcome: 'success',
           actor: expect.objectContaining({
             type: 'system',
@@ -426,7 +426,7 @@ describe('AuditLogger', () => {
           audit: true,
           eventType: AuditEventType.USER_LOGIN,
           severity: AuditSeverity.INFO,
-          message: 'User logged in successfully',
+          message: 'User logged in',
           outcome: 'success',
           actor: expect.objectContaining({
             type: 'user',
@@ -563,7 +563,7 @@ describe('AuditLogger', () => {
               isNewUser: true,
               authMethod: 'wallet_signature',
             }),
-            timestamp: expect.any(String),
+            timestamp: expect.any(Date),
           }),
         })
       );

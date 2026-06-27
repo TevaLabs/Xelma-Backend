@@ -42,6 +42,7 @@ function createRateLimiter(opts: {
     message: { error: 'Too Many Requests', message: opts.message },
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { keyGeneratorIpFallback: false },
     handler: (req, res) => {
       const key = opts.keyGenerator ? opts.keyGenerator(req) : (req.ip || 'unknown');
       const userId = req.user?.userId;

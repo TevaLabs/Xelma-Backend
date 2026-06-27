@@ -1,9 +1,6 @@
 import { Router, Response, NextFunction } from "express";
 import { validate } from "../middleware/validate.middleware";
-import {
-  authenticateUser,
-  bindAuthenticatedWallet,
-} from "../middleware/auth.middleware";
+import { verifyStellarAuth, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { upDownBetSchema, precisionBetSchema } from "../schemas/bets.schema";
 import betService from "../services/bet.service";
 
@@ -38,17 +35,23 @@ const router = Router();
  */
 router.post(
   "/up-down",
-  authenticateUser,
-  bindAuthenticatedWallet,
+  verifyStellarAuth,
   validate(upDownBetSchema),
-  (req, res: Response, next: NextFunction) => {
+  async (req, res: Response, next: NextFunction) => {
     try {
-      // TODO: Call contract via Xelma TypeScript bindings — bets must go on-chain;
-      // this endpoint is logging/analytics only for now
-      betService.recordUpDownBet(req.body);
-      res.json({ success: true, message: "Bet recorded (stub)" });
-    } catch (error) {
-      next(error);
+      const result = await betService.recordUpDownBet(req.body);
+      res.json({
+        success: true,
+        message: result.state === "stub" ? "Bet recorded (stub)" : "Bet placed on-chain",
+        state: result.state,
+        ...(result.txHash ? { txHash: result.txHash } : {}),
+      });
+    } catch (error: any) {
+      if (error?.message?.includes("Soroban") || error?.message?.includes("Circuit breaker")) {
+        res.status(503).json({ success: false, error: "Contract interaction failed. Please try again." });
+      } else {
+        next(error);
+      }
     }
   },
 );
@@ -82,17 +85,23 @@ router.post(
  */
 router.post(
   "/precision",
-  authenticateUser,
-  bindAuthenticatedWallet,
+  verifyStellarAuth,
   validate(precisionBetSchema),
-  (req, res: Response, next: NextFunction) => {
+  async (req, res: Response, next: NextFunction) => {
     try {
-      // TODO: Call contract via Xelma TypeScript bindings — bets must go on-chain;
-      // this endpoint is logging/analytics only for now
-      betService.recordPrecisionBet(req.body);
-      res.json({ success: true, message: "Bet recorded (stub)" });
-    } catch (error) {
-      next(error);
+      const result = await betService.recordPrecisionBet(req.body);
+      res.json({
+        success: true,
+        message: result.state === "stub" ? "Bet recorded (stub)" : "Bet placed on-chain",
+        state: result.state,
+        ...(result.txHash ? { txHash: result.txHash } : {}),
+      });
+    } catch (error: any) {
+      if (error?.message?.includes("Soroban") || error?.message?.includes("Circuit breaker")) {
+        res.status(503).json({ success: false, error: "Contract interaction failed. Please try again." });
+      } else {
+        next(error);
+      }
     }
   },
 );

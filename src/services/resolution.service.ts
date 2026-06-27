@@ -1,8 +1,9 @@
 import sorobanService from './soroban.service';
 import logger from '../utils/logger';
 import educationTipService from './education-tip.service';
+import websocketService from './websocket.service';
 import { prisma } from '../lib/prisma';
-import { invalidateNamespace } from '../lib/redis';
+import { invalidateNamespace, invalidateLeaderboardSortedSet } from '../lib/redis';
 import { OutboxEventType } from '@prisma/client';
 import {
    toDecimal,
@@ -24,6 +25,7 @@ import {
    parseRoundPriceRanges,
    validateUserPriceRange,
 } from '../utils/price-range.util';
+import { calculatePayout } from '../utils/payout.util';
 import { roundsResolvedTotal } from '../metrics/application.metrics';
 
 function isValidRange(range: any): range is RoundPriceRange {
@@ -146,6 +148,7 @@ export class ResolutionService {
 
          if (result?.outcome === RoundLifecycleOutcome.UPDATED && result.round) {
             roundsResolvedTotal.inc({ mode: result.round.mode });
+            websocketService.emitRoundResolved(result.round);
          }
 
          // Generate educational tip outside transaction (non-critical)
@@ -251,8 +254,7 @@ export class ResolutionService {
          if (prediction.side === winningSide) {
             // Winner: gets bet back + proportional share of losing pool (decimal-safe)
             const predAmount = toDecimal(prediction.amount);
-            const share = decMul(decDiv(predAmount, winningPool), losingPool);
-            const payout = decAdd(predAmount, share);
+            const payout = calculatePayout(predAmount, winningPool, losingPool);
 
             await db.prediction.update({
                where: { id: prediction.id },
@@ -531,11 +533,7 @@ export class ResolutionService {
          ) {
             // Winner (decimal-safe)
             const predAmount = toDecimal(prediction.amount);
-            const share = decMul(
-               decDiv(predAmount, decWinningPool),
-               decLosingPool
-            );
-            const payout = decAdd(predAmount, share);
+            const payout = calculatePayout(predAmount, decWinningPool, decLosingPool);
 
             await db.prediction.update({
                where: { id: prediction.id },
