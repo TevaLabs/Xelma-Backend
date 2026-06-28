@@ -2055,6 +2055,64 @@ The `RateLimit-*` and `Retry-After` response headers are also set (`standardHead
 
 ---
 
+## Incident Response Runbook & Alert Configuration
+
+This section provides operational guidance for backend system administrators monitoring rate-limiting telemetry.
+
+### 1. Telemetry Overview
+We track rate-limit occurrences using the Prometheus counter `http_rate_limit_hits_total`, which includes the following sub-labels:
+- `endpoint`: The specific API path that was throttled (e.g., `auth/challenge`, `prediction/submit`).
+- `method`: The HTTP request method (e.g., `POST`, `GET`).
+
+### 2. Monitoring & Scraping Endpoints
+Operators can access the telemetry data via the following endpoints:
+- **Prometheus Scrape Path**: `GET /api/admin/metrics/metrics`  
+  Returns the flat-text Prometheus exposition format for all registered metrics (including `http_rate_limit_hits_total`).
+- **Admin JSON Summary**: `GET /api/admin/metrics/rate-limit-summary`  
+  Returns an optimized JSON configuration payload detailing active counter maps. Gated by admin authentication.
+
+### 3. Recommended Alerting Rules
+Configure your Prometheus/Alertmanager or Grafana alerts with the following recommended thresholds:
+
+| Alert Name | PromQL Expression | Severity | Description |
+| :--- | :--- | :--- | :--- |
+| `HighRateLimitHitsWarning` | `sum(rate(http_rate_limit_hits_total[5m])) by (endpoint) > 0.5` | Warning | Rate of 429 hits exceeds 30 per minute on any endpoint. Indicates potential client misbehavior or mild scraping. |
+| `HighRateLimitHitsCritical` | `sum(rate(http_rate_limit_hits_total[5m])) by (endpoint) > 5.0` | Critical | Rate of 429 hits exceeds 300 per minute. Indicates a potential brute-force or DDoS attack. |
+
+### 4. Triage & Incident Response Steps
+
+When an alert triggers, follow these steps to investigate and resolve the issue:
+
+#### Step 1: Identify the Target & Scale
+Query the active counter maps using the admin summary endpoint or Grafana dashboard:
+```bash
+curl -H "Authorization: Bearer <ADMIN_JWT>" http://localhost:3000/api/admin/metrics/rate-limit-summary
+```
+Identify:
+1. Which **endpoints** are experiencing the highest rate of 429s.
+2. The **volume** of hits (spikes vs. sustained rate).
+
+#### Step 2: Correlate with Database Metrics
+Query the database-backed rate-limit logs to identify the offending IP addresses and/or user IDs:
+```bash
+curl -H "Authorization: Bearer <ADMIN_JWT>" http://localhost:3000/api/admin/metrics/rate-limits?limit=50
+```
+Analyze the `topAbusers` and `flaggedActors` fields to pinpoint the source of the traffic.
+
+#### Step 3: Determine the Nature of the Traffic
+- **Organic Spike**: If the hits are distributed across many different IPs and correspond to a high-profile prediction event or round resolution, it is likely organic. Consider temporarily raising the rate limit thresholds (e.g. via environment variables `BATCH_PREDICTION_RATE_LIMIT_MAX`).
+- **Malicious/Abusive**: If a single IP or user account is responsible for a disproportionate number of hits, treat it as an abuse incident.
+
+#### Step 4: Mitigation Actions
+- **IP Blocking**: If the traffic is malicious and coming from a small set of IPs, block them at the cloud firewall/load balancer level (e.g., Cloudflare, AWS WAF, Render header rules) before they reach the backend.
+- **Tune Limits**: If legitimate users are getting throttled, adjust the rate limit configuration in the environment variables:
+  - `BATCH_PREDICTION_RATE_LIMIT_MAX`
+  - `BATCH_PREDICTION_RATE_LIMIT_WINDOW_MS`
+  - `RATE_LIMIT_SUSPICIOUS_HIT_THRESHOLD`
+  Restart the service to apply changes.
+
+---
+
 ## Related Repositories
 
 - **Smart Contract**: [TevaLabs/Xelma-Blockchain](https://github.com/TevaLabs/Xelma-Blockchain)

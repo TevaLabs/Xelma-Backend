@@ -1,5 +1,6 @@
 import rateLimit from 'express-rate-limit';
 import { Request, Response } from 'express';
+import { RateLimitMetricsService } from '../services/rate-limit-metrics.service';
 
 type RateLimitPolicy = {
   windowMs: number;
@@ -36,7 +37,10 @@ function createRateLimiter(policy: RateLimitPolicy, skip?: (req: Request) => boo
     standardHeaders: true,
     legacyHeaders: false,
     skip,
-    handler: (_req: Request, res: Response) => {
+    handler: (req: Request, res: Response) => {
+      const endpoint = req.baseUrl + req.path;
+      RateLimitMetricsService.recordHit(endpoint, req.method);
+
       res.status(429).json({
         error: 'Too Many Requests',
         message: policy.message,

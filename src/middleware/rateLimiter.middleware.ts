@@ -1,5 +1,6 @@
 import rateLimit from 'express-rate-limit';
-import { rateLimitMetricsService } from '../services/rate-limit-metrics.service';
+import { ipKeyGenerator } from 'express-rate-limit';
+import { rateLimitMetricsService, RateLimitMetricsService } from '../services/rate-limit-metrics.service';
 import { getRateLimitCategory } from '../security/rate-limit-endpoints';
 import { rateLimitHitsTotal } from './metrics.middleware';
 import logger from '../utils/logger';
@@ -38,7 +39,7 @@ function createRateLimiter(opts: {
   return rateLimit({
     windowMs: opts.windowMs,
     max: opts.max,
-    keyGenerator: opts.keyGenerator,
+    keyGenerator: opts.keyGenerator ?? ipKeyGenerator,
     message: { error: 'Too Many Requests', message: opts.message },
     standardHeaders: true,
     legacyHeaders: false,
@@ -48,6 +49,8 @@ function createRateLimiter(opts: {
       const category = getRateLimitCategory(opts.name);
 
       rateLimitHitsTotal.inc({ endpoint: opts.name, category });
+
+      RateLimitMetricsService.recordHit(opts.name, req.method);
 
       rateLimitMetricsService.recordHit({
         endpoint: opts.name,

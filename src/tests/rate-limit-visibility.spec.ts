@@ -102,4 +102,53 @@ describe('Rate Limit Visibility', () => {
     expect(response.status).toBe(200);
     expect(response.body).toHaveProperty('deletedCount');
   });
+
+  it('should record a rate limit hit in Prometheus', async () => {
+    const { RateLimitMetricsService } = require('../services/rate-limit-metrics.service');
+    const { register } = require('prom-client');
+
+    const testEndpoint = 'test/prom-endpoint';
+    const testMethod = 'POST';
+
+    RateLimitMetricsService.recordHit(testEndpoint, testMethod);
+
+    const metric = register.getSingleMetric('http_rate_limit_hits_total');
+    expect(metric).toBeDefined();
+    const valueObj = await metric.get();
+    const match = valueObj.values.find((v: any) => v.labels.endpoint === testEndpoint && v.labels.method === testMethod);
+    expect(match).toBeDefined();
+    expect(match.value).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should expose Prometheus metrics via scraping endpoint', async () => {
+    const response = await request(app)
+      .get('/api/admin/metrics/metrics');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/plain');
+    expect(response.text).toContain('http_rate_limit_hits_total');
+  });
+
+  it('should expose rate-limit-summary JSON to admins', async () => {
+    const response = await request(app)
+      .get('/api/admin/metrics/rate-limit-summary')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveProperty('metric', 'http_rate_limit_hits_total');
+    expect(response.body).toHaveProperty('summary');
+    expect(Array.isArray(response.body.summary)).toBe(true);
+
+    const match = response.body.summary.find((s: any) => s.endpoint === 'test/prom-endpoint' && s.method === 'POST');
+    expect(match).toBeDefined();
+    expect(match.hits).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should deny rate-limit-summary to regular users', async () => {
+    const response = await request(app)
+      .get('/api/admin/metrics/rate-limit-summary')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(response.status).toBe(403);
+  });
 });
