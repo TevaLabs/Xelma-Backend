@@ -252,3 +252,92 @@ DELETE FROM _prisma_migrations WHERE migration_name = '<name>';
 - [ ] PR description includes the rollback SQL.
 - [ ] `GET /metrics/readiness` returns `ready: true` post-deploy.
 - [ ] Staging deploy confirmed green before merging.
+
+## 🔌 Socket.IO Client Contract Documentation
+
+This section defines the real-time event contract, lifecycle events, and type structures for the Xelma Backend gateway (`src/socket.ts`). Any frontend engineer can use this to integrate real-time tracking without needing to read the source code.
+
+---
+
+### 🧭 Connection Lifecycle & Authentication
+
+#### 1. Connection Requirements
+Connections are established against the root namespace (`/`). Authentication requires a valid JSON Web Token (JWT) provided in the initial handshake payload.
+
+```typescript
+import { io } from "socket.io-client";
+
+const socket = io("[https://api.tevalabs.com](https://api.tevalabs.com)", {
+  auth: {
+    token: "YOUR_JWT_ACCESS_TOKEN"
+  },
+  autoConnect: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000
+});
+
+socket.on("connect_error", async (error) => {
+  if (error.message === "Authentication failed" || error.message === "jwt expired") {
+    // 1. Refresh token via HTTP route (src/routes/auth.routes.ts)
+    const freshToken = await fetchNewToken();
+    
+    // 2. Re-assign credentials
+    socket.auth = { token: freshToken };
+    
+    // 3. Retry connection lifecycle
+    socket.connect();
+  }
+});
+
+{
+  "status": "authenticated",
+  "sessionId": "sess_883af10x9",
+  "connectedAt": "2026-06-28T05:30:00.000Z",
+  "version": "1.0.0"
+}
+
+{
+  "asset": "XLM",
+  "priceUsd": 0.124500,
+  "timestamp": 1782624600000,
+  "change24h": 1.85
+}
+
+{
+  "roundId": "rnd_9921045a",
+  "status": "active",
+  "txCount": 14,
+  "terminalStateFinality": false,
+  "updatedAt": "2026-06-28T05:31:12.402Z"
+}
+
+{
+  "id": "ntf_7712a",
+  "type": "success",
+  "message": "Transaction batch execution finalized successfully.",
+  "read": false
+}
+
+{
+  "channelId": "chan_stellar_general",
+  "senderAddress": "GBC...21ENG",
+  "text": "Decimal normalization logic tests are executing green."
+}
+
+---
+
+### 📝 TypeScript Definition Compilation
+Drop this file cleanly into your web frontend dashboard type directory (`src/types/socket.ts`) to ensure end-to-end interface parity:
+
+```typescript
+export interface ServerToClientEvents {
+  "server:hello": (data: { status: string; sessionId: string; connectedAt: string; version: string; }) => void;
+  "price_update": (data: { asset: string; priceUsd: number; timestamp: number; change24h: number; }) => void;
+  "round_update": (data: { roundId: string; status: "pending" | "active" | "settled" | "defaulted"; txCount: number; terminalStateFinality: boolean; updatedAt: string; }) => void;
+  "notifications": (data: { id: string; type: "info" | "warning" | "success"; message: string; read: boolean; }) => void;
+  "chat": (data: { channelId: string; messageId: string; senderAddress: string; text: string; timestamp: string; }) => void;
+}
+
+export interface ClientToServerEvents {
+  "chat": (data: { channelId: string; senderAddress: string; text: string; }) => void;
+}
