@@ -159,6 +159,7 @@ The repo has two Express applications. **New contributors should always use `npm
 |---|---|---|
 | `npm run dev` | `src/index.ts` | Everyday development — full backend, real DB, WebSocket, Soroban |
 | `npm run dev:hackathon` | `src/server.ts` | Demo without a database — mock data only |
+| `npm start` | `dist/server.js` (compiled `src/server.ts`) | **Default Render start command** — hackathon server (compiled) |
 
 See [docs/architecture.md](docs/architecture.md) for the full architecture decision, file map, migration plan, and a checklist for adding new routes.
 
@@ -1167,7 +1168,7 @@ At minimum, migration PRs should include:
 
 | Script | Description |
 |--------|-------------|
-| `npm start` | Run production server (requires build) |
+| `npm start` | Run hackathon/demo server (`dist/server.js`); this is the default Render start command (requires build) |
 | `npm run dev` | Start the **production** development server (`src/index.ts`) with hot-reload — use this for all feature work |
 | `npm run dev:hackathon` | Start the hackathon demo server (`src/server.ts`) — mock data only, no database required |
 | `npm run dev:render-parity` | Generate Prisma client, apply committed migrations, then start dev server |
@@ -1182,6 +1183,7 @@ At minimum, migration PRs should include:
 | `npm run prisma:migrate` | Run database migrations |
 | `npm run prisma:migrate:deploy` | Apply committed migrations without creating new migration files |
 | `npm run db:prepare` | Run Prisma generate and migrate deploy |
+| `node dist/index.js` | Run production full backend (Prisma, Soroban, schedulers, WebSocket); use this command in production Render profile |
 | `npm run docs:openapi` | Generate OpenAPI JSON spec to `docs/openapi.json` |
 | `npm run docs:verify` | Regenerate OpenAPI and verify required paths are documented (CI gate) |
 | `npm run docs:postman` | Export Postman collection |
@@ -2002,6 +2004,60 @@ npx prisma migrate status
 ```
 
 **Important:** Always test rollbacks in staging before applying to production. Database migrations are not automatically reversed; plan migrations to be backward-compatible when possible.
+
+---
+
+## Render Deployment
+
+The repository includes a [`render.yaml`](render.yaml) blueprint with two service profiles:
+
+### Profile 1: Hackathon Demo (`xelma-backend-hackathon`)
+
+| Setting | Value |
+|---|---|
+| **Start command** | `npm start` (runs `dist/server.js`) |
+| **Health check** | `GET /api/health` |
+| **Database** | Not required — set `DATA_MODE=mock` for in-process data |
+| **Plan** | Free tier sufficient |
+
+Minimal env vars needed (all others use sensible defaults):
+
+| Variable | Example | Purpose |
+|---|---|---|
+| `JWT_SECRET` | *(sync on Render)* | Signs JWT tokens |
+| `DATA_MODE` | `mock` | Use mock in-process data (no DB) |
+| `ENABLE_MULTIPLAYER_SOCIAL` | `true` | Enable chat / notifications |
+| `CLIENT_URL` | `https://your-app.onrender.com` | CORS origin |
+| `CONTRACT_ID` | *(sync on Render)* | Soroban contract address (optional for demo) |
+
+### Profile 2: Production Full Backend (`xelma-backend`)
+
+| Setting | Value |
+|---|---|
+| **Start command** | `node dist/index.js` |
+| **Health check** | `GET /health` |
+| **Database** | PostgreSQL required — migrations run automatically in build phase |
+| **Plan** | Starter or higher recommended |
+
+Required env vars:
+
+| Variable | Example / Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string *(sync on Render)* |
+| `JWT_SECRET` | Strong random secret *(sync on Render)* |
+| `CLIENT_URL` | Frontend origin for CORS |
+| `SOROBAN_CONTRACT_ID` | Deployed prediction market contract *(sync on Render)* |
+| `SOROBAN_ADMIN_SECRET` | Stellar secret key for admin ops *(sync on Render)* |
+| `SOROBAN_ORACLE_SECRET` | Stellar secret key for oracle settlement *(sync on Render)* |
+
+### Choosing a Profile
+
+1. Go to **Dashboard > New > Blueprint** and connect your fork of this repo.
+2. Render reads `render.yaml` and lists both services. Uncheck the profile you do **not** want to deploy.
+3. For each selected service, fill in any `sync: false` env vars.
+4. Deploy. The service is reachable at `https://<service-name>.onrender.com:<PORT>`.
+
+> **Port note**: The server listens on the port defined by the `PORT` env var (default `3000`). Render automatically sets `PORT` in the runtime environment.
 
 ---
 
