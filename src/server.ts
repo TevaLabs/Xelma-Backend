@@ -5,15 +5,16 @@ dotenv.config();
 
 import app from './app';
 import { initWebSocket } from './socket';
+import logger from './utils/logger';
 
 const PORT = process.env.PORT || 3001;
 const httpServer = createServer(app);
 
 initWebSocket(httpServer).catch(error => {
-  console.error('WebSocket initialization failed:', error);
+  logger.error('WebSocket initialization failed', { error: (error as Error).message });
   process.exit(1);
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  logger.info(`Hackathon server listening on port ${PORT}`);
 });

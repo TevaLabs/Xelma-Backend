@@ -3,8 +3,11 @@ import { betRateLimiter } from '../middleware/rateLimiter';
 import { validate } from '../middleware/validate.middleware';
 import { upDownBetSchema, precisionBetSchema } from '../schemas/bets.schema';
 import config from '../config';
-import roundService from '../services/round.service';
-import { toDecimalString } from '../utils/decimal.util';
+import hackathonService from '../services/hackathon.service';
+import sorobanService from '../services/soroban.service';
+import { getMockRounds } from '../data/mockData';
+import { mapSorobanActiveRound } from '../utils/soroban-round.mapper';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -12,35 +15,43 @@ const router = Router();
  * @openapi
  * /api/rounds:
  *   get:
- *     summary: List mock prediction rounds
+ *     summary: List active prediction rounds
+ *     description: Returns on-chain active round when Soroban is configured; falls back to mock rounds when RPC is unavailable or ROUNDS_MOCK_MODE=true.
  *     tags:
  *       - rounds
  *     responses:
  *       200:
- *         description: Active and upcoming mock rounds
+ *         description: Active rounds with source metadata
  *         content:
  *           application/json:
  *             schema:
- *               type: array
- *               items:
- *                 type: object
+ *               type: object
+ *               properties:
+ *                 source:
+ *                   type: string
+ *                   enum: [soroban, mock]
+ *                 rounds:
+ *                   type: array
+ *                   items:
+ *                     type: object
  */
-router.get('/', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    if (config.app.dataMode === 'mock') {
-      const rounds = await hackathonService.getRounds();
-      return res.json(rounds);
+    if (!config.app.roundsMockMode) {
+      try {
+        const onChainRound = await sorobanService.getActiveRound();
+        if (onChainRound) {
+          const mapped = mapSorobanActiveRound(onChainRound);
+          return res.json({ source: 'soroban', rounds: [mapped] });
+        }
+      } catch (err) {
+        logger.warn('Soroban fetch failed; falling back to mock rounds', {
+          error: (err as Error).message,
+        });
+      }
     }
 
-    const { rounds, source } = await roundService.getActiveRoundsWithFallback();
-    const serializedRounds = rounds.map((round: any) => ({
-      ...round,
-      startPrice: toDecimalString(round.startPrice),
-      endPrice: round.endPrice !== null && round.endPrice !== undefined ? toDecimalString(round.endPrice) : null,
-      poolUp: toDecimalString(round.poolUp),
-      poolDown: toDecimalString(round.poolDown),
-    }));
-    return res.json({ source, rounds: serializedRounds });
+    return res.json({ source: 'mock', rounds: getMockRounds() });
   } catch (err) {
     next(err);
   }
