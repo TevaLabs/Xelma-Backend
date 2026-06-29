@@ -151,6 +151,30 @@ Xelma-Backend/
 
 ## Architecture
 
+### Data Sources
+
+The hackathon app and the production app share the same services, but the data backend can be switched per-endpoint via environment flags.
+
+| Endpoint | `DATA_MODE=live` (default) | `DATA_MODE=mock` |
+|---|---|---|
+| `GET /api/prices` | CoinGecko API (30 s cache) | Static in-memory array (`mockData.prices` in [src/data/mockData.ts](src/data/mockData.ts)) |
+| `GET /api/rounds` | Drizzle / Postgres (`hackathon_rounds` table) | Same — Drizzle is always used for rounds |
+| `GET /api/leaderboard` | Drizzle / Postgres leaderboard table | In-memory seed (`mockLeaderboard` in [src/data/mockData.ts](src/data/mockData.ts)) when `DATA_STORE=memory` |
+| `GET /api/stats` | Prisma / Postgres aggregation | `MOCK_PLATFORM_STATS` constants (zero-value defaults) |
+| `GET /api/health` → `soroban` | Live `soroban.isReady()` flag | Same — no extra network call; reflects initialization state only |
+
+**Controlling flags** (set in `.env` or as environment variables):
+
+| Variable | Values | Effect |
+|---|---|---|
+| `DATA_MODE` | `live` (default), `mock` | Switches price source and stats fallback |
+| `DATA_STORE` | `postgres` (default), `memory` | Switches repository adapter for rounds, leaderboard, bets |
+| `SOROBAN_CONTRACT_ID` | contract address or unset | When unset, Soroban service disables and health shows `unavailable` |
+
+See [src/data/mockData.ts](src/data/mockData.ts) for the full in-memory seed data and fallback constants.
+
+---
+
 ### Entrypoints
 
 The repo has two Express applications. **New contributors should always use `npm run dev`.**

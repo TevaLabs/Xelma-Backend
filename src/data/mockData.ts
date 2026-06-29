@@ -1,6 +1,27 @@
 import { mockDataRepository } from '../repositories/mockData.repository';
 
-// Keep the types for backward compatibility, although they can map directly to Prisma types
+/**
+ * Data-source matrix
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Endpoint                          DATA_MODE=live            DATA_MODE=mock
+ * ─────────────────────────────────────────────────────────────────────────────
+ * GET /api/rounds                   Drizzle/Postgres          Drizzle/Postgres
+ * GET /api/leaderboard              Drizzle/Postgres          mockLeaderboard (in-memory seed)
+ * GET /api/stats                    Prisma/Postgres           MOCK_PLATFORM_STATS (in-memory)
+ * GET /api/prices  (priceService)   CoinGecko (30s cache)     mockData.prices (in-memory)
+ * GET /api/health  (soroban)        live soroban RPC          soroban.isReady() flag only
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Controlling env flags
+ *   DATA_MODE=mock   → priceService returns mockData.prices; stats fall back to MOCK_PLATFORM_STATS
+ *   DATA_MODE=live   → priceService fetches from CoinGecko; stats read from Postgres (default)
+ *   DATA_STORE=memory → repositories use in-memory adapters instead of Postgres
+ *   DATA_STORE=postgres → repositories use Drizzle/Prisma (default)
+ *
+ * See src/config/index.ts for the full list of config flags.
+ */
+
+// Types are kept for backward compatibility with callers that map to the union shape.
 export type MockPredictionRound =
   | { id: string; asset: string; mode: 'updown'; status: 'live' | 'new'; startPrice: number; poolUp: number; poolDown: number; closesAt: string; }
   | { id: string; asset: string; mode: 'precision'; status: 'live' | 'new'; startPrice: number; totalPool: number; predictionCount: number; closesAt: string; };
@@ -15,6 +36,10 @@ export type MockLeaderboardUser = {
   rankTitle: string;
 };
 
+/**
+ * Static seed leaderboard used when DATA_STORE=memory or the Drizzle leaderboard
+ * table is empty. Not sourced from the blockchain — these are demo entries.
+ */
 export const mockLeaderboard: MockLeaderboardUser[] = [
   { rank: 1, address: 'GBZX...9QRA', totalWins: 42, totalLosses: 8, winStreak: 9, xp: 18400, rankTitle: 'Oracle' },
   { rank: 2, address: 'GDK4...2LXM', totalWins: 37, totalLosses: 10, winStreak: 6, xp: 15950, rankTitle: 'Market Sage' },
@@ -28,10 +53,13 @@ export const mockLeaderboard: MockLeaderboardUser[] = [
   { rank: 10, address: 'GDT6...8RCV', totalWins: 17, totalLosses: 19, winStreak: 0, xp: 7540, rankTitle: 'Rookie Prophet' },
 ];
 
-// Async functions calling the new Prisma repository
+/**
+ * Fetches active rounds from the Drizzle/Postgres hackathon schema.
+ * Source: hackathon_rounds table (seeded by src/db/seed.ts).
+ * Active in both DATA_MODE=mock and DATA_MODE=live.
+ */
 export const getMockRounds = async (): Promise<MockPredictionRound[]> => {
   const rounds = await mockDataRepository.getRounds();
-  // Map Prisma models back to the expected union type
   return rounds.map(r => {
     if (r.mode === 'updown') {
       return {
@@ -46,10 +74,20 @@ export const getMockRounds = async (): Promise<MockPredictionRound[]> => {
   });
 };
 
+/**
+ * Fetches leaderboard from the Drizzle/Postgres hackathon schema.
+ * Falls back to the static mockLeaderboard seed when DATA_STORE=memory.
+ */
 export const getMockLeaderboard = async (): Promise<MockLeaderboardUser[]> => {
   return mockDataRepository.getLeaderboard();
 };
 
+/**
+ * Aggregates prices, platform stats, and leaderboard for the stats endpoint.
+ * Platform stats come from Drizzle/Postgres; falls back to hardcoded defaults
+ * when the DB is empty (not from the Soroban contract — on-chain stats are
+ * handled separately by soroban.service.ts).
+ */
 export const getMockData = async () => {
   const platformStats = await mockDataRepository.getPlatformStats();
   const leaderboard = await getMockLeaderboard();
@@ -71,7 +109,12 @@ export const getMockData = async () => {
   };
 };
 
-// Synchronous prices array remains in memory because price polling relies on it synchronously if DB fallback is invoked
+/**
+ * In-memory price array.
+ * Used by priceService when DATA_MODE=mock (env: DATA_MODE).
+ * Also serves as the last-resort synchronous fallback when CoinGecko is
+ * unreachable and the 30-second cache has expired.
+ */
 export const mockData = {
   prices: [
     { id: 'bitcoin', symbol: 'btc', price: 60000 },
@@ -80,8 +123,10 @@ export const mockData = {
 };
 
 /**
- * Static mock constants used as a fallback by the stats service when the
- * database is empty or unreachable.
+ * Zero-value platform stats returned by the stats service when both the
+ * Drizzle and Prisma stores are empty or unreachable.
+ * Env flag: DATA_MODE=mock causes the stats service to use these values
+ * instead of querying Postgres.
  */
 export const MOCK_PLATFORM_STATS = {
   totalRounds: 0,
