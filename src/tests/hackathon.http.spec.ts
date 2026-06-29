@@ -8,6 +8,7 @@ jest.mock('../services/stellar.service', () => ({
 }));
 
 jest.mock('../services/soroban.service', () => ({
+  isReady: jest.fn().mockReturnValue(true),
   getUserStats: jest.fn(),
   getPendingWinnings: jest.fn(),
   getHealth: jest.fn(),
@@ -21,7 +22,7 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
     await pool.end();
   });
   describe('GET /api/health', () => {
-    it('returns ok status and timestamp', async () => {
+    it('returns ok status and timestamp when soroban is initialized', async () => {
       const res = await request(app).get('/api/health');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(
@@ -30,6 +31,40 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
           timestamp: expect.any(Number),
         })
       );
+    });
+
+    it('returns services block with price and soroban entries', async () => {
+      const res = await request(app).get('/api/health');
+      expect(res.status).toBe(200);
+      expect(res.body.services).toEqual(
+        expect.objectContaining({
+          price: expect.objectContaining({
+            status: 'ok',
+            source: expect.any(String),
+            mockMode: expect.any(Boolean),
+          }),
+          soroban: expect.objectContaining({
+            status: expect.any(String),
+            initialized: expect.any(Boolean),
+          }),
+        })
+      );
+    });
+
+    it('returns degraded status when soroban is not initialized', async () => {
+      const sorobanMock = require('../services/soroban.service');
+      sorobanMock.isReady.mockReturnValueOnce(false);
+
+      const res = await request(app).get('/api/health');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(
+        expect.objectContaining({
+          status: 'degraded',
+          timestamp: expect.any(Number),
+        })
+      );
+      expect(res.body.services.soroban.status).toBe('unavailable');
+      expect(res.body.services.soroban.initialized).toBe(false);
     });
   });
 
