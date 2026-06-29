@@ -61,11 +61,12 @@ async function checkSoroban(): Promise<{
         retries: 1,
       },
     );
+    const healthData = health.data;
     return {
-      status: health.initialized ? 'healthy' : 'unavailable',
+      status: healthData?.initialized ? 'healthy' : 'unavailable',
       durationMs: Date.now() - start,
-      initialized: health.initialized,
-      error: health.error,
+      initialized: healthData?.initialized,
+      error: health.error?.message,
     };
   } catch (err) {
     return {

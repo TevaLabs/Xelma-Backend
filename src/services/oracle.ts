@@ -23,6 +23,8 @@ class PriceOracle {
   private lastProvider: string | null = null;
   private readonly POLLING_INTERVAL = config.oracle.pollingIntervalMs;
   private readonly STALENESS_THRESHOLD = config.oracle.stalenessThresholdMs;
+  private readonly REQUEST_TIMEOUT = config.oracle.requestTimeoutMs;
+  private readonly MAX_RETRIES = config.oracle.maxRetries;
   private readonly providerChain: ProviderEntry[];
   private pollingInterval: ReturnType<typeof setInterval> | null = null;
   private _running = false;

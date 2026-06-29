@@ -82,14 +82,14 @@ function buildEntry(
     rank,
     userId: stat.user.id,
     walletAddress: maskWalletAddress(stat.user.walletAddress),
-    totalEarnings: toDecimalString(stat.totalEarnings),
+    totalEarnings: toDecimalString(stat.totalEarnings) ?? '0.00000000',
     totalPredictions: stat.totalPredictions,
     accuracy: calculateAccuracy(stat.correctPredictions, stat.totalPredictions),
     modeStats: {
       upDown: {
         wins: stat.upDownWins,
         losses: stat.upDownLosses,
-        earnings: toDecimalString(stat.upDownEarnings),
+        earnings: toDecimalString(stat.upDownEarnings) ?? '0.00000000',
         accuracy: calculateAccuracy(
           stat.upDownWins,
           stat.upDownWins + stat.upDownLosses,
@@ -98,7 +98,7 @@ function buildEntry(
       legends: {
         wins: stat.legendsWins,
         losses: stat.legendsLosses,
-        earnings: toDecimalString(stat.legendsEarnings),
+        earnings: toDecimalString(stat.legendsEarnings) ?? '0.00000000',
         accuracy: calculateAccuracy(
           stat.legendsWins,
           stat.legendsWins + stat.legendsLosses,

@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { getPriceSnapshot } from '../services/priceService';
+import { getPrices } from '../services/priceService';
 
 const router = Router();
 
 router.get('/prices', async (_req: Request, res: Response) => {
   try {
-    const snapshot = await getPriceSnapshot();
+    const snapshot = await getPrices();
     res.json(snapshot);
   } catch (error) {
     res.status(503).json({
