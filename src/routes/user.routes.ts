@@ -3,10 +3,12 @@ import { prisma } from "../lib/prisma";
 import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { updateProfileSchema } from "../schemas/user.schema";
-import { unifiedPaginationSchema, UnifiedPaginationParams } from "../schemas/pagination.schema";
+import { unifiedPaginationSchema, UnifiedPaginationParams, encodeCursor } from "../schemas/pagination.schema";
 import { NotFoundError } from "../utils/errors";
 import sorobanService from "../services/soroban.service";
 import { toDecimalString } from "../utils/decimal.util";
+import config from "../config";
+import { getMockBetHistory } from "../data/mockData";
 
 const router = Router();
 
@@ -329,6 +331,11 @@ router.get(
       const { address } = req.params;
       const { limit, offset, cursor } = req.query as unknown as UnifiedPaginationParams;
 
+      // ── In-memory fallback (hackathon mode) ────────────────────────────────────
+      if (config.app.dataStore === "memory") {
+        return handleMockHistory(address, limit, offset, cursor, res);
+      }
+
       // Resolve the user record once — shared by both pagination modes.
       const user = await prisma.user.findUnique({
         where: { walletAddress: address },
@@ -444,6 +451,72 @@ function mapPrediction(p: any) {
     timestamp: p.createdAt,
     roundStatus: p.round.status,
   };
+}
+
+/**
+ * In-memory fallback for GET /api/user/:address/history when DATA_STORE=memory.
+ * Generates deterministic stub predictions so the frontend can demo the full
+ * user journey without PostgreSQL.
+ */
+function handleMockHistory(
+  address: string,
+  limit: number,
+  offset: number,
+  cursor: string | undefined,
+  res: Response,
+): void {
+  const all = getMockBetHistory(address);
+
+  if (!all.length) {
+    res.json({
+      success: true,
+      data: [],
+      ...(cursor
+        ? { nextCursor: null }
+        : { pagination: { limit, offset, total: 0, totalPages: 0 } }),
+    });
+    return;
+  }
+
+  // Cursor-based pagination
+  if (cursor) {
+    let cursorDate: Date;
+    try {
+      cursorDate = new Date(Buffer.from(cursor, "base64url").toString("utf8"));
+      if (isNaN(cursorDate.getTime())) throw new Error("invalid date");
+    } catch {
+      res.status(400).json({
+        success: false,
+        error: "Invalid cursor. Use the nextCursor value returned by a previous response.",
+      });
+      return;
+    }
+
+    const filtered = all.filter((item) => item.timestamp < cursorDate);
+    const hasNextPage = filtered.length > limit;
+    const page = hasNextPage ? filtered.slice(0, limit) : filtered;
+    const nextCursor = hasNextPage
+      ? encodeCursor(page[page.length - 1].timestamp)
+      : null;
+
+    res.json({ success: true, data: page, nextCursor });
+    return;
+  }
+
+  // Offset-based pagination
+  const page = all.slice(offset, offset + limit);
+  const total = all.length;
+
+  res.json({
+    success: true,
+    data: page,
+    pagination: {
+      limit,
+      offset,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  });
 }
 
 /**
