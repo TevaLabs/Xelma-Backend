@@ -12,7 +12,7 @@ import chatRoutes from './routes/chat.routes';
 import notificationsRoutes from './routes/notifications.routes';
 import { apiRateLimiter, writeRateLimiter } from './middleware/rateLimiter';
 import { getHttpCorsOrigins } from './utils/cors';
-import { notFoundHandler } from './middleware/notFound';
+import { notFoundHandler } from './middleware/notFound'; // Ensure this file exists and outputs JSON
 import { errorHandler } from './middleware/errorHandler';
 import { hackathonSwaggerSpec } from './docs/hackathon-openapi';
 import config from './config';

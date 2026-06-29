@@ -11,6 +11,7 @@ export interface ErrorResponse {
   error: string;
   message: string;
   code: string;
+  path: string; // <-- Added to satisfy the explicit issue requirement
   requestId?: string;
   details?: { field: string; message: string }[];
   timestamp?: string;
@@ -44,7 +45,7 @@ function fromPrismaError(err: Prisma.PrismaClientKnownRequestError): AppError {
 /**
  * Central Express error-handling middleware.
  *
- * Register this LAST in src/index.ts so it catches errors forwarded
+ * Register this LAST in src/index.ts or src/app.ts so it catches errors forwarded
  * via `next(error)` from any route or middleware.
  */
 export function errorHandler(
@@ -85,14 +86,16 @@ export function errorHandler(
     message: appError.message,
     requestId,
     timestamp,
+    path: req.originalUrl,
     ...(appError.details && { details: appError.details }),
     ...(isDev && err instanceof Error && { stack: err.stack }),
   });
 
   const body: ErrorResponse & { stack?: string } = {
-    error: appError.name,
+    error: appError.message || appError.name, // Ensure textual summary error field is clear
     message: appError.message,
     code: appError.code,
+    path: req.originalUrl, // <-- Explicitly mapped parameter requirement
     requestId,
     timestamp,
     ...(appError.details && { details: appError.details }),
@@ -107,7 +110,7 @@ export function errorHandler(
  * automatically forwarded to the error handler via `next(error)`.
  *
  * Usage:
- *   router.get('/path', asyncHandler(async (req, res) => { ... }));
+ * router.get('/path', asyncHandler(async (req, res) => { ... }));
  */
 export function asyncHandler(
   fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>,
