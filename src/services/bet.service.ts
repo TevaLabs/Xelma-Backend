@@ -1,3 +1,4 @@
+import { betStore } from "../data/bet-store";
 import logger from "../utils/logger";
 import sorobanService from "./soroban.service";
 import betAuditService from "./bet-audit.service";
@@ -26,6 +27,10 @@ export class BetService {
 
     if (process.env.BET_STUB_MODE === "true") {
       logger.info("UP/DOWN bet stub recorded", { ...input, idempotencyKey });
+      const activeRound = betStore.getActiveRound("updown");
+      if (activeRound) {
+        betStore.addUpDownBet(activeRound.id, input.address, input.amount, input.side);
+      }
       result = { state: "stub" };
     } else {
       logger.info("Placing UP/DOWN bet on-chain", { ...input, idempotencyKey });
@@ -52,6 +57,10 @@ export class BetService {
 
     if (process.env.BET_STUB_MODE === "true") {
       logger.info("Precision bet stub recorded", { ...input, idempotencyKey });
+      const activeRound = betStore.getActiveRound("precision");
+      if (activeRound) {
+        betStore.addPrecisionBet(activeRound.id, input.address, input.amount, input.predictedPrice);
+      }
       result = { state: "stub" };
     } else {
       logger.info("Placing Precision bet on-chain", { ...input, idempotencyKey });
