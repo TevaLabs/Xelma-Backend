@@ -4,12 +4,8 @@ import { validate } from '../middleware/validate.middleware';
 import { upDownBetSchema, precisionBetSchema } from '../schemas/bets.schema';
 
 import { getRepositories } from '../repositories';
-import config from '../config';
-import hackathonService from '../services/hackathon.service';
-import sorobanService from '../services/soroban.service';
-import { getMockRounds } from '../data/mockData';
-import { mapSorobanActiveRound } from '../utils/soroban-round.mapper';
-import logger from '../utils/logger';
+import roundService from '../services/round.service';
+
 const router = Router();
 
 /**
@@ -17,7 +13,7 @@ const router = Router();
  * /api/rounds:
  *   get:
  *     summary: List active prediction rounds
- *     description: Returns on-chain active round when Soroban is configured; falls back to mock rounds when RPC is unavailable or ROUNDS_MOCK_MODE=true.
+ *     description: Returns on-chain active round when Soroban is configured; falls back to database rounds, then to mock data when chain is unavailable or ROUNDS_MOCK_MODE=true.
  *     tags:
  *       - rounds
  *     responses:
@@ -30,7 +26,7 @@ const router = Router();
  *               properties:
  *                 source:
  *                   type: string
- *                   enum: [soroban, mock]
+ *                   enum: [soroban, database, mock]
  *                 rounds:
  *                   type: array
  *                   items:
@@ -38,23 +34,8 @@ const router = Router();
  */
 router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const rounds = await getRepositories().rounds.listActiveRounds();
-    return res.json(rounds);
-    if (!config.app.roundsMockMode) {
-      try {
-        const onChainRound = await sorobanService.getActiveRound();
-        if (onChainRound) {
-          const mapped = mapSorobanActiveRound(onChainRound);
-          return res.json({ source: 'soroban', rounds: [mapped] });
-        }
-      } catch (err) {
-        logger.warn('Soroban fetch failed; falling back to mock rounds', {
-          error: (err as Error).message,
-        });
-      }
-    }
-
-    return res.json({ source: 'mock', rounds: getMockRounds() });
+    const { source, rounds } = await roundService.getRoundsForApi();
+    return res.json({ source, rounds });
   } catch (err) {
     next(err);
   }
