@@ -1131,7 +1131,7 @@ socket.on('new_notification', (notification) => {
   console.log('Notification:', notification);
 });
 
-// Listen for chat messages
+// Listen for chats messages
 socket.on('new_message', (message) => {
   console.log('Chat:', message);
 });
