@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { betRateLimiter } from '../middleware/rateLimiter';
 import { validate } from '../middleware/validate.middleware';
-import { upDownBetSchema, precisionBetSchema } from '../schemas/bets.schema';
+import { betSchema, upDownBetSchema, precisionBetSchema } from '../schemas/bets.schema';
 
 import { getRepositories } from '../repositories';
 import config from '../config';
@@ -61,7 +61,7 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
 });
 
 // TODO: Call contract via Xelma TypeScript bindings — bets must go on-chain; this endpoint is logging/analytics only for now
-router.post('/:id/bet', betRateLimiter, (_req, res) => {
+router.post('/:id/bet', betRateLimiter, validate(betSchema), (_req, res) => {
   res.json({ success: true, message: 'Bet recorded (stub)' });
 });
 

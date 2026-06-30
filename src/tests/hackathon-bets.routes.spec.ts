@@ -154,4 +154,81 @@ describe("Hackathon Bet Routes - Zod validation", () => {
       expect(res.body.code).toBe("VALIDATION_ERROR");
     });
   });
+
+  describe("POST /api/rounds/:id/bet (generic stub)", () => {
+    it("should return 200 for valid UP/DOWN payload", async () => {
+      const res = await request(app)
+        .post("/api/rounds/round-1/bet")
+        .send({ address: VALID_ADDRESS, amount: 10, side: "UP" });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: true,
+        message: "Bet recorded (stub)",
+      });
+    });
+
+    it("should return 200 for valid Precision payload", async () => {
+      const res = await request(app)
+        .post("/api/rounds/round-1/bet")
+        .send({ address: VALID_ADDRESS, amount: 5, predictedPrice: 0.12 });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: true,
+        message: "Bet recorded (stub)",
+      });
+    });
+
+    it("should return 400 for empty body", async () => {
+      const res = await request(app)
+        .post("/api/rounds/round-1/bet")
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+      expect(res.body.details).toBeDefined();
+    });
+
+    it("should return 400 for missing required fields", async () => {
+      const res = await request(app)
+        .post("/api/rounds/round-1/bet")
+        .send({ address: VALID_ADDRESS, amount: 10 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("should return 400 for invalid side value", async () => {
+      const res = await request(app)
+        .post("/api/rounds/round-1/bet")
+        .send({ address: VALID_ADDRESS, amount: 10, side: "INVALID" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("should return 400 for negative amount", async () => {
+      const res = await request(app)
+        .post("/api/rounds/round-1/bet")
+        .send({ address: VALID_ADDRESS, amount: -5, side: "UP" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("should return 400 for invalid address format", async () => {
+      const res = await request(app)
+        .post("/api/rounds/round-1/bet")
+        .send({ address: "INVALID", amount: 10, side: "UP" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+    });
+  });
 });
