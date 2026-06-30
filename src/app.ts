@@ -7,7 +7,9 @@ import healthRoutes from './routes/health';
 import statsRoutes from './routes/stats';
 import roundsRoutes from './routes/rounds';
 import leaderboardRoutes from './routes/leaderboard';
-import userRoutes from './routes/user';
+import userRoutes from './routes/user.routes';
+import betsRoutes from './routes/bets.routes';
+import tournamentsRoutes from './routes/tournaments.routes';
 import chatRoutes from './routes/chat.routes';
 import notificationsRoutes from './routes/notifications.routes';
 import { apiRateLimiter, writeRateLimiter } from './middleware/rateLimiter';
@@ -69,6 +71,8 @@ export function createApp(options: CreateAppOptions = {}): Application {
   app.use('/api/rounds', roundsRoutes);
   app.use('/api/leaderboard', leaderboardRoutes);
   app.use('/api/user', userRoutes);
+  app.use('/api/bets', betsRoutes);
+  app.use('/api/tournaments', tournamentsRoutes);
 
   if (config.app.enableMultiplayerSocial) {
     app.use('/api/chat', chatRoutes);

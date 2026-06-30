@@ -333,6 +333,8 @@ See [docs/architecture.md](docs/architecture.md) for the full architecture decis
 - `GET /stats` - [Auth] Get detailed user statistics
 - `PATCH /profile` - [Auth] Update user preferences (nickname, avatar, preferences)
 - `GET /transactions` - [Auth] Get paginated transaction history
+- `GET /:address/stats` - Get on-chain user stats from Soroban
+- `GET /:address/history` - Get paginated bet history for a wallet address
 - `GET /:walletAddress/public-profile` - Get any user's public profile
 
 #### **Round Management (`/api/rounds`)**
@@ -345,6 +347,15 @@ See [docs/architecture.md](docs/architecture.md) for the full architecture decis
 - `POST /submit` - [Auth] Submit a prediction for a round
 - `GET /user/:userId` - Get user's prediction history
 - `GET /round/:roundId` - Get all predictions for a round
+
+#### **Bets (`/api/bets`)**
+- `POST /up-down` - [Auth] Submit an UP/DOWN bet (stub or on-chain)
+- `POST /precision` - [Auth] Submit a precision bet (stub or on-chain)
+
+#### **Tournaments (`/api/tournaments`)**
+- `GET /` - List all tournaments (optional `?status=` filter)
+- `GET /:id` - Get tournament detail by id
+- `POST /:id/join` - [Auth] Join a tournament
 
 #### **Leaderboard (`/api/leaderboard`)**
 - `GET /` - Get global leaderboard (paginated, optional auth for user position)
@@ -2113,11 +2124,7 @@ Required env vars:
 
 This section is designed so a new developer can boot and test the API in minutes.
 
-> **Quickest start** — copy the hackathon env template for zero-config local setup:
-> ```bash
-> cp .env.hackathon.example .env
-> ```
-> Then skip straight to step 4 (migrations).
+The hackathon entrypoint now exposes the production-style user, bet, and tournament routes under /api/user, /api/bets, and /api/tournaments so frontend integrations can use a single dev command.
 
 ### 1. Setup
 
