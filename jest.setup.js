@@ -1,3 +1,4 @@
+process.env.NODE_ENV = 'test';
 // Load test-specific env first when present, and never override variables already
 // provided by the shell/CI job.
 const path = require("path");

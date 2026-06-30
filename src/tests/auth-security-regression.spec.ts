@@ -34,6 +34,8 @@ jest.mock("../middleware/rateLimiter.middleware", () => ({
   predictionRateLimiter: (_req: any, _res: any, next: any) => next(),
   adminRoundRateLimiter: (_req: any, _res: any, next: any) => next(),
   oracleResolveRateLimiter: (_req: any, _res: any, next: any) => next(),
+  batchPredictionRateLimiter: (_req: any, _res: any, next: any) => next(),
+  batchLeaderboardRateLimiter: (_req: any, _res: any, next: any) => next(),
 }));
 
 const mockVerifySignature = stellarService.verifySignature as jest.MockedFunction<

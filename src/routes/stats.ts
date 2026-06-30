@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { getPlatformStats } from "../services/stats.service";
+import { getRepositories } from "../repositories";
 
 const router = Router();
 
@@ -20,7 +20,9 @@ const router = Router();
  *               $ref: '#/components/schemas/PlatformStatsResponse'
  *       500:
  *         description: Failed to retrieve stats
- *
+ */
+
+/**
  * GET /api/stats
  *
  * Returns aggregated platform counters for the landing page.
@@ -46,7 +48,7 @@ const router = Router();
  */
 router.get("/", async (_req: Request, res: Response) => {
   try {
-    const stats = await getPlatformStats();
+    const stats = await getRepositories().stats.getPlatformStats();
     return res.status(200).json({ success: true, data: stats });
   } catch (err) {
     console.error("[GET /api/stats] Unexpected error:", err);

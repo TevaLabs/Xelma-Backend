@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { rateLimitMetricsService } from '../services/rate-limit-metrics.service';
 import { requireAdmin } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
+import { register } from 'prom-client';
 
 const router = Router();
 
@@ -159,6 +160,71 @@ router.post('/rate-limits/clear', requireAdmin, async (req: Request, res: Respon
   } catch (error) {
     logger.error('Error clearing rate-limit metrics:', error);
     res.status(500).json({ error: 'Internal Server Error', message: 'Failed to clear rate-limit metrics' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/admin/metrics/metrics:
+ *   get:
+ *     summary: Scrape Prometheus metrics
+ *     description: Returns standard flat text representations of all registered metrics.
+ *     tags:
+ *       - Admin
+ *     responses:
+ *       200:
+ *         description: Prometheus text exposition format
+ *         content:
+ *           text/plain:
+ *             schema:
+ *               type: string
+ */
+router.get(['/metrics', '/admin/metrics/metrics'], async (req: Request, res: Response) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (error) {
+    logger.error('Error rendering Prometheus metrics:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+/**
+ * @openapi
+ * /api/admin/metrics/rate-limit-summary:
+ *   get:
+ *     summary: Structured rate-limit metrics summary
+ *     description: Returns an optimized JSON configuration payload detailing active counter maps. Admin only.
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Structured rate-limit metrics summary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ */
+router.get(['/rate-limit-summary', '/admin/metrics/rate-limit-summary'], requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const metric = register.getSingleMetric('http_rate_limit_hits_total');
+    const values = metric ? (await metric.get()).values : [];
+
+    const summary = values.map(v => ({
+      endpoint: v.labels.endpoint,
+      method: v.labels.method,
+      hits: v.value,
+    }));
+
+    res.json({
+      metric: 'http_rate_limit_hits_total',
+      summary,
+    });
+  } catch (error) {
+    logger.error('Error fetching rate-limit summary:', error);
+    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch rate-limit summary' });
   }
 });
 

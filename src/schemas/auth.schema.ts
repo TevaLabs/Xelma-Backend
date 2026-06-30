@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isValidStellarAddress } from '../services/stellar.service';
+import { isValidStellarAddress } from '../utils/stellar-address.util';
 
 export const challengeSchema = z.object({
   walletAddress: z

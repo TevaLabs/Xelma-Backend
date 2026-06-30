@@ -44,6 +44,15 @@ function isRetryableError(error: any): boolean {
       return true;
    }
 
+   // Check message for error codes
+   if (error.message) {
+      for (const code of RETRYABLE_ERROR_CODES) {
+         if (error.message.includes(code)) {
+            return true;
+         }
+      }
+   }
+
    // Network errors
    if (
       error.code &&

@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { validate } from "../middleware/validate.middleware";
-import { offsetPaginationSchema } from "../schemas/pagination.schema";
-import { buildOffsetMeta } from "../utils/pagination.util";
+import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
+import { joinTournamentParamsSchema, tournamentListQuerySchema } from "../schemas/tournament.schema";
+import tournamentService from "../services/tournament.service";
 
 const router = Router();
 
@@ -78,13 +79,13 @@ const MOCK_TOURNAMENTS: MockTournament[] = [
  */
 router.get(
   "/",
-  validate(offsetPaginationSchema, "query"),
+  validate(tournamentListQuerySchema, "query"),
   (req: Request, res: Response, _next: NextFunction) => {
-    const { limit, offset } = req.query as unknown as {
+    const { limit, offset, status } = req.query as unknown as {
       limit: number;
       offset: number;
+      status?: string;
     };
-    const status = req.query.status as string | undefined;
 
     let filtered = MOCK_TOURNAMENTS;
     if (status) {
@@ -118,5 +119,33 @@ router.get("/:id", (req: Request, res: Response, next: NextFunction) => {
 
   return res.json({ success: true, data: tournament });
 });
+
+/**
+ * POST /api/tournaments/:id/join
+ * Join a tournament (authenticated).
+ */
+router.post(
+  "/:id/join",
+  authenticateUser,
+  validate(joinTournamentParamsSchema, "params"),
+  (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user.userId;
+      const { id } = req.params;
+
+      const result = await tournamentService.joinTournament(userId, id);
+
+      res.json({
+        success: true,
+        data: {
+          tournamentId: id,
+          currentParticipants: result.currentParticipants,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }) as any,
+);
 
 export default router;

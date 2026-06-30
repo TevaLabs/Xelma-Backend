@@ -18,7 +18,7 @@ jest.mock("../lib/prisma", () => {
 });
 
 import { prisma } from "../lib/prisma";
-import { getLeaderboard } from "../services/leaderboard.service";
+import { getLeaderboard, getLeaderboardCursor } from "../services/leaderboard.service";
 
 const sampleStats = [
   {
@@ -90,6 +90,33 @@ describe("Leaderboard Redis cache", () => {
     }
   });
 
+  it("Redis disabled (Cursor): bypasses cache and hits DB each request", async () => {
+    process.env.REDIS_CACHE_ENABLED = "false";
+
+    userStatsFindMany.mockResolvedValue(sampleStats);
+    userStatsCount.mockResolvedValue(2);
+    userStatsFindUnique.mockResolvedValue(null);
+
+    const metricsBefore = getCacheMetrics();
+
+    await getLeaderboardCursor(2, undefined, undefined);
+    await getLeaderboardCursor(2, undefined, undefined);
+
+    expect(userStatsFindMany).toHaveBeenCalledTimes(2);
+    expect(userStatsCount).toHaveBeenCalledTimes(0);
+    expect(userStatsFindUnique).toHaveBeenCalledTimes(0);
+
+    const metricsAfter = getCacheMetrics();
+    expect(metricsAfter.hits).toBe(metricsBefore.hits);
+    expect(metricsAfter.bypasses).toBeGreaterThan(metricsBefore.bypasses);
+
+    if (originalRedisCacheEnabled === undefined) {
+      delete process.env.REDIS_CACHE_ENABLED;
+    } else {
+      process.env.REDIS_CACHE_ENABLED = originalRedisCacheEnabled;
+    }
+  });
+
   // ── Live Redis tests (skipped unless REDIS_CACHE_TESTS=true + REDIS_URL set) ─
 
   const runRedisHitMiss =
@@ -116,6 +143,36 @@ describe("Leaderboard Redis cache", () => {
 
       expect(userStatsFindMany).toHaveBeenCalledTimes(1);
       expect(userStatsCount).toHaveBeenCalledTimes(1);
+
+      const metricsAfter = getCacheMetrics();
+      expect(metricsAfter.hits).toBeGreaterThan(metricsBefore.hits);
+
+      if (originalRedisCacheEnabled === undefined) {
+        delete process.env.REDIS_CACHE_ENABLED;
+      } else {
+        process.env.REDIS_CACHE_ENABLED = originalRedisCacheEnabled;
+      }
+    },
+  );
+
+  (runRedisHitMiss ? it : it.skip)(
+    "Redis enabled (Cursor): second request served from JSON cache (hit)",
+    async () => {
+      process.env.REDIS_CACHE_ENABLED = "true";
+
+      userStatsFindMany.mockResolvedValue(sampleStats);
+      userStatsCount.mockResolvedValue(2);
+
+      await invalidateNamespace("leaderboard");
+
+      jest.clearAllMocks();
+
+      const metricsBefore = getCacheMetrics();
+
+      await getLeaderboardCursor(2, undefined, undefined);
+      await getLeaderboardCursor(2, undefined, undefined);
+
+      expect(userStatsFindMany).toHaveBeenCalledTimes(1);
 
       const metricsAfter = getCacheMetrics();
       expect(metricsAfter.hits).toBeGreaterThan(metricsBefore.hits);

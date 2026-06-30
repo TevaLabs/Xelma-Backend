@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
+import { cleanupExpiredIdempotencyKeys } from "../utils/idempotency.util";
 
 interface RetentionPolicy {
   enabled: boolean;
@@ -234,6 +235,16 @@ class RetentionService {
       // Run audit logs cleanup
       const auditResult = await this.cleanupAuditLogs();
       results.push(auditResult);
+
+      // Run idempotency keys cleanup
+      const idempotencyStartTime = Date.now();
+      const deletedIdempotencyKeys = await cleanupExpiredIdempotencyKeys();
+      results.push({
+        entity: "idempotencyKeys",
+        deletedCount: deletedIdempotencyKeys,
+        cutoffDate: new Date(),
+        executionTime: Date.now() - idempotencyStartTime,
+      });
 
       const totalDeleted = results.reduce((sum, r) => sum + r.deletedCount, 0);
       const totalTime = results.reduce((sum, r) => sum + r.executionTime, 0);

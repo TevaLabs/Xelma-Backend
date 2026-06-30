@@ -188,7 +188,19 @@ describe("PredictionService (Issue #78)", () => {
         };
         mockPredictionCreate.mockResolvedValue(created);
         mockUserUpdate.mockResolvedValue({ id: userId, walletAddress: "GXXX", virtualBalance: 900 });
-        mockRoundUpdate.mockResolvedValue({});
+        mockRoundUpdate.mockResolvedValue({
+          id: roundId,
+          mode: "UP_DOWN",
+          status: "ACTIVE",
+          startTime: new Date(),
+          endTime: new Date(),
+          startPrice: 1000,
+          endPrice: null,
+          poolUp: 100,
+          poolDown: 0,
+          priceRanges: [],
+          resolvedAt: null,
+        });
 
         const result = await predictionService.submitPrediction(
           userId,
@@ -246,7 +258,22 @@ describe("PredictionService (Issue #78)", () => {
         };
         mockPredictionCreate.mockResolvedValue(created);
         mockUserUpdate.mockResolvedValue({ id: userId, walletAddress: "GXXX", virtualBalance: 450 });
-        mockRoundUpdate.mockResolvedValue({});
+        mockRoundUpdate.mockResolvedValue({
+          id: roundId,
+          mode: "LEGENDS",
+          status: "ACTIVE",
+          startTime: new Date(),
+          endTime: new Date(),
+          startPrice: 1000,
+          endPrice: null,
+          poolUp: 0,
+          poolDown: 0,
+          priceRanges: [
+            { min: 1, max: 2, pool: 50 },
+            { min: 2, max: 3, pool: 0 },
+          ],
+          resolvedAt: null,
+        });
 
         const result = await predictionService.submitPrediction(
           userId,

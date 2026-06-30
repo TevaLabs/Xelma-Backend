@@ -15,7 +15,9 @@ export interface AppConfig {
   apiOnly: boolean;
   roundsMockMode: boolean;
   dataMode: "mock" | "live";
+  dataStore: "memory" | "postgres";
   enableSimulation: boolean;
+  enableMultiplayerSocial: boolean;
 }
 
 export interface JwtConfig {
@@ -101,7 +103,14 @@ function buildConfig(): Config {
     apiOnly: v.boolean(env.API_ONLY, false),
     roundsMockMode: v.boolean(env.ROUNDS_MOCK_MODE, false),
     dataMode: v.oneOf(env.DATA_MODE, "DATA_MODE", ["mock", "live"] as const, "live"),
+    dataStore: v.oneOf(
+      env.DATA_STORE ?? (env.DATA_MODE === "mock" ? "memory" : undefined),
+      "DATA_STORE",
+      ["memory", "postgres"] as const,
+      "postgres",
+    ),
     enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
+    enableMultiplayerSocial: v.boolean(env.ENABLE_MULTIPLAYER_SOCIAL, true),
   };
 
   const jwt: JwtConfig = {
@@ -238,6 +247,16 @@ function buildConfig(): Config {
       "https://api.coincap.io/v2/assets/stellar",
     ),
   };
+
+  // Cross-field invariant (#229): the staleness threshold must exceed the
+  // polling interval, otherwise a freshly-fetched price is immediately
+  // classified as stale and round resolution would never run.
+  v.assert(
+    oracle.stalenessThresholdMs > oracle.pollingIntervalMs,
+    `ORACLE_STALENESS_THRESHOLD_MS (${oracle.stalenessThresholdMs}) must be greater than ` +
+      `ORACLE_POLLING_INTERVAL_MS (${oracle.pollingIntervalMs}); otherwise the price is ` +
+      `considered stale immediately after every poll.`,
+  );
 
   // Fail fast — surface every invalid field at once
   v.throwIfErrors();

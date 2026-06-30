@@ -19,7 +19,7 @@ import {
    storeIdempotencyResult,
 } from '../utils/idempotency.util';
 import { ConflictError, ErrorCode, ValidationError } from '../utils/errors';
-import { toNumber } from '../utils/decimal.util';
+import { toNumber, toDecimalString } from '../utils/decimal.util';
 
 const router = Router();
 const SUBMIT_PREDICTION_ENDPOINT = '/api/predictions/submit';
@@ -31,7 +31,7 @@ function buildSubmitPredictionResponse(prediction: any) {
          id: prediction.id,
          roundId: prediction.roundId,
          userId: prediction.userId,
-         amount: toNumber(prediction.amount),
+         amount: toDecimalString(prediction.amount),
          side: prediction.side,
          priceRange: prediction.priceRange ?? null,
          createdAt:
@@ -246,9 +246,30 @@ router.get('/user', authenticateUser, (async (
 
       const predictions = await predictionService.getUserPredictions(userId);
 
+      const serializedPredictions = predictions.map((p: any) => ({
+         id: p.id,
+         roundId: p.roundId,
+         userId: p.userId,
+         amount: toDecimalString(p.amount),
+         side: p.side,
+         priceRange: p.priceRange,
+         payout: p.payout !== null && p.payout !== undefined ? toDecimalString(p.payout) : null,
+         won: p.won,
+         createdAt: p.createdAt?.toISOString?.() ?? p.createdAt,
+         round: p.round
+            ? {
+                 id: p.round.id,
+                 mode: p.round.mode,
+                 status: p.round.status,
+                 startPrice: toDecimalString(p.round.startPrice),
+                 endPrice: p.round.endPrice !== null && p.round.endPrice !== undefined ? toDecimalString(p.round.endPrice) : null,
+              }
+            : null,
+      }));
+
       res.json({
          success: true,
-         predictions,
+         predictions: serializedPredictions,
       });
    } catch (error) {
       next(error);
@@ -280,9 +301,27 @@ router.get(
          const predictions =
             await predictionService.getRoundPredictions(roundId);
 
+         const serializedPredictions = predictions.map((p: any) => ({
+            id: p.id,
+            roundId: p.roundId,
+            userId: p.userId,
+            amount: toDecimalString(p.amount),
+            side: p.side,
+            priceRange: p.priceRange,
+            payout: p.payout !== null && p.payout !== undefined ? toDecimalString(p.payout) : null,
+            won: p.won,
+            createdAt: p.createdAt?.toISOString?.() ?? p.createdAt,
+            user: p.user
+               ? {
+                    id: p.user.id,
+                    walletAddress: p.user.walletAddress,
+                 }
+               : null,
+         }));
+
          res.json({
             success: true,
-            predictions,
+            predictions: serializedPredictions,
          });
       } catch (error) {
          next(error);

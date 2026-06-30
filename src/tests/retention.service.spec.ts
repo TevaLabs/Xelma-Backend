@@ -8,6 +8,9 @@ jest.mock("../utils/logger", () => ({
   error: jest.fn(),
   warn: jest.fn(),
 }));
+jest.mock("../utils/idempotency.util", () => ({
+  cleanupExpiredIdempotencyKeys: jest.fn().mockResolvedValue(0),
+}));
 
 describe("RetentionService", () => {
   beforeEach(() => {

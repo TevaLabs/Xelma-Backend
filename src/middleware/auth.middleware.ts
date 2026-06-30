@@ -182,3 +182,29 @@ export const requireAdmin = requireRole([UserRole.ADMIN], {
 export const requireOracle = requireRole(ORACLE_ALLOWED_ROLES, {
   forbiddenMessage: "Oracle or Admin access required",
 });
+
+/**
+ * Binds mutation payloads to the authenticated wallet. Rejects mismatched
+ * client-supplied addresses so bet placement cannot impersonate another user.
+ */
+export function bindAuthenticatedWallet(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  const walletAddress = req.user?.walletAddress;
+  if (!walletAddress) {
+    res.status(401).json({ error: "No token provided" });
+    return;
+  }
+
+  if (req.body?.address && req.body.address !== walletAddress) {
+    res.status(403).json({
+      error: "Wallet address does not match authenticated user",
+    });
+    return;
+  }
+
+  req.body.address = walletAddress;
+  next();
+}

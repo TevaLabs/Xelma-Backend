@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import {
   getJsonFromCache,
   invalidateLeaderboardSortedSet,
+  invalidateNamespace,
   setJsonToCache,
   zsetCard,
   zsetRangeWithScores,
@@ -13,7 +14,7 @@ import {
   LeaderboardCursorResponse,
   LeaderboardResponse,
 } from "../types/leaderboard.types";
-import { toDecimal, toNumber } from "../utils/decimal.util";
+import { toDecimal, toNumber, toDecimalString } from "../utils/decimal.util";
 import {
   buildCursorMeta,
   buildOffsetMeta,
@@ -81,14 +82,14 @@ function buildEntry(
     rank,
     userId: stat.user.id,
     walletAddress: maskWalletAddress(stat.user.walletAddress),
-    totalEarnings: toNumber(stat.totalEarnings),
+    totalEarnings: toDecimalString(stat.totalEarnings) ?? '0.00000000',
     totalPredictions: stat.totalPredictions,
     accuracy: calculateAccuracy(stat.correctPredictions, stat.totalPredictions),
     modeStats: {
       upDown: {
         wins: stat.upDownWins,
         losses: stat.upDownLosses,
-        earnings: toNumber(stat.upDownEarnings),
+        earnings: toDecimalString(stat.upDownEarnings) ?? '0.00000000',
         accuracy: calculateAccuracy(
           stat.upDownWins,
           stat.upDownWins + stat.upDownLosses,
@@ -97,7 +98,7 @@ function buildEntry(
       legends: {
         wins: stat.legendsWins,
         losses: stat.legendsLosses,
-        earnings: toNumber(stat.legendsEarnings),
+        earnings: toDecimalString(stat.legendsEarnings) ?? '0.00000000',
         accuracy: calculateAccuracy(
           stat.legendsWins,
           stat.legendsWins + stat.legendsLosses,
@@ -208,6 +209,105 @@ export async function getLeaderboard(
     leaderboard,
     userPosition,
     totalUsers: totalUsers ?? 0,
+    pagination: buildOffsetMeta(limit, offset, totalUsers ?? 0),
+  };
+
+  await setJsonToCache(
+    LEADERBOARD_CACHE_NAMESPACE,
+    rawKey,
+    payload,
+    LEADERBOARD_CACHE_TTL_SECONDS,
+  );
+
+  return {
+    ...payload,
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
+/**
+ * Cursor encodes `{ totalEarnings, userId }` of the last entry on the
+ * previous page. Using both fields handles ties in totalEarnings correctly.
+ *
+ * @param limit  - page size (1–500)
+ * @param cursor - opaque cursor from a previous response (optional)
+ * @param userId - authenticated user id for userPosition lookup (optional)
+ */
+export async function getLeaderboardCursor(
+  limit: number = 100,
+  cursor?: string,
+  userId?: string,
+): Promise<LeaderboardCursorResponse> {
+  const rawKey = `limit=${limit}:cursor=${cursor ?? "none"}:user=${userId ?? "anon"}`;
+
+  type LeaderboardCursorCachePayload = Omit<LeaderboardCursorResponse, "lastUpdated">;
+
+  // Try versioned JSON cache first
+  const cached = await getJsonFromCache<LeaderboardCursorCachePayload>(
+    LEADERBOARD_CACHE_NAMESPACE,
+    rawKey,
+  );
+
+  if (cached) {
+    return {
+      ...cached,
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+
+  const decoded = decodeCursor<{ totalEarnings: string; userId: string }>(cursor);
+
+  // Fetch limit+1 rows for the sentinel trick
+  const userStats = await prisma.userStats.findMany({
+    take: limit + 1,
+    orderBy: [{ totalEarnings: "desc" }, { userId: "asc" }],
+    ...(decoded
+      ? {
+          cursor: { userId: decoded.userId },
+          skip: 1,
+        }
+      : {}),
+    include: {
+      user: {
+        select: {
+          id: true,
+          walletAddress: true,
+        },
+      },
+    },
+  });
+
+  // We need the global offset of the first row on this page to compute ranks.
+  // Count how many rows have higher earnings than the cursor row.
+  let rankOffset = 0;
+  if (decoded) {
+    rankOffset = await prisma.userStats.count({
+      where: {
+        totalEarnings: { gt: decoded.totalEarnings },
+      },
+    });
+  }
+
+  const pagination = buildCursorMeta(limit, userStats, (stat) => ({
+    totalEarnings: stat.totalEarnings.toString(),
+    userId: stat.userId,
+  }));
+
+  const pageStats = trimSentinel(userStats, limit);
+
+  const leaderboard: LeaderboardEntry[] = pageStats.map((stat, index) =>
+    buildEntry(stat, rankOffset + index + 1)
+  );
+
+  let userPosition: LeaderboardEntry | undefined;
+  if (userId) {
+    userPosition = await getUserPosition(userId);
+  }
+
+  const payload: LeaderboardCursorCachePayload = {
+    leaderboard,
+    userPosition,
+    pagination,
   };
 
   await setJsonToCache(
@@ -366,6 +466,7 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
 
   // All DB writes are done. Invalidate both cache layers so the next
   // leaderboard read rebuilds from the freshly updated DB rows.
+  void invalidateNamespace("leaderboard").catch(() => {});
   void invalidateLeaderboardSortedSet().catch(() => {
     // Already logged inside invalidateLeaderboardSortedSet.
   });

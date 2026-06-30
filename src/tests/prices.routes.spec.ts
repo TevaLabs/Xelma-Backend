@@ -46,13 +46,17 @@ describe('GET /api/prices', () => {
     expect(mockedAxios.get).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 500 when CoinGecko fails and no cache exists', async () => {
+  it('returns stale fallback prices when CoinGecko fails and no cache exists', async () => {
     mockedAxios.get.mockRejectedValueOnce(new Error('network error'));
     const app = createApp();
 
     const res = await request(app).get('/api/prices');
 
-    expect(res.status).toBe(500);
-    expect(res.body.code).toBe('INTERNAL_SERVER_ERROR');
+    expect(res.status).toBe(200);
+    expect(res.body.BTC).toBe(60_000);
+    expect(res.body.ETH).toBe(3_000);
+    expect(res.body.XLM).toBe(0.2891);
+    expect(res.body.stale).toBe(true);
+    expect(res.body.lastUpdatedAt).toBeNull();
   });
 });

@@ -18,7 +18,7 @@ import {
   RoundLifecycleOutcome,
 } from "../types/round.types";
 import logger from "../utils/logger";
-import { toNumber } from "../utils/decimal.util";
+import { toNumber, toDecimalString } from "../utils/decimal.util";
 import { invalidateNamespace, invalidateLeaderboardSortedSet } from "../lib/redis";
 
 const router = Router();
@@ -535,7 +535,7 @@ router.get("/active", async (_req: Request, res: Response) => {
 
     const response = {
       roundId: activeRound.id,
-      startPrice: activeRound.startPrice,
+      startPrice: toDecimalString(activeRound.startPrice),
       poolUp: poolUp,
       poolDown: poolDown,
       endTime: activeRound.endTime,

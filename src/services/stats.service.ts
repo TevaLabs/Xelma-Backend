@@ -1,7 +1,5 @@
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import { MOCK_PLATFORM_STATS } from "../data/mockData";
-
-const prisma = new PrismaClient();
 
 // ---------------------------------------------------------------------------
 // Types

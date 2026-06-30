@@ -299,3 +299,153 @@ export function isValidIdempotencyKey(key: string): boolean {
    const pattern = /^[a-zA-Z0-9_-]{8,255}$/;
    return pattern.test(key);
 }
+
+/**
+ * Concurrency-safe idempotency lock acquisition.
+ * Uses DB unique constraint as an atomic lock. If a request is in progress, polls until completion.
+ */
+export async function acquireIdempotencyLock(
+   userId: string,
+   endpoint: string,
+   idempotencyKey: string,
+   requestBody: any,
+   ttlHours: number = 24
+): Promise<IdempotencyCheckResult & { lockAcquired?: boolean }> {
+   try {
+      const requestHash = hashRequestBody(requestBody);
+      const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
+
+      // 1. Try to fetch existing key
+      const existing = await prisma.idempotencyKey.findUnique({
+         where: {
+            userId_endpoint_idempotencyKey: {
+               userId,
+               endpoint,
+               idempotencyKey,
+            },
+         },
+      });
+
+      if (existing) {
+         if (existing.expiresAt < new Date()) {
+            // Delete expired key
+            await prisma.idempotencyKey.delete({ where: { id: existing.id } });
+         } else if (existing.responseStatus === 102) {
+            // Lock exists and is in-progress. Let's poll!
+            logger.info('Idempotency lock in progress, polling...', {
+               userId,
+               endpoint,
+               idempotencyKey,
+            });
+            let attempts = 0;
+            while (attempts < 20) { // 5 seconds max
+               await new Promise(resolve => setTimeout(resolve, 250));
+               const polled = await prisma.idempotencyKey.findUnique({
+                  where: {
+                     userId_endpoint_idempotencyKey: {
+                        userId,
+                        endpoint,
+                        idempotencyKey,
+                     },
+                  },
+               });
+               if (polled && polled.responseStatus !== 102) {
+                  if (polled.requestHash !== requestHash) {
+                     return {
+                        isIdempotent: true,
+                        error: 'Idempotency key reused with different request body',
+                     };
+                  }
+                  return {
+                     isIdempotent: true,
+                     cachedResponse: {
+                        status: polled.responseStatus,
+                        body: polled.responseBody,
+                     },
+                  };
+               }
+               attempts++;
+            }
+            return {
+               isIdempotent: true,
+               error: 'A request with this idempotency key is already in progress.',
+            };
+         } else {
+            // Key exists and is complete
+            if (existing.requestHash !== requestHash) {
+               return {
+                  isIdempotent: true,
+                  error: 'Idempotency key reused with different request body',
+               };
+            }
+            return {
+               isIdempotent: true,
+               cachedResponse: {
+                  status: existing.responseStatus,
+                  body: existing.responseBody,
+               },
+            };
+         }
+      }
+
+      // 2. Try to insert lock
+      try {
+         await prisma.idempotencyKey.create({
+            data: {
+               userId,
+               endpoint,
+               idempotencyKey,
+               requestHash,
+               responseStatus: 102, // 102 processing
+               responseBody: {},
+               expiresAt,
+            },
+         });
+         return { isIdempotent: false, lockAcquired: true };
+      } catch (error: any) {
+         if (error.code === 'P2002') {
+            // Someone else created it between our findUnique and create!
+            // Recurse/poll
+            return acquireIdempotencyLock(userId, endpoint, idempotencyKey, requestBody, ttlHours);
+         }
+         throw error;
+      }
+   } catch (error) {
+      logger.error('Failed to acquire idempotency lock', {
+         error: error instanceof Error ? error.message : 'Unknown error',
+         userId,
+         endpoint,
+         idempotencyKey,
+      });
+      // Fallback: allow proceeding on DB errors
+      return { isIdempotent: false };
+   }
+}
+
+/**
+ * Releases the pending lock (responseStatus 102) in case of processing failure,
+ * allowing subsequent retries to attempt the operation again.
+ */
+export async function releaseIdempotencyLock(
+   userId: string,
+   endpoint: string,
+   idempotencyKey: string
+): Promise<void> {
+   try {
+      await prisma.idempotencyKey.deleteMany({
+         where: {
+            userId,
+            endpoint,
+            idempotencyKey,
+            responseStatus: 102, // Only release if still in-progress
+         },
+      });
+   } catch (error) {
+      logger.error('Failed to release idempotency lock', {
+         error: error instanceof Error ? error.message : 'Unknown error',
+         userId,
+         endpoint,
+         idempotencyKey,
+      });
+   }
+}

@@ -82,6 +82,13 @@ enum OutboxEventStatus {
   FAILED
 }
 
+enum TournamentStatus {
+  UPCOMING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
 // =======================
 // Models
 // =======================
@@ -94,14 +101,13 @@ model User {
   avatarUrl               String?
   preferences             Json?
   virtualBalance          Decimal   @default(1000) @db.Decimal(20, 8)
-  wins          Int      @default(0)
-  streak        Int      @default(0)
+  wins                    Int       @default(0)
+  streak                  Int       @default(0)
   role                    UserRole  @default(USER)
   notificationPreferences Json?     @default("{\"win\": true, \"loss\": true, \"roundStart\": false, \"bonus\": true, \"announcement\": true}")
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
   lastLoginAt             DateTime?
-
 
   // Relations
   messages            Message[]
@@ -112,6 +118,43 @@ model User {
   stats               UserStats?
   transactions        Transaction[]
   multiplayerSessions MultiplayerSession[]
+  tournamentParticipants TournamentParticipant[]
+}
+
+model Tournament {
+  id                String                      @id @default(uuid())
+  name              String
+  description       String
+  mode              GameMode
+  status            TournamentStatus            @default(UPCOMING)
+  entryFee          Decimal                     @db.Decimal(20, 8)
+  prizePool         Decimal                     @db.Decimal(20, 8)
+  maxParticipants   Int
+  currentParticipants Int                     @default(0)
+  startTime         DateTime
+  endTime           DateTime
+  rounds            Int                         @default(1)
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  participants TournamentParticipant[]
+
+  @@index([status])
+  @@index([mode])
+}
+
+model TournamentParticipant {
+  id           String     @id @default(uuid())
+  tournamentId String
+  userId       String
+  joinedAt     DateTime   @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@index([tournamentId])
+  @@index([userId])
 }
 
 model Message {
@@ -173,7 +216,7 @@ model Prediction {
   userId     String
   roundId    String
   side       PredictionSide?
-  amount     Decimal @db.Decimal(18, 8)
+  amount     Decimal         @db.Decimal(18, 8)
   priceRange Json?
 
   user  User  @relation(fields: [userId], references: [id])
@@ -257,15 +300,15 @@ model Transaction {
 ///   - `disconnectedAt` is null while the session is live; setting it
 ///     marks the session as resumable until cleaned up by retention.
 model MultiplayerSession {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   walletAddress  String
   socketId       String?
-  rooms          Json     @default("[]")
+  rooms          Json      @default("[]")
   metadata       Json?
-  connectedAt    DateTime @default(now())
-  lastSeenAt     DateTime @default(now())
+  connectedAt    DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
   disconnectedAt DateTime?
 
   @@unique([userId])
@@ -279,16 +322,16 @@ model MultiplayerSession {
 /// signal. `attempts` and `lastError` track how the entry has aged so a
 /// stuck row can be triaged from `/api/admin/dead-letter`.
 model FailedDispatch {
-  id        String          @id @default(uuid())
-  channel   DispatchChannel
-  eventName String?
-  userId    String?
-  payload   Json
-  attempts  Int             @default(1)
-  status    DispatchStatus  @default(PENDING)
-  lastError String          @db.VarChar(1000)
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  id          String          @id @default(uuid())
+  channel     DispatchChannel
+  eventName   String?
+  userId      String?
+  payload     Json
+  attempts    Int             @default(1)
+  status      DispatchStatus  @default(PENDING)
+  lastError   String          @db.VarChar(1000)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
   lastRetryAt DateTime?
   resolvedAt  DateTime?
 
@@ -342,7 +385,7 @@ model RateLimitMetric {
   ip        String?
   userId    String?
   timestamp DateTime @default(now())
-  
+
   @@index([endpoint])
   @@index([timestamp])
   @@index([key])
@@ -359,18 +402,96 @@ model RateLimitMetric {
 /// 
 /// Retention: rows older than 24 hours can be safely deleted.
 model IdempotencyKey {
-  id              String   @id @default(uuid())
-  userId          String
-  endpoint        String
-  idempotencyKey  String
-  requestHash     String   // Hash of request body to detect mutations
-  responseStatus  Int      // HTTP status code (200, 400, etc.)
-  responseBody    Json     // Cached response to return on retry
-  createdAt       DateTime @default(now())
-  expiresAt       DateTime // 24 hours from creation
+  id             String   @id @default(uuid())
+  userId         String
+  endpoint       String
+  idempotencyKey String
+  requestHash    String // Hash of request body to detect mutations
+  responseStatus Int // HTTP status code (200, 400, etc.)
+  responseBody   Json // Cached response to return on retry
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime // 24 hours from creation
 
   @@unique([userId, endpoint, idempotencyKey])
   @@index([userId])
   @@index([expiresAt])
 }
 
+/// Security audit log for authentication and authorization events.
+/// Stores structured audit events for compliance, security monitoring,
+/// and forensic analysis. Retention policy controls how long logs are kept.
+model AuditLog {
+  id String @id @default(uuid())
+
+  // Event identification
+  eventType String @db.VarChar(100)
+  severity  String @db.VarChar(20)
+  message   String @db.VarChar(500)
+  outcome   String @db.VarChar(20)
+
+  // Actor information
+  actorType     String  @db.VarChar(50)
+  walletAddress String? @db.VarChar(100)
+  userId        String? @db.VarChar(100)
+  ipAddress     String? @db.VarChar(45)
+  userAgent     String? @db.VarChar(500)
+
+  // Context information
+  requestId String? @db.VarChar(100)
+  sessionId String? @db.VarChar(100)
+  endpoint  String? @db.VarChar(200)
+  method    String? @db.VarChar(10)
+
+  // Resource information
+  resourceType          String? @db.VarChar(50)
+  resourceId            String? @db.VarChar(100)
+  resourceWalletAddress String? @db.VarChar(100)
+
+  // Additional metadata (JSON)
+  metadata Json?
+
+  // Timestamps
+  timestamp DateTime @default(now())
+
+  @@index([eventType])
+  @@index([severity])
+  @@index([timestamp])
+  @@index([walletAddress])
+  @@index([userId])
+  @@index([outcome])
+}
+
+// =======================
+// Mock Data Models
+// =======================
+
+model MockRound {
+  id              String @id
+  asset           String
+  mode            String
+  status          String
+  startPrice      Float
+  poolUp          Float?
+  poolDown        Float?
+  totalPool       Float?
+  predictionCount Int?
+  closesAt        String
+}
+
+model MockLeaderboard {
+  address     String @id
+  rank        Int
+  totalWins   Int
+  totalLosses Int
+  winStreak   Int
+  xp          Int
+  rankTitle   String
+}
+
+model MockPlatformStat {
+  id                   Int   @id @default(1)
+  totalRounds          Int
+  totalVxlmDistributed Float
+  activePlayers        Int
+  totalBetsPlaced      Int
+}

@@ -29,6 +29,7 @@ jest.mock("../lib/prisma", () => {
 jest.mock("../lib/redis", () => ({
   getJsonFromCache: jest.fn().mockResolvedValue(null),
   setJsonToCache: jest.fn().mockResolvedValue(undefined),
+  invalidateNamespace: jest.fn().mockResolvedValue(undefined),
   invalidateLeaderboardSortedSet: jest.fn().mockResolvedValue(undefined),
   zsetAdd: jest.fn().mockResolvedValue(undefined),
   zsetCard: jest.fn().mockResolvedValue(null),
@@ -40,6 +41,7 @@ import { prisma } from "../lib/prisma";
 import * as redisLib from "../lib/redis";
 import {
   getLeaderboard,
+  getLeaderboardCursor,
   getUserPosition,
   updateUserStatsForRound,
 } from "../services/leaderboard.service";
@@ -163,7 +165,7 @@ describe("Leaderboard Service", () => {
     expect(result.userPosition).toBeDefined();
     expect(result.userPosition?.userId).toBe("u2");
     expect(result.userPosition?.rank).toBe(2);
-    expect(result.userPosition?.totalEarnings).toBe(90);
+    expect(result.userPosition?.totalEarnings).toBe("90.00000000");
   });
 
   it("returns undefined user position when the requested user is not found", async () => {
@@ -188,7 +190,7 @@ describe("Leaderboard Service", () => {
     expect(result).toBeDefined();
     expect(result?.rank).toBe(2);
     expect(result?.userId).toBe("u3");
-    expect(result?.totalEarnings).toBe(90);
+    expect(result?.totalEarnings).toBe("90.00000000");
   });
 
   // ── ZSET fast path ──────────────────────────────────────────────────────────
@@ -359,5 +361,62 @@ describe("Leaderboard Service", () => {
     await expect(updateUserStatsForRound("round-2")).rejects.toThrow(
       "Round not found or not closed",
     );
+  });
+
+  describe("getLeaderboardCursor", () => {
+    it("returns cursor-paginated leaderboard correctly on cache miss", async () => {
+      userStatsFindMany.mockResolvedValue([
+        {
+          userId: "u1",
+          totalEarnings: 100,
+          totalPredictions: 10,
+          correctPredictions: 6,
+          upDownWins: 4,
+          upDownLosses: 2,
+          upDownEarnings: 60,
+          legendsWins: 2,
+          legendsLosses: 2,
+          legendsEarnings: 40,
+          user: { id: "u1", walletAddress: "G1234567890123" }
+        }
+      ]);
+      userStatsCount.mockResolvedValue(0);
+      userStatsFindUnique.mockResolvedValue(null);
+
+      const result = await getLeaderboardCursor(1, undefined, undefined);
+
+      expect(result.leaderboard).toHaveLength(1);
+      expect(result.leaderboard[0].userId).toBe("u1");
+      expect(result.leaderboard[0].totalEarnings).toBe("100.00000000");
+      expect(userStatsFindMany).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns cached result on hit", async () => {
+      const getJsonFromCacheMock = redisLib.getJsonFromCache as jest.Mock;
+      const cachedPayload = {
+        leaderboard: [
+          {
+            rank: 1,
+            userId: "u1",
+            walletAddress: "G12345...67890",
+            totalEarnings: "100.00000000",
+            totalPredictions: 10,
+            accuracy: 60,
+            modeStats: {
+              upDown: { wins: 4, losses: 2, earnings: "60.00000000", accuracy: 66.67 },
+              legends: { wins: 2, losses: 2, earnings: "40.00000000", accuracy: 50 }
+            }
+          }
+        ],
+        pagination: { hasNext: false, endCursor: null }
+      };
+      getJsonFromCacheMock.mockResolvedValueOnce(cachedPayload);
+
+      const result = await getLeaderboardCursor(1, undefined, undefined);
+
+      expect(result.leaderboard).toHaveLength(1);
+      expect(result.leaderboard[0].userId).toBe("u1");
+      expect(userStatsFindMany).not.toHaveBeenCalled();
+    });
   });
 });

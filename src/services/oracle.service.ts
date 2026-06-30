@@ -5,6 +5,7 @@ import logger from "../utils/logger";
 import { withDistributedLock } from "../utils/distributed-lock";
 import { prisma } from "../lib/prisma";
 import { RoundLifecycleOutcome } from "../types/round.types";
+import { oracleResolveBlockedTotal } from "../metrics/application.metrics";
 
 const MAX_RESOLVE_RETRIES = 3;
 const RETRY_DELAY_MS = 5_000;
@@ -66,6 +67,7 @@ class OracleService {
       const currentPrice = priceOracle.getPrice();
 
       if (!currentPrice || currentPrice.lte(0)) {
+        oracleResolveBlockedTotal.inc({ reason: "invalid_price" });
         logger.warn(
           "[OracleService] Skipping resolve: invalid price from oracle",
         );
@@ -73,8 +75,13 @@ class OracleService {
       }
 
       if (priceOracle.isStale()) {
+        oracleResolveBlockedTotal.inc({ reason: "stale_price" });
         logger.warn(
           "[OracleService] Skipping resolve: oracle price data is stale",
+          {
+            lastUpdatedAt: priceOracle.getLastUpdatedAt()?.toISOString() ?? null,
+            stalenessSeconds: priceOracle.getStalenessSeconds(),
+          },
         );
         return;
       }

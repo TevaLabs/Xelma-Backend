@@ -49,10 +49,60 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
         HealthResponse: {
           type: 'object',
           properties: {
-            status: { type: 'string', example: 'ok' },
-            timestamp: { type: 'number', example: 1719494400000 },
+            status: {
+              type: 'string',
+              enum: ['healthy', 'degraded', 'unhealthy'],
+              example: 'healthy',
+            },
+            timestamp: { type: 'string', format: 'date-time' },
+            uptime: { type: 'number' },
+            durationMs: { type: 'number' },
+            services: {
+              type: 'object',
+              properties: {
+                database: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', example: 'healthy' },
+                    durationMs: { type: 'number' },
+                    error: { type: 'string', nullable: true },
+                  },
+                },
+                redis: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', example: 'healthy' },
+                    durationMs: { type: 'number' },
+                    error: { type: 'string', nullable: true },
+                  },
+                },
+                soroban: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', example: 'healthy' },
+                    durationMs: { type: 'number' },
+                    initialized: { type: 'boolean', nullable: true },
+                    error: { type: 'string', nullable: true },
+                  },
+                },
+                oracle: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', example: 'healthy' },
+                    durationMs: { type: 'number' },
+                    stale: { type: 'boolean', nullable: true },
+                    lastUpdatedAt: {
+                      type: 'string',
+                      format: 'date-time',
+                      nullable: true,
+                    },
+                    error: { type: 'string', nullable: true },
+                  },
+                },
+              },
+            },
           },
-          required: ['status', 'timestamp'],
+          required: ['status', 'timestamp', 'uptime', 'durationMs', 'services'],
         },
         PlatformStatsResponse: {
           type: 'object',

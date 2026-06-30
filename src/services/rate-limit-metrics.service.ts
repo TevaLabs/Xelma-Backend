@@ -5,6 +5,19 @@ import {
   OPERATOR_MONITORED_CATEGORIES,
   RateLimitCategory,
 } from '../security/rate-limit-endpoints';
+import { Counter, register } from 'prom-client';
+
+const counterName = 'http_rate_limit_hits_total';
+let httpRateLimitHitsTotal = register.getSingleMetric(counterName) as Counter<string>;
+
+if (!httpRateLimitHitsTotal) {
+  httpRateLimitHitsTotal = new Counter({
+    name: counterName,
+    help: 'Total HTTP 429 rate limit hits',
+    labelNames: ['endpoint', 'method'] as const,
+    registers: [register],
+  });
+}
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -42,6 +55,17 @@ export interface SuspiciousActor {
 }
 
 export class RateLimitMetricsService {
+  /**
+   * Records a Prometheus rate-limit hit
+   */
+  public static recordHit(endpoint: string, method: string): void {
+    try {
+      httpRateLimitHitsTotal.inc({ endpoint, method });
+    } catch (error) {
+      logger.error('Failed to record Prometheus rate-limit hit:', error);
+    }
+  }
+
   /**
    * Records a rate-limit hit in the database
    */
