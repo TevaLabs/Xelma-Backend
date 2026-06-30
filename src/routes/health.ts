@@ -184,7 +184,7 @@ router.get('/health', (_req: Request, res: Response) => {
 
 /**
  * @openapi
- * /health:
+ * /api/health:
  *   get:
  *     summary: Service health check with dependency checks
  *     description: |
