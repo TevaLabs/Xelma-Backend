@@ -266,20 +266,18 @@ router.patch(
 router.get(
   "/transactions",
   authenticateUser,
+  validate(offsetPaginationSchema, "query"),
   (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const userId = req.user.userId;
-
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 20;
-      const skip = (page - 1) * limit;
+      const { limit, offset } = req.query as unknown as { limit: number; offset: number };
 
       const [transactions, total] = await prisma.$transaction([
         prisma.transaction.findMany({
           where: { userId },
           orderBy: { createdAt: "desc" },
           take: limit,
-          skip,
+          skip: offset,
         }),
         prisma.transaction.count({ where: { userId } }),
       ]);
@@ -351,9 +349,9 @@ router.get(
         return res.json({
           success: true,
           data: [],
-          ...(cursor
-            ? { nextCursor: null }
-            : { pagination: { limit, offset, total: 0, totalPages: 0 } }),
+          pagination: cursor
+            ? { limit, nextCursor: null, hasNextPage: false }
+            : buildOffsetMeta(limit, offset, 0),
         });
       }
 
@@ -397,18 +395,15 @@ router.get(
           include: { round: roundSelect },
         });
 
-        const hasNextPage = predictions.length > limit;
-        const page = hasNextPage ? predictions.slice(0, limit) : predictions;
-
-        // Encode the createdAt of the last returned record as the next cursor.
-        const nextCursor = hasNextPage
-          ? Buffer.from(page[page.length - 1].createdAt.toISOString()).toString("base64url")
-          : null;
+        const pagination = buildCursorMeta(limit, predictions, (lastRow) => ({
+          createdAt: lastRow.createdAt.toISOString(),
+        }));
+        const paged = trimSentinel(predictions, limit);
 
         return res.json({
           success: true,
-          data: page.map(mapPrediction),
-          nextCursor,
+          data: paged.map(mapPrediction),
+          pagination,
         });
       }
 
@@ -427,12 +422,7 @@ router.get(
       return res.json({
         success: true,
         data: predictions.map(mapPrediction),
-        pagination: {
-          limit,
-          offset,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
+        pagination: buildOffsetMeta(limit, offset, total),
       });
     } catch (error) {
       next(error);
