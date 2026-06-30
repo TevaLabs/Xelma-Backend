@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { validate } from "../middleware/validate.middleware";
 import { offsetPaginationSchema } from "../schemas/pagination.schema";
+import { buildOffsetMeta } from "../utils/pagination.util";
 
 const router = Router();
 
@@ -97,7 +98,7 @@ router.get(
     return res.json({
       success: true,
       data: paginated,
-      pagination: { limit, offset, total },
+      pagination: buildOffsetMeta(limit, offset, total),
     });
   },
 );
