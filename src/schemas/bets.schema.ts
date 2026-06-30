@@ -23,3 +23,5 @@ export const precisionBetSchema = z.object({
     .number({ message: "predictedPrice is required" })
     .positive("predictedPrice must be a positive number"),
 });
+
+export const betSchema = z.union([upDownBetSchema, precisionBetSchema]);

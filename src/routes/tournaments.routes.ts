@@ -1,8 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { validate } from "../middleware/validate.middleware";
 import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
-import { offsetPaginationSchema } from "../schemas/pagination.schema";
-import { joinTournamentParamsSchema } from "../schemas/tournament.schema";
+import { joinTournamentParamsSchema, tournamentListQuerySchema } from "../schemas/tournament.schema";
 import tournamentService from "../services/tournament.service";
 
 const router = Router();
@@ -80,13 +79,13 @@ const MOCK_TOURNAMENTS: MockTournament[] = [
  */
 router.get(
   "/",
-  validate(offsetPaginationSchema, "query"),
+  validate(tournamentListQuerySchema, "query"),
   (req: Request, res: Response, _next: NextFunction) => {
-    const { limit, offset } = req.query as unknown as {
+    const { limit, offset, status } = req.query as unknown as {
       limit: number;
       offset: number;
+      status?: string;
     };
-    const status = req.query.status as string | undefined;
 
     let filtered = MOCK_TOURNAMENTS;
     if (status) {

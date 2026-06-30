@@ -151,6 +151,30 @@ Xelma-Backend/
 
 ## Architecture
 
+### Data Sources
+
+The hackathon app and the production app share the same services, but the data backend can be switched per-endpoint via environment flags.
+
+| Endpoint | `DATA_MODE=live` (default) | `DATA_MODE=mock` |
+|---|---|---|
+| `GET /api/prices` | CoinGecko API (30 s cache) | Static in-memory array (`mockData.prices` in [src/data/mockData.ts](src/data/mockData.ts)) |
+| `GET /api/rounds` | Drizzle / Postgres (`hackathon_rounds` table) | Same — Drizzle is always used for rounds |
+| `GET /api/leaderboard` | Drizzle / Postgres leaderboard table | In-memory seed (`mockLeaderboard` in [src/data/mockData.ts](src/data/mockData.ts)) when `DATA_STORE=memory` |
+| `GET /api/stats` | Prisma / Postgres aggregation | `MOCK_PLATFORM_STATS` constants (zero-value defaults) |
+| `GET /api/health` → `soroban` | Live `soroban.isReady()` flag | Same — no extra network call; reflects initialization state only |
+
+**Controlling flags** (set in `.env` or as environment variables):
+
+| Variable | Values | Effect |
+|---|---|---|
+| `DATA_MODE` | `live` (default), `mock` | Switches price source and stats fallback |
+| `DATA_STORE` | `postgres` (default), `memory` | Switches repository adapter for rounds, leaderboard, bets |
+| `SOROBAN_CONTRACT_ID` | contract address or unset | When unset, Soroban service disables and health shows `unavailable` |
+
+See [src/data/mockData.ts](src/data/mockData.ts) for the full in-memory seed data and fallback constants.
+
+---
+
 ### Entrypoints
 
 The repo has two Express applications. **New contributors should always use `npm run dev`.**
@@ -159,6 +183,7 @@ The repo has two Express applications. **New contributors should always use `npm
 |---|---|---|
 | `npm run dev` | `src/index.ts` | Everyday development — full backend, real DB, WebSocket, Soroban |
 | `npm run dev:hackathon` | `src/server.ts` | Demo without a database — mock data only |
+| `npm start` | `dist/server.js` (compiled `src/server.ts`) | **Default Render start command** — hackathon server (compiled) |
 
 See [docs/architecture.md](docs/architecture.md) for the full architecture decision, file map, migration plan, and a checklist for adding new routes.
 
@@ -254,6 +279,16 @@ See [docs/architecture.md](docs/architecture.md) for the full architecture decis
 > dedicated worker process runs background jobs while one or more
 > stateless processes serve HTTP — and for safer local debugging.
 
+> **Bet mode (`BET_STUB_MODE`)**: Controls whether `/api/bets` endpoints
+> submit transactions on-chain or just record intent locally.
+>
+> | `BET_STUB_MODE` | `sorobanService.placeBet` | `sorobanService.placePrecisionBet` | Use case |
+> |---|---|---|---|
+> | `true` (default) | Skipped | Skipped | Local dev, demos, hackathon — no Soroban keypairs or deployed contract needed |
+> | `false` | Called | Called | Production — bets are submitted to the Soroban smart contract |
+>
+> The active mode is logged at startup: `Bet mode: STUB (no on-chain calls)` or `Bet mode: ON-CHAIN (Soroban)`.
+
 #### **8a. Outbox Service (`outbox.service.ts`)** — Issue #18
 - **Purpose**: Guarantees at-least-once delivery of notification and WebSocket side-effects
 - **How it works**:
@@ -298,6 +333,8 @@ See [docs/architecture.md](docs/architecture.md) for the full architecture decis
 - `GET /stats` - [Auth] Get detailed user statistics
 - `PATCH /profile` - [Auth] Update user preferences (nickname, avatar, preferences)
 - `GET /transactions` - [Auth] Get paginated transaction history
+- `GET /:address/stats` - Get on-chain user stats from Soroban
+- `GET /:address/history` - Get paginated bet history for a wallet address
 - `GET /:walletAddress/public-profile` - Get any user's public profile
 
 #### **Round Management (`/api/rounds`)**
@@ -310,6 +347,15 @@ See [docs/architecture.md](docs/architecture.md) for the full architecture decis
 - `POST /submit` - [Auth] Submit a prediction for a round
 - `GET /user/:userId` - Get user's prediction history
 - `GET /round/:roundId` - Get all predictions for a round
+
+#### **Bets (`/api/bets`)**
+- `POST /up-down` - [Auth] Submit an UP/DOWN bet (stub or on-chain)
+- `POST /precision` - [Auth] Submit a precision bet (stub or on-chain)
+
+#### **Tournaments (`/api/tournaments`)**
+- `GET /` - List all tournaments (optional `?status=` filter)
+- `GET /:id` - Get tournament detail by id
+- `POST /:id/join` - [Auth] Join a tournament
 
 #### **Leaderboard (`/api/leaderboard`)**
 - `GET /` - Get global leaderboard (paginated, optional auth for user position)
@@ -491,6 +537,11 @@ docker compose --profile full up --build
 cp .env.example .env
 ```
 
+For hackathon/demo mode (mock data, minimal config):
+```bash
+cp .env.hackathon.example .env
+```
+
 ### 2. Configure Environment Variables
 
 ## Environment Variables
@@ -551,6 +602,9 @@ ROUND_SCHEDULER_MODE=UP_DOWN   # or 'LEGENDS'
 # API-only startup mode (skip oracle polling, schedulers, and price ticker)
 API_ONLY=false  # Set to 'true' to run as a stateless HTTP API only
 
+# Bet Mode: true = stub mode (records intent without on-chain calls), false = on-chain via Soroban
+BET_STUB_MODE=true
+
 # Price Oracle Configuration
 ORACLE_POLLING_INTERVAL_MS=10000    # Interval between price updates (ms)
 ORACLE_REQUEST_TIMEOUT_MS=5000     # Network timeout for requests (ms)
@@ -568,6 +622,12 @@ Operators can tune the oracle's behavior via environment variables to balance pr
 | `ORACLE_REQUEST_TIMEOUT_MS` | Network timeout for the API request. | `5000` (5s) |
 | `ORACLE_MAX_RETRIES` | Number of retry attempts on failure. | `3` |
 | `ORACLE_STALENESS_THRESHOLD_MS` | When to consider the local price data stale. | `60000` (60s) |
+
+#### Bet Mode (`BET_STUB_MODE`)
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `BET_STUB_MODE` | `true` = stub mode (bets recorded locally, no on-chain calls); `false` = bets submitted to Soroban smart contract | `true` |
 
 #### Database pool/timeout tuning
 
@@ -1167,7 +1227,7 @@ At minimum, migration PRs should include:
 
 | Script | Description |
 |--------|-------------|
-| `npm start` | Run production server (requires build) |
+| `npm start` | Run hackathon/demo server (`dist/server.js`); this is the default Render start command (requires build) |
 | `npm run dev` | Start the **production** development server (`src/index.ts`) with hot-reload — use this for all feature work |
 | `npm run dev:hackathon` | Start the hackathon demo server (`src/server.ts`) — mock data only, no database required |
 | `npm run dev:render-parity` | Generate Prisma client, apply committed migrations, then start dev server |
@@ -1182,6 +1242,7 @@ At minimum, migration PRs should include:
 | `npm run prisma:migrate` | Run database migrations |
 | `npm run prisma:migrate:deploy` | Apply committed migrations without creating new migration files |
 | `npm run db:prepare` | Run Prisma generate and migrate deploy |
+| `node dist/index.js` | Run production full backend (Prisma, Soroban, schedulers, WebSocket); use this command in production Render profile |
 | `npm run docs:openapi` | Generate OpenAPI JSON spec to `docs/openapi.json` |
 | `npm run docs:verify` | Regenerate OpenAPI and verify required paths are documented (CI gate) |
 | `npm run docs:postman` | Export Postman collection |
@@ -2005,9 +2066,65 @@ npx prisma migrate status
 
 ---
 
+## Render Deployment
+
+The repository includes a [`render.yaml`](render.yaml) blueprint with two service profiles:
+
+### Profile 1: Hackathon Demo (`xelma-backend-hackathon`)
+
+| Setting | Value |
+|---|---|
+| **Start command** | `npm start` (runs `dist/server.js`) |
+| **Health check** | `GET /api/health` |
+| **Database** | Not required — set `DATA_MODE=mock` for in-process data |
+| **Plan** | Free tier sufficient |
+
+Minimal env vars needed (all others use sensible defaults):
+
+| Variable | Example | Purpose |
+|---|---|---|
+| `JWT_SECRET` | *(sync on Render)* | Signs JWT tokens |
+| `DATA_MODE` | `mock` | Use mock in-process data (no DB) |
+| `ENABLE_MULTIPLAYER_SOCIAL` | `true` | Enable chat / notifications |
+| `CLIENT_URL` | `https://your-app.onrender.com` | CORS origin |
+| `CONTRACT_ID` | *(sync on Render)* | Soroban contract address (optional for demo) |
+
+### Profile 2: Production Full Backend (`xelma-backend`)
+
+| Setting | Value |
+|---|---|
+| **Start command** | `node dist/index.js` |
+| **Health check** | `GET /health` |
+| **Database** | PostgreSQL required — migrations run automatically in build phase |
+| **Plan** | Starter or higher recommended |
+
+Required env vars:
+
+| Variable | Example / Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string *(sync on Render)* |
+| `JWT_SECRET` | Strong random secret *(sync on Render)* |
+| `CLIENT_URL` | Frontend origin for CORS |
+| `SOROBAN_CONTRACT_ID` | Deployed prediction market contract *(sync on Render)* |
+| `SOROBAN_ADMIN_SECRET` | Stellar secret key for admin ops *(sync on Render)* |
+| `SOROBAN_ORACLE_SECRET` | Stellar secret key for oracle settlement *(sync on Render)* |
+
+### Choosing a Profile
+
+1. Go to **Dashboard > New > Blueprint** and connect your fork of this repo.
+2. Render reads `render.yaml` and lists both services. Uncheck the profile you do **not** want to deploy.
+3. For each selected service, fill in any `sync: false` env vars.
+4. Deploy. The service is reachable at `https://<service-name>.onrender.com:<PORT>`.
+
+> **Port note**: The server listens on the port defined by the `PORT` env var (default `3000`). Render automatically sets `PORT` in the runtime environment.
+
+---
+
 ## Hackathon Quick-Start
 
 This section is designed so a new developer can boot and test the API in minutes.
+
+The hackathon entrypoint now exposes the production-style user, bet, and tournament routes under /api/user, /api/bets, and /api/tournaments so frontend integrations can use a single dev command.
 
 ### 1. Setup
 
@@ -2020,7 +2137,7 @@ npm install
 docker compose up -d postgres
 
 # 2. Copy and customize your environment variables
-cp .env.example .env
+cp .env.hackathon.example .env
 # Edit .env → set DATABASE_URL and JWT_SECRET
 
 # 3. Generate Prisma client & apply core migrations

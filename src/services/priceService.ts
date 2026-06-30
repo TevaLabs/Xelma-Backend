@@ -97,6 +97,13 @@ export const getPrices = async (): Promise<PriceResponse> => {
       return withStaleFlag(cache.data);
     }
 
-    throw err;
+    logger.warn('No cache available — returning static fallback prices');
+    return {
+      BTC: 60_000,
+      ETH: 3_000,
+      XLM: 0.2891,
+      stale: true,
+      lastUpdatedAt: null,
+    };
   }
 };

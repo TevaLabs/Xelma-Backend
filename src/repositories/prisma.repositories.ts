@@ -9,7 +9,7 @@ import {
 export class PrismaRoundRepository implements RoundRepository {
   async listActiveRounds() {
     const { default: roundService } = await import("../services/round.service");
-    const { rounds, source } = await roundService.getActiveRoundsWithFallback();
+    const { rounds, source } = await roundService.getRoundsForApi();
     return { source, rounds };
   }
 
