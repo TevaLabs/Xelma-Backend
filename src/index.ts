@@ -232,6 +232,9 @@ export function createApp(): Express {
       });
     });
 
+    // Multi-asset prices via CoinGecko (BTC, ETH, XLM)
+   app.use('/api', pricesRoutes);
+
     // Price Oracle endpoint (returns price_usd as a precise decimal string)
    app.get('/api/price', (req: Request, res: Response) => {
       const price = priceOracle.getPriceString();
