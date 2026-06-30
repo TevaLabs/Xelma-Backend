@@ -10,7 +10,7 @@ jest.mock("../services/round.service", () => ({
   default: {
     startRound: jest.fn(),
     getRound: jest.fn(),
-    getActiveRoundsWithFallback: (...args: any[]) =>
+    getRoundsForApi: (...args: any[]) =>
       mockGetActiveRoundsWithFallback(...args),
   },
 }));

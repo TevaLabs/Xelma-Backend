@@ -15,6 +15,7 @@ import {
   mapDatabaseActiveRound,
   mapSorobanActiveRound,
 } from "../utils/soroban-round.mapper";
+import { getMockRounds } from "../data/mockData";
 
 interface LegendsPriceRange {
   min: number;
@@ -169,39 +170,66 @@ export class RoundService {
   }
 
   /**
-   * Gets active rounds from Soroban when available, otherwise from the database.
-   * Set ROUNDS_MOCK_MODE=true to force database-only reads for local development.
+   * Shared entrypoint for round listing across all API entrypoints.
+   *
+   * Fallback chain: Soroban → Database → Mock.
+   * Set ROUNDS_MOCK_MODE=true to skip Soroban and go directly to mock data.
+   *
+   * Every stage is wrapped in try-catch so a failure at any level degrades
+   * gracefully to the next fallback. The source field tells callers which
+   * backend produced the data.
+   */
+  async getRoundsForApi(): Promise<{
+    source: ActiveRoundSource;
+    rounds: any[];
+  }> {
+    if (config.app.roundsMockMode) {
+      return { source: "mock", rounds: await getMockRounds() };
+    }
+
+    // 1. Try Soroban on-chain round
+    try {
+      const onChainRound = await sorobanService.getActiveRound();
+      if (onChainRound) {
+        return {
+          source: "soroban",
+          rounds: [mapSorobanActiveRound(onChainRound)],
+        };
+      }
+    } catch (error) {
+      logger.warn("Soroban fetch failed; falling back to database", {
+        error: (error as Error).message,
+      });
+    }
+
+    // 2. Try database rounds
+    try {
+      const dbRounds = await this.getActiveRounds();
+      if (dbRounds.length > 0) {
+        return {
+          source: "database",
+          rounds: dbRounds.map((round) => mapDatabaseActiveRound(round)),
+        };
+      }
+    } catch (error) {
+      logger.warn("Database fetch failed; falling back to mock data", {
+        error: (error as Error).message,
+      });
+    }
+
+    // 3. Ultimate fallback — mock data
+    return { source: "mock", rounds: await getMockRounds() };
+  }
+
+  /**
+   * @deprecated Use {@link getRoundsForApi} instead. Kept for backward
+   * compatibility. Delegates to getRoundsForApi.
    */
   async getActiveRoundsWithFallback(): Promise<{
     source: ActiveRoundSource;
     rounds: any[];
   }> {
-    if (!config.app.roundsMockMode) {
-      try {
-        const onChainRound = await sorobanService.getActiveRound();
-        if (onChainRound) {
-          return {
-            source: "soroban",
-            rounds: [mapSorobanActiveRound(onChainRound)],
-          };
-        }
-      } catch (error) {
-        logger.warn(
-          "Failed to fetch active round from Soroban; falling back to database",
-          error,
-        );
-      }
-    }
-
-    const dbRounds = await this.getActiveRounds();
-    if (dbRounds.length > 0) {
-      return {
-        source: "database",
-        rounds: dbRounds.map((round) => mapDatabaseActiveRound(round)),
-      };
-    }
-
-    return { source: "none", rounds: [] };
+    return this.getRoundsForApi();
   }
 
   /**

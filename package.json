@@ -17,6 +17,7 @@
     "test:watch": "jest --watch",
     "test:load": "jest --testPathPattern=performance.spec.ts",
     "test:hackathon": "npx ts-node src/tests/hackathon.test.ts",
+    "test:hackathon:http": "jest --selectProjects integration --testPathPattern=hackathon\\.http\\.spec\\.ts",
     "ci": "npm run lint && npm run build && npm run test:unit:coverage && npm run test:integration",
     "docs:openapi": "node dist/scripts/generate-openapi.js",
     "docs:verify": "node scripts/verify-openapi-sync.js",

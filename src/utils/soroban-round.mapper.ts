@@ -4,7 +4,7 @@ import { RoundMode } from "@tevalabs/xelma-bindings";
 const PRICE_SCALE = 10_000;
 const STROOP_SCALE = 10_000_000;
 
-export type ActiveRoundSource = "soroban" | "database" | "none";
+export type ActiveRoundSource = "soroban" | "database" | "mock" | "none";
 
 export interface MappedActiveRound {
   id: string;

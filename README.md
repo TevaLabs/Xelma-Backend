@@ -151,6 +151,30 @@ Xelma-Backend/
 
 ## Architecture
 
+### Data Sources
+
+The hackathon app and the production app share the same services, but the data backend can be switched per-endpoint via environment flags.
+
+| Endpoint | `DATA_MODE=live` (default) | `DATA_MODE=mock` |
+|---|---|---|
+| `GET /api/prices` | CoinGecko API (30 s cache) | Static in-memory array (`mockData.prices` in [src/data/mockData.ts](src/data/mockData.ts)) |
+| `GET /api/rounds` | Drizzle / Postgres (`hackathon_rounds` table) | Same — Drizzle is always used for rounds |
+| `GET /api/leaderboard` | Drizzle / Postgres leaderboard table | In-memory seed (`mockLeaderboard` in [src/data/mockData.ts](src/data/mockData.ts)) when `DATA_STORE=memory` |
+| `GET /api/stats` | Prisma / Postgres aggregation | `MOCK_PLATFORM_STATS` constants (zero-value defaults) |
+| `GET /api/health` → `soroban` | Live `soroban.isReady()` flag | Same — no extra network call; reflects initialization state only |
+
+**Controlling flags** (set in `.env` or as environment variables):
+
+| Variable | Values | Effect |
+|---|---|---|
+| `DATA_MODE` | `live` (default), `mock` | Switches price source and stats fallback |
+| `DATA_STORE` | `postgres` (default), `memory` | Switches repository adapter for rounds, leaderboard, bets |
+| `SOROBAN_CONTRACT_ID` | contract address or unset | When unset, Soroban service disables and health shows `unavailable` |
+
+See [src/data/mockData.ts](src/data/mockData.ts) for the full in-memory seed data and fallback constants.
+
+---
+
 ### Entrypoints
 
 The repo has two Express applications. **New contributors should always use `npm run dev`.**
@@ -253,6 +277,16 @@ See [docs/architecture.md](docs/architecture.md) for the full architecture decis
 > disabled. This is the recommended setup for split deployments — one
 > dedicated worker process runs background jobs while one or more
 > stateless processes serve HTTP — and for safer local debugging.
+
+> **Bet mode (`BET_STUB_MODE`)**: Controls whether `/api/bets` endpoints
+> submit transactions on-chain or just record intent locally.
+>
+> | `BET_STUB_MODE` | `sorobanService.placeBet` | `sorobanService.placePrecisionBet` | Use case |
+> |---|---|---|---|
+> | `true` (default) | Skipped | Skipped | Local dev, demos, hackathon — no Soroban keypairs or deployed contract needed |
+> | `false` | Called | Called | Production — bets are submitted to the Soroban smart contract |
+>
+> The active mode is logged at startup: `Bet mode: STUB (no on-chain calls)` or `Bet mode: ON-CHAIN (Soroban)`.
 
 #### **8a. Outbox Service (`outbox.service.ts`)** — Issue #18
 - **Purpose**: Guarantees at-least-once delivery of notification and WebSocket side-effects
@@ -502,6 +536,11 @@ docker compose --profile full up --build
 cp .env.example .env
 ```
 
+For hackathon/demo mode (mock data, minimal config):
+```bash
+cp .env.hackathon.example .env
+```
+
 ### 2. Configure Environment Variables
 
 ## Environment Variables
@@ -562,6 +601,9 @@ ROUND_SCHEDULER_MODE=UP_DOWN   # or 'LEGENDS'
 # API-only startup mode (skip oracle polling, schedulers, and price ticker)
 API_ONLY=false  # Set to 'true' to run as a stateless HTTP API only
 
+# Bet Mode: true = stub mode (records intent without on-chain calls), false = on-chain via Soroban
+BET_STUB_MODE=true
+
 # Price Oracle Configuration
 ORACLE_POLLING_INTERVAL_MS=10000    # Interval between price updates (ms)
 ORACLE_REQUEST_TIMEOUT_MS=5000     # Network timeout for requests (ms)
@@ -579,6 +621,12 @@ Operators can tune the oracle's behavior via environment variables to balance pr
 | `ORACLE_REQUEST_TIMEOUT_MS` | Network timeout for the API request. | `5000` (5s) |
 | `ORACLE_MAX_RETRIES` | Number of retry attempts on failure. | `3` |
 | `ORACLE_STALENESS_THRESHOLD_MS` | When to consider the local price data stale. | `60000` (60s) |
+
+#### Bet Mode (`BET_STUB_MODE`)
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `BET_STUB_MODE` | `true` = stub mode (bets recorded locally, no on-chain calls); `false` = bets submitted to Soroban smart contract | `true` |
 
 #### Database pool/timeout tuning
 
@@ -2033,7 +2081,7 @@ npm install
 docker compose up -d postgres
 
 # 2. Copy and customize your environment variables
-cp .env.example .env
+cp .env.hackathon.example .env
 # Edit .env → set DATABASE_URL and JWT_SECRET
 
 # 3. Generate Prisma client & apply core migrations
