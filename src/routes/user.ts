@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { isValidStellarAddress } from '../services/stellar.service';
+import { isValidStellarAddress } from '../utils/stellar-address.util';
 import hackathonService from '../services/hackathon.service';
 
 const router = Router();

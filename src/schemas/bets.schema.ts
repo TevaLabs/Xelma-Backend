@@ -1,12 +1,5 @@
 import { z } from "zod";
-import { isValidStellarAddress } from "../services/stellar.service";
-
-const stellarAddressSchema = z
-  .string({ error: "address is required" })
-  .min(1, "address is required")
-  .refine(isValidStellarAddress, "Invalid Stellar wallet address format");
-
-const optionalStellarAddressSchema = stellarAddressSchema.optional();
+import { stellarAddressSchema } from "../utils/stellar-address.util";
 
 export const upDownBetSchema = z.object({
   address: stellarAddressSchema,
