@@ -15,6 +15,7 @@ export interface AppConfig {
   apiOnly: boolean;
   roundsMockMode: boolean;
   dataMode: "mock" | "live";
+  dataStore: "memory" | "postgres";
   enableSimulation: boolean;
   enableMultiplayerSocial: boolean;
 }
@@ -102,6 +103,12 @@ function buildConfig(): Config {
     apiOnly: v.boolean(env.API_ONLY, false),
     roundsMockMode: v.boolean(env.ROUNDS_MOCK_MODE, false),
     dataMode: v.oneOf(env.DATA_MODE, "DATA_MODE", ["mock", "live"] as const, "live"),
+    dataStore: v.oneOf(
+      env.DATA_STORE ?? (env.DATA_MODE === "mock" ? "memory" : undefined),
+      "DATA_STORE",
+      ["memory", "postgres"] as const,
+      "postgres",
+    ),
     enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
     enableMultiplayerSocial: v.boolean(env.ENABLE_MULTIPLAYER_SOCIAL, true),
   };

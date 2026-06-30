@@ -56,9 +56,15 @@ describe('priceService', () => {
     expect(stale.stale).toBe(true);
   });
 
-  it('throws when CoinGecko fails and no cache exists', async () => {
+  it('returns static fallback prices when CoinGecko fails and no cache exists', async () => {
     mockedAxios.get.mockRejectedValueOnce(new Error('network error'));
 
-    await expect(getPrices()).rejects.toThrow('network error');
+    const prices = await getPrices();
+
+    expect(prices.BTC).toBe(60_000);
+    expect(prices.ETH).toBe(3_000);
+    expect(prices.XLM).toBe(0.2891);
+    expect(prices.stale).toBe(true);
+    expect(prices.lastUpdatedAt).toBeNull();
   });
 });

@@ -1,7 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import config from '../config';
-import { getLeaderboard } from '../services/leaderboard.service';
-import hackathonService from '../services/hackathon.service';
+import { getRepositories } from '../repositories';
 
 const router = Router();
 
@@ -24,12 +22,7 @@ const router = Router();
  */
 router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    if (config.app.dataMode === 'mock') {
-      const leaderboard = await hackathonService.getLeaderboard();
-      return res.json(leaderboard);
-    }
-
-    const result = await getLeaderboard(100, 0);
+    const result = await getRepositories().leaderboard.listLeaderboard(100, 0);
     return res.json(result);
   } catch (err) {
     next(err);

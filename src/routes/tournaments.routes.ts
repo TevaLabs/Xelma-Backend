@@ -86,6 +86,10 @@ router.get(
       offset: number;
       status?: "UPCOMING" | "ACTIVE" | "COMPLETED";
       mode?: "UP_DOWN" | "LEGENDS";
+    const { limit, offset, status } = req.query as unknown as {
+      limit: number;
+      offset: number;
+      status?: string;
     };
 
     let filtered = MOCK_TOURNAMENTS;

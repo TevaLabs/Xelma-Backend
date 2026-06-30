@@ -1,12 +1,62 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# Two profiles:
+#   1. xelma-backend-hackathon  – demo server, no database required (default npm start)
+#   2. xelma-backend            – production full backend with Prisma, Soroban, schedulers
+#
+# Pick one when creating the Render service.  The "Hackathon" profile is the
+# simpler option for quick demos; the "Production" profile matches the full
+# runtime described in the README.
+
 services:
+  # ── Hackathon Demo ──────────────────────────────────────────────────────
+  # Runs dist/server.js (src/server.ts → src/app.ts) with mock-data support.
+  # No PostgreSQL migrations required — DATA_MODE=mock uses in-process data.
   - type: web
-    name: xelma-backend
+    name: xelma-backend-hackathon
     env: node
     region: oregon
     plan: free
     nodeVersion: "22"
-    buildCommand: npm ci && npm run build && npx prisma generate && npx prisma migrate deploy
+    buildCommand: npm ci && npm run build
     startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: JWT_SECRET
+        sync: false
+      - key: DATA_MODE
+        value: mock
+      - key: ENABLE_MULTIPLAYER_SOCIAL
+        value: "true"
+      - key: CLIENT_URL
+        sync: false
+      - key: COINGECKO_API_URL
+        value: https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd
+      - key: STELLAR_RPC_URL
+        value: https://soroban-testnet.stellar.org
+      - key: CONTRACT_ID
+        sync: false
+
+  # ── Production (Full Backend) ───────────────────────────────────────────
+  # Runs dist/index.js (src/index.ts) – the complete application with
+  # Prisma ORM, Soroban contract integration, cron schedulers, price oracle,
+  # WebSocket broadcasting, and all API routes including admin/monitoring.
+  #
+  # Requires a PostgreSQL database.  Migrations are applied automatically
+  # during the build phase.
+  - type: web
+    name: xelma-backend
+    env: node
+    region: oregon
+    plan: starter
+    nodeVersion: "22"
+    buildCommand: npm ci && npm run build && npx prisma generate && npx prisma migrate deploy
+    startCommand: node dist/index.js
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
@@ -32,3 +82,17 @@ services:
         sync: false
       - key: SOROBAN_ORACLE_SECRET
         sync: false
+      - key: ROUND_SCHEDULER_ENABLED
+        value: "false"
+      - key: ROUND_SCHEDULER_MODE
+        value: UP_DOWN
+      - key: API_ONLY
+        value: "false"
+      - key: ORACLE_POLLING_INTERVAL_MS
+        value: "10000"
+      - key: ORACLE_REQUEST_TIMEOUT_MS
+        value: "5000"
+      - key: ORACLE_MAX_RETRIES
+        value: "3"
+      - key: ORACLE_STALENESS_THRESHOLD_MS
+        value: "60000"

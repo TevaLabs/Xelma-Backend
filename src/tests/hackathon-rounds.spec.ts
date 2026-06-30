@@ -2,15 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import request from 'supertest';
 import { Express } from 'express';
 import { createApp } from '../app';
-import { getMockRounds } from '../data/mockData';
 
-const mockGetActiveRound = jest.fn();
+const mockGetRoundsForApi = jest.fn();
 
-jest.mock('../services/soroban.service', () => ({
+jest.mock('../services/round.service', () => ({
   __esModule: true,
   default: {
-    getActiveRound: (...args: any[]) => mockGetActiveRound(...args),
-    isReady: jest.fn().mockReturnValue(false),
+    getRoundsForApi: (...args: any[]) => mockGetRoundsForApi(...args),
   },
 }));
 
@@ -29,10 +27,34 @@ jest.mock('../middleware/rateLimiter', () => {
   return { apiRateLimiter: pass, writeRateLimiter: pass, betRateLimiter: pass };
 });
 
-// Prevent real Prisma / DB connection in unit tests
-jest.mock('../lib/prisma', () => ({ prisma: {} }));
+const SOROBAN_ROUND_RESPONSE = {
+  source: 'soroban',
+  rounds: [
+    {
+      id: 'soroban-1',
+      sorobanRoundId: '1',
+      mode: 'UP_DOWN',
+      status: 'ACTIVE',
+      startPrice: 0.2891,
+      poolUp: 2.8,
+      poolDown: 1.4,
+      startLedger: 100,
+      betEndLedger: 200,
+      endLedger: 300,
+      isSoroban: true,
+      source: 'soroban',
+    },
+  ],
+};
 
-describe('GET /api/rounds — Soroban-aware with mock fallback', () => {
+const MOCK_ROUND_RESPONSE = {
+  source: 'mock',
+  rounds: [
+    { id: 'btc-updown-live', asset: 'XLM', mode: 'updown', status: 'live', startPrice: 0.5, poolUp: 100, poolDown: 200, closesAt: new Date(Date.now() + 3600000).toISOString() },
+  ],
+};
+
+describe('GET /api/rounds — delegating to shared round service', () => {
   let app: Express;
 
   beforeEach(() => {
@@ -43,17 +65,8 @@ describe('GET /api/rounds — Soroban-aware with mock fallback', () => {
     jest.clearAllMocks();
   });
 
-  it('returns soroban round when on-chain data is available', async () => {
-    mockGetActiveRound.mockResolvedValueOnce({
-      round_id: BigInt(1),
-      mode: 0,
-      price_start: BigInt(2891),
-      pool_up: BigInt(28_000_000),
-      pool_down: BigInt(14_000_000),
-      start_ledger: 100,
-      bet_end_ledger: 200,
-      end_ledger: 300,
-    });
+  it('returns soroban round when service returns soroban source', async () => {
+    mockGetRoundsForApi.mockResolvedValueOnce(SOROBAN_ROUND_RESPONSE);
 
     const res = await request(app).get('/api/rounds');
 
@@ -67,61 +80,32 @@ describe('GET /api/rounds — Soroban-aware with mock fallback', () => {
     expect(res.body.rounds[0].isSoroban).toBe(true);
   });
 
-  it('falls back to mock rounds when soroban returns null', async () => {
-    mockGetActiveRound.mockResolvedValueOnce(null);
+  it('returns mock rounds when service returns mock source', async () => {
+    mockGetRoundsForApi.mockResolvedValueOnce(MOCK_ROUND_RESPONSE);
 
     const res = await request(app).get('/api/rounds');
 
     expect(res.status).toBe(200);
     expect(res.body.source).toBe('mock');
     expect(Array.isArray(res.body.rounds)).toBe(true);
-    expect(res.body.rounds).toHaveLength(getMockRounds().length);
-    expect(mockGetActiveRound).toHaveBeenCalledTimes(1);
-  });
-
-  it('falls back to mock rounds when soroban throws', async () => {
-    mockGetActiveRound.mockRejectedValueOnce(new Error('RPC unavailable'));
-
-    const res = await request(app).get('/api/rounds');
-
-    expect(res.status).toBe(200);
-    expect(res.body.source).toBe('mock');
-    expect(Array.isArray(res.body.rounds)).toBe(true);
+    expect(res.body.rounds).toHaveLength(1);
   });
 
   it('response always includes source and rounds fields', async () => {
-    mockGetActiveRound.mockResolvedValueOnce(null);
+    mockGetRoundsForApi.mockResolvedValueOnce(MOCK_ROUND_RESPONSE);
 
     const res = await request(app).get('/api/rounds');
 
     expect(res.body).toHaveProperty('source');
     expect(res.body).toHaveProperty('rounds');
-    expect(['soroban', 'mock']).toContain(res.body.source);
-  });
-});
-
-describe('GET /api/rounds — ROUNDS_MOCK_MODE=true skips Soroban', () => {
-  afterEach(() => {
-    jest.clearAllMocks();
-    delete process.env.ROUNDS_MOCK_MODE;
+    expect(['soroban', 'database', 'mock']).toContain(res.body.source);
   });
 
-  it('skips soroban entirely and returns mock source when ROUNDS_MOCK_MODE is true', async () => {
-    process.env.ROUNDS_MOCK_MODE = 'true';
+  it('propagates service errors to the error handler', async () => {
+    mockGetRoundsForApi.mockRejectedValueOnce(new Error('Unexpected error'));
 
-    // Re-evaluate config so it picks up the env var
-    jest.isolateModules(() => {
-      // config reads env at require-time; isolateModules gives a fresh scope
-      const { createApp: freshCreateApp } = require('../app');
-      const freshApp = freshCreateApp();
+    const res = await request(app).get('/api/rounds');
 
-      return request(freshApp)
-        .get('/api/rounds')
-        .then((res: any) => {
-          expect(res.status).toBe(200);
-          expect(res.body.source).toBe('mock');
-          expect(mockGetActiveRound).not.toHaveBeenCalled();
-        });
-    });
+    expect(res.status).toBe(500);
   });
 });

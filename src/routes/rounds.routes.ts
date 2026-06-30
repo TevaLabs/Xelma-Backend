@@ -168,7 +168,7 @@ router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSc
  */
 router.get('/active', async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { source, rounds } = await roundService.getActiveRoundsWithFallback();
+        const { source, rounds } = await roundService.getRoundsForApi();
 
         const serializedRounds = rounds.map((round: any) => ({
             ...round,

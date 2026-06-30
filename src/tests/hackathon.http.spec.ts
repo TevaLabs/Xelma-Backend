@@ -8,6 +8,7 @@ jest.mock('../services/stellar.service', () => ({
 }));
 
 jest.mock('../services/soroban.service', () => ({
+  isReady: jest.fn().mockReturnValue(true),
   getUserStats: jest.fn(),
   getPendingWinnings: jest.fn(),
   getHealth: jest.fn(),
@@ -21,7 +22,7 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
     await pool.end();
   });
   describe('GET /api/health', () => {
-    it('returns ok status and timestamp', async () => {
+    it('returns ok status and timestamp when soroban is initialized', async () => {
       const res = await request(app).get('/api/health');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(
@@ -30,6 +31,67 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
           timestamp: expect.any(Number),
         })
       );
+    });
+
+    it('returns services block with price and soroban entries', async () => {
+      const res = await request(app).get('/api/health');
+      expect(res.status).toBe(200);
+      expect(res.body.services).toEqual(
+        expect.objectContaining({
+          price: expect.objectContaining({
+            status: 'ok',
+            source: expect.any(String),
+            mockMode: expect.any(Boolean),
+          }),
+          soroban: expect.objectContaining({
+            status: expect.any(String),
+            initialized: expect.any(Boolean),
+          }),
+        })
+      );
+    });
+
+    it('returns degraded status when soroban is not initialized', async () => {
+      const sorobanMock = require('../services/soroban.service');
+      sorobanMock.isReady.mockReturnValueOnce(false);
+
+      const res = await request(app).get('/api/health');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(
+        expect.objectContaining({
+          status: 'degraded',
+          timestamp: expect.any(Number),
+        })
+      );
+      expect(res.body.services.soroban.status).toBe('unavailable');
+      expect(res.body.services.soroban.initialized).toBe(false);
+    });
+  });
+
+  describe('X-Request-ID propagation', () => {
+    it('generates and returns an X-Request-ID header when none is provided', async () => {
+      const res = await request(app).get('/api/health');
+      expect(res.header['x-request-id']).toBeDefined();
+      expect(typeof res.header['x-request-id']).toBe('string');
+      expect(res.header['x-request-id'].length).toBeGreaterThan(0);
+    });
+
+    it('echoes back a client-supplied X-Request-ID header', async () => {
+      const customId = 'hackathon-trace-12345';
+      const res = await request(app)
+        .get('/api/health')
+        .set('X-Request-ID', customId);
+
+      expect(res.header['x-request-id']).toBe(customId);
+    });
+
+    it('assigns a unique X-Request-ID per request when none is provided', async () => {
+      const [res1, res2] = await Promise.all([
+        request(app).get('/api/health'),
+        request(app).get('/api/health'),
+      ]);
+
+      expect(res1.header['x-request-id']).not.toBe(res2.header['x-request-id']);
     });
   });
 
