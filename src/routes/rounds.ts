@@ -1,12 +1,15 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { betRateLimiter } from '../middleware/rateLimiter';
 import { validate } from '../middleware/validate.middleware';
-import { sendSuccess } from '../utils/response';
 import { betSchema, upDownBetSchema, precisionBetSchema } from '../schemas/bets.schema';
+import { sendSuccess } from '../utils/response';
 
 import { getRepositories } from '../repositories';
-import roundService from '../services/round.service';
-
+import config from '../config';
+import sorobanService from '../services/soroban.service';
+import { getMockRounds } from '../data/mockData';
+import { mapSorobanActiveRound } from '../utils/soroban-round.mapper';
+import logger from '../utils/logger';
 const router = Router();
 
 /**
@@ -14,7 +17,7 @@ const router = Router();
  * /api/rounds:
  *   get:
  *     summary: List active prediction rounds
- *     description: Returns on-chain active round when Soroban is configured; falls back to database rounds, then to mock data when chain is unavailable or ROUNDS_MOCK_MODE=true.
+ *     description: Returns on-chain active round when Soroban is configured; falls back to mock rounds when RPC is unavailable or ROUNDS_MOCK_MODE=true.
  *     tags:
  *       - rounds
  *     responses:
@@ -27,7 +30,7 @@ const router = Router();
  *               properties:
  *                 source:
  *                   type: string
- *                   enum: [soroban, database, mock]
+ *                   enum: [soroban, mock]
  *                 rounds:
  *                   type: array
  *                   items:
@@ -35,14 +38,12 @@ const router = Router();
  */
 router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const rounds = await getRepositories().rounds.listActiveRounds();
-    return sendSuccess(res, rounds);
     if (!config.app.roundsMockMode) {
       try {
         const onChainRound = await sorobanService.getActiveRound();
         if (onChainRound) {
           const mapped = mapSorobanActiveRound(onChainRound);
-          return sendSuccess(res, { source: 'soroban', rounds: [mapped] });
+          return res.json({ source: 'soroban', rounds: [mapped] });
         }
       } catch (err) {
         logger.warn('Soroban fetch failed; falling back to mock rounds', {
@@ -51,16 +52,14 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
       }
     }
 
-   // return sendSuccess(res, { source: 'mock', rounds: getMockRounds() });
-    const { source, rounds } = await roundService.getRoundsForApi();
-    return res.json({ source, rounds });
+    return res.json({ source: 'mock', rounds: getMockRounds() });
   } catch (err) {
     next(err);
   }
 });
 
 // TODO: Call contract via Xelma TypeScript bindings — bets must go on-chain; this endpoint is logging/analytics only for now
-router.post('/:id/bet', betRateLimiter, validate(betSchema), (_req, res) => {
+router.post('/:id/bet', betRateLimiter, (_req, res) => {
   res.json({ success: true, message: 'Bet recorded (stub)' });
 });
 

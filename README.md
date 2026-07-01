@@ -1151,7 +1151,7 @@ socket.on('new_notification', (notification) => {
   console.log('Notification:', notification);
 });
 
-// Listen for chat messages
+// Listen for chats messages
 socket.on('new_message', (message) => {
   console.log('Chat:', message);
 });
@@ -2321,8 +2321,13 @@ curl "http://localhost:3001/api/leaderboard?limit=10&offset=0"
 
 #### List Tournaments
 
+Supports optional `status` (UPCOMING, ACTIVE, COMPLETED) and `mode` (UP_DOWN, LEGENDS) filters.
+
 ```bash
 curl "http://localhost:3001/api/tournaments?limit=10&offset=0"
+curl "http://localhost:3001/api/tournaments?status=ACTIVE"
+curl "http://localhost:3001/api/tournaments?mode=LEGENDS"
+curl "http://localhost:3001/api/tournaments?status=ACTIVE&mode=UP_DOWN"
 ```
 
 #### Get Tournament Detail

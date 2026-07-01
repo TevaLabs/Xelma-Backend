@@ -8,7 +8,8 @@ export const joinTournamentParamsSchema = z.object({
 export type JoinTournamentParams = z.infer<typeof joinTournamentParamsSchema>;
 
 export const tournamentListQuerySchema = offsetPaginationSchema.extend({
-  status: z.string().optional(),
+  status: z.enum(["UPCOMING", "ACTIVE", "COMPLETED"]).optional(),
+  mode: z.enum(["UP_DOWN", "LEGENDS"]).optional(),
 });
 
 export type TournamentListQuery = z.infer<typeof tournamentListQuerySchema>;

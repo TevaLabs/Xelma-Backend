@@ -1,9 +1,11 @@
 import rateLimit from 'express-rate-limit';
-import { ipKeyGenerator } from 'express-rate-limit';
+import type { Request } from 'express';
 import { rateLimitMetricsService, RateLimitMetricsService } from '../services/rate-limit-metrics.service';
 import { getRateLimitCategory } from '../security/rate-limit-endpoints';
 import { rateLimitHitsTotal } from './metrics.middleware';
 import logger from '../utils/logger';
+
+const ipKeyGenerator = (req: Request): string => req.ip ?? req.socket.remoteAddress ?? 'unknown';
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) return fallback;

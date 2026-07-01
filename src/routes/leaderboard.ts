@@ -24,7 +24,7 @@ const router = Router();
 router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await getRepositories().leaderboard.listLeaderboard(100, 0);
-    const { pagination, ...data } = result as Record<string, unknown> & { pagination?: Record<string, unknown> };
+    const { pagination, ...data } = result as unknown as Record<string, unknown> & { pagination?: Record<string, unknown> };
     return sendSuccess(res, data, pagination ? { pagination } : undefined);
   } catch (err) {
     next(err);

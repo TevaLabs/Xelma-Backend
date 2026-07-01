@@ -75,22 +75,25 @@ const MOCK_TOURNAMENTS: MockTournament[] = [
 
 /**
  * GET /api/tournaments
- * List all tournaments with optional status filter.
+ * List all tournaments with optional status and mode filters.
  */
 router.get(
   "/",
   validate(tournamentListQuerySchema, "query"),
   (req: Request, res: Response, _next: NextFunction) => {
-    const { limit, offset, status } = req.query as unknown as {
+    const { limit, offset, status, mode } = req.query as unknown as {
       limit: number;
       offset: number;
-      status?: string;
+      status?: "UPCOMING" | "ACTIVE" | "COMPLETED";
+      mode?: "UP_DOWN" | "LEGENDS";
     };
 
     let filtered = MOCK_TOURNAMENTS;
     if (status) {
-      const upper = status.toUpperCase();
-      filtered = filtered.filter((t) => t.status === upper);
+      filtered = filtered.filter((t) => t.status === status);
+    }
+    if (mode) {
+      filtered = filtered.filter((t) => t.mode === mode);
     }
 
     const total = filtered.length;
