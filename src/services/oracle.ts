@@ -7,6 +7,8 @@ import config from '../config';
 import {
   priceOracleFetchFailuresTotal,
   priceOracleUpdatesTotal,
+  recordOracleHealth,
+  OracleHealthSnapshot,
 } from '../metrics/application.metrics';
 import { PriceProvider } from './price-provider.interface';
 import { CoinGeckoProvider } from './providers/coingecko.provider';
@@ -65,6 +67,7 @@ class PriceOracle {
       return;
     }
     this._running = true;
+    this.publishHealthMetrics();
     this.fetchPrice();
     this.pollingInterval = setInterval(() => {
       this.fetchPrice();
@@ -81,6 +84,7 @@ class PriceOracle {
       this.pollingInterval = null;
     }
     this._running = false;
+    this.publishHealthMetrics();
     logger.info('Price Oracle polling stopped');
   }
 
@@ -142,8 +146,10 @@ class PriceOracle {
       if (result.success && result.data) {
         this.price = result.data;
         this.lastProvider = entry.provider.name;
+        this.activeSource = entry.provider.name;
         this.lastUpdatedAt = new Date();
         priceOracleUpdatesTotal.inc({ provider: entry.provider.name });
+        this.publishHealthMetrics();
         logger.info(`Fetched XLM price: $${toDecimalString(result.data)} via ${entry.provider.name}`, {
           provider: entry.provider.name,
           durationMs: result.durationMs,
@@ -164,6 +170,10 @@ class PriceOracle {
       });
     }
 
+    // Every provider failed this cycle. The last known price (if any) is
+    // retained, but its age keeps climbing — refresh the gauges so the
+    // staleness metric reflects the growing gap even with no new price.
+    this.publishHealthMetrics();
     logger.error('All price providers failed — price not updated', {
       providers: this.providerChain.map(e => e.provider.name),
     });
@@ -196,6 +206,46 @@ class PriceOracle {
 
   public getActiveSource(): string | null {
     return this.activeSource;
+  }
+
+  /** Configured staleness threshold in milliseconds. */
+  public getStalenessThresholdMs(): number {
+    return this.STALENESS_THRESHOLD;
+  }
+
+  /** Age of the current price in milliseconds, or null if never fetched. */
+  public getStalenessMs(): number | null {
+    if (!this.lastUpdatedAt) return null;
+    return Date.now() - this.lastUpdatedAt.getTime();
+  }
+
+  /** Age of the current price in whole seconds, or null if never fetched. */
+  public getStalenessSeconds(): number | null {
+    const ms = this.getStalenessMs();
+    return ms === null ? null : Math.floor(ms / 1000);
+  }
+
+  /**
+   * Structured freshness snapshot consumed by /health, /metrics, and the
+   * settlement staleness guard. Single source of truth so every surface
+   * reports the same view.
+   */
+  public getHealthSnapshot(): OracleHealthSnapshot {
+    const stalenessMs = this.getStalenessMs();
+    return {
+      running: this._running,
+      hasPrice: this.price !== null,
+      stale: this.isStale(),
+      stalenessSeconds: stalenessMs === null ? null : Math.floor(stalenessMs / 1000),
+      lastUpdateUnixSeconds: this.lastUpdatedAt
+        ? Math.floor(this.lastUpdatedAt.getTime() / 1000)
+        : null,
+    };
+  }
+
+  /** Push the current freshness snapshot into the Prometheus gauges. */
+  private publishHealthMetrics(): void {
+    recordOracleHealth(this.getHealthSnapshot());
   }
 }
 

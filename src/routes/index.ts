@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getPrices } from '../services/priceService';
 import { asyncHandler } from '../middleware/errorHandler.middleware';
+import { sendSuccess } from '../utils/response';
 
 const router = Router();
 
@@ -29,7 +30,7 @@ router.get(
   '/prices',
   asyncHandler(async (_req, res) => {
     const prices = await getPrices();
-    res.json(prices);
+    sendSuccess(res, prices);
   })
 );
 

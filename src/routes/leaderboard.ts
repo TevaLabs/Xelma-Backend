@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { getRepositories } from '../repositories';
+import { sendSuccess } from '../utils/response';
 
 const router = Router();
 
@@ -23,7 +24,8 @@ const router = Router();
 router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await getRepositories().leaderboard.listLeaderboard(100, 0);
-    return res.json(result);
+    const { pagination, ...data } = result as Record<string, unknown> & { pagination?: Record<string, unknown> };
+    return sendSuccess(res, data, pagination ? { pagination } : undefined);
   } catch (err) {
     next(err);
   }

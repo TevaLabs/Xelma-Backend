@@ -71,21 +71,53 @@ describe('GET /api/rounds — delegating to shared round service', () => {
     const res = await request(app).get('/api/rounds');
 
     expect(res.status).toBe(200);
-    expect(res.body.source).toBe('soroban');
-    expect(Array.isArray(res.body.rounds)).toBe(true);
-    expect(res.body.rounds).toHaveLength(1);
-    expect(res.body.rounds[0].sorobanRoundId).toBe('1');
-    expect(res.body.rounds[0].mode).toBe('UP_DOWN');
-    expect(res.body.rounds[0].status).toBe('ACTIVE');
-    expect(res.body.rounds[0].isSoroban).toBe(true);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.source).toBe('soroban');
+    expect(Array.isArray(res.body.data.rounds)).toBe(true);
+    expect(res.body.data.rounds).toHaveLength(1);
+    expect(res.body.data.rounds[0].sorobanRoundId).toBe('1');
+    expect(res.body.data.rounds[0].mode).toBe('UP_DOWN');
+    expect(res.body.data.rounds[0].status).toBe('ACTIVE');
+    expect(res.body.data.rounds[0].isSoroban).toBe(true);
   });
 
+  it('falls back to mock rounds when soroban returns null', async () => {
+    mockGetActiveRound.mockResolvedValueOnce(null);
+
+    const res = await request(app).get('/api/rounds');
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.source).toBe('mock');
+    expect(Array.isArray(res.body.data.rounds)).toBe(true);
+    expect(res.body.data.rounds).toHaveLength(getMockRounds().length);
+    expect(mockGetActiveRound).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to mock rounds when soroban throws', async () => {
+    mockGetActiveRound.mockRejectedValueOnce(new Error('RPC unavailable'));
   it('returns mock rounds when service returns mock source', async () => {
     mockGetRoundsForApi.mockResolvedValueOnce(MOCK_ROUND_RESPONSE);
 
     const res = await request(app).get('/api/rounds');
 
     expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.source).toBe('mock');
+    expect(Array.isArray(res.body.data.rounds)).toBe(true);
+  });
+
+  it('response always uses envelope with success, data, source, and rounds', async () => {
+    mockGetActiveRound.mockResolvedValueOnce(null);
+
+    const res = await request(app).get('/api/rounds');
+
+    expect(res.body).toHaveProperty('success');
+    expect(res.body).toHaveProperty('data');
+    expect(res.body.data).toHaveProperty('source');
+    expect(res.body.data).toHaveProperty('rounds');
+    expect(res.body.success).toBe(true);
+    expect(['soroban', 'mock']).toContain(res.body.data.source);
     expect(res.body.source).toBe('mock');
     expect(Array.isArray(res.body.rounds)).toBe(true);
     expect(res.body.rounds).toHaveLength(1);
@@ -106,6 +138,24 @@ describe('GET /api/rounds — delegating to shared round service', () => {
 
     const res = await request(app).get('/api/rounds');
 
+  it('skips soroban entirely and returns mock source when ROUNDS_MOCK_MODE is true', async () => {
+    process.env.ROUNDS_MOCK_MODE = 'true';
+
+    // Re-evaluate config so it picks up the env var
+    jest.isolateModules(() => {
+      // config reads env at require-time; isolateModules gives a fresh scope
+      const { createApp: freshCreateApp } = require('../app');
+      const freshApp = freshCreateApp();
+
+      return request(freshApp)
+        .get('/api/rounds')
+        .then((res: any) => {
+          expect(res.status).toBe(200);
+          expect(res.body.success).toBe(true);
+          expect(res.body.data.source).toBe('mock');
+          expect(mockGetActiveRound).not.toHaveBeenCalled();
+        });
+    });
     expect(res.status).toBe(500);
   });
 });

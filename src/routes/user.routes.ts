@@ -5,6 +5,7 @@ import { validate } from "../middleware/validate.middleware";
 import { updateProfileSchema } from "../schemas/user.schema";
 import { unifiedPaginationSchema, UnifiedPaginationParams, encodeCursor } from "../schemas/pagination.schema";
 import { NotFoundError } from "../utils/errors";
+import { validateStellarAddressParam } from "../utils/stellar-address.util";
 import sorobanService from "../services/soroban.service";
 import { toDecimalString } from "../utils/decimal.util";
 import config from "../config";
@@ -166,6 +167,7 @@ function computeRankTitle(xp: number): string {
  */
 router.get(
   "/:address/stats",
+  validateStellarAddressParam("address"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { address } = req.params;
@@ -325,6 +327,7 @@ router.get(
  */
 router.get(
   "/:address/history",
+  validateStellarAddressParam("address"),
   validate(unifiedPaginationSchema, "query"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -525,6 +528,7 @@ function handleMockHistory(
  */
 router.get(
   "/:walletAddress/public-profile",
+  validateStellarAddressParam("walletAddress"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { walletAddress } = req.params;

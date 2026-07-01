@@ -1,4 +1,5 @@
 import sorobanService from './soroban.service';
+import priceOracle from './oracle';
 import logger from '../utils/logger';
 import educationTipService from './education-tip.service';
 import websocketService from './websocket.service';
@@ -15,7 +16,7 @@ import {
    decFixed,
 } from '../utils/decimal.util';
 import { Decimal } from '@prisma/client/runtime/library';
-import { ValidationError } from '../utils/errors';
+import { ExternalServiceError, ValidationError } from '../utils/errors';
 import {
    RoundLifecycleOutcome,
    RoundPriceRange,
@@ -26,7 +27,10 @@ import {
    validateUserPriceRange,
 } from '../utils/price-range.util';
 import { calculatePayout } from '../utils/payout.util';
-import { roundsResolvedTotal } from '../metrics/application.metrics';
+import {
+   roundsResolvedTotal,
+   oracleResolveBlockedTotal,
+} from '../metrics/application.metrics';
 
 function isValidRange(range: any): range is RoundPriceRange {
    return (
@@ -39,6 +43,42 @@ function isValidRange(range: any): range is RoundPriceRange {
 
 export class ResolutionService {
    /**
+    * Central settlement safety guard (#229).
+    *
+    * Refuses to settle a round while this process's price feed is known to
+    * be stale, protecting BOTH the automated resolve loop and the manual
+    * oracle/admin POST /rounds/:id/resolve path from settling against a
+    * frozen or broken upstream.
+    *
+    * The guard is intentionally scoped to processes that actually poll the
+    * oracle (`isRunning()`): an API-only HTTP process — or the test
+    * environment — does not track price freshness and therefore cannot and
+    * must not assess staleness here. In those processes the background
+    * worker that owns polling is the one enforcing the guard.
+    */
+   private assertOraclePriceFresh(roundId: string): void {
+      if (!priceOracle.isRunning()) {
+         return;
+      }
+      if (priceOracle.isStale()) {
+         oracleResolveBlockedTotal.inc({ reason: 'stale_price' });
+         logger.error(
+            '[ResolutionService] Refusing to resolve — oracle price is stale',
+            {
+               roundId,
+               lastUpdatedAt:
+                  priceOracle.getLastUpdatedAt()?.toISOString() ?? null,
+               stalenessSeconds: priceOracle.getStalenessSeconds(),
+               thresholdMs: priceOracle.getStalenessThresholdMs(),
+            }
+         );
+         throw new ExternalServiceError(
+            'Cannot resolve round: oracle price data is stale'
+         );
+      }
+   }
+
+   /**
     * Resolves a round with the final price
     * Uses transactional semantics to prevent race conditions and duplicate payouts
     */
@@ -47,6 +87,9 @@ export class ResolutionService {
       finalPrice: number | string | Decimal
    ): Promise<any> {
       try {
+         // Settlement safety: never resolve against a stale price feed.
+         this.assertOraclePriceFresh(roundId);
+
          // Get round outside transaction for initial checks
          const round = await prisma.round.findUnique({
             where: { id: roundId },

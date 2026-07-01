@@ -92,6 +92,70 @@ export const priceOracleFetchFailuresTotal = new Counter({
    registers: [metricsRegistry],
 });
 
+/**
+ * Oracle health gauges (#229).
+ *
+ * These let dashboards/alerting reason about price freshness directly,
+ * complementing the per-fetch counters above and the JSON view at /health.
+ * They are updated imperatively by the PriceOracle on every poll cycle and
+ * on start/stop, so they stay current even while upstream fetches are
+ * failing (the staleness value keeps climbing each poll).
+ */
+export const oracleUp = new Gauge({
+   name: 'oracle_up',
+   help: '1 when the oracle is polling and holds a fresh (non-stale) price, else 0',
+   registers: [metricsRegistry],
+});
+
+export const oracleLastUpdateTimestampSeconds = new Gauge({
+   name: 'oracle_last_update_timestamp_seconds',
+   help: 'Unix timestamp (seconds) of the last successful oracle price update; 0 if never updated',
+   registers: [metricsRegistry],
+});
+
+export const oraclePriceStalenessSeconds = new Gauge({
+   name: 'oracle_price_staleness_seconds',
+   help: 'Age in seconds of the current oracle price; -1 when no price has been fetched yet',
+   registers: [metricsRegistry],
+});
+
+/**
+ * Counts resolve attempts refused because the price feed was not safe to
+ * settle against. `reason` is a low-cardinality label (e.g. stale_price,
+ * invalid_price).
+ */
+export const oracleResolveBlockedTotal = new Counter({
+   name: 'oracle_resolve_blocked_total',
+   help: 'Total round-resolution attempts blocked by oracle safety guards',
+   labelNames: ['reason'] as const,
+   registers: [metricsRegistry],
+});
+
+/**
+ * Snapshot of the oracle's freshness, supplied by the PriceOracle.
+ * `lastUpdateUnixSeconds` is null when no successful fetch has happened.
+ */
+export interface OracleHealthSnapshot {
+   running: boolean;
+   hasPrice: boolean;
+   stale: boolean;
+   stalenessSeconds: number | null;
+   lastUpdateUnixSeconds: number | null;
+}
+
+/**
+ * Push the oracle's current health into the Prometheus gauges. Called by
+ * the PriceOracle rather than via a collect() callback to avoid a circular
+ * import between this module and the oracle service.
+ */
+export function recordOracleHealth(snapshot: OracleHealthSnapshot): void {
+   oracleUp.set(snapshot.running && snapshot.hasPrice && !snapshot.stale ? 1 : 0);
+   oracleLastUpdateTimestampSeconds.set(snapshot.lastUpdateUnixSeconds ?? 0);
+   oraclePriceStalenessSeconds.set(
+      snapshot.stalenessSeconds === null ? -1 : snapshot.stalenessSeconds
+   );
+}
+
 export const schedulerRunsTotal = new Counter({
    name: 'scheduler_runs_total',
    help: 'Total scheduler job executions by fixed job name and outcome',

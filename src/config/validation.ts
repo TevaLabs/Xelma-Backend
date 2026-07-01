@@ -149,6 +149,17 @@ class ConfigValidator {
     return trimmed;
   }
 
+  /**
+   * Record a cross-field / invariant error when `condition` is false.
+   * Use for checks that span more than one variable (e.g. one threshold
+   * must exceed another) which the single-field validators cannot express.
+   */
+  assert(condition: boolean, message: string): void {
+    if (!condition) {
+      this.errors.push(message);
+    }
+  }
+
   throwIfErrors(): void {
     if (this.errors.length > 0) {
       throw new ConfigValidationError([...this.errors]);

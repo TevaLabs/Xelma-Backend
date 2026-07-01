@@ -623,6 +623,22 @@ Operators can tune the oracle's behavior via environment variables to balance pr
 | `ORACLE_MAX_RETRIES` | Number of retry attempts on failure. | `3` |
 | `ORACLE_STALENESS_THRESHOLD_MS` | When to consider the local price data stale. | `60000` (60s) |
 
+> `ORACLE_STALENESS_THRESHOLD_MS` **must be greater than** `ORACLE_POLLING_INTERVAL_MS`,
+> otherwise a freshly-fetched price would be classified as stale immediately after
+> every poll. This invariant is enforced at startup by config validation.
+
+##### Settlement staleness guard (#229)
+
+Round resolution must never settle against a frozen or broken price feed. When a
+process is actively polling the oracle, `resolutionService.resolveRound` refuses to
+settle while the price is stale — this protects **both** the automated resolve loop
+(`oracle.service.ts`) **and** the manual oracle/admin `POST /api/rounds/:id/resolve`
+route, which then returns `503 EXTERNAL_SERVICE_ERROR`. Blocked attempts increment
+`oracle_resolve_blocked_total` and are logged. Processes that do not poll the oracle
+(e.g. `API_ONLY=true` HTTP nodes, or the test environment) cannot assess freshness
+and defer the guard to the background worker that owns polling. Live oracle freshness
+is observable at `GET /health` (`services.oracle`) and via the `oracle_*` metrics.
+
 #### Bet Mode (`BET_STUB_MODE`)
 
 | Variable | Description | Default |
@@ -662,8 +678,12 @@ Core application metrics include:
 | `predictions_placed_total` | none | Successful prediction submissions |
 | `rounds_started_total` | `mode` | Rounds created by game mode |
 | `rounds_resolved_total` | `mode` | Rounds resolved by game mode |
-| `price_oracle_updates_total` | none | Successful oracle price refreshes |
-| `price_oracle_fetch_failures_total` | `reason` | Oracle refresh failures |
+| `price_oracle_updates_total` | `provider` | Successful oracle price refreshes |
+| `price_oracle_fetch_failures_total` | `reason`, `provider` | Oracle refresh failures |
+| `oracle_up` | none | `1` when the oracle is polling and holds a fresh price, else `0` |
+| `oracle_last_update_timestamp_seconds` | none | Unix time of the last successful price update (`0` if never) |
+| `oracle_price_staleness_seconds` | none | Age of the current price in seconds (`-1` if no price yet) |
+| `oracle_resolve_blocked_total` | `reason` | Resolve attempts blocked by oracle safety guards (`stale_price`, `invalid_price`) |
 | `scheduler_runs_total` | `job`, `outcome` | Scheduler executions |
 | `scheduler_items_processed_total` | `job`, `outcome` | Items processed by scheduler jobs |
 | `socket_connections_active` | none | Current Socket.IO connections |

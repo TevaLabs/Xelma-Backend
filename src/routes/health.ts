@@ -6,6 +6,7 @@ import { checkRedisHealth } from '../lib/redis';
 import { withTimeout } from '../utils/timeout-wrapper';
 import logger from '../utils/logger';
 import { asyncHandler } from '../middleware/errorHandler.middleware';
+import { sendSuccess } from '../utils/response';
 import config from '../config';
 
 const router = Router();
@@ -83,6 +84,8 @@ async function checkOracle(): Promise<{
   durationMs: number;
   stale?: boolean;
   lastUpdatedAt?: string | null;
+  stalenessSeconds?: number | null;
+  provider?: string | null;
   error?: string;
 }> {
   const start = Date.now();
@@ -97,6 +100,8 @@ async function checkOracle(): Promise<{
       durationMs: Date.now() - start,
       stale,
       lastUpdatedAt: lastUpdatedAt?.toISOString() ?? null,
+      stalenessSeconds: priceOracle.getStalenessSeconds(),
+      provider: priceOracle.getActiveSource(),
     };
   } catch (err) {
     return {
@@ -127,14 +132,15 @@ router.get(
     } else if (
       redis.status === 'degraded' ||
       soroban.status === 'degraded' ||
-      oracle.status === 'degraded'
+      oracle.status === 'degraded' ||
+      oracle.status === 'stale'
     ) {
       overallStatus = 'degraded';
     } else {
       overallStatus = 'healthy';
     }
 
-    res.json({
+    sendSuccess(res, {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
@@ -271,6 +277,14 @@ router.get('/health', (_req: Request, res: Response) => {
  *                           type: string
  *                           format: date-time
  *                           nullable: true
+ *                         stalenessSeconds:
+ *                           type: integer
+ *                           nullable: true
+ *                           description: Age of the current price in seconds; null if never fetched.
+ *                         provider:
+ *                           type: string
+ *                           nullable: true
+ *                           description: Provider that supplied the current price (e.g. coingecko).
  *                         error:
  *                           type: string
  */

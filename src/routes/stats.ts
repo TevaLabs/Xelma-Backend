@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { getRepositories } from "../repositories";
+import { sendSuccess, sendError } from "../utils/response";
 
 const router = Router();
 
@@ -49,12 +50,10 @@ const router = Router();
 router.get("/", async (_req: Request, res: Response) => {
   try {
     const stats = await getRepositories().stats.getPlatformStats();
-    return res.status(200).json({ success: true, data: stats });
+    return sendSuccess(res, stats);
   } catch (err) {
     console.error("[GET /api/stats] Unexpected error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Failed to retrieve platform stats." });
+    return sendError(res, "Failed to retrieve platform stats.", 500);
   }
 });
 
