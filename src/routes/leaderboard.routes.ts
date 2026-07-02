@@ -1,5 +1,4 @@
 import { NextFunction, Request, Response, Router } from "express";
-import { z } from "zod";
 import {
   authenticateUser,
   AuthRequest,
@@ -9,6 +8,7 @@ import {
 import { batchLeaderboardRateLimiter } from "../middleware/rateLimiter.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { batchLeaderboardQuerySchema } from "../schemas/predictions.schema";
+import { unifiedPaginationSchema } from "../schemas/pagination.schema";
 import { AppError } from "../utils/errors";
 import { asyncHandler } from "../middleware/errorHandler.middleware";
 import {
@@ -18,24 +18,6 @@ import {
 } from "../services/leaderboard.service";
 
 const router = Router();
-
-const leaderboardQuerySchema = z.object({
-  limit: z
-    .preprocess((value) => {
-      if (typeof value === "string") return Number(value);
-      return value;
-    }, z.number().int().min(1).max(500))
-    .optional()
-    .default(100),
-  offset: z
-    .preprocess((value) => {
-      if (typeof value === "string") return Number(value);
-      return value;
-    }, z.number().int().min(0))
-    .optional()
-    .default(0),
-  cursor: z.string().optional(),
-});
 
 /**
  * @swagger
@@ -88,7 +70,7 @@ const leaderboardQuerySchema = z.object({
 router.get(
   "/",
   optionalAuthentication,
-  validate(leaderboardQuerySchema, "query"),
+  validate(unifiedPaginationSchema, "query"),
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const { limit, offset, cursor } = req.query as unknown as {
       limit: number;

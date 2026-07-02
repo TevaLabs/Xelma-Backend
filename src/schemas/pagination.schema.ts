@@ -116,3 +116,41 @@ export class CursorDecodeError extends Error {
     this.name = "CursorDecodeError";
   }
 }
+
+// ---------------------------------------------------------------------------
+// Canonical pagination response types (shared across all list endpoints)
+// ---------------------------------------------------------------------------
+
+/**
+ * Offset-based pagination metadata returned in list responses.
+ *
+ * Fields:
+ *   - `limit`      – max items per page (echoed from request)
+ *   - `offset`     – zero-based skip count (echoed from request)
+ *   - `total`      – total matching items across all pages
+ *   - `hasNextPage`– true when more pages follow
+ */
+export interface OffsetPaginationMeta {
+  limit: number;
+  offset: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+/**
+ * Cursor-based pagination metadata returned in list responses.
+ *
+ * Fields:
+ *   - `limit`      – max items per page (echoed from request)
+ *   - `nextCursor` – opaque token to pass as `cursor` on the next request;
+ *                    `null` when this is the last page
+ *   - `hasNextPage`– true when more pages follow
+ */
+export interface CursorPaginationMeta {
+  limit: number;
+  nextCursor: string | null;
+  hasNextPage: boolean;
+}
+
+/** Union of all supported pagination metadata shapes. */
+export type PaginationMeta = OffsetPaginationMeta | CursorPaginationMeta;

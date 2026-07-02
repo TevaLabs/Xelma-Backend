@@ -125,3 +125,23 @@ export function buildCursorMeta<T>(
 export function trimSentinel<T>(rows: T[], limit: number): T[] {
   return rows.length > limit ? rows.slice(0, limit) : rows;
 }
+
+// ---------------------------------------------------------------------------
+// Response envelope builders
+// ---------------------------------------------------------------------------
+
+/** Wrap data + offset meta in the canonical list response shape. */
+export function offsetPage<T>(
+  data: T[],
+  meta: OffsetMeta,
+): { data: T[]; pagination: OffsetMeta } {
+  return { data, pagination: meta };
+}
+
+/** Wrap data + cursor meta in the canonical list response shape. */
+export function cursorPage<T>(
+  data: T[],
+  meta: CursorMeta,
+): { data: T[]; pagination: CursorMeta } {
+  return { data, pagination: meta };
+}

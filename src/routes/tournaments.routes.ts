@@ -99,7 +99,7 @@ router.get(
     return res.json({
       success: true,
       data: paginated,
-      pagination: { limit, offset, total },
+      pagination: buildOffsetMeta(limit, offset, total),
     });
   },
 );
