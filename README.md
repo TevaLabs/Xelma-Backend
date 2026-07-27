@@ -169,6 +169,7 @@ The hackathon app and the production app share the same services, but the data b
 |---|---|---|
 | `DATA_MODE` | `live` (default), `mock` | Switches price source and stats fallback |
 | `DATA_STORE` | `postgres` (default), `memory` | Switches repository adapter for rounds, leaderboard, bets |
+| `SOCKET_DEMO_MODE` | `true` when `DATA_MODE=mock`, else `false` | Hackathon Socket.IO without Prisma chat/session; price & round events only |
 | `SOROBAN_CONTRACT_ID` | contract address or unset | When unset, Soroban service disables and health shows `unavailable` |
 
 See [src/data/mockData.ts](src/data/mockData.ts) for the full in-memory seed data and fallback constants.
@@ -700,7 +701,7 @@ npm run db:prepare
 npm run prisma:migrate
 
 # (Optional) Seed database with sample data
-npx prisma db seed
+npm run db:seed
 ```
 
 > **Note**: Never commit your `.env` file. It contains sensitive credentials.
@@ -718,9 +719,11 @@ npm run dev
 Starts the **production app** (`src/index.ts`) on `http://localhost:3001` with auto-reload. This is the right server for all feature work and bug fixes. Requires `.env` with at least `DATABASE_URL` and `JWT_SECRET` (copy `.env.example` to get started).
 
 ```bash
-# Demo server — no database required, mock data only
+# Demo server — mock data; enable SOCKET_DEMO_MODE for Prisma-less realtime sockets
 npm run dev:hackathon
 ```
+
+Set `SOCKET_DEMO_MODE=true` (or use `DATA_MODE=mock`, which enables it by default) to start hackathon Socket.IO with price and round rooms only—chat and session persistence stay disabled so demos work when Postgres/Prisma chat is unavailable. Full production sockets (`npm run dev`) are unchanged when `SOCKET_DEMO_MODE` is false.
 
 See [docs/architecture.md](docs/architecture.md) for guidance on which server to run.
 
@@ -1199,6 +1202,28 @@ Coverage thresholds are enforced in `jest.config.ts`. The current floors are:
 - Statements: 35%
 
 CI runs `npm run test:unit:coverage` (unit tests with coverage upload) and `npm run test:integration` (integration tests against a PostgreSQL service container) as separate parallel jobs.
+
+### Database-backed integration tests (#104)
+
+Integration suites expect a reachable PostgreSQL instance with migrations applied. Use the same flow locally and in CI:
+
+```bash
+# One-time (or after schema changes): provision DB + run migrations
+npm run test:db:setup
+
+# Match CI: lint, build, unit coverage, integration
+npm run ci
+```
+
+| Command | When to use |
+|---------|-------------|
+| `npm run db:seed` | Default seed for your mode (`DATA_MODE=mock` → hackathon Drizzle seed) |
+| `npm run db:seed:hackathon` | Hackathon / Drizzle tables only (`src/db/seed.ts`) |
+| `npm run db:seed:full` | Full stack: Prisma mock platform data + `prisma/seed.ts` |
+| `npm run test:db:setup` | Create/migrate the test database (`.env.test` / `DATABASE_URL`) |
+| `npm run test:integration` | All Jest integration projects (requires DB) |
+
+Set `RUN_DB_TESTS=true` to force DB-backed specs when `DATABASE_URL` points at a real instance. In CI, `CI=true` and the Postgres service container provide the same environment.
 
 ### Load test harness (#21)
 

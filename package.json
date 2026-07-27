@@ -25,7 +25,12 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "db:prepare": "prisma generate && prisma migrate deploy",
+    "db:seed": "ts-node scripts/db-seed.ts",
+    "db:seed:hackathon": "ts-node src/db/seed.ts",
+    "db:seed:full": "SEED_PROFILE=full ts-node scripts/db-seed.ts",
     "db:seed:mock": "ts-node scripts/seed-mock-data.ts",
+    "test:db:setup": "node scripts/setup-test-db.js",
+    "test:db:teardown": "node scripts/teardown-test-db.js",
     "dev:hackathon": "ts-node-dev --respawn --transpile-only src/server.ts",
     "smoke-test": "node scripts/smoke-test.js"
   },

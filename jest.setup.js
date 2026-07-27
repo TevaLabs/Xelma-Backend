@@ -20,11 +20,12 @@ if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = DUMMY_DB_URL;
 }
 
-// Global helper to check if a real DB is available
+// Global helper to check if a real DB is available (not the jest.setup placeholder).
 global.hasDb = Boolean(
-  process.env.DATABASE_URL && 
+  process.env.DATABASE_URL &&
   process.env.DATABASE_URL !== DUMMY_DB_URL &&
-  !process.env.DATABASE_URL.includes('test_pass@localhost')
+  !process.env.DATABASE_URL.includes('test_pass@localhost') &&
+  !process.env.DATABASE_URL.includes('test_user:test_pass@localhost')
 );
 
 /**

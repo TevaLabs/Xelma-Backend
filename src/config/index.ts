@@ -18,6 +18,8 @@ export interface AppConfig {
   dataStore: "memory" | "postgres";
   enableSimulation: boolean;
   enableMultiplayerSocial: boolean;
+  /** Lightweight Socket.IO without Prisma chat/session (hackathon demos). */
+  socketDemoMode: boolean;
 }
 
 export interface JwtConfig {
@@ -111,6 +113,13 @@ function buildConfig(): Config {
     ),
     enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
     enableMultiplayerSocial: v.boolean(env.ENABLE_MULTIPLAYER_SOCIAL, true),
+    socketDemoMode: v.boolean(
+      env.SOCKET_DEMO_MODE ??
+        (env.DATA_STORE === "memory" || env.DATA_MODE === "mock"
+          ? "true"
+          : undefined),
+      false,
+    ),
   };
 
   const jwt: JwtConfig = {

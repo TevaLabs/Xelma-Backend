@@ -8,6 +8,7 @@ import multiplayerSessionService from './services/multiplayer-session.service';
 import { ChatMessage } from './types/chat.types';
 import logger from './utils/logger';
 import { initializeSocketAdapter } from './utils/socket-adapter';
+import config from './config';
 import {
    setSocketConnectionsActive,
    websocketConnectionEventsTotal,
@@ -362,6 +363,18 @@ export async function initializeSocket(
          }
          const decoded = verifyResult.payload;
 
+         if (config.app.socketDemoMode) {
+            socket.userId = decoded.userId;
+            socket.walletAddress = decoded.walletAddress;
+            if ((decoded as any).exp) {
+               socket.tokenExpiresAt = (decoded as any).exp * 1000;
+            }
+            logger.info(
+               `Authenticated socket connected (demo mode): ${socket.id}, user: ${decoded.userId}`,
+            );
+            return next();
+         }
+
          // Verify user exists
          const user = await prisma.user.findUnique({
             where: { id: decoded.userId },
@@ -448,6 +461,7 @@ export async function initializeSocket(
          socket.join(`user:${socket.userId}`);
          logger.info(`Socket ${socket.id} auto-joined user:${socket.userId}`);
 
+         if (!config.app.socketDemoMode) {
          // Issue #194: persist session metadata for reconnect continuity.
          // Fire-and-forget; a DB failure must never tear down a live socket.
          const userIdSnapshot = socket.userId;
@@ -472,6 +486,7 @@ export async function initializeSocket(
                   `recordConnect failed for socket ${socket.id}: ${(err as Error).message}`
                );
             });
+         }
       }
 
       // Join round room for price updates and round events
@@ -487,7 +502,7 @@ export async function initializeSocket(
          socket.join(room);
          logger.info(`Socket ${socket.id} joined room: ${room}`);
          socket.emit('room:joined', { room });
-         if (socket.userId) {
+         if (socket.userId && !config.app.socketDemoMode) {
             void multiplayerSessionService.addRoom(socket.userId, room);
          }
       });
@@ -505,13 +520,19 @@ export async function initializeSocket(
          socket.leave(room);
          logger.info(`Socket ${socket.id} left room: ${room}`);
          socket.emit('room:left', { room });
-         if (socket.userId) {
+         if (socket.userId && !config.app.socketDemoMode) {
             void multiplayerSessionService.removeRoom(socket.userId, room);
          }
       });
 
       // Join chat room (requires authentication)
       socket.on('join:chat', () => {
+         if (config.app.socketDemoMode) {
+            socket.emit('error', {
+               message: 'Chat is unavailable in socket demo mode',
+            });
+            return;
+         }
          if (!socket.userId) {
             socket.emit('error', {
                message: 'Authentication required to join chat',
@@ -529,7 +550,7 @@ export async function initializeSocket(
          socket.leave('chat');
          logger.info(`Socket ${socket.id} left room: chat`);
          socket.emit('room:left', { room: 'chat' });
-         if (socket.userId) {
+         if (socket.userId && !config.app.socketDemoMode) {
             void multiplayerSessionService.removeRoom(socket.userId, 'chat');
          }
       });
@@ -544,6 +565,15 @@ export async function initializeSocket(
             const ack = (payload: ChatAck): void => {
                if (typeof callback === 'function') callback(payload);
             };
+
+            if (config.app.socketDemoMode) {
+               ack({
+                  ok: false,
+                  error: 'Chat is unavailable in socket demo mode',
+                  code: 'SEND_FAILED',
+               });
+               return;
+            }
 
             if (!socket.userId || !socket.walletAddress) {
                ack({
@@ -615,15 +645,18 @@ export async function initializeSocket(
          }
          socket.join(`user:${socket.userId}`);
          socket.emit('room:joined', { room: 'notifications' });
-         void multiplayerSessionService.addRoom(
-            socket.userId,
-            `user:${socket.userId}`
-         );
+         if (!config.app.socketDemoMode) {
+            void multiplayerSessionService.addRoom(
+               socket.userId,
+               `user:${socket.userId}`
+            );
+         }
       });
 
       // Issue #194: clients can checkpoint opaque session metadata
       // (e.g. last-viewed round, draft message) so it survives a reconnect.
       socket.on('session:checkpoint', (patch: Record<string, unknown>) => {
+         if (config.app.socketDemoMode) return;
          if (!socket.userId) return;
          if (!patch || typeof patch !== 'object' || Array.isArray(patch))
             return;
@@ -642,7 +675,7 @@ export async function initializeSocket(
             authenticated: String(Boolean(socket.userId)),
          });
          logger.info(`Client disconnected: ${socket.id}, reason: ${reason}`);
-         if (socket.userId) {
+         if (socket.userId && !config.app.socketDemoMode) {
             void multiplayerSessionService.recordDisconnect(socket.userId);
          }
       });
@@ -653,7 +686,11 @@ export async function initializeSocket(
       });
    });
 
-   logger.info('Socket.IO initialized with JWT authentication');
+   logger.info(
+      config.app.socketDemoMode
+         ? 'Socket.IO initialized in demo mode (no Prisma chat/session)'
+         : 'Socket.IO initialized with JWT authentication',
+   );
    return io;
 }
 

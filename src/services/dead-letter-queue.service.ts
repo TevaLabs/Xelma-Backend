@@ -14,6 +14,7 @@
 import { DispatchChannel, DispatchStatus, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
+import { redactDlqPayload } from "../utils/redact-payload";
 
 /**
  * Hard cap so a single pathological payload (e.g. a runaway error chain)
@@ -57,6 +58,22 @@ export interface RetryResult {
   id: string;
   status: DispatchStatus;
   attempts: number;
+}
+
+export interface RetryDryRunResult {
+  dryRun: true;
+  id: string;
+  channel: DispatchChannel;
+  eventName: string | null;
+  userId: string | null;
+  status: DispatchStatus;
+  attempts: number;
+  redactedPayload: unknown;
+}
+
+export interface RetryOptions {
+  dryRun?: boolean;
+  maxAttempts?: number;
 }
 
 export interface ListOptions {
@@ -137,7 +154,11 @@ class DeadLetterQueueService {
       }),
       prisma.failedDispatch.count({ where }),
     ]);
-    return { entries, total, limit, offset };
+    const redactedEntries = entries.map(row => ({
+      ...row,
+      payload: redactDlqPayload(row.payload),
+    }));
+    return { entries: redactedEntries, total, limit, offset };
   }
 
   /**
@@ -149,11 +170,24 @@ class DeadLetterQueueService {
     id: string,
     handlers: RetryHandlers,
     maxAttempts: number = DEFAULT_MAX_ATTEMPTS,
-  ): Promise<RetryResult | null> {
+    options: RetryOptions = {},
+  ): Promise<RetryResult | RetryDryRunResult | null> {
     const row = await prisma.failedDispatch.findUnique({ where: { id } });
     if (!row) {
       logger.warn(`DLQ retry: entry ${id} not found`);
       return null;
+    }
+    if (options.dryRun) {
+      return {
+        dryRun: true,
+        id: row.id,
+        channel: row.channel,
+        eventName: row.eventName,
+        userId: row.userId,
+        status: row.status,
+        attempts: row.attempts,
+        redactedPayload: redactDlqPayload(row.payload),
+      };
     }
     if (row.status === DispatchStatus.RESOLVED) {
       // Idempotency: a replayed RESOLVED row is a no-op, not an error.
@@ -216,12 +250,16 @@ class DeadLetterQueueService {
     handlers: RetryHandlers,
     limit: number = 50,
     maxAttempts: number = DEFAULT_MAX_ATTEMPTS,
-  ): Promise<{
-    attempted: number;
-    resolved: number;
-    failed: number;
-    abandoned: number;
-  }> {
+    options: RetryOptions = {},
+  ): Promise<
+    | {
+        attempted: number;
+        resolved: number;
+        failed: number;
+        abandoned: number;
+      }
+    | { dryRun: true; attempted: number; previews: RetryDryRunResult[] }
+  > {
     const capped = Math.min(Math.max(limit, 1), 200);
     const rows = await prisma.failedDispatch.findMany({
       where: {
@@ -229,15 +267,28 @@ class DeadLetterQueueService {
       },
       orderBy: { createdAt: "asc" },
       take: capped,
-      select: { id: true },
     });
+
+    if (options.dryRun) {
+      const previews: RetryDryRunResult[] = rows.map(row => ({
+        dryRun: true,
+        id: row.id,
+        channel: row.channel,
+        eventName: row.eventName,
+        userId: row.userId,
+        status: row.status,
+        attempts: row.attempts,
+        redactedPayload: redactDlqPayload(row.payload),
+      }));
+      return { dryRun: true, attempted: rows.length, previews };
+    }
 
     let resolved = 0;
     let failed = 0;
     let abandoned = 0;
     for (const r of rows) {
       const result = await this.retry(r.id, handlers, maxAttempts);
-      if (!result) continue;
+      if (!result || "dryRun" in result) continue;
       if (result.status === DispatchStatus.RESOLVED) resolved += 1;
       else if (result.status === DispatchStatus.ABANDONED) {
         abandoned += 1;
