@@ -132,6 +132,118 @@ jobs:
           name: unit-coverage
           path: coverage/
 
+  test-route-parity:
+    name: test (route parity)
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      JWT_SECRET: ci-test-secret
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Run only the route-parity spec. No database is required; the spec
+      # mounts in-memory Express apps and inspects their registered routes.
+      - name: Run route-parity checks
+        id: parity
+        run: |
+          npx jest --selectProjects unit \
+            --testPathPattern="route-parity\.spec\.ts" \
+            --forceExit \
+            --no-coverage 2>&1 | tee parity-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      # Always upload the JSON diff so engineers can download it from the
+      # Artifacts panel even when the step succeeds (useful for audit).
+      - name: Upload route-parity diff artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: route-parity-diff
+          path: route-parity-diff.json
+          if-no-files-found: ignore
+
+      # Write a human-readable Markdown summary to the Actions run page.
+      # The summary is visible in the PR check detail without opening logs.
+      - name: Emit GitHub Step Summary
+        if: always()
+        shell: bash
+        run: |
+          DIFF_FILE="route-parity-diff.json"
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+
+          echo "## 🛣️ Route-Parity Report" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+
+          if [ ! -f "$DIFF_FILE" ]; then
+            echo "_No diff file was produced (the spec may have failed to start)._" >> "$SUMMARY"
+            exit 0
+          fi
+
+          # Pull counts from JSON
+          MAIN_COUNT=$(jq '.mainRouteCount // 0' "$DIFF_FILE")
+          HACK_COUNT=$(jq '.hackathonRouteCount // 0' "$DIFF_FILE")
+          GEN_AT=$(jq -r '.generatedAt // "unknown"' "$DIFF_FILE")
+
+          echo "Generated at **${GEN_AT}**" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          echo "| App | Routes found |" >> "$SUMMARY"
+          echo "|-----|-------------:|" >> "$SUMMARY"
+          echo "| Main app | ${MAIN_COUNT} |" >> "$SUMMARY"
+          echo "| Hackathon app | ${HACK_COUNT} |" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+
+          # Helper: render a Markdown table from a jq path
+          render_table() {
+            local title="$1"
+            local jq_path="$2"
+            local count
+            count=$(jq "${jq_path} | length" "$DIFF_FILE")
+            if [ "$count" -eq 0 ]; then
+              echo "### ✅ ${title}" >> "$SUMMARY"
+              echo "_No issues found._" >> "$SUMMARY"
+            else
+              echo "### ❌ ${title} (${count} issue(s))" >> "$SUMMARY"
+              echo "" >> "$SUMMARY"
+              echo "| Method | Path |" >> "$SUMMARY"
+              echo "|--------|------|" >> "$SUMMARY"
+              jq -r "${jq_path}[] | split(\" \") | \"| \" + .[0] + \" | \" + (.[1:] | join(\" \")) + \" |\"" \
+                "$DIFF_FILE" >> "$SUMMARY"
+            fi
+            echo "" >> "$SUMMARY"
+          }
+
+          render_table "Versioned-alias drift — routes in /api not mirrored in /api/v1" ".versionedAlias.legacyOnly"
+          render_table "Versioned-alias drift — routes in /api/v1 not mirrored in /api" ".versionedAlias.versionedOnly"
+          render_table "Cross-app drift — routes only in main app (add to hackathon or allowlist)" ".crossApp.mainOnly"
+          render_table "Cross-app drift — routes only in hackathon app (add to main or allowlist)" ".crossApp.hackathonOnly"
+          render_table "Stale allowlist entries (remove from PARITY_ALLOWLIST)" ".crossApp.staleAllowlist"
+          render_table "Duplicate allowlist entries (remove duplicates from PARITY_ALLOWLIST)" ".allowlistDuplicates"
+
+          echo "---" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          echo "**To fix:** See \`src/security/route-parity.registry.ts\` for the allowlist and" >> "$SUMMARY"
+          echo "\`src/tests/route-parity.spec.ts\` for the full failure annotation in the logs." >> "$SUMMARY"
+
+      # Fail the job after uploading artifacts and emitting the summary.
+      - name: Fail if parity checks failed
+        if: steps.parity.outputs.exit_code != '0'
+        run: |
+          echo "Route-parity checks failed. See the Step Summary above and the"
+          echo "route-parity-diff artifact for the full breakdown."
+          exit 1
+
   test-integration:
     name: test (integration)
     runs-on: ubuntu-latest

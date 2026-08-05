@@ -1,0 +1,15 @@
+{
+  "generatedAt": "2026-07-28T11:12:46.110Z",
+  "mainRouteCount": 107,
+  "hackathonRouteCount": 33,
+  "versionedAlias": {
+    "legacyOnly": [],
+    "versionedOnly": []
+  },
+  "crossApp": {
+    "mainOnly": [],
+    "hackathonOnly": [],
+    "staleAllowlist": []
+  },
+  "allowlistDuplicates": []
+}
