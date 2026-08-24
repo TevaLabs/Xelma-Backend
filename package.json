@@ -33,7 +33,8 @@
     "db:seed:mock": "ts-node scripts/seed-mock-data.ts",
     "db:seed:tournaments": "ts-node scripts/seed-tournaments.ts",
     "dev:hackathon": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "smoke-test": "node scripts/smoke-test.js"
+    "smoke-test": "node scripts/smoke-test.js",
+    "validate:bindings": "node scripts/validate-bindings.js"
   },
   "keywords": [],
   "author": "",

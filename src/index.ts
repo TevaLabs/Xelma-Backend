@@ -17,11 +17,12 @@ import schedulerService from './services/scheduler.service';
 import roundSchedulerService from './services/round-scheduler.service';
 import oracleService from './services/oracle.service';
 import logger from './utils/logger';
-import { validateVendoredBindings } from './utils/bindings-validator';
+import {
+  validateVendoredBindingsSync,
+  validateVendoredBindings,
+} from './utils/bindings-validator';
 import config from './config';
 import { createApp as createAppFromFactory, AppFeatures } from './app-factory';
-// Route and middleware imports moved to src/app-factory.ts; only the Soroban
-// env resolver is still used here, by the startup log below.
 import {
   formatResolvedSorobanConfigForLog,
   resolveSorobanEnvVars,
@@ -42,32 +43,90 @@ const validateEnv = (): void => {
          variable: 'JWT_SECRET',
       });
       logger.error('Please configure this securely in your environment before starting the app.');
-      process.exit(1); // 1 indicates a failure/error state
+      process.exit(1);
    }
 };
 
+function logRemediation(): string {
+   return [
+      'Remediation steps:',
+      '  1. Run `npm run install-bindings` to fetch the latest bindings.',
+      '  2. If the contract ABI changed, update .bindings-metadata.json with the new SHA and required surface.',
+      '  3. Run `npm run prisma:generate && npm run build` to rebuild.',
+      '  See BINDINGS_UPGRADE.md for the full procedure.',
+   ].join('\n');
+}
+
 /**
- * Validate the vendored @tevalabs/xelma-bindings package at startup so a
- * stale or partial vendor surfaces immediately, instead of as an opaque
- * "Cannot find module" deep inside the Soroban service later. Only logs —
- * never throws — because API-only deployments may run without Soroban.
+ * Synchronous structural validation — runs immediately at startup.
+ * Logs warnings for missing files or wrong package name.
  */
-function logBindingsValidation(): void {
-   const result = validateVendoredBindings();
+function logBindingsStructuralValidation(): void {
+   const result = validateVendoredBindingsSync();
    if (result.ok) {
-      logger.info('Vendored bindings OK', {
+      logger.info('Vendored bindings structural check OK', {
          vendorPath: result.info.vendorPath,
          packageName: result.info.packageName,
          commitSha: result.info.commitSha,
       });
    } else {
       logger.warn(
-         'Vendored bindings validation failed; Soroban integration may fail at runtime',
+         'Vendored bindings structural validation failed; Soroban integration may fail at runtime',
          {
             vendorPath: result.info.vendorPath,
             errors: result.errors,
             commitSha: result.info.commitSha,
-         }
+         },
+      );
+   }
+}
+
+/**
+ * Async API surface validation — runs during startup to verify that the
+ * vendored Client class exposes all methods the Soroban service depends on.
+ * Catches version skew before the first Soroban call.
+ */
+async function logBindingsSurfaceValidation(): Promise<void> {
+   const result = await validateVendoredBindings();
+   if (result.ok) {
+      logger.info('Vendored bindings surface check OK', {
+         commitSha: result.info.commitSha,
+      });
+      return;
+   }
+
+   const isSkew = result.info.shaMatch === false ||
+      result.info.missingMethods.length > 0 ||
+      result.info.missingExports.length > 0;
+
+   const remediation = logRemediation();
+
+   if (isSkew) {
+      logger.error(
+         'Vendored bindings version skew detected — the Soroban client will likely fail at runtime',
+         {
+            errors: result.errors,
+            commitSha: result.info.commitSha,
+            expectedCommitSha: result.info.expectedCommitSha,
+            shaMatch: result.info.shaMatch,
+            missingMethods: result.info.missingMethods,
+            missingExports: result.info.missingExports,
+            remediation,
+         },
+      );
+
+      if (process.env.FAIL_ON_BINDINGS_MISMATCH === 'true') {
+         logger.error('FAIL_ON_BINDINGS_MISMATCH=true — aborting startup due to bindings skew');
+         process.exit(1);
+      }
+   } else {
+      logger.warn(
+         'Vendored bindings surface validation failed; Soroban integration may fail at runtime',
+         {
+            errors: result.errors,
+            commitSha: result.info.commitSha,
+            remediation,
+         },
       );
    }
 }
@@ -75,9 +134,9 @@ function logBindingsValidation(): void {
 // Run preflight gate before anything else initializes
 assertPreflightOrExit();
 
-// Execute validation immediately
+// Execute structural validation immediately (sync)
 validateEnv();
-logBindingsValidation();
+logBindingsStructuralValidation();
 logger.info(`Active DATA_MODE=${config.app.dataMode}`);
 logger.info(`ROUNDS_MOCK_MODE=${config.app.roundsMockMode}`);
 logger.info(
@@ -149,21 +208,13 @@ export async function startServer(app: Express): Promise<ServerHandle> {
       logger.info(
          'API_ONLY=true: skipping oracle polling, round scheduler, and WebSocket price ticker. Outbox poller and retention jobs still run.'
       );
-      // The general scheduler (outbox poller, notification cleanup, retention)
-      // must run even in API_ONLY mode so outbox events written by this process
-      // are dispatched. Only oracle polling, round scheduling, and the price
-      // ticker are skipped.
       schedulerService.start();
    } else {
-      // Start Oracle Polling
       priceOracle.startPolling();
-
-      // Initialize Schedulers
       schedulerService.start();
       roundSchedulerService.start();
       oracleService.start();
 
-      // Emit price updates via WebSocket
       priceInterval = setInterval(() => {
          const price = priceOracle.getPriceString();
          if (price !== null) {
@@ -183,7 +234,6 @@ export async function startServer(app: Express): Promise<ServerHandle> {
          roundSchedulerService.stop();
          oracleService.stop();
       }
-      // Always stop the general scheduler (outbox poller, cleanup jobs)
       schedulerService.stop();
       httpServer.closeAllConnections();
       await new Promise<void>((resolve) => {
@@ -206,6 +256,9 @@ const app = createApp();
 
 if (require.main === module) {
    (async () => {
+      // Run async surface validation before starting the server
+      await logBindingsSurfaceValidation();
+
       const { cleanup } = await startServer(app);
 
       process.on('SIGINT', async () => {

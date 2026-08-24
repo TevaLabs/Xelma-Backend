@@ -1,0 +1,34 @@
+{
+  "expectedCommitSha": "PLACEHOLDER",
+  "requiredClientMethods": [
+    "balance",
+    "get_admin",
+    "place_bet",
+    "get_oracle",
+    "initialize",
+    "set_windows",
+    "create_round",
+    "mint_initial",
+    "predict_price",
+    "resolve_round",
+    "claim_winnings",
+    "get_user_stats",
+    "get_active_round",
+    "get_last_round_id",
+    "get_user_position",
+    "get_pending_winnings",
+    "get_updown_positions",
+    "get_precision_predictions",
+    "place_precision_prediction",
+    "get_user_precision_prediction"
+  ],
+  "requiredExports": [
+    "Client",
+    "BetSide",
+    "RoundMode",
+    "OraclePayload",
+    "UserStats",
+    "UserPosition",
+    "ContractError"
+  ]
+}

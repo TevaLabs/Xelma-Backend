@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { pathToFileURL } from "url";
 
 export interface BindingsValidationResult {
   ok: boolean;
@@ -10,7 +11,17 @@ export interface BindingsValidationResult {
     cjsEntry: string | null;
     packageName: string | null;
     commitSha: string | null;
+    expectedCommitSha: string | null;
+    shaMatch: boolean | null;
+    missingMethods: string[];
+    missingExports: string[];
   };
+}
+
+export interface BindingsMetadata {
+  expectedCommitSha?: string;
+  requiredClientMethods?: string[];
+  requiredExports?: string[];
 }
 
 const BINDINGS_PACKAGE_NAME = "@tevalabs/xelma-bindings";
@@ -19,17 +30,33 @@ export function getVendorBindingsRoot(cwd: string = process.cwd()): string {
   return path.resolve(cwd, "vendor", "xelma-bindings");
 }
 
+export function getMetadataPath(cwd: string = process.cwd()): string {
+  return path.resolve(cwd, ".bindings-metadata.json");
+}
+
 /**
- * Verify that the vendored @tevalabs/xelma-bindings package is present and
- * well-formed. install-bindings.js writes ESM + CJS dist outputs and a
- * .commit-sha marker file; this check confirms each artifact exists and
- * surfaces the recorded upstream SHA so operators can spot a stale vendor.
- *
- * Returns a structured result rather than throwing — startup callers decide
- * whether a missing vendor is fatal (Soroban-required deployments) or just
- * worth logging (API-only deployments).
+ * Load the pinned bindings metadata from .bindings-metadata.json.
+ * Returns null if the file does not exist or is invalid.
  */
-export function validateVendoredBindings(
+export function loadBindingsMetadata(
+  cwd: string = process.cwd(),
+): BindingsMetadata | null {
+  const metaPath = getMetadataPath(cwd);
+  if (!fs.existsSync(metaPath)) return null;
+  try {
+    const raw = fs.readFileSync(metaPath, "utf8");
+    return JSON.parse(raw) as BindingsMetadata;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Synchronous structural validation of the vendored bindings.
+ * Checks file existence, package.json name, and SHA pin.
+ * Does NOT check API surface — use validateVendoredBindings() for that.
+ */
+export function validateVendoredBindingsSync(
   cwd: string = process.cwd(),
 ): BindingsValidationResult {
   const vendorPath = getVendorBindingsRoot(cwd);
@@ -41,6 +68,8 @@ export function validateVendoredBindings(
   const errors: string[] = [];
   let packageName: string | null = null;
   let commitSha: string | null = null;
+
+  // --- Structural checks ---------------------------------------------------
 
   if (!fs.existsSync(vendorPath)) {
     errors.push(
@@ -78,6 +107,30 @@ export function validateVendoredBindings(
     }
   }
 
+  // --- Metadata / SHA pin checks -------------------------------------------
+
+  const meta = loadBindingsMetadata(cwd);
+  const expectedCommitSha = meta?.expectedCommitSha ?? null;
+  let shaMatch: boolean | null = null;
+
+  if (expectedCommitSha && expectedCommitSha !== "PLACEHOLDER") {
+    if (commitSha === null) {
+      errors.push(
+        `Vendor .commit-sha is missing but metadata pins expected SHA ${expectedCommitSha}. ` +
+          "Run `npm run install-bindings` to populate the vendor.",
+      );
+      shaMatch = false;
+    } else if (commitSha !== expectedCommitSha) {
+      errors.push(
+        `Vendor commit SHA ${commitSha} does not match expected ${expectedCommitSha}. ` +
+          "The vendored bindings are stale. Run `npm run install-bindings`.",
+      );
+      shaMatch = false;
+    } else {
+      shaMatch = true;
+    }
+  }
+
   return {
     ok: errors.length === 0,
     errors,
@@ -87,6 +140,124 @@ export function validateVendoredBindings(
       cjsEntry: fs.existsSync(cjsEntryPath) ? cjsEntryPath : null,
       packageName,
       commitSha,
+      expectedCommitSha,
+      shaMatch,
+      missingMethods: [],
+      missingExports: [],
     },
   };
+}
+
+/**
+ * Attempt to dynamically import the vendored bindings and verify that the
+ * Client class exposes every method that the Soroban service depends on.
+ *
+ * Returns the list of missing method names (empty array = all present).
+ * Never throws — caller decides severity.
+ */
+async function checkClientMethods(
+  vendorPath: string,
+  requiredMethods: string[],
+  loadModule?: (esmPath: string) => Promise<Record<string, unknown>>,
+): Promise<string[]> {
+  if (requiredMethods.length === 0) return [];
+  if (!fs.existsSync(path.join(vendorPath, "dist", "index.js"))) {
+    return [...requiredMethods];
+  }
+
+  try {
+    const esmPath = pathToFileURL(path.join(vendorPath, "dist", "index.js")).href;
+    const mod = loadModule
+      ? await loadModule(esmPath)
+      : await import(esmPath);
+    const ClientClass = mod.Client;
+    if (!ClientClass) return [...requiredMethods];
+
+    const proto = (ClientClass as any).prototype;
+    return requiredMethods.filter((m) => typeof proto[m] !== "function");
+  } catch {
+    return [...requiredMethods];
+  }
+}
+
+/**
+ * Attempt to dynamically import the vendored bindings and verify that
+ * required type/class exports are present.
+ *
+ * Returns the list of missing export names (empty array = all present).
+ */
+async function checkRequiredExports(
+  vendorPath: string,
+  requiredExports: string[],
+  loadModule?: (esmPath: string) => Promise<Record<string, unknown>>,
+): Promise<string[]> {
+  if (requiredExports.length === 0) return [];
+  if (!fs.existsSync(path.join(vendorPath, "dist", "index.js"))) {
+    return [...requiredExports];
+  }
+
+  try {
+    const esmPath = pathToFileURL(path.join(vendorPath, "dist", "index.js")).href;
+    const mod = loadModule
+      ? await loadModule(esmPath)
+      : await import(esmPath);
+    return requiredExports.filter((name) => !(name in mod));
+  } catch {
+    return [...requiredExports];
+  }
+}
+
+/**
+ * Full validation of the vendored @tevalabs/xelma-bindings package:
+ * structural checks + API surface verification via dynamic import.
+ *
+ * Returns a structured result rather than throwing — startup callers decide
+ * whether a missing vendor is fatal (Soroban-required deployments) or just
+ * worth logging (API-only deployments).
+ *
+ * @param loadModule - Optional module loader override for testing. When
+ *   provided, it is used instead of the native dynamic import(). The loader
+ *   receives a file:// URL string and should return the module namespace.
+ */
+export async function validateVendoredBindings(
+  cwd: string = process.cwd(),
+  loadModule?: (esmPath: string) => Promise<Record<string, unknown>>,
+): Promise<BindingsValidationResult> {
+  // Run structural checks first (fast, synchronous)
+  const result = validateVendoredBindingsSync(cwd);
+
+  // If structural checks already failed, skip surface checks
+  if (!result.ok) return result;
+
+  const vendorPath = result.info.vendorPath;
+  const meta = loadBindingsMetadata(cwd);
+
+  if (!meta) return result;
+
+  const requiredMethods = meta.requiredClientMethods ?? [];
+  const requiredExports = meta.requiredExports ?? [];
+
+  const [missingMethods, missingExports] = await Promise.all([
+    checkClientMethods(vendorPath, requiredMethods, loadModule),
+    checkRequiredExports(vendorPath, requiredExports, loadModule),
+  ]);
+
+  result.info.missingMethods = missingMethods;
+  result.info.missingExports = missingExports;
+
+  if (missingMethods.length > 0) {
+    result.errors.push(
+      `Client class is missing required methods: ${missingMethods.join(", ")}. ` +
+        "The bindings may be from an older contract version. Run `npm run install-bindings`.",
+    );
+  }
+  if (missingExports.length > 0) {
+    result.errors.push(
+      `Bindings module is missing required exports: ${missingExports.join(", ")}. ` +
+        "The bindings may be from an older contract version. Run `npm run install-bindings`.",
+    );
+  }
+
+  result.ok = result.errors.length === 0;
+  return result;
 }
