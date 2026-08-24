@@ -3,7 +3,6 @@ import { hackathonUsers, hackathonRounds, hackathonBets } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { decAdd, decSub, toNumber } from '../utils/decimal.util';
 import { prisma } from '../lib/prisma';
-import { toDecimal, toNumber, decGte } from '../utils/decimal.util';
 import { Decimal } from '@prisma/client/runtime/library';
 import { BusinessRuleError, ErrorCode } from '../utils/errors';
 import logger from '../utils/logger';
@@ -24,81 +23,6 @@ export interface BetResult {
   poolUp: Decimal;
   poolDown: Decimal;
 }
-
-export class HackathonService {
-  async placeBet(input: PlaceBetInput): Promise<BetResult> {
-    const { userId, roundId, amount, side } = input;
-    const decimalAmount = toDecimal(amount);
-
-    return prisma.$transaction(async (tx) => {
-      const round = await tx.round.findUnique({
-        where: { id: roundId },
-      });
-
-      if (!round) {
-        throw new BusinessRuleError(
-          'Round not found',
-          ErrorCode.NOT_FOUND,
-        );
-      }
-
-      if (round.status !== 'ACTIVE') {
-        throw new BusinessRuleError(
-          'Round is not active',
-          ErrorCode.ROUND_NOT_ACTIVE,
-        );
-      }
-
-      const user = await tx.user
-        .update({
-          where: {
-            id: userId,
-            virtualBalance: { gte: decimalAmount },
-          },
-          data: {
-            virtualBalance: { decrement: decimalAmount },
-          },
-        })
-        .catch((err: any) => {
-          if (err.code === 'P2025') {
-            throw new BusinessRuleError(
-              'Insufficient balance',
-              ErrorCode.INSUFFICIENT_FUNDS,
-            );
-          }
-          throw err;
-        });
-
-      if (side === 'UP') {
-        await tx.round.update({
-          where: { id: roundId },
-          data: { poolUp: { increment: decimalAmount } },
-        });
-      } else {
-        await tx.round.update({
-          where: { id: roundId },
-          data: { poolDown: { increment: decimalAmount } },
-        });
-      }
-
-      const updatedRound = await tx.round.findUnique({
-        where: { id: roundId },
-      });
-
-      logger.info(
-        `Hackathon bet placed: user=${userId}, round=${roundId}, side=${side}, amount=${toNumber(decimalAmount)}`,
-      );
-
-      return {
-        userId,
-        roundId,
-        amount: decimalAmount,
-        side,
-        newBalance: user.virtualBalance,
-        poolUp: updatedRound!.poolUp,
-        poolDown: updatedRound!.poolDown,
-      };
-    });
 
 export class HackathonService {
   async getRounds() {
@@ -215,34 +139,6 @@ export class HackathonService {
     });
 
     // 3. Update user balance
-    const users = await db.select().from(hackathonUsers).where(eq(hackathonUsers.address, address));
-    if (users.length > 0) {
-      const remaining = decSub(users[0].balance, amount);
-      const newBalance = remaining.lt(0) ? 0 : toNumber(remaining);
-      await db.update(hackathonUsers).set({ balance: newBalance }).where(eq(hackathonUsers.address, address));
-    }
-
-    // 4. Update round pool
-    const rounds = await db.select().from(hackathonRounds).where(eq(hackathonRounds.id, roundId));
-    if (rounds.length > 0) {
-      const round = rounds[0];
-      if (round.mode === 'updown' && side) {
-        if (side === 'UP') {
-          await db.update(hackathonRounds)
-            .set({ poolUp: toNumber(decAdd(round.poolUp, amount)) })
-            .where(eq(hackathonRounds.id, roundId));
-        } else {
-          await db.update(hackathonRounds)
-            .set({ poolDown: toNumber(decAdd(round.poolDown, amount)) })
-            .where(eq(hackathonRounds.id, roundId));
-        }
-      } else if (round.mode === 'precision') {
-        await db.update(hackathonRounds)
-          .set({
-            totalPool: toNumber(decAdd(round.totalPool, amount)),
-            predictionCount: round.predictionCount + 1,
-          })
-          .where(eq(hackathonRounds.id, roundId));
     const user = await prisma.mockLeaderboard.findUnique({ where: { address } });
     if (user) {
       const newBalance = Math.max(0, user.balance - amount);

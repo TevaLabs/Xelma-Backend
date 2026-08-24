@@ -27,7 +27,7 @@ function makeVendor(
     cjs?: boolean;
     pkg?: { name?: string } | null;
     commitSha?: string;
-    esmExports?: Record<string, unknown>;
+    dts?: boolean;
   } = {},
 ): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "xelma-vendor-"));
@@ -35,11 +35,7 @@ function makeVendor(
   fs.mkdirSync(path.join(vendor, "dist", "cjs"), { recursive: true });
 
   if (layout.esm) {
-    const exports = layout.esmExports ?? {};
-    const exportLines = Object.entries(exports)
-      .map(([name, val]) => `export const ${name} = ${JSON.stringify(val)};`)
-      .join("\n");
-    const clientMethods = [
+    const methods = [
       "balance",
       "get_admin",
       "place_bet",
@@ -61,23 +57,41 @@ function makeVendor(
       "place_precision_prediction",
       "get_user_precision_prediction",
     ];
-    const methodImpls = clientMethods
+    const methodImpls = methods
       .map((m) => `  ${m}() { return Promise.resolve({ result: null }); }`)
       .join("\n");
     const esmContent = [
-      exportLines,
       "export class Client {",
       "  constructor(_opts) {}",
       methodImpls,
       "}",
-      "export const BetSide = { Up: { tag: 'Up' }, Down: { tag: 'Down' } };",
       "export const RoundMode = { UpDown: 0, Precision: 1 };",
-      "export const OraclePayload = {};",
-      "export const UserStats = {};",
-      "export const UserPosition = {};",
       "export const ContractError = {};",
     ].join("\n");
     fs.writeFileSync(path.join(vendor, "dist", "index.js"), esmContent);
+  }
+  if (layout.cjs) {
+    fs.writeFileSync(path.join(vendor, "dist", "cjs", "index.js"), "// cjs");
+  }
+  if (layout.dts !== false && layout.esm) {
+    const methods = [
+      "balance", "get_admin", "place_bet", "get_oracle", "initialize",
+      "set_windows", "create_round", "mint_initial", "predict_price",
+      "resolve_round", "claim_winnings", "get_user_stats", "get_active_round",
+      "get_last_round_id", "get_user_position", "get_pending_winnings",
+      "get_updown_positions", "get_precision_predictions",
+      "place_precision_prediction", "get_user_precision_prediction",
+    ];
+    const dtsMethods = methods.map((m) => `  ${m}(args: any): Promise<any>;`).join("\n");
+    const dtsContent = [
+      "export class Client {",
+      "  constructor(opts: any);",
+      dtsMethods,
+      "}",
+      "export enum RoundMode { UpDown = 0, Precision = 1 }",
+      "export const ContractError: Record<number, { message: string }>; ",
+    ].join("\n");
+    fs.writeFileSync(path.join(vendor, "dist", "index.d.ts"), dtsContent);
   }
   if (layout.cjs) {
     fs.writeFileSync(path.join(vendor, "dist", "cjs", "index.js"), "// cjs");
@@ -243,7 +257,7 @@ describe("validateVendoredBindings (async surface checks)", () => {
     makeMetadata(cwdRoot, {
       expectedCommitSha: "abc123",
       requiredClientMethods: ["balance", "create_round"],
-      requiredExports: ["Client", "BetSide"],
+      requiredExports: ["Client", "RoundMode"],
     });
 
     // Provide a mock module loader since Jest intercepts dynamic import()
@@ -273,6 +287,7 @@ describe("validateVendoredBindings (async surface checks)", () => {
       },
       BetSide: { Up: { tag: "Up" }, Down: { tag: "Down" } },
       RoundMode: { UpDown: 0, Precision: 1 },
+      ContractError: {},
     });
 
     const result = await validateVendoredBindings(cwdRoot, mockLoader);
@@ -287,19 +302,20 @@ describe("validateVendoredBindings (async surface checks)", () => {
       cjs: true,
       commitSha: "abc123\n",
     });
+    // Overwrite the .d.ts to only declare `balance`, not `nonexistent_method`
+    const dtsPath = path.join(cwdRoot, "vendor", "xelma-bindings", "dist", "index.d.ts");
+    fs.writeFileSync(dtsPath, [
+      "export class Client {",
+      "  constructor(opts: any);",
+      "  balance(args: any): Promise<any>;",
+      "}",
+    ].join("\n"));
     makeMetadata(cwdRoot, {
       expectedCommitSha: "abc123",
       requiredClientMethods: ["balance", "nonexistent_method"],
       requiredExports: [],
     });
-    // Mock loader that provides Client with only the `balance` method
-    const mockLoader = async (_esmPath: string): Promise<Record<string, unknown>> => ({
-      Client: class Client {
-        constructor(_opts: unknown) {}
-        balance() { return Promise.resolve({ result: null }); }
-      },
-    });
-    const result = await validateVendoredBindings(cwdRoot, mockLoader);
+    const result = await validateVendoredBindings(cwdRoot);
     expect(result.ok).toBe(false);
     expect(result.info.missingMethods).toContain("nonexistent_method");
     expect(result.errors.some((e) => e.includes("missing required methods"))).toBe(true);

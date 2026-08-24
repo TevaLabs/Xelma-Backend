@@ -119,13 +119,10 @@ router.post(
 
     const result = await tournamentService.joinTournament(userId, id);
 
-      return sendSuccess(res, {
-        tournamentId: id,
-        currentParticipants: result.currentParticipants,
-      });
-    } catch (error) {
-      next(error);
-    }
+    return sendSuccess(res, {
+      tournamentId: id,
+      currentParticipants: result.currentParticipants,
+    });
   }) as any,
 );
 

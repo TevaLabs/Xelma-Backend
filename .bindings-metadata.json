@@ -24,11 +24,7 @@
   ],
   "requiredExports": [
     "Client",
-    "BetSide",
     "RoundMode",
-    "OraclePayload",
-    "UserStats",
-    "UserPosition",
     "ContractError"
   ]
 }
