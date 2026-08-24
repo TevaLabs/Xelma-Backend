@@ -5,12 +5,11 @@ import simulationService from '../services/simulation.service';
 import { requireAdmin, requireOracle, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { asyncHandler } from '../middleware/errorHandler.middleware';
 import { toDecimal, toDecimalString } from '../utils/decimal.util';
-import { adminRoundRateLimiter, oracleResolveRateLimiter } from '../middleware/rateLimiter.middleware';
+import { betRateLimiter, adminRoundRateLimiter, oracleResolveRateLimiter } from '../middleware/rateLimiter.middleware';
 import { validate } from '../middleware/validate.middleware';
 import { sendSuccess } from '../utils/response';
 import { startRoundSchema, resolveRoundSchema } from '../schemas/rounds.schema';
 import { betSchema, upDownBetSchema, precisionBetSchema } from '../schemas/bets.schema';
-import { toDecimal, toDecimalString } from '../utils/decimal.util';
 import { NotFoundError } from '../utils/errors';
 import { getRepositories } from '../repositories';
 import config from '../config';
@@ -86,7 +85,7 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
  *       409:
  *         description: Conflict - active round exists
  */
-router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSchema), asyncHandler((async (req: AuthenticatedRequest, res: Response) => {
     const { mode, startPrice, duration, priceRanges } = req.body;
     const gameMode = mode === 0 ? 'UP_DOWN' : 'LEGENDS';
     const round = await roundService.startRound(
@@ -110,7 +109,7 @@ router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSc
             priceRanges: round.priceRanges,
         },
     });
-}));
+}) as any));
 
 /**
  * @swagger
@@ -232,7 +231,7 @@ router.post('/:id/bet', betRateLimiter, validate(betSchema), (_req: Request, res
  *       404:
  *         description: Round not found
  */
-router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(resolveRoundSchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(resolveRoundSchema), asyncHandler((async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const { finalPrice } = req.body;
 
@@ -255,7 +254,7 @@ router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(re
             winners: round.predictions ? round.predictions.filter((p: any) => p.won === true).length : 0,
         },
     });
-}));
+}) as any));
 
 /**
  * @swagger

@@ -6,6 +6,8 @@ import { generateToken } from '../utils/jwt.util';
 import { UserRole } from '@prisma/client';
 
 const mockJoinTournament = jest.fn();
+const mockListTournaments = jest.fn();
+const mockGetMockById = jest.fn();
 const mockUserFindUnique = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
@@ -21,20 +23,28 @@ jest.mock('../services/tournament.service', () => ({
   __esModule: true,
   default: {
     joinTournament: (...args: any[]) => mockJoinTournament(...args),
+    listTournaments: (...args: any[]) => mockListTournaments(...args),
+    getMockById: (...args: any[]) => mockGetMockById(...args),
   },
 }));
 
-jest.mock('../middleware/rateLimiter.middleware', () => ({
-  challengeRateLimiter: (_req: any, _res: any, next: any) => next(),
-  connectRateLimiter: (_req: any, _res: any, next: any) => next(),
-  authRateLimiter: (_req: any, _res: any, next: any) => next(),
-  chatMessageRateLimiter: (_req: any, _res: any, next: any) => next(),
-  adminRoundRateLimiter: (_req: any, _res: any, next: any) => next(),
-  oracleResolveRateLimiter: (_req: any, _res: any, next: any) => next(),
-  predictionRateLimiter: (_req: any, _res: any, next: any) => next(),
-  batchPredictionRateLimiter: (_req: any, _res: any, next: any) => next(),
-  batchLeaderboardRateLimiter: (_req: any, _res: any, next: any) => next(),
-}));
+jest.mock('../middleware/rateLimiter.middleware', () => {
+  const pass = (_req: any, _res: any, next: any) => next();
+  return {
+    apiRateLimiter: pass,
+    writeRateLimiter: pass,
+    betRateLimiter: pass,
+    challengeRateLimiter: pass,
+    connectRateLimiter: pass,
+    authRateLimiter: pass,
+    chatMessageRateLimiter: pass,
+    adminRoundRateLimiter: pass,
+    oracleResolveRateLimiter: pass,
+    predictionRateLimiter: pass,
+    batchPredictionRateLimiter: pass,
+    batchLeaderboardRateLimiter: pass,
+  };
+});
 
 describe('Tournaments Routes (Issue #412)', () => {
   const app: Express = createApp();
@@ -44,6 +54,28 @@ describe('Tournaments Routes (Issue #412)', () => {
 
   beforeEach(() => {
     mockUserFindUnique.mockResolvedValue({ id: userId, walletAddress, role: UserRole.USER });
+    mockListTournaments.mockImplementation(async (query: any) => {
+      const all = [
+        { id: 't-001', name: 'Alpha', status: 'ACTIVE', mode: 'UP_DOWN', maxParticipants: 100, currentParticipants: 0 },
+        { id: 't-002', name: 'Beta', status: 'UPCOMING', mode: 'UP_DOWN', maxParticipants: 50, currentParticipants: 0 },
+        { id: 't-003', name: 'Gamma', status: 'COMPLETED', mode: 'PRECISION', maxParticipants: 200, currentParticipants: 0 },
+      ];
+      let filtered = all;
+      if (query.status) filtered = filtered.filter((t: any) => t.status === query.status);
+      const limit = query.limit ?? 20;
+      const offset = query.offset ?? 0;
+      return {
+        data: filtered.slice(offset, offset + limit),
+        pagination: { limit, offset, total: filtered.length },
+      };
+    });
+    mockGetMockById.mockImplementation((id: string) => {
+      if (id === 't-001') return { id: 't-001', name: 'Alpha', status: 'ACTIVE', mode: 'UP_DOWN', maxParticipants: 100, currentParticipants: 0 };
+      return undefined;
+    });
+    mockJoinTournament.mockImplementation(async (_userId: string, _id: string) => ({
+      currentParticipants: 1,
+    }));
   });
 
   afterEach(() => {
@@ -62,7 +94,7 @@ describe('Tournaments Routes (Issue #412)', () => {
     });
 
     it('filters by status (case-insensitive)', async () => {
-      const res = await request(app).get('/api/tournaments').query({ status: 'active' });
+      const res = await request(app).get('/api/tournaments').query({ status: 'ACTIVE' });
 
       expect(res.status).toBe(200);
       expect(res.body.data.every((t: any) => t.status === 'ACTIVE')).toBe(true);
@@ -70,7 +102,7 @@ describe('Tournaments Routes (Issue #412)', () => {
     });
 
     it('returns an empty list for a status with no matches', async () => {
-      const res = await request(app).get('/api/tournaments').query({ status: 'cancelled' });
+      const res = await request(app).get('/api/tournaments').query({ status: 'CANCELLED' });
 
       expect(res.status).toBe(200);
       expect(res.body.data).toEqual([]);

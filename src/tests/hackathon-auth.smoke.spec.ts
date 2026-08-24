@@ -47,17 +47,23 @@ jest.mock('../routes/bets.routes', () => {
   return { __esModule: true, default: router };
 });
 
-jest.mock('../middleware/rateLimiter.middleware', () => ({
-  challengeRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
-  connectRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
-  authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
-  chatMessageRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
-  predictionRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
-  adminRoundRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
-  oracleResolveRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
-  batchPredictionRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
-  batchLeaderboardRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
-}));
+jest.mock('../middleware/rateLimiter.middleware', () => {
+  const pass = (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    apiRateLimiter: pass,
+    writeRateLimiter: pass,
+    betRateLimiter: pass,
+    challengeRateLimiter: pass,
+    connectRateLimiter: pass,
+    authRateLimiter: pass,
+    chatMessageRateLimiter: pass,
+    predictionRateLimiter: pass,
+    adminRoundRateLimiter: pass,
+    oracleResolveRateLimiter: pass,
+    batchPredictionRateLimiter: pass,
+    batchLeaderboardRateLimiter: pass,
+  };
+});
 
 const mockAuthChallengeCreate = jest.fn();
 const mockAuthChallengeFindMany = jest.fn();

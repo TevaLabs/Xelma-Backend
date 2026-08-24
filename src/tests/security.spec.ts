@@ -70,7 +70,7 @@ const passthroughRouter = (_req: any, _res: any, next: any) => next();
  * config module.
  */
 function setupHackathonMocks(): void {
-  jest.doMock("../middleware/rateLimiter", () => ({
+  jest.doMock("../middleware/rateLimiter.middleware", () => ({
     apiRateLimiter: passthroughLimiter,
     writeRateLimiter: passthroughLimiter,
   }));
@@ -225,7 +225,7 @@ describe("Security headers — hackathon app", () => {
     restoreEnv();
     // Undo all jest.doMock registrations so they don't leak into other
     // tests that import from ../index (CORS, route-auth, etc.).
-    jest.dontMock("../middleware/rateLimiter");
+    jest.dontMock("../middleware/rateLimiter.middleware");
     jest.dontMock("../middleware/notFound");
     jest.dontMock("../middleware/errorHandler");
     jest.dontMock("../config");
@@ -290,7 +290,7 @@ describe("Security headers parity — both apps share the same core headers", ()
     restoreEnv();
     // Clean up jest.doMock registrations so they don't leak into subsequent
     // tests (CORS, route-auth, etc.) that import from ../index.
-    jest.dontMock("../middleware/rateLimiter");
+    jest.dontMock("../middleware/rateLimiter.middleware");
     jest.dontMock("../middleware/notFound");
     jest.dontMock("../middleware/errorHandler");
     jest.dontMock("../config");

@@ -30,12 +30,39 @@ jest.mock('../services/soroban.service', () => ({
 // every router — including src/routes/rounds.ts, which needs betRateLimiter.
 // An omitted export here surfaces as "Route.post() requires a callback
 // function but got a [object Undefined]" at import time.
-jest.mock('../middleware/rateLimiter', () => {
+jest.mock('../middleware/rateLimiter.middleware', () => {
   const pass = (_req: any, _res: any, next: any) => next();
-  return { apiRateLimiter: pass, writeRateLimiter: pass, betRateLimiter: pass };
+  return {
+    apiRateLimiter: pass,
+    writeRateLimiter: pass,
+    betRateLimiter: pass,
+    challengeRateLimiter: pass,
+    connectRateLimiter: pass,
+    authRateLimiter: pass,
+    chatMessageRateLimiter: pass,
+    predictionRateLimiter: pass,
+    batchPredictionRateLimiter: pass,
+    batchLeaderboardRateLimiter: pass,
+    adminRoundRateLimiter: pass,
+    oracleResolveRateLimiter: pass,
+  };
 });
 
 jest.mock('../lib/prisma', () => ({ prisma: {} }));
+
+jest.mock('../services/round.service', () => ({
+  __esModule: true,
+  default: {
+    getRoundsForApi: jest.fn().mockResolvedValue({ source: 'mock', rounds: [] }),
+  },
+}));
+
+jest.mock('../services/tournament.service', () => ({
+  __esModule: true,
+  default: {
+    listTournaments: jest.fn().mockResolvedValue({ data: [], pagination: { limit: 20, offset: 0, total: 0 } }),
+  },
+}));
 
 const EXPECTED_FIELDS = ['method', 'path', 'status', 'durationMs', 'requestId'];
 

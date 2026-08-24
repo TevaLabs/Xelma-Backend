@@ -113,7 +113,7 @@ router.post(
   "/:id/join",
   authenticateUser,
   validate(joinTournamentParamsSchema, "params"),
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  asyncHandler((async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user.userId;
     const { id } = req.params;
 
@@ -123,7 +123,7 @@ router.post(
       tournamentId: id,
       currentParticipants: result.currentParticipants,
     });
-  }) as any,
+  }) as any),
 );
 
 export default router;

@@ -301,7 +301,7 @@ router.post(
 router.post(
   "/claim",
   verifyStellarAuth,
-  (req, _res, next) => {
+  (req: Request, _res: Response, next: NextFunction) => {
     req.body = req.body ?? {};
     next();
   },
@@ -385,7 +385,7 @@ router.post(
       }
       throw error;
     }
-  }),
+  }) as any,
 );
 
 const BET_STATUSES: BetStatus[] = ["STUB", "SUBMITTED", "CONFIRMED", "FAILED"];
