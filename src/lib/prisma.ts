@@ -20,11 +20,50 @@ export const prisma = (() => {
   if (process.env.NODE_ENV === 'test') {
     // Minimal mock to satisfy type expectations during unit tests.
     const mock: Partial<PrismaClient> = {
+      round: {
+        findUnique: async () => null as any,
+        findMany: async () => [] as any,
+        create: async ({ data }: any) => ({ id: 'mock-round', ...data }) as any,
+        update: async ({ where, data }: any) => ({ id: where.id, ...data }) as any,
+      },
+      user: {
+        findUnique: async () => null as any,
+        create: async ({ data }: any) => ({ id: 'mock-user', ...data }) as any,
+        update: async ({ where, data }: any) => ({ id: where.id, ...data }) as any,
+      },
+      userStats: {
+        findUnique: async () => null as any,
+        findMany: async () => [] as any,
+        create: async ({ data }: any) => ({ id: 'mock-stats', ...data }) as any,
+        update: async ({ where, data }: any) => ({ id: where.id, ...data }) as any,
+        count: async () => 0,
+      },
+      transaction: {
+        findMany: async () => [] as any,
+        create: async ({ data }: any) => ({ id: 'mock-tx', ...data }) as any,
+        deleteMany: async () => ({ count: 0 }) as any,
+        count: async () => 0,
+      },
+      prediction: {
+        findMany: async () => [] as any,
+        create: async ({ data }: any) => ({ id: 'mock-pred', ...data }) as any,
+        update: async ({ where, data }: any) => ({ id: where.id, ...data }) as any,
+      },
+      leaderboard: {
+        findMany: async () => [] as any,
+        findUnique: async () => null as any,
+        create: async ({ data }: any) => ({ id: 'mock-lb', ...data }) as any,
+        update: async ({ where, data }: any) => ({ id: where.id, ...data }) as any,
+      },
+      notification: {
+        findMany: async () => [] as any,
+        count: async () => 0,
+        create: async ({ data }: any) => ({ id: 'mock-notif', ...data }) as any,
+      },
       idempotencyKey: {
         deleteMany: async () => ({ count: 0 }) as any,
         findUnique: async () => null as any,
         upsert: async () => null as any,
-        // Add other model mocks if needed.
       },
       // #391: lightweight in-memory stubs for the hackathon-data models so
       // unit tests (NODE_ENV=test, no real DATABASE_URL) exercise the same

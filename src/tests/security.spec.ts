@@ -73,6 +73,16 @@ function setupHackathonMocks(): void {
   jest.doMock("../middleware/rateLimiter.middleware", () => ({
     apiRateLimiter: passthroughLimiter,
     writeRateLimiter: passthroughLimiter,
+    challengeRateLimiter: passthroughLimiter,
+    connectRateLimiter: passthroughLimiter,
+    authRateLimiter: passthroughLimiter,
+    chatMessageRateLimiter: passthroughLimiter,
+    predictionRateLimiter: passthroughLimiter,
+    batchPredictionRateLimiter: passthroughLimiter,
+    batchLeaderboardRateLimiter: passthroughLimiter,
+    adminRoundRateLimiter: passthroughLimiter,
+    oracleResolveRateLimiter: passthroughLimiter,
+    betRateLimiter: passthroughLimiter,
   }));
   jest.doMock("../middleware/notFound", () => ({
     notFoundHandler: (_req: any, res: any) => {

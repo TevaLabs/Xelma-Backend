@@ -4,6 +4,7 @@ import { Express } from "express";
 import { UserRole } from "@prisma/client";
 import { ErrorCode, ExternalServiceError } from "../utils/errors";
 import { createApp } from "../index";
+import { prisma } from "../lib/prisma";
 import sorobanService from "../services/soroban.service";
 import { generateToken } from "../utils/jwt.util";
 
@@ -14,6 +15,18 @@ jest.mock("../services/soroban.service", () => {
       placeBet: jest.fn(),
       placePrecisionBet: jest.fn(),
     },
+  };
+});
+
+jest.mock("../utils/idempotency.util", () => {
+  const store = new Map();
+  return {
+    __esModule: true,
+    usesInMemoryStore: jest.fn().mockReturnValue(true),
+    acquireIdempotencyLock: jest.fn().mockResolvedValue({ acquired: true }),
+    releaseIdempotencyLock: jest.fn().mockResolvedValue(undefined),
+    isValidIdempotencyKey: jest.fn().mockReturnValue(true),
+    IDEMPOTENCY_STORE_UNAVAILABLE: "IDEMPOTENCY_STORE_UNAVAILABLE",
   };
 });
 
@@ -33,7 +46,6 @@ describe("Bets Routes", () => {
   afterEach(async () => {
     process.env = { ...originalEnv };
     jest.clearAllMocks();
-    await prisma.idempotencyKey.deleteMany({});
   });
 
   describe("POST /api/bets/up-down", () => {
@@ -97,7 +109,7 @@ describe("Bets Routes", () => {
     it("rejects mismatched wallet address with 403", async () => {
       const res = await request(app)
         .post("/api/bets/up-down")
-        .set("Authorization", `Bearer ${validToken}`)
+        .set("Authorization", `Bearer ${token}`)
         .send({
           address: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
           amount: 10,
@@ -135,7 +147,7 @@ describe("Bets Routes", () => {
         .send(payload);
 
       expect(res1.status).toBe(200);
-      expect(res1.body.txHash).toBe("0xidempotent");
+      expect(res1.body.data.txHash).toBe("0xidempotent");
       expect(sorobanService.placeBet).toHaveBeenCalledTimes(1);
 
       // Second request
@@ -225,7 +237,7 @@ describe("Bets Routes", () => {
 
       for (const res of responses) {
         expect(res.status).toBe(200);
-        expect(res.body.txHash).toBe("0xconcurrent");
+        expect(res.body.data.txHash).toBe("0xconcurrent");
       }
 
       expect(sorobanService.placeBet).toHaveBeenCalledTimes(1);
@@ -308,10 +320,12 @@ describe("Bets Routes", () => {
         .send({ address: VALID_ADDRESS, amount: 5, predictedPrice: 0.12 });
 
       expect(res.status).toBe(503);
-      expect(res.body).toEqual({
-        success: false,
-        error: "Contract interaction failed. Please try again.",
-      });
+      expect(res.body).toEqual(
+        expect.objectContaining({
+          code: ErrorCode.EXTERNAL_SERVICE_ERROR,
+          error: "Contract interaction failed. Please try again.",
+        })
+      );
     });
 
     it("returns 400 when predictedPrice is missing", async () => {

@@ -61,7 +61,7 @@ describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
     });
 
     process.env.NODE_ENV = "development";
-    process.env.JWT_SECRET = "test-secret";
+    process.env.JWT_SECRET = "test-secret-at-least-16";
     jest.resetModules();
     app = require("../index").createApp();
   });
