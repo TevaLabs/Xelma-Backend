@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import roundService from '../services/round.service';
 import resolutionService from '../services/resolution.service';
 import simulationService from '../services/simulation.service';
-import { requireAdmin, requireOracle, AuthenticatedRequest } from '../middleware/auth.middleware';
+import { requireAdmin, requireOracle, verifyStellarAuth, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { asyncHandler } from '../middleware/errorHandler.middleware';
 import { toDecimal, toDecimalString } from '../utils/decimal.util';
 import { betRateLimiter, adminRoundRateLimiter, oracleResolveRateLimiter } from '../middleware/rateLimiter.middleware';
@@ -191,7 +191,31 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     }
 });
 
-// Stub bet endpoint — for logging/analytics only; on-chain bets go via Soroban
+/**
+ * @openapi
+ * /api/rounds/{id}/bet:
+ *   post:
+ *     summary: Place a bet on a round (stub)
+ *     tags: [rounds]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Bet recorded (stub)
+ *       401:
+ *         description: Missing or invalid JWT
+ */
 router.post('/:id/bet', betRateLimiter, validate(betSchema), (_req: Request, res: Response) => {
   res.json({ success: true, message: 'Bet recorded (stub)' });
 });
@@ -322,7 +346,37 @@ router.post('/:id/simulate', async (req: Request, res: Response, next: NextFunct
 });
 
 // Hackathon mutation endpoints - with Zod validation
-router.post('/hackathon/up-down/:id/bet', betRateLimiter, validate(upDownBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
+/**
+ * @openapi
+ * /api/rounds/hackathon/up-down/{id}/bet:
+ *   post:
+ *     summary: Place an up/down bet (hackathon)
+ *     tags: [rounds]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [address, amount, side]
+ *             properties:
+ *               address: { type: string }
+ *               amount: { type: number }
+ *               side: { type: string, enum: [UP, DOWN] }
+ *     responses:
+ *       200:
+ *         description: Bet recorded
+ *       401:
+ *         description: Missing or invalid JWT
+ */
+router.post('/hackathon/up-down/:id/bet', verifyStellarAuth, betRateLimiter, validate(upDownBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { address, amount, side } = req.body;
@@ -333,7 +387,37 @@ router.post('/hackathon/up-down/:id/bet', betRateLimiter, validate(upDownBetSche
   }
 }) as any);
 
-router.post('/hackathon/precision/:id/bet', betRateLimiter, validate(precisionBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
+/**
+ * @openapi
+ * /api/rounds/hackathon/precision/{id}/bet:
+ *   post:
+ *     summary: Place a precision bet (hackathon)
+ *     tags: [rounds]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [address, amount, predictedPrice]
+ *             properties:
+ *               address: { type: string }
+ *               amount: { type: number }
+ *               predictedPrice: { type: number }
+ *     responses:
+ *       200:
+ *         description: Precision bet recorded
+ *       401:
+ *         description: Missing or invalid JWT
+ */
+router.post('/hackathon/precision/:id/bet', verifyStellarAuth, betRateLimiter, validate(precisionBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { address, amount, predictedPrice } = req.body;

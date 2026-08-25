@@ -42,9 +42,9 @@ const router = Router();
  *         application/json:
  *           schema:
  *             type: object
- *             required: [amount, side]
+ *             required: [address, amount, side]
  *             properties:
- *               address: { type: string, description: "Optional; must match JWT wallet when provided" }
+ *               address: { type: string, description: "Stellar wallet address; must match JWT wallet" }
  *               amount: { type: number }
  *               side: { type: string, enum: [UP, DOWN] }
  *     responses:
@@ -163,9 +163,9 @@ router.post(
  *         application/json:
  *           schema:
  *             type: object
- *             required: [amount, predictedPrice]
+ *             required: [address, amount, predictedPrice]
  *             properties:
- *               address: { type: string, description: "Optional; must match JWT wallet when provided" }
+ *               address: { type: string, description: "Stellar wallet address; must match JWT wallet" }
  *               amount: { type: number }
  *               predictedPrice: { type: number }
  *     responses:
@@ -277,13 +277,14 @@ router.post(
  *         schema: { type: string }
  *         required: false
  *     requestBody:
- *       required: false
+ *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [address]
  *             properties:
- *               address: { type: string, description: "Optional; must match JWT wallet when provided" }
+ *               address: { type: string, description: "Stellar wallet address; must match JWT wallet" }
  *     responses:
  *       200:
  *         description: Claim recorded or submitted on-chain

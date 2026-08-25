@@ -143,7 +143,7 @@ function setupHackathonMocks(): void {
   jest.doMock("../routes", () => ({ __esModule: true, default: passthroughRouter }));
   jest.doMock("../routes/health", () => ({ __esModule: true, default: passthroughRouter }));
   jest.doMock("../routes/stats", () => ({ __esModule: true, default: passthroughRouter }));
-  jest.doMock("../routes/rounds", () => ({ __esModule: true, default: passthroughRouter }));
+  jest.doMock("../routes/rounds.routes", () => ({ __esModule: true, default: passthroughRouter }));
   jest.doMock("../routes/leaderboard", () => ({ __esModule: true, default: passthroughRouter }));
   jest.doMock("../routes/user.routes", () => ({ __esModule: true, default: passthroughRouter }));
   jest.doMock("../routes/bets.routes", () => ({ __esModule: true, default: passthroughRouter }));
@@ -233,7 +233,7 @@ describe("Security headers — hackathon app", () => {
     jest.dontMock("../routes");
     jest.dontMock("../routes/health");
     jest.dontMock("../routes/stats");
-    jest.dontMock("../routes/rounds");
+    jest.dontMock("../routes/rounds.routes");
     jest.dontMock("../routes/leaderboard");
     jest.dontMock("../routes/user.routes");
     jest.dontMock("../routes/bets.routes");
@@ -298,7 +298,7 @@ describe("Security headers parity — both apps share the same core headers", ()
     jest.dontMock("../routes");
     jest.dontMock("../routes/health");
     jest.dontMock("../routes/stats");
-    jest.dontMock("../routes/rounds");
+    jest.dontMock("../routes/rounds.routes");
     jest.dontMock("../routes/leaderboard");
     jest.dontMock("../routes/user.routes");
     jest.dontMock("../routes/bets.routes");

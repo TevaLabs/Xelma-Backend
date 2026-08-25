@@ -45,6 +45,7 @@ jest.mock("../utils/bindings-validator", () => ({
     ok: true,
     info: { vendorPath: "mock", packageName: "mock" },
   })),
+  validateVendoredBindingsSync: jest.fn(() => ({ ok: true })),
 }));
 
 jest.mock("../services/oracle", () => ({

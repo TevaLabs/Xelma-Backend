@@ -13,6 +13,7 @@ jest.mock('../services/soroban.service', () => ({
   isReady: jest.fn().mockReturnValue(true),
   getUserStats: jest.fn(),
   getPendingWinnings: jest.fn(),
+  getBalance: jest.fn(),
   getHealth: jest.fn(),
 }));
 
@@ -271,7 +272,8 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
       expect(res.status).toBe(400);
       expect(res.body).toEqual(
         expect.objectContaining({
-          error: 'Invalid Stellar wallet address format',
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid Stellar wallet address format',
         })
       );
     });

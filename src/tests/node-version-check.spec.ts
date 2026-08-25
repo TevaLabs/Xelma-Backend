@@ -1,8 +1,15 @@
 import { execSync } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 
 describe('Node version startup check', () => {
   it('exits with code 1 and an error message if Node.js version is below 22', () => {
+    const distIndex = path.resolve(__dirname, '../../dist/index.js');
+    if (!fs.existsSync(distIndex)) {
+      console.warn('Skipping node-version-check: dist/index.js not found. Run `npm run build` first.');
+      return;
+    }
+
     try {
       execSync('npx -y -p node@18 node dist/index.js', {
         cwd: path.resolve(__dirname, '../../'),

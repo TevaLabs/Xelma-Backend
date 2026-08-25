@@ -245,30 +245,26 @@ router.get(
 },
 );
 /**
- * GET /api/education/tip
- * Generate contextual educational tip for a resolved round
- *
- * Query Parameters:
- *   - roundId (required): UUID of the resolved round
- *
- * Response:
- *   {
- *     "message": "Educational message tailored to round outcome",
- *     "category": "volatility | oracle | stellar | price-action",
- *     "roundId": "uuid",
- *     "metadata": {
- *       "priceChange": 0.04,
- *       "priceChangePercent": 3.2,
- *       "duration": 300,
- *       "outcome": "up | down | unchanged"
- *     }
- *   }
- *
- * Error Responses:
- *   - 400: Missing or invalid roundId
- *   - 404: Round not found
- *   - 422: Round not resolved yet
- *   - 500: Internal server error
+ * @openapi
+ * /api/education/tip:
+ *   get:
+ *     summary: Get educational tip for a resolved round
+ *     tags: [education]
+ *     parameters:
+ *       - in: query
+ *         name: roundId
+ *         required: true
+ *         schema: { type: string }
+ *         description: UUID of the resolved round
+ *     responses:
+ *       200:
+ *         description: Educational tip
+ *       400:
+ *         description: Missing or invalid roundId
+ *       404:
+ *         description: Round not found
+ *       422:
+ *         description: Round not resolved yet
  */
 router.get("/tip", async (req: Request, res: Response, next: NextFunction) => {
   try {

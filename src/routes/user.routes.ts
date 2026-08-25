@@ -15,8 +15,18 @@ import { sendSuccess, sendError } from "../utils/response";
 const router = Router();
 
 /**
- * GET /api/user/profile
- * Returns the authenticated user's full profile information
+ * @openapi
+ * /api/user/profile:
+ *   get:
+ *     summary: Get authenticated user profile
+ *     tags: [user]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User profile
+ *       401:
+ *         description: Unauthorized
  */
 router.get(
   "/profile",
@@ -64,8 +74,18 @@ router.get(
 );
 
 /**
- * GET /api/user/balance
- * Returns current virtual balance
+ * @openapi
+ * /api/user/balance:
+ *   get:
+ *     summary: Get user virtual balance
+ *     tags: [user]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User balance
+ *       401:
+ *         description: Unauthorized
  */
 router.get(
   "/balance",
@@ -89,8 +109,18 @@ router.get(
 );
 
 /**
- * GET /api/user/stats
- * Returns detailed user statistics
+ * @openapi
+ * /api/user/stats:
+ *   get:
+ *     summary: Get detailed user statistics
+ *     tags: [user]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User statistics
+ *       401:
+ *         description: Unauthorized
  */
 router.get("/stats", authenticateUser, (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
@@ -214,8 +244,28 @@ router.get(
 );
 
 /**
- * PATCH /api/user/profile
- * Update user preferences/profile
+ * @openapi
+ * /api/user/profile:
+ *   patch:
+ *     summary: Update user profile
+ *     tags: [user]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               nickname: { type: string }
+ *               avatarUrl: { type: string }
+ *               preferences: { type: object }
+ *     responses:
+ *       200:
+ *         description: Profile updated
+ *       401:
+ *         description: Unauthorized
  */
 router.patch(
   "/profile",
@@ -249,8 +299,18 @@ router.patch(
 );
 
 /**
- * GET /api/user/transactions
- * Paginated list of balance changes
+ * @openapi
+ * /api/user/transactions:
+ *   get:
+ *     summary: Get paginated balance changes
+ *     tags: [user]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Transaction history
+ *       401:
+ *         description: Unauthorized
  */
 router.get(
   "/transactions",
@@ -293,24 +353,27 @@ router.get(
 );
 
 /**
- * GET /api/user/:address/history
- * Paginated bet (prediction) history for a Stellar address.
- * Public endpoint — no authentication required.
- *
- * Pagination modes
- * ────────────────
- * Cursor (preferred for large histories):
- *   ?limit=20&cursor=<opaque-cursor>
- *   Response includes `nextCursor`; use it as `cursor` in the next request.
- *   Returns `nextCursor: null` on the last page.
- *
- * Offset (legacy, backward-compatible):
- *   ?limit=20&offset=0
- *   Returns `total` and `totalPages` for UI paginators.
- *   Performance degrades for offsets > ~10 000 rows.
- *
- * Cursor mode is selected automatically when `cursor` is present in the query
- * (even `cursor=""` keeps offset mode — only a non-empty string activates it).
+ * @openapi
+ * /api/user/{address}/history:
+ *   get:
+ *     summary: Get bet history for a Stellar address
+ *     tags: [user]
+ *     parameters:
+ *       - in: path
+ *         name: address
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *       - in: query
+ *         name: cursor
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Paginated bet history
+ *       400:
+ *         description: Invalid address
  */
 router.get(
   "/:address/history",
@@ -504,8 +567,21 @@ function handleMockHistory(
 }
 
 /**
- * GET /api/user/:walletAddress/public-profile
- * Public profile view for any user
+ * @openapi
+ * /api/user/{walletAddress}/public-profile:
+ *   get:
+ *     summary: Get public profile for any user
+ *     tags: [user]
+ *     parameters:
+ *       - in: path
+ *         name: walletAddress
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Public user profile
+ *       404:
+ *         description: User not found
  */
 router.get(
   "/:walletAddress/public-profile",

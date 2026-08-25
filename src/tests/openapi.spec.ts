@@ -8,56 +8,26 @@ interface RequiredOperation {
   statuses: string[];
 }
 
-/**
- * Routes a removal of would be a silent regression: wallet auth, money
- * movement (bets, predictions, round settlement), and the admin/health
- * surfaces operators depend on. Each entry's `statuses` list was verified
- * against the JSDoc in its route file — keep it in sync when responses
- * are added or removed there.
- */
 const REQUIRED_OPERATIONS: RequiredOperation[] = [
-  // Auth — wallet challenge/connect flow (src/routes/auth.routes.ts)
   { path: "/api/auth/challenge", method: "post", statuses: ["200", "400", "429", "500"] },
   { path: "/api/auth/connect", method: "post", statuses: ["200", "400", "401", "429", "500"] },
-
-  // Predictions — placement and reads (src/routes/predictions.routes.ts)
   { path: "/api/predictions/submit", method: "post", statuses: ["200", "409"] },
   { path: "/api/predictions/batch-submit", method: "post", statuses: ["200", "429"] },
   { path: "/api/predictions/user", method: "get", statuses: ["200"] },
   { path: "/api/predictions/round/{roundId}", method: "get", statuses: ["200"] },
-
-  // Bets — stub/on-chain money movement (src/routes/bets.routes.ts)
   { path: "/api/bets/up-down", method: "post", statuses: ["200", "400", "401"] },
   { path: "/api/bets/precision", method: "post", statuses: ["200", "400", "401"] },
-
-  // Rounds — lifecycle and settlement (src/routes/rounds.routes.ts)
   { path: "/api/rounds/start", method: "post", statuses: ["200", "400", "401", "403", "409", "429", "500"] },
   { path: "/api/rounds/{id}/resolve", method: "post", statuses: ["200", "400", "401", "403", "429", "500"] },
-
-  // Chat (src/routes/chat.routes.ts)
   { path: "/api/chat/send", method: "post", statuses: ["201", "429"] },
-
-  // Leaderboard batch lookups (src/routes/leaderboard.routes.ts)
   { path: "/api/leaderboard/batch", method: "post", statuses: ["200"] },
-
-  // Admin operational visibility
   { path: "/api/admin/metrics/rate-limits", method: "get", statuses: ["200"] },
   { path: "/api/admin/dead-letter", method: "get", statuses: [] },
   { path: "/api/admin/cors-diagnostics", method: "get", statuses: ["200"] },
-
-  // Health / metrics
   { path: "/health", method: "get", statuses: ["200"] },
   { path: "/metrics/readiness", method: "get", statuses: ["200", "503"] },
-const REQUIRED_OPERATIONS: Array<{ path: string; method: string }> = [
-  { path: "/api/auth/challenge", method: "post" },
-  { path: "/api/auth/connect", method: "post" },
-  { path: "/api/predictions/submit", method: "post" },
-  { path: "/api/predictions/batch-submit", method: "post" },
-  { path: "/api/chat/send", method: "post" },
-  { path: "/api/admin/metrics/rate-limits", method: "get" },
-  { path: "/api/rounds/start", method: "post" },
-  { path: "/api/price", method: "get" },
-  { path: "/api/prices", method: "get" },
+  { path: "/api/price", method: "get", statuses: ["200"] },
+  { path: "/api/prices", method: "get", statuses: ["200"] },
 ];
 
 describe("OpenAPI spec", () => {
@@ -71,13 +41,15 @@ describe("OpenAPI spec", () => {
 
   it("documents the response statuses each critical route relies on", () => {
     for (const { path, method, statuses } of REQUIRED_OPERATIONS) {
+      if (statuses.length === 0) continue;
       const operation = paths[path]?.[method];
       for (const status of statuses) {
         expect(operation?.responses?.[status]).toBeDefined();
       }
     }
+  });
+
   it("documents distinct /api/price vs /api/prices contracts", () => {
-    const paths = (swaggerSpec as { paths?: Record<string, any> }).paths ?? {};
     const priceOp = paths["/api/price"]?.get;
     const pricesOp = paths["/api/prices"]?.get;
 

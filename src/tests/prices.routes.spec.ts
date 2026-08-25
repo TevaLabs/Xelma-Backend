@@ -54,10 +54,11 @@ describe('GET /api/prices', () => {
     const res = await request(app).get('/api/prices');
 
     expect(res.status).toBe(200);
-    expect(res.body.BTC).toBe(60_000);
-    expect(res.body.ETH).toBe(3_000);
-    expect(res.body.XLM).toBe(0.2891);
-    expect(res.body.stale).toBe(true);
-    expect(res.body.lastUpdatedAt).toBeNull();
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.BTC).toBe(60_000);
+    expect(res.body.data.ETH).toBe(3_000);
+    expect(res.body.data.XLM).toBe(0.2891);
+    expect(res.body.data.stale).toBe(true);
+    expect(res.body.data.lastUpdatedAt).toBeNull();
   });
 });

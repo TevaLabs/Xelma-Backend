@@ -296,13 +296,15 @@ describe("RetentionService", () => {
 
       const results = await retentionService.runAllPolicies();
 
-      expect(results).toHaveLength(3);
+      expect(results).toHaveLength(4);
       expect(results[0].entity).toBe("authChallenges");
       expect(results[0].deletedCount).toBe(5);
       expect(results[1].entity).toBe("chatMessages");
       expect(results[1].deletedCount).toBe(100);
       expect(results[2].entity).toBe("auditLogs");
       expect(results[2].deletedCount).toBe(75);
+      expect(results[3].entity).toBe("idempotencyKeys");
+      expect(results[3].deletedCount).toBe(0);
       
       expect(logger.info).toHaveBeenCalledWith(
         expect.stringContaining("180 total records deleted"),
@@ -326,6 +328,7 @@ describe("RetentionService", () => {
         RETENTION_AUTH_CHALLENGES_ENABLED: "false",
         RETENTION_CHAT_MESSAGES_ENABLED: "false",
         RETENTION_AUDIT_LOGS_ENABLED: "false",
+        RETENTION_IDEMPOTENCY_KEYS_ENABLED: "false",
       };
 
       // Need to reload service with new env
@@ -334,10 +337,11 @@ describe("RetentionService", () => {
 
       const results = await testRetentionService.runAllPolicies();
 
-      expect(results).toHaveLength(3);
+      expect(results).toHaveLength(4);
       expect(results[0].deletedCount).toBe(0);
       expect(results[1].deletedCount).toBe(0);
       expect(results[2].deletedCount).toBe(0);
+      expect(results[3].deletedCount).toBe(0);
 
       process.env = originalEnv;
     });

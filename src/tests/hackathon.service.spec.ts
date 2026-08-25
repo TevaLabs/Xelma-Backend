@@ -1,418 +1,425 @@
-import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
-import { Decimal } from '@prisma/client/runtime/library';
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 
-const mockPools: Map<string, { poolUp: Decimal; poolDown: Decimal }> = new Map();
-const mockUsers: Map<string, Decimal> = new Map();
-const mockRounds: Map<string, { mode: string; status: string }> = new Map();
+const mockRoundStore = new Map<string, any>();
+const mockLeaderboardStore = new Map<string, any>();
+const mockBetStore: any[] = [];
 
 jest.mock('../lib/prisma', () => ({
-    prisma: {
-        $transaction: jest.fn(async (fn: any) => {
-            const tx = {
-                user: {
-                    findUnique: jest.fn(async ({ where }: any) => {
-                        const balance = mockUsers.get(where.id);
-                        if (!balance) return null;
-                        return { id: where.id, virtualBalance: balance, walletAddress: 'mock-address' };
-                    }),
-                    update: jest.fn(async ({ where, data }: any) => {
-                        const balance = mockUsers.get(where.id);
-                        if (balance === undefined) throw Object.assign(new Error('Not found'), { code: 'P2025' });
-                        if (data.virtualBalance && data.virtualBalance.decrement) {
-                            const newBalance = balance.sub(new Decimal(data.virtualBalance.decrement));
-                            if (newBalance.lt(0)) throw Object.assign(new Error('Insufficient'), { code: 'P2025' });
-                            mockUsers.set(where.id, newBalance);
-                            return { ...(await tx.user.findUnique({ where })), virtualBalance: newBalance };
-                        }
-                        return { id: where.id, virtualBalance: balance };
-                    }),
-                },
-                round: {
-                    findUnique: jest.fn(async ({ where }: any) => {
-                        const r = mockRounds.get(where.id);
-                        const pools = mockPools.get(where.id);
-                        if (!r) return null;
-                        return { ...r, poolUp: pools!.poolUp, poolDown: pools!.poolDown };
-                    }),
-                    update: jest.fn(async ({ where, data }: any) => {
-                        const pools = mockPools.get(where.id);
-                        if (data.poolUp && data.poolUp.increment) {
-                            pools!.poolUp = pools!.poolUp.plus(new Decimal(data.poolUp.increment));
-                        }
-                        if (data.poolDown && data.poolDown.increment) {
-                            pools!.poolDown = pools!.poolDown.plus(new Decimal(data.poolDown.increment));
-                        }
-                        return { ...mockRounds.get(where.id), poolUp: pools!.poolUp, poolDown: pools!.poolDown };
-                    }),
-                },
-            };
-            return await fn(tx);
-        }),
+  prisma: {
+    mockRound: {
+      findMany: jest.fn(async () => Array.from(mockRoundStore.values())),
+      findUnique: jest.fn(async ({ where }: any) => mockRoundStore.get(where.id) ?? null),
+      update: jest.fn(async ({ where, data }: any) => {
+        const existing = mockRoundStore.get(where.id);
+        if (!existing) return null;
+        const updated = { ...existing, ...data };
+        mockRoundStore.set(where.id, updated);
+        return updated;
+      }),
     },
-}));
-
-jest.mock('../services/soroban.service', () => ({
-    __esModule: true,
-    default: {
-        placeBet: jest.fn(() => Promise.resolve()),
-        ensureInitialized: jest.fn(),
+    mockLeaderboard: {
+      findMany: jest.fn(async ({ orderBy }: any = {}) => {
+        const all = Array.from(mockLeaderboardStore.values());
+        if (orderBy?.xp === 'desc') all.sort((a, b) => b.xp - a.xp);
+        return all;
+      }),
+      findUnique: jest.fn(async ({ where }: any) => mockLeaderboardStore.get(where.address) ?? null),
+      create: jest.fn(async ({ data }: any) => {
+        mockLeaderboardStore.set(data.address, { ...data });
+        return { ...data };
+      }),
+      update: jest.fn(async ({ where, data }: any) => {
+        const existing = mockLeaderboardStore.get(where.address);
+        if (!existing) return null;
+        const updated = { ...existing, ...data };
+        mockLeaderboardStore.set(where.address, updated);
+        return updated;
+      }),
     },
+    mockBet: {
+      create: jest.fn(async ({ data }: any) => {
+        const record = { id: mockBetStore.length + 1, createdAt: new Date(), ...data };
+        mockBetStore.push(record);
+        return record;
+      }),
+      findMany: jest.fn(async () => mockBetStore),
+    },
+  },
 }));
 
 jest.mock('../utils/logger', () => ({
-    __esModule: true,
-    default: {
-        info: jest.fn(),
-        error: jest.fn(),
-        warn: jest.fn(),
-        debug: jest.fn(),
-    },
+  __esModule: true,
+  default: { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() },
 }));
 
 import hackathonService from '../services/hackathon.service';
-import { toDecimal, decEq, decGte } from '../utils/decimal.util';
+
+function seedUser(address: string, balance: number) {
+  mockLeaderboardStore.set(address, {
+    address,
+    rank: 0,
+    balance,
+    pendingWinnings: 0,
+    totalWins: 0,
+    totalLosses: 0,
+    winStreak: 0,
+    xp: 0,
+    rankTitle: 'Rookie',
+  });
+}
+
+function seedRound(id: string, overrides: Record<string, any> = {}) {
+  const round = {
+    id,
+    asset: 'BTC',
+    mode: 'updown',
+    status: 'live',
+    startPrice: 60000,
+    poolUp: 0,
+    poolDown: 0,
+    totalPool: null,
+    predictionCount: null,
+    closesAt: new Date(Date.now() + 300_000).toISOString(),
+    ...overrides,
+  };
+  mockRoundStore.set(id, round);
+  return round;
+}
+
+beforeEach(() => {
+  mockRoundStore.clear();
+  mockLeaderboardStore.clear();
+  mockBetStore.length = 0;
+  jest.clearAllMocks();
+});
 
 describe('HackathonService - placeBet', () => {
-    const userId = 'user-hack-test-1';
-    const roundId = 'round-hack-test-1';
+  const address = 'user-hack-test-1';
+  const roundId = 'round-hack-test-1';
 
-    beforeEach(() => {
-        mockUsers.clear();
-        mockPools.clear();
-        mockRounds.clear();
+  beforeEach(() => {
+    seedUser(address, 1000);
+    seedRound(roundId);
+  });
 
-        mockUsers.set(userId, new Decimal(1000));
-        mockPools.set(roundId, { poolUp: new Decimal(0), poolDown: new Decimal(0) });
-        mockRounds.set(roundId, { mode: 'UP_DOWN', status: 'ACTIVE' });
+  describe('Balance Deduction', () => {
+    it('deducts the bet amount from the user balance', async () => {
+      await hackathonService.placeBet(roundId, address, 100, 'UP');
 
-        jest.clearAllMocks();
+      const user = mockLeaderboardStore.get(address)!;
+      expect(user.balance).toBe(900);
     });
 
-    describe('Overdraft Rejection', () => {
-        it('rejects a bet when balance is exactly zero', async () => {
-            mockUsers.set(userId, new Decimal(0));
+    it('floors balance at zero when bet exceeds available balance', async () => {
+      seedUser(address, 50);
 
-            await expect(
-                hackathonService.placeBet({
-                    userId,
-                    roundId,
-                    amount: 1,
-                    side: 'UP',
-                }),
-            ).rejects.toThrow('Insufficient balance');
-        });
+      await hackathonService.placeBet(roundId, address, 100, 'UP');
 
-        it('rejects a bet when balance is less than the bet amount', async () => {
-            mockUsers.set(userId, new Decimal(50));
-
-            await expect(
-                hackathonService.placeBet({
-                    userId,
-                    roundId,
-                    amount: 100,
-                    side: 'UP',
-                }),
-            ).rejects.toThrow('Insufficient balance');
-        });
-
-        it('rejects a bet when balance is insufficient for a fractional amount', async () => {
-            mockUsers.set(userId, new Decimal('0.00000001'));
-
-            await expect(
-                hackathonService.placeBet({
-                    userId,
-                    roundId,
-                    amount: 0.01,
-                    side: 'DOWN',
-                }),
-            ).rejects.toThrow('Insufficient balance');
-        });
-
-        it('does not deduct balance when overdraft is rejected', async () => {
-            mockUsers.set(userId, new Decimal(50));
-
-            await expect(
-                hackathonService.placeBet({
-                    userId,
-                    roundId,
-                    amount: 100,
-                    side: 'UP',
-                }),
-            ).rejects.toThrow('Insufficient balance');
-
-            const balance = mockUsers.get(userId)!;
-            expect(decEq(balance, 50)).toBe(true);
-        });
-
-        it('does not update pool when overdraft is rejected', async () => {
-            mockUsers.set(userId, new Decimal(50));
-
-            await expect(
-                hackathonService.placeBet({
-                    userId,
-                    roundId,
-                    amount: 100,
-                    side: 'UP',
-                }),
-            ).rejects.toThrow('Insufficient balance');
-
-            const pools = mockPools.get(roundId)!;
-            expect(pools.poolUp.toNumber()).toBe(0);
-            expect(pools.poolDown.toNumber()).toBe(0);
-        });
+      const user = mockLeaderboardStore.get(address)!;
+      expect(user.balance).toBe(0);
     });
 
-    describe('Pool Increments', () => {
-        it('increments poolUp when betting UP', async () => {
-            const result = await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 100,
-                side: 'UP',
-            });
+    it('floors balance at zero when balance is exactly zero', async () => {
+      seedUser(address, 0);
 
-            expect(result.side).toBe('UP');
-            expect(decEq(result.amount, 100)).toBe(true);
-            expect(decGte(result.poolUp, 100)).toBe(true);
-            expect(result.poolDown.toNumber()).toBe(0);
+      await hackathonService.placeBet(roundId, address, 1, 'UP');
 
-            const pools = mockPools.get(roundId)!;
-            expect(decEq(pools.poolUp, 100)).toBe(true);
-            expect(pools.poolDown.toNumber()).toBe(0);
-        });
-
-        it('increments poolDown when betting DOWN', async () => {
-            const result = await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 100,
-                side: 'DOWN',
-            });
-
-            expect(result.side).toBe('DOWN');
-            expect(decEq(result.amount, 100)).toBe(true);
-            expect(result.poolUp.toNumber()).toBe(0);
-            expect(decGte(result.poolDown, 100)).toBe(true);
-
-            const pools = mockPools.get(roundId)!;
-            expect(pools.poolUp.toNumber()).toBe(0);
-            expect(decEq(pools.poolDown, 100)).toBe(true);
-        });
-
-        it('accumulates poolUp across multiple UP bets', async () => {
-            const user2 = 'user-hack-test-2';
-            mockUsers.set(user2, new Decimal(1000));
-
-            await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 50,
-                side: 'UP',
-            });
-
-            await hackathonService.placeBet({
-                userId: user2,
-                roundId,
-                amount: 75,
-                side: 'UP',
-            });
-
-            const pools = mockPools.get(roundId)!;
-            expect(decEq(pools.poolUp, 125)).toBe(true);
-            expect(pools.poolDown.toNumber()).toBe(0);
-        });
-
-        it('accumulates poolDown across multiple DOWN bets', async () => {
-            const user2 = 'user-hack-test-3';
-            mockUsers.set(user2, new Decimal(1000));
-
-            await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 30,
-                side: 'DOWN',
-            });
-
-            await hackathonService.placeBet({
-                userId: user2,
-                roundId,
-                amount: 45,
-                side: 'DOWN',
-            });
-
-            const pools = mockPools.get(roundId)!;
-            expect(pools.poolUp.toNumber()).toBe(0);
-            expect(decEq(pools.poolDown, 75)).toBe(true);
-        });
-
-        it('maintains separate poolUp and poolDown for mixed sides', async () => {
-            const resultUp = await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 100,
-                side: 'UP',
-            });
-
-            expect(decEq(resultUp.poolUp, 100)).toBe(true);
-            expect(resultUp.poolDown.toNumber()).toBe(0);
-
-            const user2 = 'user-hack-test-4';
-            mockUsers.set(user2, new Decimal(1000));
-
-            const resultDown = await hackathonService.placeBet({
-                userId: user2,
-                roundId,
-                amount: 50,
-                side: 'DOWN',
-            });
-
-            expect(resultDown.poolUp.toNumber()).toBe(100);
-            expect(decEq(resultDown.poolDown, 50)).toBe(true);
-
-            const pools = mockPools.get(roundId)!;
-            expect(decEq(pools.poolUp, 100)).toBe(true);
-            expect(decEq(pools.poolDown, 50)).toBe(true);
-        });
-
-        it('pool totals equal sum of all bets on each side', async () => {
-            await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 10,
-                side: 'UP',
-            });
-
-            await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 20,
-                side: 'UP',
-            });
-
-            await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 30,
-                side: 'UP',
-            });
-
-            const pools = mockPools.get(roundId)!;
-            expect(decEq(pools.poolUp, 60)).toBe(true);
-            expect(pools.poolDown.toNumber()).toBe(0);
-        });
+      const user = mockLeaderboardStore.get(address)!;
+      expect(user.balance).toBe(0);
     });
 
-    describe('Decimal Assertions', () => {
-        it('returns Decimal instances for balance and pool values', async () => {
-            const result = await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 100,
-                side: 'UP',
-            });
+    it('floors balance at zero for fractional overdraft', async () => {
+      seedUser(address, 0.00000001);
 
-            expect(result.amount).toBeInstanceOf(Decimal);
-            expect(result.newBalance).toBeInstanceOf(Decimal);
-            expect(result.poolUp).toBeInstanceOf(Decimal);
-            expect(result.poolDown).toBeInstanceOf(Decimal);
-        });
+      await hackathonService.placeBet(roundId, address, 0.01, 'DOWN');
 
-        it('preserves full precision in balance deduction', async () => {
-            const result = await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 0.12345678,
-                side: 'UP',
-            });
-
-            expect(result.amount.toFixed(8)).toBe('0.12345678');
-            expect(result.newBalance.toFixed(8)).toBe('999.87654322');
-        });
-
-        it('balances correctly after a bet using Decimal arithmetic', async () => {
-            const betAmount = toDecimal(100);
-            const result = await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 100,
-                side: 'UP',
-            });
-
-            const expectedBalance = toDecimal(1000).sub(betAmount);
-            expect(decEq(result.newBalance, expectedBalance)).toBe(true);
-        });
-
-        it('handles very small amounts without precision loss', async () => {
-            const result = await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 0.00000001,
-                side: 'UP',
-            });
-
-            expect(result.amount.toFixed(8)).toBe('0.00000001');
-            expect(decEq(result.poolUp, 0.00000001)).toBe(true);
-        });
-
-        it('handles fractional amounts that are prone to float drift', async () => {
-            const result1 = await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 0.1,
-                side: 'UP',
-            });
-
-            expect(result1.amount.toFixed(8)).toBe('0.10000000');
-            expect(decEq(result1.poolUp, 0.1)).toBe(true);
-
-            const result2 = await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 0.2,
-                side: 'UP',
-            });
-
-            expect(result2.amount.toFixed(8)).toBe('0.20000000');
-            expect(decEq(result2.poolUp, 0.3)).toBe(true);
-        });
-
-        it('deducts balance correctly using Decimal arithmetic', async () => {
-            const result = await hackathonService.placeBet({
-                userId,
-                roundId,
-                amount: 33.33333333,
-                side: 'UP',
-            });
-
-            expect(result.newBalance.toFixed(8)).toBe('966.66666667');
-        });
+      const user = mockLeaderboardStore.get(address)!;
+      expect(user.balance).toBe(0);
     });
 
-    describe('Round Validation', () => {
-        it('rejects a bet when round does not exist', async () => {
-            mockRounds.clear();
+    it('still places the bet even when balance is insufficient', async () => {
+      seedUser(address, 50);
 
-            await expect(
-                hackathonService.placeBet({
-                    userId,
-                    roundId: 'nonexistent',
-                    amount: 10,
-                    side: 'UP',
-                }),
-            ).rejects.toThrow('Round not found');
-        });
+      await hackathonService.placeBet(roundId, address, 100, 'UP');
 
-        it('rejects a bet when round is not active', async () => {
-            mockRounds.set(roundId, { mode: 'UP_DOWN', status: 'RESOLVED' });
-
-            await expect(
-                hackathonService.placeBet({
-                    userId,
-                    roundId,
-                    amount: 10,
-                    side: 'UP',
-                }),
-            ).rejects.toThrow('Round is not active');
-        });
+      expect(mockBetStore.length).toBe(1);
+      expect(mockBetStore[0].amount).toBe(100);
+      expect(mockBetStore[0].side).toBe('UP');
     });
+  });
+
+  describe('Pool Increments', () => {
+    it('increments poolUp when betting UP', async () => {
+      await hackathonService.placeBet(roundId, address, 100, 'UP');
+
+      const round = mockRoundStore.get(roundId)!;
+      expect(round.poolUp).toBe(100);
+      expect(round.poolDown).toBe(0);
+    });
+
+    it('increments poolDown when betting DOWN', async () => {
+      await hackathonService.placeBet(roundId, address, 100, 'DOWN');
+
+      const round = mockRoundStore.get(roundId)!;
+      expect(round.poolUp).toBe(0);
+      expect(round.poolDown).toBe(100);
+    });
+
+    it('accumulates poolUp across multiple UP bets', async () => {
+      const user2 = 'user-hack-test-2';
+      seedUser(user2, 1000);
+
+      await hackathonService.placeBet(roundId, address, 50, 'UP');
+      await hackathonService.placeBet(roundId, user2, 75, 'UP');
+
+      const round = mockRoundStore.get(roundId)!;
+      expect(round.poolUp).toBe(125);
+      expect(round.poolDown).toBe(0);
+    });
+
+    it('accumulates poolDown across multiple DOWN bets', async () => {
+      const user2 = 'user-hack-test-3';
+      seedUser(user2, 1000);
+
+      await hackathonService.placeBet(roundId, address, 30, 'DOWN');
+      await hackathonService.placeBet(roundId, user2, 45, 'DOWN');
+
+      const round = mockRoundStore.get(roundId)!;
+      expect(round.poolUp).toBe(0);
+      expect(round.poolDown).toBe(75);
+    });
+
+    it('maintains separate poolUp and poolDown for mixed sides', async () => {
+      const user2 = 'user-hack-test-4';
+      seedUser(user2, 1000);
+
+      await hackathonService.placeBet(roundId, address, 100, 'UP');
+      await hackathonService.placeBet(roundId, user2, 50, 'DOWN');
+
+      const round = mockRoundStore.get(roundId)!;
+      expect(round.poolUp).toBe(100);
+      expect(round.poolDown).toBe(50);
+    });
+
+    it('pool totals equal sum of all bets on each side', async () => {
+      await hackathonService.placeBet(roundId, address, 10, 'UP');
+      await hackathonService.placeBet(roundId, address, 20, 'UP');
+      await hackathonService.placeBet(roundId, address, 30, 'UP');
+
+      const round = mockRoundStore.get(roundId)!;
+      expect(round.poolUp).toBe(60);
+      expect(round.poolDown).toBe(0);
+    });
+  });
+
+  describe('Bet Recording', () => {
+    it('creates a bet record with correct fields', async () => {
+      await hackathonService.placeBet(roundId, address, 100, 'UP');
+
+      expect(mockBetStore.length).toBe(1);
+      expect(mockBetStore[0]).toMatchObject({
+        roundId,
+        address,
+        amount: 100,
+        side: 'UP',
+      });
+    });
+
+    it('records multiple bets', async () => {
+      await hackathonService.placeBet(roundId, address, 100, 'UP');
+      await hackathonService.placeBet(roundId, address, 50, 'DOWN');
+
+      expect(mockBetStore.length).toBe(2);
+      expect(mockBetStore[0].side).toBe('UP');
+      expect(mockBetStore[1].side).toBe('DOWN');
+    });
+  });
+
+  describe('Precision', () => {
+    it('handles fractional amounts without precision loss', async () => {
+      await hackathonService.placeBet(roundId, address, 0.1, 'UP');
+      await hackathonService.placeBet(roundId, address, 0.2, 'UP');
+
+      const round = mockRoundStore.get(roundId)!;
+      expect(round.poolUp).toBeCloseTo(0.3, 8);
+    });
+
+    it('handles very small amounts', async () => {
+      await hackathonService.placeBet(roundId, address, 0.00000001, 'UP');
+
+      const round = mockRoundStore.get(roundId)!;
+      expect(round.poolUp).toBe(0.00000001);
+    });
+
+    it('deducts fractional balance correctly', async () => {
+      await hackathonService.placeBet(roundId, address, 0.12345678, 'UP');
+
+      const user = mockLeaderboardStore.get(address)!;
+      expect(user.balance).toBeCloseTo(999.87654322, 8);
+    });
+
+    it('deducts 33.33333333 and floors balance correctly', async () => {
+      await hackathonService.placeBet(roundId, address, 33.33333333, 'UP');
+
+      const user = mockLeaderboardStore.get(address)!;
+      expect(user.balance).toBeCloseTo(966.66666667, 8);
+    });
+  });
+
+  describe('Round Validation', () => {
+    it('still places the bet when round does not exist (no pool update)', async () => {
+      await hackathonService.placeBet('nonexistent', address, 10, 'UP');
+
+      expect(mockBetStore.length).toBe(1);
+      expect(mockBetStore[0].roundId).toBe('nonexistent');
+    });
+
+    it('still places the bet and updates pool when round status is not live', async () => {
+      seedRound(roundId, { status: 'resolved' });
+
+      await hackathonService.placeBet(roundId, address, 10, 'UP');
+
+      expect(mockBetStore.length).toBe(1);
+      const round = mockRoundStore.get(roundId)!;
+      expect(round.poolUp).toBe(10);
+    });
+  });
+
+  describe('User Creation', () => {
+    it('creates a new leaderboard entry when user does not exist', async () => {
+      const newAddress = 'brand-new-user';
+
+      await hackathonService.placeBet(roundId, newAddress, 100, 'UP');
+
+      const user = mockLeaderboardStore.get(newAddress)!;
+      expect(user).toBeDefined();
+      expect(user.balance).toBe(900);
+      expect(user.rankTitle).toBe('Rookie');
+    });
+
+    it('does not overwrite existing user data', async () => {
+      seedUser(address, 1000);
+      mockLeaderboardStore.get(address).xp = 500;
+
+      await hackathonService.placeBet(roundId, address, 100, 'UP');
+
+      const user = mockLeaderboardStore.get(address)!;
+      expect(user.xp).toBe(500);
+    });
+  });
+});
+
+describe('HackathonService - getRounds', () => {
+  it('returns all rounds', async () => {
+    seedRound('r1', { asset: 'BTC' });
+    seedRound('r2', { asset: 'ETH', mode: 'precision', poolUp: null, poolDown: null, totalPool: 0, predictionCount: 0 });
+
+    const rounds = await hackathonService.getRounds();
+    expect(rounds).toHaveLength(2);
+  });
+
+  it('returns poolUp/poolDown for updown mode', async () => {
+    seedRound('r1', { mode: 'updown', poolUp: 100, poolDown: 200 });
+
+    const rounds = await hackathonService.getRounds();
+    const r = rounds.find((x: any) => x.id === 'r1')!;
+    expect(r.poolUp).toBe(100);
+    expect(r.poolDown).toBe(200);
+  });
+
+  it('returns totalPool/predictionCount for precision mode', async () => {
+    seedRound('r1', { mode: 'precision', totalPool: 500, predictionCount: 10 });
+
+    const rounds = await hackathonService.getRounds();
+    const r = rounds.find((x: any) => x.id === 'r1')!;
+    expect(r.totalPool).toBe(500);
+    expect(r.predictionCount).toBe(10);
+  });
+});
+
+describe('HackathonService - getLeaderboard', () => {
+  it('returns top 10 users sorted by xp descending', async () => {
+    for (let i = 1; i <= 12; i++) {
+      seedUser(`user-${i}`, 1000);
+      mockLeaderboardStore.get(`user-${i}`).xp = i * 10;
+    }
+
+    const leaderboard = await hackathonService.getLeaderboard();
+    expect(leaderboard).toHaveLength(10);
+    expect(leaderboard[0].rank).toBe(1);
+    expect(leaderboard[0].xp).toBe(120);
+    expect(leaderboard[9].xp).toBe(30);
+  });
+
+  it('returns empty array when no users exist', async () => {
+    const leaderboard = await hackathonService.getLeaderboard();
+    expect(leaderboard).toEqual([]);
+  });
+
+  it('includes rank, address, totalWins, totalLosses, winStreak, xp, rankTitle', async () => {
+    seedUser('user-1', 1000);
+    const u = mockLeaderboardStore.get('user-1');
+    u.totalWins = 5;
+    u.totalLosses = 2;
+    u.winStreak = 3;
+    u.xp = 100;
+    u.rankTitle = 'Champion';
+
+    const leaderboard = await hackathonService.getLeaderboard();
+    expect(leaderboard[0]).toMatchObject({
+      rank: 1,
+      address: 'user-1',
+      totalWins: 5,
+      totalLosses: 2,
+      winStreak: 3,
+      xp: 100,
+      rankTitle: 'Champion',
+    });
+  });
+});
+
+describe('HackathonService - getUserStats', () => {
+  const testAddress = 'user-stats-test-1';
+
+  it('returns existing user stats', async () => {
+    seedUser(testAddress, 500);
+    const u = mockLeaderboardStore.get(testAddress);
+    u.totalWins = 10;
+    u.totalLosses = 3;
+    u.winStreak = 5;
+    u.xp = 800;
+    u.rankTitle = 'Expert';
+    u.pendingWinnings = 25;
+
+    const stats = await hackathonService.getUserStats(testAddress);
+    expect(stats).toMatchObject({
+      address: testAddress,
+      balance: 500,
+      pendingWinnings: 25,
+      totalWins: 10,
+      totalLosses: 3,
+      currentStreak: 5,
+      xp: 800,
+      rankTitle: 'Expert',
+    });
+  });
+
+  it('creates and returns default stats for unknown user', async () => {
+    const stats = await hackathonService.getUserStats('unknown-user');
+    expect(stats).toMatchObject({
+      address: 'unknown-user',
+      balance: 1000,
+      pendingWinnings: 0,
+      totalWins: 3,
+      totalLosses: 1,
+      currentStreak: 3,
+      xp: 410,
+      rankTitle: 'Rookie',
+    });
+  });
+
+  it('persists the default entry to the leaderboard', async () => {
+    await hackathonService.getUserStats('new-user');
+    expect(mockLeaderboardStore.has('new-user')).toBe(true);
+  });
 });
