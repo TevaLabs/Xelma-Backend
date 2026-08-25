@@ -334,16 +334,6 @@ class BetAuditService {
       },
     });
   }
-
-  /** Return a copy of all in-memory events (for testing / analytics). */
-  getEvents(): BetAuditEvent[] {
-    return [...this.events];
-  }
-
-  /** Clear all in-memory events (for test isolation). */
-  clear(): void {
-    this.events = [];
-  }
 }
 
 export const betAuditService = new BetAuditService();

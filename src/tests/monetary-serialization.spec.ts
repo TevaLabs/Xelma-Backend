@@ -4,6 +4,7 @@ import { Express } from "express";
 import { createApp } from "../index";
 import { generateToken } from "../utils/jwt.util";
 import { Decimal } from "@prisma/client/runtime/library";
+import { toDecimalString } from "../utils/decimal.util";
 
 const MOCK_USER_ID = "serial-test-user";
 const MOCK_WALLET = "GSERIAL_TEST_WALLET_ADDRESS________________";

@@ -151,17 +151,14 @@ router.get(
 );
 
 /**
- * Lightweight hackathon health endpoint.
- *
- * Returns the process status plus timed checks for the two deps that
- * the hackathon app actually owns: the price data source and the Soroban
- * service.  No database ping is performed here so the response stays fast
- * enough for readiness probes.
- *
- * Status semantics:
- *   ok       – process is healthy, all checked deps report ok
- *   degraded – at least one non-critical dep (e.g. Soroban not initialized)
- *              is unavailable; the service is still serving requests
+ * @openapi
+ * /health/health:
+ *   get:
+ *     summary: Lightweight hackathon health check
+ *     tags: [health]
+ *     responses:
+ *       200:
+ *         description: Service health status
  */
 router.get('/health', (_req: Request, res: Response) => {
   const isMockMode = config.app.dataMode === 'mock';

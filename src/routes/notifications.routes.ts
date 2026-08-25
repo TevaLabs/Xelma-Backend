@@ -113,8 +113,18 @@ router.get(
 );
 
 /**
- * GET /api/notifications/unread-count
- * Get the count of unread notifications for the authenticated user
+ * @openapi
+ * /api/notifications/unread-count:
+ *   get:
+ *     summary: Get unread notification count
+ *     tags: [notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Unread count
+ *       401:
+ *         description: Unauthorized
  */
 router.get(
   "/unread-count",
@@ -131,8 +141,25 @@ router.get(
 );
 
 /**
- * GET /api/notifications/:id
- * Get a specific notification
+ * @openapi
+ * /api/notifications/{id}:
+ *   get:
+ *     summary: Get a specific notification
+ *     tags: [notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Notification details
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Notification not found
  */
 router.get("/:id", authenticateUser, (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
@@ -163,8 +190,25 @@ router.get("/:id", authenticateUser, (async (req: AuthenticatedRequest, res: Res
 }) as any);
 
 /**
- * PATCH /api/notifications/:id/read
- * Mark a single notification as read
+ * @openapi
+ * /api/notifications/{id}/read:
+ *   patch:
+ *     summary: Mark notification as read
+ *     tags: [notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Notification marked as read
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Notification not found
  */
 router.patch(
   "/:id/read",
@@ -195,8 +239,18 @@ router.patch(
 );
 
 /**
- * PATCH /api/notifications/read-all
- * Mark all unread notifications as read for the authenticated user
+ * @openapi
+ * /api/notifications/read-all:
+ *   patch:
+ *     summary: Mark all notifications as read
+ *     tags: [notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: All notifications marked as read
+ *       401:
+ *         description: Unauthorized
  */
 router.patch(
   "/read-all",
@@ -217,8 +271,25 @@ router.patch(
 );
 
 /**
- * DELETE /api/notifications/:id
- * Delete a single notification
+ * @openapi
+ * /api/notifications/{id}:
+ *   delete:
+ *     summary: Delete a notification
+ *     tags: [notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Notification deleted
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Notification not found
  */
 router.delete("/:id", authenticateUser, (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
@@ -238,8 +309,18 @@ router.delete("/:id", authenticateUser, (async (req: AuthenticatedRequest, res: 
 }) as any);
 
 /**
- * DELETE /api/notifications
- * Delete all read notifications for the authenticated user
+ * @openapi
+ * /api/notifications:
+ *   delete:
+ *     summary: Delete all read notifications
+ *     tags: [notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Read notifications deleted
+ *       401:
+ *         description: Unauthorized
  */
 router.delete("/", authenticateUser, (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {

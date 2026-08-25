@@ -4,11 +4,23 @@ import { z } from 'zod';
 import { createApp } from '../app';
 import { setRepositoriesForTests } from '../repositories';
 
-jest.mock('../middleware/rateLimiter', () => ({
-  apiRateLimiter: (_req: any, _res: any, next: any) => next(),
-  writeRateLimiter: (_req: any, _res: any, next: any) => next(),
-  betRateLimiter: (_req: any, _res: any, next: any) => next(),
-}));
+jest.mock('../middleware/rateLimiter.middleware', () => {
+  const pass = (_req: any, _res: any, next: any) => next();
+  return {
+    apiRateLimiter: pass,
+    writeRateLimiter: pass,
+    betRateLimiter: pass,
+    challengeRateLimiter: pass,
+    connectRateLimiter: pass,
+    authRateLimiter: pass,
+    chatMessageRateLimiter: pass,
+    predictionRateLimiter: pass,
+    batchPredictionRateLimiter: pass,
+    batchLeaderboardRateLimiter: pass,
+    adminRoundRateLimiter: pass,
+    oracleResolveRateLimiter: pass,
+  };
+});
 
 jest.mock('../services/priceService', () => ({
   __esModule: true,
@@ -34,14 +46,17 @@ describe('API Contract Tests - frontend-critical endpoints (Issue #333)', () => 
   describe('GET /api/rounds', () => {
     const roundsContract = z.object({
       success: z.literal(true),
-      data: z.array(
-        z.object({
-          id: z.string(),
-          mode: z.string(),
-          status: z.string(),
-          startPrice: z.union([z.string(), z.number()]),
-        }),
-      ),
+      data: z.object({
+        source: z.string(),
+        rounds: z.array(
+          z.object({
+            id: z.string(),
+            mode: z.string(),
+            status: z.string(),
+            startPrice: z.union([z.string(), z.number()]),
+          }),
+        ),
+      }),
     });
 
     it('matches the documented response contract', async () => {

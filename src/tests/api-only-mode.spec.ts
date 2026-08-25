@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "@jest/globals";
 
+jest.mock("../config/preflight", () => ({
+  assertPreflightOrExit: jest.fn(),
+}));
+
 describe("isApiOnlyMode()", () => {
   let originalApiOnly: string | undefined;
 
@@ -7,6 +11,9 @@ describe("isApiOnlyMode()", () => {
     originalApiOnly = process.env.API_ONLY;
     delete process.env.API_ONLY;
     jest.resetModules();
+    jest.mock("../config/preflight", () => ({
+      assertPreflightOrExit: jest.fn(),
+    }));
   });
 
   afterEach(() => {

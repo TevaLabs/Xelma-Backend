@@ -91,8 +91,21 @@ router.get(
 );
 
 /**
- * GET /api/tournaments/:id
- * Get tournament detail by id.
+ * @openapi
+ * /api/tournaments/{id}:
+ *   get:
+ *     summary: Get tournament by ID
+ *     tags: [tournaments]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Tournament details
+ *       404:
+ *         description: Tournament not found
  */
 router.get("/:id", (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params;
@@ -106,27 +119,41 @@ router.get("/:id", (req: Request, res: Response, next: NextFunction) => {
 });
 
 /**
- * POST /api/tournaments/:id/join
- * Join a tournament (authenticated).
+ * @openapi
+ * /api/tournaments/{id}/join:
+ *   post:
+ *     summary: Join a tournament
+ *     tags: [tournaments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Joined tournament
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Tournament not found
  */
 router.post(
   "/:id/join",
   authenticateUser,
   validate(joinTournamentParamsSchema, "params"),
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  asyncHandler((async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user.userId;
     const { id } = req.params;
 
     const result = await tournamentService.joinTournament(userId, id);
 
-      return sendSuccess(res, {
-        tournamentId: id,
-        currentParticipants: result.currentParticipants,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }) as any,
+    return sendSuccess(res, {
+      tournamentId: id,
+      currentParticipants: result.currentParticipants,
+    });
+  }) as any),
 );
 
 export default router;

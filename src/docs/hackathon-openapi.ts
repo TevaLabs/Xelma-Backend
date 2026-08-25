@@ -228,8 +228,21 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
     path.join(process.cwd(), 'src/routes/health.ts'),
     path.join(process.cwd(), 'src/routes/index.ts'),
     path.join(process.cwd(), 'src/routes/stats.ts'),
-    path.join(process.cwd(), 'src/routes/rounds.ts'),
+    path.join(process.cwd(), 'src/routes/rounds.routes.ts'),
     path.join(process.cwd(), 'src/routes/leaderboard.ts'),
     path.join(process.cwd(), 'src/routes/tournaments.routes.ts'),
   ],
 });
+
+// Add /api/health path which the hackathon app serves via apiRouter.use('/', healthRoutes)
+// but whose JSDoc annotation uses the /health prefix.
+(hackathonSwaggerSpec as any).paths = (hackathonSwaggerSpec as any).paths || {};
+(hackathonSwaggerSpec as any).paths['/api/health'] = {
+  get: {
+    summary: 'Service health check',
+    tags: ['health'],
+    responses: {
+      '200': { description: 'Health status' },
+    },
+  },
+};

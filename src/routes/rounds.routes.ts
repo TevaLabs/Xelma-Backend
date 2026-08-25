@@ -2,15 +2,14 @@ import { Router, Request, Response, NextFunction } from 'express';
 import roundService from '../services/round.service';
 import resolutionService from '../services/resolution.service';
 import simulationService from '../services/simulation.service';
-import { requireAdmin, requireOracle, AuthenticatedRequest } from '../middleware/auth.middleware';
+import { requireAdmin, requireOracle, verifyStellarAuth, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { asyncHandler } from '../middleware/errorHandler.middleware';
 import { toDecimal, toDecimalString } from '../utils/decimal.util';
-import { adminRoundRateLimiter, oracleResolveRateLimiter } from '../middleware/rateLimiter.middleware';
+import { betRateLimiter, adminRoundRateLimiter, oracleResolveRateLimiter } from '../middleware/rateLimiter.middleware';
 import { validate } from '../middleware/validate.middleware';
 import { sendSuccess } from '../utils/response';
 import { startRoundSchema, resolveRoundSchema } from '../schemas/rounds.schema';
 import { betSchema, upDownBetSchema, precisionBetSchema } from '../schemas/bets.schema';
-import { toDecimal, toDecimalString } from '../utils/decimal.util';
 import { NotFoundError } from '../utils/errors';
 import { getRepositories } from '../repositories';
 import config from '../config';
@@ -86,7 +85,7 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
  *       409:
  *         description: Conflict - active round exists
  */
-router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSchema), asyncHandler((async (req: AuthenticatedRequest, res: Response) => {
     const { mode, startPrice, duration, priceRanges } = req.body;
     const gameMode = mode === 0 ? 'UP_DOWN' : 'LEGENDS';
     const round = await roundService.startRound(
@@ -110,7 +109,7 @@ router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSc
             priceRanges: round.priceRanges,
         },
     });
-}));
+}) as any));
 
 /**
  * @swagger
@@ -192,7 +191,31 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     }
 });
 
-// Stub bet endpoint — for logging/analytics only; on-chain bets go via Soroban
+/**
+ * @openapi
+ * /api/rounds/{id}/bet:
+ *   post:
+ *     summary: Place a bet on a round (stub)
+ *     tags: [rounds]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Bet recorded (stub)
+ *       401:
+ *         description: Missing or invalid JWT
+ */
 router.post('/:id/bet', betRateLimiter, validate(betSchema), (_req: Request, res: Response) => {
   res.json({ success: true, message: 'Bet recorded (stub)' });
 });
@@ -232,7 +255,7 @@ router.post('/:id/bet', betRateLimiter, validate(betSchema), (_req: Request, res
  *       404:
  *         description: Round not found
  */
-router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(resolveRoundSchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(resolveRoundSchema), asyncHandler((async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const { finalPrice } = req.body;
 
@@ -255,7 +278,7 @@ router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(re
             winners: round.predictions ? round.predictions.filter((p: any) => p.won === true).length : 0,
         },
     });
-}));
+}) as any));
 
 /**
  * @swagger
@@ -323,7 +346,37 @@ router.post('/:id/simulate', async (req: Request, res: Response, next: NextFunct
 });
 
 // Hackathon mutation endpoints - with Zod validation
-router.post('/hackathon/up-down/:id/bet', betRateLimiter, validate(upDownBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
+/**
+ * @openapi
+ * /api/rounds/hackathon/up-down/{id}/bet:
+ *   post:
+ *     summary: Place an up/down bet (hackathon)
+ *     tags: [rounds]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [address, amount, side]
+ *             properties:
+ *               address: { type: string }
+ *               amount: { type: number }
+ *               side: { type: string, enum: [UP, DOWN] }
+ *     responses:
+ *       200:
+ *         description: Bet recorded
+ *       401:
+ *         description: Missing or invalid JWT
+ */
+router.post('/hackathon/up-down/:id/bet', verifyStellarAuth, betRateLimiter, validate(upDownBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { address, amount, side } = req.body;
@@ -334,7 +387,37 @@ router.post('/hackathon/up-down/:id/bet', betRateLimiter, validate(upDownBetSche
   }
 }) as any);
 
-router.post('/hackathon/precision/:id/bet', betRateLimiter, validate(precisionBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
+/**
+ * @openapi
+ * /api/rounds/hackathon/precision/{id}/bet:
+ *   post:
+ *     summary: Place a precision bet (hackathon)
+ *     tags: [rounds]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [address, amount, predictedPrice]
+ *             properties:
+ *               address: { type: string }
+ *               amount: { type: number }
+ *               predictedPrice: { type: number }
+ *     responses:
+ *       200:
+ *         description: Precision bet recorded
+ *       401:
+ *         description: Missing or invalid JWT
+ */
+router.post('/hackathon/precision/:id/bet', verifyStellarAuth, betRateLimiter, validate(precisionBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { address, amount, predictedPrice } = req.body;

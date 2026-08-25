@@ -25,27 +25,6 @@ function computeRankTitle(xp: number): string {
 }
 
 /**
- * Computes an XP score from on-chain user stats.
- * XP = totalWins × 100 + bestStreak × 50
- */
-function computeXp(totalWins: number, bestStreak: number): number {
-  return totalWins * 100 + bestStreak * 50;
-}
-
-/**
- * Derives a rank title from XP.
- * Thresholds match production profile expectations.
- */
-function computeRankTitle(xp: number): string {
-  if (xp >= 10000) return 'Diamond';
-  if (xp >= 5000) return 'Platinum';
-  if (xp >= 3000) return 'Gold';
-  if (xp >= 1500) return 'Silver';
-  if (xp >= 500) return 'Bronze';
-  return 'Rookie';
-}
-
-/**
  * @openapi
  * /api/user/{address}/stats:
  *   get:

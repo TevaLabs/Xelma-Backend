@@ -10,12 +10,12 @@
 
 const mockCount = jest.fn();
 
-jest.mock("@prisma/client", () => ({
-    PrismaClient: jest.fn().mockImplementation(() => ({
+jest.mock("../lib/prisma", () => ({
+    prisma: {
         round: { count: mockCount },
         user: { count: mockCount },
         prediction: { count: mockCount },
-    })),
+    },
 }));
 
 // ---------------------------------------------------------------------------

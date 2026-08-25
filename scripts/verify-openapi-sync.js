@@ -62,6 +62,9 @@ const ROUTE_FILE_PREFIXES = {
   'admin-dead-letter.routes.ts':       '/api/admin/dead-letter',
   'health.ts':                         '/health',
   'prices.ts':                         '/api',
+  'stats.ts':                          '/api/stats',
+  'metrics.routes.ts':                 '/metrics',
+  'admin-bet-audit.routes.ts':         '/api/admin/bet-audit',
 };
 
 /**
@@ -141,11 +144,11 @@ function extractRoutesFromFile(filePath, mountPrefix) {
   const results = [];
 
   // Split on each router method call; each segment starts with the call.
-  const segments = content.split(/(?=\brouter\.(get|post|put|patch|delete)\s*\()/i);
+  const segments = content.split(/(?=\b(?:router|legacyXlmPriceRouter)\.(get|post|put|patch|delete)\s*\()/i);
 
   for (const segment of segments) {
     const methodMatch = segment.match(
-      /^router\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]+)['"`]/i
+      /^(?:router|legacyXlmPriceRouter)\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]+)['"`]/i
     );
     if (!methodMatch) continue;
 
@@ -243,8 +246,10 @@ function extractZodFields(schemaName) {
     const fieldBlock = body.slice(pos, nextPos);
 
     const isOptional = /\.optional\(\)/.test(fieldBlock);
-    const typeMatch = fieldBlock.match(
-      /\bz\.(string|number|boolean|array|object|union|preprocess|enum|record|tuple|literal|bigint|date|any|unknown)\s*[(<(]/
+    // Collapse newlines so multi-line chaining like `z\n.array(...)` matches correctly
+    const normalizedBlock = fieldBlock.replace(/\n\s*/g, ' ');
+    const typeMatch = normalizedBlock.match(
+      /\bz\s*\.\s*(string|number|boolean|array|object|union|preprocess|enum|record|tuple|literal|bigint|date|any|unknown)\s*[(<(]/
     );
     const zodType = typeMatch ? typeMatch[1] : 'unknown';
 

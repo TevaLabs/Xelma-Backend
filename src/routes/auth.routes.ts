@@ -536,6 +536,24 @@ router.post(
   connectHandler,
 );
 
+/**
+ * @openapi
+ * /api/auth/verify:
+ *   post:
+ *     summary: Verify a wallet signature and issue JWT
+ *     tags: [auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AuthConnectRequest'
+ *     responses:
+ *       200:
+ *         description: JWT token issued
+ *       401:
+ *         description: Invalid signature
+ */
 router.post(
   "/verify",
   connectRateLimiter,

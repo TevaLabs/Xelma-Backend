@@ -70,9 +70,19 @@ const passthroughRouter = (_req: any, _res: any, next: any) => next();
  * config module.
  */
 function setupHackathonMocks(): void {
-  jest.doMock("../middleware/rateLimiter", () => ({
+  jest.doMock("../middleware/rateLimiter.middleware", () => ({
     apiRateLimiter: passthroughLimiter,
     writeRateLimiter: passthroughLimiter,
+    challengeRateLimiter: passthroughLimiter,
+    connectRateLimiter: passthroughLimiter,
+    authRateLimiter: passthroughLimiter,
+    chatMessageRateLimiter: passthroughLimiter,
+    predictionRateLimiter: passthroughLimiter,
+    batchPredictionRateLimiter: passthroughLimiter,
+    batchLeaderboardRateLimiter: passthroughLimiter,
+    adminRoundRateLimiter: passthroughLimiter,
+    oracleResolveRateLimiter: passthroughLimiter,
+    betRateLimiter: passthroughLimiter,
   }));
   jest.doMock("../middleware/notFound", () => ({
     notFoundHandler: (_req: any, res: any) => {
@@ -143,7 +153,7 @@ function setupHackathonMocks(): void {
   jest.doMock("../routes", () => ({ __esModule: true, default: passthroughRouter }));
   jest.doMock("../routes/health", () => ({ __esModule: true, default: passthroughRouter }));
   jest.doMock("../routes/stats", () => ({ __esModule: true, default: passthroughRouter }));
-  jest.doMock("../routes/rounds", () => ({ __esModule: true, default: passthroughRouter }));
+  jest.doMock("../routes/rounds.routes", () => ({ __esModule: true, default: passthroughRouter }));
   jest.doMock("../routes/leaderboard", () => ({ __esModule: true, default: passthroughRouter }));
   jest.doMock("../routes/user.routes", () => ({ __esModule: true, default: passthroughRouter }));
   jest.doMock("../routes/bets.routes", () => ({ __esModule: true, default: passthroughRouter }));
@@ -225,7 +235,7 @@ describe("Security headers — hackathon app", () => {
     restoreEnv();
     // Undo all jest.doMock registrations so they don't leak into other
     // tests that import from ../index (CORS, route-auth, etc.).
-    jest.dontMock("../middleware/rateLimiter");
+    jest.dontMock("../middleware/rateLimiter.middleware");
     jest.dontMock("../middleware/notFound");
     jest.dontMock("../middleware/errorHandler");
     jest.dontMock("../config");
@@ -233,7 +243,7 @@ describe("Security headers — hackathon app", () => {
     jest.dontMock("../routes");
     jest.dontMock("../routes/health");
     jest.dontMock("../routes/stats");
-    jest.dontMock("../routes/rounds");
+    jest.dontMock("../routes/rounds.routes");
     jest.dontMock("../routes/leaderboard");
     jest.dontMock("../routes/user.routes");
     jest.dontMock("../routes/bets.routes");
@@ -290,7 +300,7 @@ describe("Security headers parity — both apps share the same core headers", ()
     restoreEnv();
     // Clean up jest.doMock registrations so they don't leak into subsequent
     // tests (CORS, route-auth, etc.) that import from ../index.
-    jest.dontMock("../middleware/rateLimiter");
+    jest.dontMock("../middleware/rateLimiter.middleware");
     jest.dontMock("../middleware/notFound");
     jest.dontMock("../middleware/errorHandler");
     jest.dontMock("../config");
@@ -298,7 +308,7 @@ describe("Security headers parity — both apps share the same core headers", ()
     jest.dontMock("../routes");
     jest.dontMock("../routes/health");
     jest.dontMock("../routes/stats");
-    jest.dontMock("../routes/rounds");
+    jest.dontMock("../routes/rounds.routes");
     jest.dontMock("../routes/leaderboard");
     jest.dontMock("../routes/user.routes");
     jest.dontMock("../routes/bets.routes");
