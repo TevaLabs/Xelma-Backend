@@ -23,9 +23,11 @@ import { mockDataRepository } from '../repositories/mockData.repository';
  */
 
 // Types are kept for backward compatibility with callers that map to the union shape.
+import { Decimal } from '@prisma/client/runtime/library';
+
 export type MockPredictionRound =
-  | { id: string; asset: string; mode: 'updown'; status: 'live' | 'new'; startPrice: number; poolUp: number; poolDown: number; closesAt: string; }
-  | { id: string; asset: string; mode: 'precision'; status: 'live' | 'new'; startPrice: number; totalPool: number; predictionCount: number; closesAt: string; };
+  | { id: string; asset: string; mode: 'updown'; status: 'live' | 'new'; startPrice: Decimal; poolUp: Decimal; poolDown: Decimal; closesAt: string; }
+  | { id: string; asset: string; mode: 'precision'; status: 'live' | 'new'; startPrice: Decimal; totalPool: Decimal; predictionCount: number; closesAt: string; };
 
 export type MockLeaderboardUser = {
   rank: number;

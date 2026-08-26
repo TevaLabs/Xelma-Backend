@@ -24,6 +24,9 @@ describe('payout.util.calculatePayout', () => {
     const payout = calculatePayout(new Decimal('0.5'), new Decimal('2'), new Decimal('1'));
     // 0.5 + (0.5/2)*1 = 0.5 + 0.25 = 0.75, exactly — no native float drift.
     expect(payout.toString()).toBe('0.75');
+  });
+});
+
 import { describe, it, expect } from "@jest/globals";
 import {
   STROOPS_PER_XLM,

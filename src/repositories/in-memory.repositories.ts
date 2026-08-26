@@ -8,16 +8,18 @@ import {
 } from "./interfaces";
 import { PlatformStats } from "../services/stats.service";
 
+import { toDecimal } from "../utils/decimal.util";
+
 function storedRoundToMockPredictionRound(r: StoredRound) {
   if (r.mode === 'updown') {
     return {
       id: r.id, asset: r.asset, mode: 'updown' as const, status: r.status as 'live' | 'new',
-      startPrice: r.startPrice, poolUp: r.poolUp, poolDown: r.poolDown, closesAt: r.closesAt,
+      startPrice: toDecimal(r.startPrice), poolUp: toDecimal(r.poolUp), poolDown: toDecimal(r.poolDown), closesAt: r.closesAt,
     };
   }
   return {
     id: r.id, asset: r.asset, mode: 'precision' as const, status: r.status as 'live' | 'new',
-    startPrice: r.startPrice, totalPool: r.totalPool, predictionCount: r.predictionCount, closesAt: r.closesAt,
+    startPrice: toDecimal(r.startPrice), totalPool: toDecimal(r.totalPool), predictionCount: r.predictionCount, closesAt: r.closesAt,
   };
 }
 

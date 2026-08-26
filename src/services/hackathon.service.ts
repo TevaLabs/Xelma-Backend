@@ -228,7 +228,7 @@ export class HackathonService {
       });
     }
 
-    if (user.balance < amount) {
+    if (user.balance && toDecimal(user.balance).lt(toDecimal(amount))) {
       throw new Error('Insufficient balance');
     }
 

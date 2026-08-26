@@ -470,10 +470,10 @@ model MockRound {
   asset           String
   mode            String
   status          String
-  startPrice      Float
-  poolUp          Float?
-  poolDown        Float?
-  totalPool       Float?
+  startPrice      Decimal @db.Decimal(20, 8)
+  poolUp          Decimal? @db.Decimal(20, 8)
+  poolDown        Decimal? @db.Decimal(20, 8)
+  totalPool       Decimal? @db.Decimal(20, 8)
   predictionCount Int?
   closesAt        String
 }
@@ -486,24 +486,24 @@ model MockLeaderboard {
   winStreak   Int
   xp          Int
   rankTitle   String
-  balance         Int    @default(1000)
-  pendingWinnings Int    @default(0)
+  balance         Decimal @default(1000) @db.Decimal(20, 8)
+  pendingWinnings Decimal @default(0) @db.Decimal(20, 8)
 }
 
 model MockBet {
   id             Int      @id @default(autoincrement())
   roundId        String
   address        String
-  amount         Float
+  amount         Decimal  @db.Decimal(20, 8)
   side           String?
-  predictedPrice Float?
+  predictedPrice Decimal? @db.Decimal(20, 8)
   createdAt      DateTime @default(now())
 }
 
 model MockPlatformStat {
-  id                   Int   @id @default(1)
+  id                   Int     @id @default(1)
   totalRounds          Int
-  totalVxlmDistributed Float
+  totalVxlmDistributed Decimal @db.Decimal(20, 8)
   activePlayers        Int
   totalBetsPlaced      Int
 }
