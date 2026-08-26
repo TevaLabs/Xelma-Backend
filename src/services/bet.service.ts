@@ -4,6 +4,7 @@ import sorobanService from "./soroban.service";
 import betAuditService from "./bet-audit.service";
 import websocketService from "./websocket.service";
 import { serializeMoney } from "../utils/decimal.util";
+import { isBetStubMode } from "../config/bet-mode";
 
 export interface UpDownBetInput {
   address: string;
@@ -36,7 +37,7 @@ export interface BetResult {
  */
 export class BetService {
   private isStubMode(): boolean {
-    return process.env.BET_STUB_MODE === "true";
+    return isBetStubMode();
   }
 
   async recordUpDownBet(
@@ -286,7 +287,7 @@ export class BetService {
   ): Promise<{ state: string; amount: number; txHash?: string }> {
     let result: { state: string; amount: number; txHash?: string };
 
-    if (process.env.BET_STUB_MODE === "true") {
+    if (isBetStubMode()) {
       logger.info("Claim winnings stub recorded", { address, idempotencyKey });
       result = { state: "stub", amount: 0 };
     } else {

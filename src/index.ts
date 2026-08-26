@@ -26,6 +26,7 @@ import {
   formatResolvedSorobanConfigForLog,
   resolveSorobanEnvVars,
 } from './config/env';
+import { logResolvedBetMode, warnIfProductionMissingSecrets } from './config/bet-mode';
 import { initializeSocket, closeWebSocket } from './socket';
 import { prisma } from './lib/prisma';
 import path from 'path';
@@ -88,10 +89,10 @@ logger.info(
   }),
 );
 
-const betStubMode = process.env.BET_STUB_MODE === "true";
-logger.info(`Bet mode: ${betStubMode ? "STUB (no on-chain calls)" : "ON-CHAIN (Soroban)"}`, {
-  BET_STUB_MODE: betStubMode,
-});
+// Resolve and log the active bet mode (stub vs on-chain).
+// In non-production with missing Soroban secrets this automatically falls back to stub.
+warnIfProductionMissingSecrets();
+const betStubMode = logResolvedBetMode();
 logger.info(
   `Soroban money-path policy: ${config.soroban.failClosed ? "FAIL-CLOSED (abort on chain failure)" : "FAIL-OPEN (DB-only fallback allowed)"}`,
   { SOROBAN_FAIL_CLOSED: config.soroban.failClosed },
