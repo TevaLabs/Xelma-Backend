@@ -1,10 +1,8 @@
-import { db } from '../db/db';
-import { hackathonUsers, hackathonRounds, hackathonBets } from '../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { prisma } from '../lib/prisma';
 
 export class HackathonService {
   async getRounds() {
-    const rounds = await db.select().from(hackathonRounds);
+    const rounds = await prisma.hackathonRound.findMany();
     return rounds.map(r => {
       if (r.mode === 'updown') {
         return {
@@ -33,7 +31,9 @@ export class HackathonService {
   }
 
   async getLeaderboard() {
-    const users = await db.select().from(hackathonUsers).orderBy(desc(hackathonUsers.xp));
+    const users = await prisma.hackathonUser.findMany({
+      orderBy: { xp: 'desc' },
+    });
     return users.slice(0, 10).map((u, index) => ({
       rank: index + 1,
       address: u.address,
@@ -46,21 +46,21 @@ export class HackathonService {
   }
 
   async getUserStats(address: string) {
-    const result = await db.select().from(hackathonUsers).where(eq(hackathonUsers.address, address));
-    if (result.length > 0) {
-      const u = result[0];
+    const user = await prisma.hackathonUser.findUnique({
+      where: { address },
+    });
+    if (user) {
       return {
-        address: u.address,
-        balance: u.balance,
-        pendingWinnings: u.pendingWinnings,
-        totalWins: u.totalWins,
-        totalLosses: u.totalLosses,
-        currentStreak: u.currentStreak,
-        xp: u.xp,
-        rankTitle: u.rankTitle,
+        address: user.address,
+        balance: user.balance,
+        pendingWinnings: user.pendingWinnings,
+        totalWins: user.totalWins,
+        totalLosses: user.totalLosses,
+        currentStreak: user.currentStreak,
+        xp: user.xp,
+        rankTitle: user.rankTitle,
       };
     }
-    // Default mock stats
     const defaultUser = {
       address,
       balance: 1000,
@@ -71,51 +71,58 @@ export class HackathonService {
       xp: 410,
       rankTitle: 'Rookie',
     };
-    await db.insert(hackathonUsers).values(defaultUser);
+    await prisma.hackathonUser.create({ data: defaultUser });
     return defaultUser;
   }
 
   async placeBet(roundId: string, address: string, amount: number, side?: 'UP' | 'DOWN', predictedPrice?: number) {
-    // 1. Ensure user exists
     await this.getUserStats(address);
 
-    // 2. Insert bet
-    await db.insert(hackathonBets).values({
-      roundId,
-      address,
-      amount,
-      side,
-      predictedPrice,
+    await prisma.hackathonBet.create({
+      data: {
+        roundId,
+        address,
+        amount,
+        side: side ?? null,
+        predictedPrice: predictedPrice ?? null,
+      },
     });
 
-    // 3. Update user balance
-    const users = await db.select().from(hackathonUsers).where(eq(hackathonUsers.address, address));
-    if (users.length > 0) {
-      const newBalance = Math.max(0, users[0].balance - amount);
-      await db.update(hackathonUsers).set({ balance: newBalance }).where(eq(hackathonUsers.address, address));
+    const user = await prisma.hackathonUser.findUnique({
+      where: { address },
+    });
+    if (user) {
+      const newBalance = Math.max(0, user.balance - amount);
+      await prisma.hackathonUser.update({
+        where: { address },
+        data: { balance: newBalance },
+      });
     }
 
-    // 4. Update round pool
-    const rounds = await db.select().from(hackathonRounds).where(eq(hackathonRounds.id, roundId));
-    if (rounds.length > 0) {
-      const round = rounds[0];
+    const round = await prisma.hackathonRound.findUnique({
+      where: { id: roundId },
+    });
+    if (round) {
       if (round.mode === 'updown' && side) {
         if (side === 'UP') {
-          await db.update(hackathonRounds)
-            .set({ poolUp: round.poolUp + amount })
-            .where(eq(hackathonRounds.id, roundId));
+          await prisma.hackathonRound.update({
+            where: { id: roundId },
+            data: { poolUp: round.poolUp + amount },
+          });
         } else {
-          await db.update(hackathonRounds)
-            .set({ poolDown: round.poolDown + amount })
-            .where(eq(hackathonRounds.id, roundId));
+          await prisma.hackathonRound.update({
+            where: { id: roundId },
+            data: { poolDown: round.poolDown + amount },
+          });
         }
       } else if (round.mode === 'precision') {
-        await db.update(hackathonRounds)
-          .set({
+        await prisma.hackathonRound.update({
+          where: { id: roundId },
+          data: {
             totalPool: round.totalPool + amount,
             predictionCount: round.predictionCount + 1,
-          })
-          .where(eq(hackathonRounds.id, roundId));
+          },
+        });
       }
     }
   }

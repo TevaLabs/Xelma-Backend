@@ -462,6 +462,54 @@ model AuditLog {
 }
 
 // =======================
+// Hackathon Models (migrated from Drizzle ORM — Issue #509)
+// =======================
+
+model HackathonUser {
+  address         String  @id
+  balance         Int     @default(1000)
+  pendingWinnings Int     @default(0)
+  totalWins       Int     @default(3)
+  totalLosses     Int     @default(1)
+  currentStreak   Int     @default(3)
+  xp              Int     @default(410)
+  rankTitle       String  @default("Rookie")
+
+  bets HackathonBet[]
+}
+
+model HackathonRound {
+  id              String  @id
+  asset           String
+  mode            String
+  status          String
+  startPrice      Float
+  poolUp          Float   @default(0)
+  poolDown        Float   @default(0)
+  totalPool       Float   @default(0)
+  predictionCount Int     @default(0)
+  closesAt        String
+
+  bets HackathonBet[]
+}
+
+model HackathonBet {
+  id             Int     @id @default(autoincrement())
+  roundId        String
+  address        String
+  amount         Float
+  side           String?
+  predictedPrice Float?
+  createdAt      DateTime @default(now())
+
+  round HackathonRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user  HackathonUser  @relation(fields: [address], references: [address], onDelete: Cascade)
+
+  @@index([roundId])
+  @@index([address])
+}
+
+// =======================
 // Mock Data Models
 // =======================
 

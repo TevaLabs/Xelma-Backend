@@ -17,8 +17,8 @@ import app from '../app';
 
 describe('Hackathon HTTP Endpoints (Integration)', () => {
   afterAll(async () => {
-    const { pool } = require('../db/db');
-    await pool.end();
+    const { prisma } = require('../lib/prisma');
+    await prisma.$disconnect();
   });
   describe('GET /api/health', () => {
     it('returns ok status and timestamp', async () => {
