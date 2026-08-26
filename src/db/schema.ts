@@ -24,12 +24,3 @@ export const hackathonRounds = pgTable('hackathon_rounds', {
   closesAt: text('closes_at').notNull(),
 });
 
-export const hackathonBets = pgTable('hackathon_bets', {
-  id: serial('id').primaryKey(),
-  roundId: text('round_id').references(() => hackathonRounds.id, { onDelete: 'cascade' }).notNull(),
-  address: text('address').references(() => hackathonUsers.address, { onDelete: 'cascade' }).notNull(),
-  amount: doublePrecision('amount').notNull(),
-  side: text('side').$type<'UP' | 'DOWN'>(),
-  predictedPrice: doublePrecision('predicted_price'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});

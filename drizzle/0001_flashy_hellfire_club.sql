@@ -1,0 +1,1 @@
+DROP TABLE "hackathon_bets" CASCADE;

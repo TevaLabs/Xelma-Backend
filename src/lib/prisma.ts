@@ -42,7 +42,14 @@ export const prisma = (() => {
           update: async ({ where, data }: any) => {
             const existing = store.get(where.id);
             if (!existing) return null;
-            const updated = { ...existing, ...data };
+            const updated = { ...existing };
+            for (const [key, value] of Object.entries(data)) {
+              if (value && typeof value === 'object' && 'increment' in (value as any)) {
+                updated[key] = (updated[key] ?? 0) + (value as any).increment;
+              } else {
+                updated[key] = value;
+              }
+            }
             store.set(where.id, updated);
             return updated;
           },
@@ -64,14 +71,27 @@ export const prisma = (() => {
           update: async ({ where, data }: any) => {
             const existing = store.get(where.address);
             if (!existing) return null;
-            const updated = { ...existing, ...data };
+            const updated = { ...existing };
+            for (const [key, value] of Object.entries(data)) {
+              if (value && typeof value === 'object' && 'decrement' in (value as any)) {
+                updated[key] -= (value as any).decrement;
+              } else if (value && typeof value === 'object' && 'increment' in (value as any)) {
+                updated[key] += (value as any).increment;
+              } else {
+                updated[key] = value;
+              }
+            }
             store.set(where.address, updated);
             return updated;
+          },
+          deleteMany: async () => {
+            store.clear();
+            return { count: 0 };
           },
         };
       })(),
       mockBet: (() => {
-        const store: any[] = [];
+        let store: any[] = [];
         let nextId = 1;
         return {
           create: async ({ data }: any) => {
@@ -80,6 +100,10 @@ export const prisma = (() => {
             return record;
           },
           findMany: async () => store,
+          deleteMany: async () => {
+            store = [];
+            return { count: 0 };
+          },
         };
       })(),
       round: {

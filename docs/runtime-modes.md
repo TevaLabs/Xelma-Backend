@@ -231,6 +231,8 @@ for your current workflow.
 | `SOROBAN_FAIL_CLOSED` | `src/config/index.ts`, `src/services/soroban.service.ts` |
 | Mock data | `src/data/mockData.ts` |
 
+> **Note on Hackathon Bets Data Store Cutover:** Hackathon bets previously performed a dual-write to both Prisma Mock models and Drizzle tables (`hackathon_bets`, etc.). The codebase has now fully transitioned to use Prisma as the sole write path for hackathon bets (`HackathonService.placeBet`). The legacy Drizzle `hackathonBets` table has been removed. All tests assert single-store consistency against Prisma.
+
 ---
 
 ## Environment file templates
