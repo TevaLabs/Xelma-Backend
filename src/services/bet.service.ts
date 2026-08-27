@@ -43,7 +43,7 @@ export class BetService {
     input: UpDownBetInput,
     idempotencyKey?: string
   ): Promise<BetResult> {
-    const roundId = betStore.getActiveRound("updown")?.id;
+    const roundId = (await betStore.getActiveRound("updown"))?.id;
     const stubMode = this.isStubMode();
 
     if (stubMode) {
@@ -52,7 +52,7 @@ export class BetService {
       logger.info("Placing UP/DOWN bet on-chain", { ...input, idempotencyKey });
     }
 
-    const bet = betStore.addUpDownBet(
+    const bet = await betStore.addUpDownBet(
       roundId ?? "",
       input.address,
       input.amount,
@@ -71,14 +71,14 @@ export class BetService {
           input.amount,
           input.side
         );
-        const settled = this.settleOnChainBet(bet.id, chainResult.txHash);
+        const settled = await this.settleOnChainBet(bet.id, chainResult.txHash);
         result = {
           ...chainResult,
           betId: bet.id,
           status: settled?.status ?? "SUBMITTED",
         };
       } catch (error) {
-        this.failOnChainBet(bet.id, error, {
+        await this.failOnChainBet(bet.id, error, {
           address: input.address,
           amount: input.amount,
           side: input.side,
@@ -117,7 +117,7 @@ export class BetService {
     input: PrecisionBetInput,
     idempotencyKey?: string
   ): Promise<BetResult> {
-    const roundId = betStore.getActiveRound("precision")?.id;
+    const roundId = (await betStore.getActiveRound("precision"))?.id;
     const stubMode = this.isStubMode();
 
     if (stubMode) {
@@ -126,7 +126,7 @@ export class BetService {
       logger.info("Placing Precision bet on-chain", { ...input, idempotencyKey });
     }
 
-    const bet = betStore.addPrecisionBet(
+    const bet = await betStore.addPrecisionBet(
       roundId ?? "",
       input.address,
       input.amount,
@@ -145,14 +145,14 @@ export class BetService {
           input.amount,
           input.predictedPrice
         );
-        const settled = this.settleOnChainBet(bet.id, chainResult.txHash);
+        const settled = await this.settleOnChainBet(bet.id, chainResult.txHash);
         result = {
           ...chainResult,
           betId: bet.id,
           status: settled?.status ?? "SUBMITTED",
         };
       } catch (error) {
-        this.failOnChainBet(bet.id, error, {
+        await this.failOnChainBet(bet.id, error, {
           address: input.address,
           amount: input.amount,
           mode: "PRECISION",
@@ -191,8 +191,8 @@ export class BetService {
    * enabled: once the corresponding transaction is identified, the original
    * record is reconciled to CONFIRMED instead of a new one being created.
    */
-  reconcileBet(betId: string, txHash: string): StoredBet | undefined {
-    const bet = betStore.markConfirmed(betId, txHash);
+  async reconcileBet(betId: string, txHash: string): Promise<StoredBet | undefined> {
+    const bet = await betStore.markConfirmed(betId, txHash);
 
     if (!bet) {
       logger.warn("Cannot reconcile unknown bet", { betId, txHash });
@@ -219,15 +219,15 @@ export class BetService {
     return bet;
   }
 
-  getBet(betId: string): StoredBet | undefined {
+  getBet(betId: string): Promise<StoredBet | undefined> {
     return betStore.getBet(betId);
   }
 
-  getBets(query: BetQuery = {}): StoredBet[] {
+  getBets(query: BetQuery = {}): Promise<StoredBet[]> {
     return betStore.getBets(query);
   }
 
-  getReconciliationSummary(): Record<BetStatus, number> {
+  getReconciliationSummary(): Promise<Record<BetStatus, number>> {
     return betStore.getReconciliationSummary();
   }
 
@@ -236,14 +236,17 @@ export class BetService {
    * SUBMITTED rather than CONFIRMED — there is nothing to reconcile against
    * yet, and claiming confirmation would defeat the audit trail.
    */
-  private settleOnChainBet(betId: string, txHash?: string): StoredBet | undefined {
+  private async settleOnChainBet(
+    betId: string,
+    txHash?: string,
+  ): Promise<StoredBet | undefined> {
     if (txHash) {
       return betStore.markConfirmed(betId, txHash);
     }
     return betStore.markSubmitted(betId);
   }
 
-  private failOnChainBet(
+  private async failOnChainBet(
     betId: string,
     error: unknown,
     context: {
@@ -252,10 +255,10 @@ export class BetService {
       side?: "UP" | "DOWN";
       mode: "UP_DOWN" | "PRECISION";
     }
-  ): void {
+  ): Promise<void> {
     const reason = error instanceof Error ? error.message : String(error);
 
-    betStore.markFailed(betId, reason);
+    await betStore.markFailed(betId, reason);
 
     logger.error("On-chain bet submission failed", {
       betId,

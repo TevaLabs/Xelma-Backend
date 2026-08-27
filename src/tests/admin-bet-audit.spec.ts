@@ -21,12 +21,26 @@ jest.mock("../utils/logger", () => ({
 
 const mockPrisma = prisma as any;
 
+// Preflight (src/config/preflight.ts) enforces a 16+ char JWT_SECRET (#438).
+// Set a long, stable value and build the app AFTER it (in beforeAll) so the
+// same secret is used for signing, preflight, and verification. Building the
+// app per-test with jest.resetModules() would also reset the jest.mock
+// factories above, breaking the prisma stubs the auth middleware relies on.
+const ADMIN_TEST_JWT_SECRET = "admin-bet-audit-test-secret-1234567890";
+
 describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
   let app: Express;
   const ADMIN_ADDRESS = "GADMIN_TEST_AAAAAAAAAAAAAAAAAAAAAAAA";
   const USER_ADDRESS = "GUSER_TEST_BBBBBBBBBBBBBBBBBBBBBBBBBBBB";
-  const ADMIN_TOKEN = generateToken("admin-id", ADMIN_ADDRESS, UserRole.ADMIN);
-  const USER_TOKEN = generateToken("user-id", USER_ADDRESS, UserRole.USER);
+  let ADMIN_TOKEN: string;
+  let USER_TOKEN: string;
+
+  beforeAll(() => {
+    process.env.JWT_SECRET = ADMIN_TEST_JWT_SECRET;
+    app = require("../index").createApp();
+    ADMIN_TOKEN = generateToken("admin-id", ADMIN_ADDRESS, UserRole.ADMIN);
+    USER_TOKEN = generateToken("user-id", USER_ADDRESS, UserRole.USER);
+  });
 
   beforeEach(() => {
     betAuditService.clear();
@@ -54,16 +68,22 @@ describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
       txHash: "0xf1e2d3c4b5a697887766554433221100ffeeddccbbaa99",
     });
 
-    mockPrisma.user.findUnique.mockResolvedValue({
-      id: "admin-id",
-      walletAddress: ADMIN_ADDRESS,
-      role: UserRole.ADMIN,
+    // Return the role that matches each token's subject so admin and
+    // non-admin paths are both exercised.
+    mockPrisma.user.findUnique.mockImplementation(({ where }: any) => {
+      if (where.id === "user-id") {
+        return Promise.resolve({
+          id: "user-id",
+          walletAddress: USER_ADDRESS,
+          role: UserRole.USER,
+        });
+      }
+      return Promise.resolve({
+        id: "admin-id",
+        walletAddress: ADMIN_ADDRESS,
+        role: UserRole.ADMIN,
+      });
     });
-
-    process.env.NODE_ENV = "development";
-    process.env.JWT_SECRET = "test-secret";
-    jest.resetModules();
-    app = require("../index").createApp();
   });
 
   afterEach(() => {

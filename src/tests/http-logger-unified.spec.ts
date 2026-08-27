@@ -27,15 +27,56 @@ jest.mock('../services/soroban.service', () => ({
 }));
 
 // Both apps are now built by the same factory, so importing either one loads
-// every router — including src/routes/rounds.ts, which needs betRateLimiter.
-// An omitted export here surfaces as "Route.post() requires a callback
-// function but got a [object Undefined]" at import time.
+// every router — including src/routes/rounds.ts (betRateLimiter) and
+// src/routes/auth.routes.ts (challengeRateLimiter / authRateLimiter). An
+// omitted export here surfaces as "Route.post() requires a callback function
+// but got a [object Undefined]" at import time.
 jest.mock('../middleware/rateLimiter.middleware', () => {
   const pass = (_req: any, _res: any, next: any) => next();
-  return { apiRateLimiter: pass, writeRateLimiter: pass, betRateLimiter: pass };
+  return {
+    apiRateLimiter: pass,
+    writeRateLimiter: pass,
+    betRateLimiter: pass,
+    challengeRateLimiter: pass,
+    connectRateLimiter: pass,
+    authRateLimiter: pass,
+    predictionRateLimiter: pass,
+    batchPredictionRateLimiter: pass,
+    batchLeaderboardRateLimiter: pass,
+    adminRoundRateLimiter: pass,
+    oracleResolveRateLimiter: pass,
+    chatMessageRateLimiter: pass,
+  };
 });
 
-jest.mock('../lib/prisma', () => ({ prisma: {} }));
+// The shared rounds router falls back to the mock tier (mockData.repository →
+// prisma.mockRound) when Soroban and the DB are unavailable, so the prisma
+// mock must provide those models or GET /api/rounds 500s. $queryRaw keeps the
+// /api/health DB probe happy too.
+jest.mock('../lib/prisma', () => ({
+  prisma: {
+    $queryRaw: async () => null,
+    mockRound: {
+      findMany: async () => [
+        {
+          id: 'btc-updown-live',
+          asset: 'BTC',
+          mode: 'updown',
+          status: 'live',
+          startPrice: 60000,
+          poolUp: 0,
+          poolDown: 0,
+          totalPool: null,
+          predictionCount: null,
+          closesAt: new Date(Date.now() + 300_000).toISOString(),
+        },
+      ],
+      findUnique: async () => null,
+    },
+    mockLeaderboard: { findMany: async () => [] },
+    mockPlatformStat: { findFirst: async () => null },
+  },
+}));
 
 const EXPECTED_FIELDS = ['method', 'path', 'status', 'durationMs', 'requestId'];
 

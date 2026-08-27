@@ -177,16 +177,25 @@ describe('GET /api/rounds — delegating to shared round service', () => {
     expect(['soroban', 'database', 'mock']).toContain(res.body.data.source);
   });
 
-  it('mirrors source and rounds at the top level of the envelope', async () => {
+  it('keeps source and rounds inside the data envelope (not duplicated at top level)', async () => {
     mockGetRoundsForApi.mockResolvedValueOnce(MOCK_ROUND_RESPONSE);
 
     const res = await request(app).get('/api/rounds');
 
-    expect(res.body).toHaveProperty('source');
-    expect(res.body).toHaveProperty('rounds');
-    expect(res.body.source).toBe(res.body.data.source);
-    expect(res.body.rounds).toEqual(res.body.data.rounds);
-    expect(['soroban', 'database', 'mock']).toContain(res.body.source);
+    // Contract: { success, data: { source, rounds } } — the mock payload is
+    // nested under data and never mirrored at the top level. Money fields are
+    // serialized to fixed-precision strings by the route.
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.source).toBe('mock');
+    expect(Array.isArray(res.body.data.rounds)).toBe(true);
+    expect(res.body.data.rounds[0]).toMatchObject({
+      id: MOCK_ROUND_RESPONSE.rounds[0].id,
+      mode: MOCK_ROUND_RESPONSE.rounds[0].mode,
+      source: 'mock',
+    });
+    expect(res.body.data.rounds[0].poolUp).toBe('100.00000000');
+    expect(res.body).not.toHaveProperty('source');
+    expect(res.body).not.toHaveProperty('rounds');
   });
 
   it('propagates service errors to the error handler', async () => {

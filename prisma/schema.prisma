@@ -507,3 +507,39 @@ model MockPlatformStat {
   activePlayers        Int
   totalBetsPlaced      Int
 }
+
+/// Durable bet-store record (Issue #519).
+///
+/// Backs `src/data/bet-store.ts` when the store runs in postgres mode
+/// (`DATA_STORE=postgres`, the default for `DATA_MODE=live`), so bet records
+/// survive process restarts and multi-instance deployments instead of living
+/// only in process-local Maps. The in-memory bet store (true mock mode) does
+/// not touch this table.
+///
+/// Each row mirrors a `StoredBet`: `id` is the client-facing bet id
+/// ("bet-N"), `status` is one of STUB | SUBMITTED | CONFIRMED | FAILED, and
+/// `mode` is "updown" | "precision". Money fields are stored as Decimals per
+/// the repo monetary-precision rule (see src/utils/decimal.util.ts).
+model BetRecord {
+  id             String    @id
+  address        String
+  amount         Decimal   @db.Decimal(20, 8)
+  side           String?
+  predictedPrice Decimal?  @db.Decimal(18, 8)
+  mode           String
+  roundId        String?
+  timestamp      DateTime
+  status         String
+  txHash         String?
+  submittedAt    DateTime?
+  confirmedAt    DateTime?
+  failedAt       DateTime?
+  failureReason  String?   @db.VarChar(2000)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([address])
+  @@index([roundId])
+  @@index([status])
+  @@index([timestamp])
+}
