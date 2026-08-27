@@ -150,8 +150,11 @@ describe('HTTP request log shape is identical across apps', () => {
   describe('production app (src/index.ts)', () => {
     it('logs every expected field on GET /api/health', async () => {
       // The production module has side effects on import; isolate to avoid
-      // polluting the test runner's global state.
-      jest.isolateModules(async () => {
+      // polluting the test runner's global state. isolateModulesAsync is
+      // required because the module registry is only scoped while the
+      // callback runs — an async callback would keep awaiting imports after
+      // the isolation scope has already been torn down.
+      await jest.isolateModulesAsync(async () => {
         process.env.NODE_ENV = 'test';
         process.env.DATA_MODE = 'mock';
         process.env.JWT_SECRET = 'test-jwt-secret-for-production';
@@ -181,7 +184,7 @@ describe('HTTP request log shape is identical across apps', () => {
 
   describe('log field consistency', () => {
     it('both apps produce the same set of log fields', async () => {
-      jest.isolateModules(async () => {
+      await jest.isolateModulesAsync(async () => {
         process.env.NODE_ENV = 'test';
         process.env.DATA_MODE = 'mock';
         process.env.JWT_SECRET = 'test-jwt-secret-for-production';
