@@ -23,14 +23,15 @@ function storedRoundToMockPredictionRound(r: StoredRound) {
 
 export class InMemoryRoundRepository implements RoundRepository {
   async listActiveRounds() {
-    return betStore.getRounds().map(storedRoundToMockPredictionRound);
+    const rounds = await betStore.getRounds();
+    return rounds.map(storedRoundToMockPredictionRound);
   }
 
   async placeBet(roundId: string, _address: string, amount: number, side?: "UP" | "DOWN", predictedPrice?: number): Promise<void> {
     if (side) {
-      betStore.addUpDownBet(roundId, _address, amount, side);
+      await betStore.addUpDownBet(roundId, _address, amount, side);
     } else if (predictedPrice !== undefined) {
-      betStore.addPrecisionBet(roundId, _address, amount, predictedPrice);
+      await betStore.addPrecisionBet(roundId, _address, amount, predictedPrice);
     }
   }
 }
@@ -48,7 +49,7 @@ export class InMemoryStatsRepository implements StatsRepository {
     if (!this.cachedStats) {
       this.cachedStats = {
         ...MOCK_PLATFORM_STATS,
-        totalBets: betStore.getTotalBetsCount(),
+        totalBets: await betStore.getTotalBetsCount(),
         isFallback: true,
         cachedAt: new Date().toISOString(),
       };

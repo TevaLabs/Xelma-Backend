@@ -48,6 +48,11 @@ jest.mock('../routes/bets.routes', () => {
 });
 
 jest.mock('../middleware/rateLimiter.middleware', () => ({
+  // The app factory mounts the global /api limiters in hackathon mode; the
+  // mock must provide them or createApp throws (pre-existing breakage fixed
+  // alongside #519).
+  apiRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  writeRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   challengeRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   connectRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),

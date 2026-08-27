@@ -419,7 +419,7 @@ const BET_STATUSES: BetStatus[] = ["STUB", "SUBMITTED", "CONFIRMED", "FAILED"];
 router.get(
   "/reconciliation",
   requireAdmin,
-  ((req: Request, res: Response, next: NextFunction) => {
+  (async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { address, roundId, status } = req.query;
 
@@ -429,15 +429,18 @@ router.get(
         );
       }
 
-      const bets = betService.getBets({
-        address: address as string | undefined,
-        roundId: roundId as string | undefined,
-        status: status as BetStatus | undefined,
-      });
+      const [bets, summary] = await Promise.all([
+        betService.getBets({
+          address: address as string | undefined,
+          roundId: roundId as string | undefined,
+          status: status as BetStatus | undefined,
+        }),
+        betService.getReconciliationSummary(),
+      ]);
 
       res.json({
         success: true,
-        summary: betService.getReconciliationSummary(),
+        summary,
         count: bets.length,
         bets: bets.map((bet) => serializeBet(bet as unknown as Record<string, unknown>)),
       });
@@ -474,9 +477,9 @@ router.get(
 router.get(
   "/:id",
   requireAdmin,
-  ((req: Request, res: Response, next: NextFunction) => {
+  (async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const bet = betService.getBet(req.params.id);
+      const bet = await betService.getBet(req.params.id);
 
       if (!bet) {
         throw new NotFoundError(`Bet ${req.params.id} not found`);

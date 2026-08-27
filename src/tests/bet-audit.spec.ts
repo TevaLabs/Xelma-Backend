@@ -337,9 +337,23 @@ describe("BetAuditService", () => {
 // ================================================================
 
 describe("BetService + AuditService integration", () => {
+  const originalDataStore = process.env.DATA_STORE;
+
   beforeEach(() => {
     betAuditService.clear();
     jest.clearAllMocks();
+    // This suite asserts audit-event emission, not persistence — pin the bet
+    // store to its in-memory backend so it never touches the mocked prisma
+    // (the mock here only provides `auditLog`).
+    process.env.DATA_STORE = "memory";
+  });
+
+  afterEach(() => {
+    if (originalDataStore === undefined) {
+      delete process.env.DATA_STORE;
+    } else {
+      process.env.DATA_STORE = originalDataStore;
+    }
   });
 
   // --------------------------------------------------------------

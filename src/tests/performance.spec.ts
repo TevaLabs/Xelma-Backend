@@ -23,6 +23,12 @@ import {
 } from "./load-test.harness";
 import { betStore } from "../data/bet-store";
 
+// #519: the bet-store facade defaults to the postgres backend whenever
+// DATA_MODE is unset, which would route every bet through the mocked prisma
+// (no betRecord model) and 500 the load tests. This suite is explicitly
+// DB-free, so pin the in-memory backend for the whole file.
+process.env.DATA_STORE = "memory";
+
 // Mock external services to keep performance tests focused on backend logic
 jest.mock("../services/stellar.service", () => ({
   verifySignature: jest.fn().mockResolvedValue(true),
@@ -388,7 +394,7 @@ describe("Load Test Harness — Duplicate idempotency (#500)", () => {
     const { concurrency, iterations, maxP95LatencyMs, maxErrorRate } =
       LOAD_CONFIG.idempotency;
     const idempotencyKey = `load-idempotency-${Date.now()}`;
-    const beforeCount = betStore.getBets({ address: BET_WALLET }).length;
+    const beforeCount = (await betStore.getBets({ address: BET_WALLET })).length;
 
     const result = await runConcurrentLoad({
       concurrency,
@@ -415,7 +421,7 @@ describe("Load Test Harness — Duplicate idempotency (#500)", () => {
 
     console.log(formatLoadTestReport("duplicate idempotency", result));
 
-    const created = betStore.getBets({ address: BET_WALLET }).length - beforeCount;
+    const created = (await betStore.getBets({ address: BET_WALLET })).length - beforeCount;
     expect(created).toBe(1);
     expect(result.errorRate).toBeLessThanOrEqual(maxErrorRate);
     expect(result.latencyMs.p95).toBeLessThanOrEqual(maxP95LatencyMs);

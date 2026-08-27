@@ -3,18 +3,26 @@ import request from 'supertest';
 import { Express } from 'express';
 import { createApp } from '../app';
 
-const mockLogInfo = jest.fn();
-const mockLogWarn = jest.fn();
-
+// The mock must be self-contained (no outer-variable references): importing
+// '../app' below triggers its module-level `const app = createApp()` side
+// effect, which calls logger.warn() during the import phase — before any
+// `const mockX = jest.fn()` in this file has run, so a closure-based mock
+// would throw a temporal-dead-zone ReferenceError. jest.fn()s created inside
+// the factory are safe; grab handles to them via the mocked import instead.
 jest.mock('../utils/logger', () => ({
   __esModule: true,
   default: {
-    info: (...args: any[]) => mockLogInfo(...args),
-    warn: (...args: any[]) => mockLogWarn(...args),
+    info: jest.fn(),
+    warn: jest.fn(),
     error: jest.fn(),
     debug: jest.fn(),
   },
 }));
+
+import logger from '../utils/logger';
+
+const mockLogInfo = logger.info as unknown as jest.Mock;
+const mockLogWarn = logger.warn as unknown as jest.Mock;
 
 jest.mock('../services/soroban.service', () => ({
   __esModule: true,

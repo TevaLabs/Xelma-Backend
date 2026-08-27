@@ -1,3 +1,7 @@
+// Fail fast on unsupported Node versions before any dependency is required
+// (a stray ESM error from a transitive dep would otherwise mask the cause).
+import './config/node-version';
+
 import dotenv from 'dotenv';
 import path from 'path';
 import { createServer, Server as HttpServer } from 'http';
