@@ -20,6 +20,13 @@ export interface AppConfig {
   dataStore: "memory" | "postgres";
   enableSimulation: boolean;
   enableMultiplayerSocial: boolean;
+  /**
+   * Opt-in education surface for the hackathon demo app (#532).
+   * The full backend always ships education; this flag only mounts
+   * `/api/education/*` on the hackathon entrypoint. Default off keeps the
+   * demo surface unchanged and "safe" (no implied database dependency).
+   */
+  enableEducation: boolean;
 }
 
 export interface JwtConfig {
@@ -125,6 +132,7 @@ function buildConfig(): Config {
     ),
     enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
     enableMultiplayerSocial: v.boolean(env.ENABLE_MULTIPLAYER_SOCIAL, true),
+    enableEducation: v.boolean(env.ENABLE_EDUCATION, false),
   };
 
   const jwt: JwtConfig = {

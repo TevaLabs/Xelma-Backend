@@ -227,6 +227,11 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
       { name: 'rounds', description: 'Mock prediction rounds' },
       { name: 'leaderboard', description: 'Mock leaderboard data' },
       { name: 'tournaments', description: 'Tournament listings and join' },
+      {
+        name: 'education',
+        description:
+          'Educational guides and contextual tips. Mounted on the hackathon app only when ENABLE_EDUCATION=true (off by default).',
+      },
       { name: 'observability', description: 'Prometheus metrics and readiness probes' },
     ],
   },
@@ -239,5 +244,6 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
     path.join(process.cwd(), 'src/routes/leaderboard.ts'),
     path.join(process.cwd(), 'src/routes/tournaments.routes.ts'),
     path.join(process.cwd(), 'src/routes/user.ts'),
+    path.join(process.cwd(), 'src/routes/education.routes.ts'),
   ],
 });

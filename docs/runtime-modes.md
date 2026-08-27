@@ -28,6 +28,7 @@ behavior, or choosing the right flags for a deployment profile.
 | `ROUNDS_MOCK_MODE` | `config.app.roundsMockMode` | `true`, `false` | `false` | `src/config/index.ts` |
 | `API_ONLY` | `process.env.API_ONLY` | `true`, `false` | `false` | `src/index.ts` |
 | `SOROBAN_FAIL_CLOSED` | `config.soroban.failClosed` | `true`, `false` | `false` | `src/config/index.ts` |
+| `ENABLE_EDUCATION` | `config.app.enableEducation` | `true`, `false` | `false` | `src/config/index.ts`, `src/app-factory.ts` |
 
 ### DATA_STORE auto-derivation
 
@@ -72,6 +73,28 @@ Soroban or just record the intent **locally**.
 
 > The active mode is logged at startup:
 > `Bet mode: STUB (no on-chain calls)` or `Bet mode: ON-CHAIN (Soroban)`.
+
+### ENABLE_EDUCATION
+
+Controls whether the **hackathon demo app** mounts the education surface
+(`/api/education/guides` and `/api/education/tip`).
+
+| `ENABLE_EDUCATION` | Behavior | Use case |
+|---|---|---|
+| `false` (default) | Hackathon app does **not** mount `/api/education/*` — the demo surface stays unchanged and needs no database. | Safe default for demos without a full stack |
+| `true` | Hackathon app mounts `/api/education/*`, so demos can show the tip/guide UX. | Hackathon flows that want to demonstrate education tips |
+
+**Affected endpoints:** `GET /api/education/guides`, `GET /api/education/tip`
+
+**Implementation:** `src/config/index.ts` (parses the flag) and
+`src/app-factory.ts` (`resolveFeatures` — the `education` feature flag for
+`hackathon` mode is OR-ed with this env var). The **full backend always ships
+education**; this flag only ever adds the surface to the hackathon app.
+
+> `GET /api/education/guides` is static content and works without a database.
+> `GET /api/education/tip` still requires a resolved `Round` row (Prisma), so
+> it returns `404`/`422` in a purely mock-data demo — mount it when the demo
+> has a database with resolved rounds.
 
 ### SOROBAN_FAIL_CLOSED
 
@@ -229,6 +252,7 @@ for your current workflow.
 | `BET_STUB_MODE` | `src/services/bet.service.ts` |
 | `ROUNDS_MOCK_MODE` | `src/config/index.ts`, `src/services/round.service.ts` |
 | `SOROBAN_FAIL_CLOSED` | `src/config/index.ts`, `src/services/soroban.service.ts` |
+| `ENABLE_EDUCATION` | `src/config/index.ts`, `src/app-factory.ts` |
 | Mock data | `src/data/mockData.ts` |
 
 ---

@@ -37,7 +37,7 @@ Every surface that exists in only one app is a flag on `AppFeatures` in
 | --- | --- | --- | --- |
 | `auth` | `/api/auth/*` — wallet challenge/connect | on | on |
 | `predictions` | `/api/predictions/*` | on | off |
-| `education` | `/api/education/*` | on | off |
+| `education` | `/api/education/*` (hackathon can opt in via `ENABLE_EDUCATION=true`) | on | off |
 | `errorCatalog` | `GET /api/errors` | on | off |
 | `adminRoutes` | `/api/admin/metrics`, `/api/admin/cors-diagnostics`, `/api/admin/dead-letter` | on | off |
 | `versionedAlias` | mirrors every `/api/*` route under `/api/v1/*` | on | off |

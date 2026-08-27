@@ -1684,6 +1684,7 @@ Minimal env vars needed (all others use sensible defaults):
 | `JWT_SECRET`                | _(sync on Render)_                    | Signs JWT tokens                                                   |
 | `DATA_MODE`                 | `mock`                                | Use mock in-process data (no DB)                                   |
 | `ENABLE_MULTIPLAYER_SOCIAL` | `true`                                | Enable chat / notifications                                        |
+| `ENABLE_EDUCATION`          | `false`                               | Mount `/api/education/*` on the demo app (off by default)          |
 | `CLIENT_URL`                | `https://your-app.onrender.com`       | CORS origin                                                        |
 | `SOROBAN_CONTRACT_ID`       | _(sync on Render)_                    | Soroban contract address (optional for demo; alias: `CONTRACT_ID`) |
 | `SOROBAN_RPC_URL`           | `https://soroban-testnet.stellar.org` | Soroban RPC (alias: `STELLAR_RPC_URL`)                             |
@@ -1761,6 +1762,7 @@ The server starts on `http://localhost:3001` (or the `PORT` in `.env`). See the 
 | `JWT_SECRET`                | `my-secret-key`                                                               | Signs JWT tokens (app refuses to start without it)                         |
 | `DATA_MODE`                 | `mock`                                                                        | Hackathon service data mode (set to `mock` to query Drizzle schema tables) |
 | `ENABLE_MULTIPLAYER_SOCIAL` | `true`                                                                        | Feature flag to enable/disable chat and notifications routes               |
+| `ENABLE_EDUCATION`          | `false`                                                                       | Feature flag to mount `/api/education/*` on the hackathon app (off by default) |
 | `COINGECKO_API_URL`         | `https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd` | Price oracle source                                                        |
 | `SOROBAN_RPC_URL`           | `https://soroban-testnet.stellar.org`                                         | Soroban RPC (alias: `STELLAR_RPC_URL`)                                     |
 | `SOROBAN_CONTRACT_ID`       | _(your deployed contract)_                                                    | Soroban prediction market contract (alias: `CONTRACT_ID`)                  |
@@ -1888,6 +1890,8 @@ curl http://localhost:3001/api/user/GXXX.../stats
 ```
 
 > **Note on Feature Flags**: Chat (`/api/chat/*`) and Notification (`/api/notifications/*`) endpoints are feature-gated behind the `ENABLE_MULTIPLAYER_SOCIAL` configuration option. If this option is set to `false`, these endpoints will return a `404 Not Found` JSON response.
+>
+> **Education on the demo app**: `/api/education/*` is production-only by default. To mount the education surface on the hackathon demo app, set `ENABLE_EDUCATION=true` (off by default, so demos keep working without a full stack). The full backend always ships education.
 
 #### Get Transactions (requires JWT)
 

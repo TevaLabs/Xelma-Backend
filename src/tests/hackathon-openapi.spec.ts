@@ -9,6 +9,10 @@ const REQUIRED_HACKATHON_PATHS: Array<{ path: string; method: string }> = [
   { path: '/api/stats', method: 'get' },
   { path: '/api/rounds', method: 'get' },
   { path: '/api/leaderboard', method: 'get' },
+  // Education surface is documented for the hackathon app even though it is
+  // only mounted at runtime when ENABLE_EDUCATION=true (#532). The tip route
+  // keeps plain-comment docs and is intentionally absent from the specs.
+  { path: '/api/education/guides', method: 'get' },
 ];
 
 describe('Hackathon OpenAPI spec', () => {
