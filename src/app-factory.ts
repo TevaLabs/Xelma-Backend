@@ -178,6 +178,17 @@ export function resolveFeatures(
       resolved.multiplayerSocial && config.app.enableMultiplayerSocial;
   }
 
+  // ENABLE_EDUCATION can add the education surface to the hackathon demo app
+  // (#532). The full backend always ships education, so the flag only ever
+  // broadens the hackathon app — the default (off) keeps the demo surface
+  // unchanged, and an explicit per-call override still wins for tests.
+  if (overrides.education === undefined) {
+    resolved.education =
+      mode === 'hackathon'
+        ? resolved.education || config.app.enableEducation
+        : resolved.education;
+  }
+
   return resolved;
 }
 

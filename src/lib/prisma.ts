@@ -93,12 +93,90 @@ export const prisma = (() => {
           findMany: async () => store,
         };
       })(),
+      // #519: in-memory stub for the durable bet-store table so unit tests
+      // exercise the same Prisma-shaped API as production without a live
+      // database. Mirrors the BetRecord model (id is the client-facing
+      // "bet-N" id; money columns are stored as strings/numbers here).
+      betRecord: (() => {
+        const store = new Map<string, any>();
+        const clone = (record: any) => ({ ...record });
+        const now = () => new Date();
+        return {
+          create: async ({ data }: any) => {
+            const record = { createdAt: now(), updatedAt: now(), ...data };
+            store.set(record.id, record);
+            return clone(record);
+          },
+          findUnique: async ({ where }: any) => {
+            const record = store.get(where.id);
+            return record ? clone(record) : null;
+          },
+          findMany: async ({ where, orderBy }: any = {}) => {
+            let rows = Array.from(store.values());
+            if (where) {
+              rows = rows.filter((r) =>
+                Object.entries(where).every(([key, value]) => r[key] === value),
+              );
+            }
+            if (orderBy) {
+              const [key, dir] = Object.entries(orderBy)[0];
+              rows.sort((a, b) => {
+                const av = a[key];
+                const bv = b[key];
+                const cmp =
+                  av < bv ? -1 : av > bv ? 1 : 0;
+                return dir === 'desc' ? -cmp : cmp;
+              });
+            }
+            return rows.map(clone);
+          },
+          update: async ({ where, data }: any) => {
+            const existing = store.get(where.id);
+            if (!existing) return null;
+            const updated = { ...existing, ...data, updatedAt: now() };
+            store.set(where.id, updated);
+            return clone(updated);
+          },
+          deleteMany: async () => {
+            const count = store.size;
+            store.clear();
+            return { count };
+          },
+          count: async () => store.size,
+          groupBy: async ({ by }: any) => {
+            const groups = new Map<string, number>();
+            for (const record of store.values()) {
+              const key = record[by[0]];
+              groups.set(key, (groups.get(key) ?? 0) + 1);
+            }
+            return Array.from(groups.entries()).map(([key, count]) => ({
+              [by[0]]: key,
+              _count: { [by[0]]: count },
+            }));
+          },
+        };
+      })(),
       round: {
         findMany: async () => [],
         findUnique: async () => null,
         findFirst: async () => null,
         create: async ({ data }: any) => ({ id: "round-1", ...data }),
         update: async ({ data }: any) => data,
+        count: async () => 0,
+      },
+      // Model stubs used by retention.service (and friends) so unit tests
+      // can spyOn the count/deleteMany methods without a live database.
+      authChallenge: {
+        deleteMany: async () => ({ count: 0 }),
+        count: async () => 0,
+      },
+      message: {
+        deleteMany: async () => ({ count: 0 }),
+        count: async () => 0,
+      },
+      auditLog: {
+        create: async ({ data }: any) => ({ id: "audit-log-1", ...data }),
+        deleteMany: async () => ({ count: 0 }),
         count: async () => 0,
       },
       // Add a generic $queryRaw mock for connectivity checks.

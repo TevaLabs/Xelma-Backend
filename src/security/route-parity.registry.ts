@@ -101,8 +101,11 @@ export const PARITY_ALLOWLIST: ParityAllowlistEntry[] = [
   { method: "GET", path: "/api/predictions/round/:roundId", only: "main", reason: "Per-round predictions require a database.", flag: "predictions" },
 
   // --- education ---
-  { method: "GET", path: "/api/education/guides", only: "main", reason: "Education content is production-only.", flag: "education" },
-  { method: "GET", path: "/api/education/tip", only: "main", reason: "Education content is production-only.", flag: "education" },
+  // Education is off by default on the hackathon app; ENABLE_EDUCATION=true
+  // mounts it there too (#532). The allowlist below reflects the default
+  // (flag-off) surface that route-parity.spec.ts exercises.
+  { method: "GET", path: "/api/education/guides", only: "main", reason: "Education is production-only; the hackathon app opts in via ENABLE_EDUCATION (default off).", flag: "education" },
+  { method: "GET", path: "/api/education/tip", only: "main", reason: "Education is production-only; the hackathon app opts in via ENABLE_EDUCATION (default off).", flag: "education" },
 
   // --- errorCatalog ---
   { method: "GET", path: "/api/errors", only: "main", reason: "Production error catalog is not part of the mock demo.", flag: "errorCatalog" },

@@ -125,6 +125,10 @@ const REQUIRED_HACKATHON_PATHS = [
   '/api/stats',
   '/api/rounds',
   '/api/leaderboard',
+  // Education surface — documented for the hackathon app even though it is
+  // only mounted when ENABLE_EDUCATION=true (#532). /tip is intentionally
+  // absent from the OpenAPI specs (plain-comment docs only).
+  '/api/education/guides',
 ];
 
 /**

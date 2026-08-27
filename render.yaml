@@ -38,6 +38,10 @@ services:
         value: mock
       - key: ENABLE_MULTIPLAYER_SOCIAL
         value: "true"
+      # Opt-in education surface on the demo app; set to "true" to mount
+      # /api/education/* on the hackathon service (#532).
+      - key: ENABLE_EDUCATION
+        value: "false"
       - key: CLIENT_URL
         sync: false
       - key: COINGECKO_API_URL

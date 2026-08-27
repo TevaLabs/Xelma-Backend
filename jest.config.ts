@@ -7,6 +7,7 @@ const integrationTestFiles = [
   "auth-race.spec.ts",
   "batch-routes.spec.ts",
   "bets.routes.spec.ts",
+  "bet-store-persistence.spec.ts",
   "concurrent-rounds.spec.ts",
   "db-pool-config.spec.ts",
   "decimal-precision.spec.ts",

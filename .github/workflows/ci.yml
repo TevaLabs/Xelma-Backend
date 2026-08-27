@@ -138,6 +138,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # node-version-check.spec.ts boots dist/index.js under Node 18 to prove
+      # the version gate fails fast, so the unit job needs a real build too.
+      - name: Build
+        run: npm run build
+
       - name: Run unit tests with coverage
         run: npm run test:unit:coverage
 

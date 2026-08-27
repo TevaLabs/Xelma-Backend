@@ -44,10 +44,10 @@ const OTHER_ADDRESS = "GZZZZZZ1234567890ABCDEF1234567890ABCDEF1234567890";
 describe("Bet reconciliation lifecycle (#403)", () => {
   const originalEnv = process.env;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
-    betStore.reset();
+    await betStore.reset();
   });
 
   afterEach(() => {
@@ -68,7 +68,7 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         side: "UP",
       });
 
-      const bet = betService.getBet(result.betId);
+      const bet = await betService.getBet(result.betId);
 
       expect(bet).toBeDefined();
       expect(bet!.status).toBe("STUB");
@@ -90,7 +90,7 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         predictedPrice: 0.12,
       });
 
-      const bet = betService.getBet(result.betId);
+      const bet = await betService.getBet(result.betId);
 
       expect(bet!.status).toBe("STUB");
       expect(bet!.mode).toBe("precision");
@@ -100,7 +100,7 @@ describe("Bet reconciliation lifecycle (#403)", () => {
 
     it("links the stub bet to the active round when one exists", async () => {
       process.env.BET_STUB_MODE = "true";
-      const activeRound = betStore.getActiveRound("updown");
+      const activeRound = await betStore.getActiveRound("updown");
 
       const result = await betService.recordUpDownBet({
         address: ADDRESS,
@@ -108,7 +108,7 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         side: "UP",
       });
 
-      expect(betService.getBet(result.betId)!.roundId).toBe(activeRound!.id);
+      expect((await betService.getBet(result.betId))!.roundId).toBe(activeRound!.id);
     });
   });
 
@@ -125,16 +125,16 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         amount: 10,
         side: "UP",
       });
-      expect(betService.getBet(betId)!.status).toBe("STUB");
+      expect((await betService.getBet(betId))!.status).toBe("STUB");
 
-      const reconciled = betService.reconcileBet(betId, "0xdeadbeef");
+      const reconciled = await betService.reconcileBet(betId, "0xdeadbeef");
 
       expect(reconciled).toBeDefined();
       expect(reconciled!.status).toBe("CONFIRMED");
       expect(reconciled!.txHash).toBe("0xdeadbeef");
       expect(reconciled!.confirmedAt).toEqual(expect.any(String));
-      expect(betService.getBet(betId)!.status).toBe("CONFIRMED");
-      expect(betService.getBet(betId)!.txHash).toBe("0xdeadbeef");
+      expect((await betService.getBet(betId))!.status).toBe("CONFIRMED");
+      expect((await betService.getBet(betId))!.txHash).toBe("0xdeadbeef");
     });
 
     it("preserves the original record instead of creating a new one", async () => {
@@ -145,12 +145,12 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         amount: 10,
         side: "UP",
       });
-      const before = betService.getBet(betId)!;
+      const before = (await betService.getBet(betId))!;
 
-      betService.reconcileBet(betId, "0xdeadbeef");
-      const after = betService.getBet(betId)!;
+      await betService.reconcileBet(betId, "0xdeadbeef");
+      const after = (await betService.getBet(betId))!;
 
-      expect(betService.getBets({ address: ADDRESS })).toHaveLength(1);
+      expect(await betService.getBets({ address: ADDRESS })).toHaveLength(1);
       expect(after.id).toBe(before.id);
       expect(after.timestamp).toBe(before.timestamp);
       expect(after.amount).toBe(before.amount);
@@ -165,7 +165,7 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         side: "UP",
       });
 
-      betService.reconcileBet(betId, "0xdeadbeef");
+      await betService.reconcileBet(betId, "0xdeadbeef");
 
       expect(betAuditService.emitBetReconciled).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -178,8 +178,10 @@ describe("Bet reconciliation lifecycle (#403)", () => {
       );
     });
 
-    it("returns undefined for an unknown bet id without throwing", () => {
-      expect(betService.reconcileBet("bet-does-not-exist", "0xabc")).toBeUndefined();
+    it("returns undefined for an unknown bet id without throwing", async () => {
+      await expect(
+        betService.reconcileBet("bet-does-not-exist", "0xabc")
+      ).resolves.toBeUndefined();
       expect(betAuditService.emitBetReconciled).not.toHaveBeenCalled();
     });
 
@@ -189,15 +191,14 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         new Error("RPC unavailable") as never
       );
 
-      let betId: string | undefined;
       await expect(
         betService.recordUpDownBet({ address: ADDRESS, amount: 10, side: "UP" })
       ).rejects.toThrow("RPC unavailable");
 
-      betId = betService.getBets({ address: ADDRESS })[0].id;
-      expect(betService.getBet(betId)!.status).toBe("FAILED");
+      const betId = (await betService.getBets({ address: ADDRESS }))[0].id;
+      expect((await betService.getBet(betId))!.status).toBe("FAILED");
 
-      const reconciled = betService.reconcileBet(betId, "0xlanded");
+      const reconciled = await betService.reconcileBet(betId, "0xlanded");
 
       expect(reconciled!.status).toBe("CONFIRMED");
       expect(reconciled!.txHash).toBe("0xlanded");
@@ -224,7 +225,7 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         side: "DOWN",
       });
 
-      const bet = betService.getBet(result.betId)!;
+      const bet = (await betService.getBet(result.betId))!;
 
       expect(result.status).toBe("CONFIRMED");
       expect(bet.status).toBe("CONFIRMED");
@@ -246,7 +247,7 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         predictedPrice: 0.12,
       });
 
-      const bet = betService.getBet(result.betId)!;
+      const bet = (await betService.getBet(result.betId))!;
 
       expect(bet.status).toBe("CONFIRMED");
       expect(bet.txHash).toBe("0x789");
@@ -264,7 +265,7 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         side: "UP",
       });
 
-      const bet = betService.getBet(result.betId)!;
+      const bet = (await betService.getBet(result.betId))!;
 
       expect(bet.status).toBe("SUBMITTED");
       expect(bet.txHash).toBeUndefined();
@@ -291,7 +292,7 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         betService.recordUpDownBet({ address: ADDRESS, amount: 10, side: "UP" })
       ).rejects.toThrow("Contract error: insufficient balance");
 
-      const bets = betService.getBets({ address: ADDRESS });
+      const bets = await betService.getBets({ address: ADDRESS });
 
       expect(bets).toHaveLength(1);
       expect(bets[0].status).toBe("FAILED");
@@ -343,7 +344,7 @@ describe("Bet reconciliation lifecycle (#403)", () => {
         betService.recordUpDownBet({ address: ADDRESS, amount: 42, side: "UP" })
       ).rejects.toThrow();
 
-      const bets = betService.getBets({ status: "FAILED" });
+      const bets = await betService.getBets({ status: "FAILED" });
 
       expect(bets).toHaveLength(1);
       expect(bets[0].amount).toBe(42);
@@ -366,32 +367,32 @@ describe("Bet reconciliation lifecycle (#403)", () => {
       });
     });
 
-    it("filters by address", () => {
-      expect(betService.getBets({ address: ADDRESS })).toHaveLength(2);
-      expect(betService.getBets({ address: OTHER_ADDRESS })).toHaveLength(1);
+    it("filters by address", async () => {
+      expect(await betService.getBets({ address: ADDRESS })).toHaveLength(2);
+      expect(await betService.getBets({ address: OTHER_ADDRESS })).toHaveLength(1);
     });
 
-    it("filters by status", () => {
-      const first = betService.getBets({ address: ADDRESS })[0];
-      betService.reconcileBet(first.id, "0xaaa");
+    it("filters by status", async () => {
+      const first = (await betService.getBets({ address: ADDRESS }))[0];
+      await betService.reconcileBet(first.id, "0xaaa");
 
-      expect(betService.getBets({ status: "CONFIRMED" })).toHaveLength(1);
-      expect(betService.getBets({ status: "STUB" })).toHaveLength(2);
-      expect(betService.getBets({ status: "FAILED" })).toHaveLength(0);
+      expect(await betService.getBets({ status: "CONFIRMED" })).toHaveLength(1);
+      expect(await betService.getBets({ status: "STUB" })).toHaveLength(2);
+      expect(await betService.getBets({ status: "FAILED" })).toHaveLength(0);
     });
 
-    it("filters by round", () => {
-      const roundId = betStore.getActiveRound("updown")!.id;
+    it("filters by round", async () => {
+      const roundId = (await betStore.getActiveRound("updown"))!.id;
 
-      expect(betService.getBets({ roundId })).toHaveLength(3);
-      expect(betService.getBets({ roundId: "no-such-round" })).toHaveLength(0);
+      expect(await betService.getBets({ roundId })).toHaveLength(3);
+      expect(await betService.getBets({ roundId: "no-such-round" })).toHaveLength(0);
     });
 
-    it("summarises bets per reconciliation status", () => {
-      const first = betService.getBets({ address: ADDRESS })[0];
-      betService.reconcileBet(first.id, "0xaaa");
+    it("summarises bets per reconciliation status", async () => {
+      const first = (await betService.getBets({ address: ADDRESS }))[0];
+      await betService.reconcileBet(first.id, "0xaaa");
 
-      expect(betService.getReconciliationSummary()).toEqual({
+      expect(await betService.getReconciliationSummary()).toEqual({
         STUB: 2,
         SUBMITTED: 0,
         CONFIRMED: 1,
@@ -399,15 +400,15 @@ describe("Bet reconciliation lifecycle (#403)", () => {
       });
     });
 
-    it("returns copies so callers cannot mutate stored records", () => {
-      const bets = betService.getBets({ address: ADDRESS });
+    it("returns copies so callers cannot mutate stored records", async () => {
+      const bets = await betService.getBets({ address: ADDRESS });
       bets[0].status = "CONFIRMED";
 
-      expect(betService.getBet(bets[0].id)!.status).toBe("STUB");
+      expect((await betService.getBet(bets[0].id))!.status).toBe("STUB");
     });
 
-    it("returns undefined for an unknown bet id", () => {
-      expect(betService.getBet("bet-nope")).toBeUndefined();
+    it("returns undefined for an unknown bet id", async () => {
+      await expect(betService.getBet("bet-nope")).resolves.toBeUndefined();
     });
   });
 });

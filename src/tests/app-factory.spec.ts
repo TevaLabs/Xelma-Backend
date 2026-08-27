@@ -80,6 +80,63 @@ describe("app factory", () => {
     });
   });
 
+  describe("ENABLE_EDUCATION env flag (#532)", () => {
+    it("keeps education off the hackathon app by default", () => {
+      const features = resolveFeatures("hackathon");
+
+      expect(features.education).toBe(false);
+    });
+
+    it("keeps education on in full mode regardless of the env default", () => {
+      const features = resolveFeatures("full");
+
+      expect(features.education).toBe(true);
+    });
+
+    it("enables education on hackathon when ENABLE_EDUCATION=true", () => {
+      jest.isolateModules(() => {
+        process.env.ENABLE_EDUCATION = "true";
+        try {
+          const { resolveFeatures: freshResolve } = require("../app-factory");
+
+          expect(freshResolve("hackathon").education).toBe(true);
+          // The env var never narrows the full backend.
+          expect(freshResolve("full").education).toBe(true);
+        } finally {
+          delete process.env.ENABLE_EDUCATION;
+        }
+      });
+    });
+
+    it("lets an explicit per-call override win over the env flag", () => {
+      jest.isolateModules(() => {
+        process.env.ENABLE_EDUCATION = "true";
+        try {
+          const { resolveFeatures: freshResolve } = require("../app-factory");
+
+          expect(freshResolve("hackathon", { education: false }).education).toBe(false);
+        } finally {
+          delete process.env.ENABLE_EDUCATION;
+        }
+      });
+    });
+
+    it("mounts education routes on the hackathon app when the env flag is on", () => {
+      jest.isolateModules(() => {
+        process.env.ENABLE_EDUCATION = "true";
+        try {
+          const { createApp: freshCreateApp } = require("../app-factory");
+          const routes = pathsOf(freshCreateApp({ mode: "hackathon" }));
+
+          expect(routes.has("GET /api/education/guides")).toBe(true);
+          expect(routes.has("GET /api/education/tip")).toBe(true);
+        } finally {
+          delete process.env.ENABLE_EDUCATION;
+        }
+      });
+    });
+  });
+
   describe("flags actually gate their routes", () => {
     it("omits auth routes when auth is off", () => {
       const routes = pathsOf(createApp({ mode: "full", features: { auth: false } }));
