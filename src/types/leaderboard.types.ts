@@ -1,5 +1,14 @@
 import { CursorMeta, OffsetMeta } from "../utils/pagination.util";
 
+/** Stable response contract shared by full and hackathon leaderboard modes. */
+export interface LeaderboardContract {
+  leaderboard: LeaderboardEntry[];
+  userPosition?: LeaderboardEntry;
+  totalUsers: number;
+  lastUpdated: string;
+  pagination: OffsetMeta;
+}
+
 export interface ModeStats {
   wins: number;
   losses: number;

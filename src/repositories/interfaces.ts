@@ -1,9 +1,9 @@
 import { MockPredictionRound, MockLeaderboardUser } from "../data/mockData";
 import { PlatformStats } from "../services/stats.service";
-import { LeaderboardResponse } from "../types/leaderboard.types";
+import { LeaderboardContract } from "../types/leaderboard.types";
 
 export type RoundListResponse = MockPredictionRound[] | { source: string; rounds: any[] };
-export type LeaderboardListResponse = MockLeaderboardUser[] | LeaderboardResponse;
+export type LeaderboardListResponse = MockLeaderboardUser[] | LeaderboardContract;
 
 export interface RoundRepository {
   listActiveRounds(): Promise<RoundListResponse>;
