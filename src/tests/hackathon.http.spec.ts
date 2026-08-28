@@ -141,17 +141,18 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
     it('returns rankings schema', async () => {
       const res = await request(app).get('/api/leaderboard');
       expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-      if (res.body.length > 0) {
-        expect(res.body[0]).toEqual(
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data.leaderboard)).toBe(true);
+      if (res.body.data.leaderboard.length > 0) {
+        expect(res.body.data.leaderboard[0]).toEqual(
           expect.objectContaining({
             rank: expect.any(Number),
-            address: expect.any(String),
-            totalWins: expect.any(Number),
-            totalLosses: expect.any(Number),
-            winStreak: expect.any(Number),
-            xp: expect.any(Number),
-            rankTitle: expect.any(String),
+            userId: expect.any(String),
+            walletAddress: expect.any(String),
+            totalEarnings: expect.any(String),
+            totalPredictions: expect.any(Number),
+            accuracy: expect.any(Number),
+            modeStats: expect.any(Object),
           })
         );
       }
@@ -162,8 +163,7 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
     it('returns active rounds schema', async () => {
       const res = await request(app).get('/api/rounds');
       expect(res.status).toBe(200);
-      // Depending on config, it either returns an array directly or an object { source, rounds }
-      const rounds = Array.isArray(res.body) ? res.body : res.body.rounds;
+      const rounds = res.body.data?.rounds ?? res.body.rounds;
       expect(Array.isArray(rounds)).toBe(true);
       if (rounds.length > 0) {
         expect(rounds[0]).toEqual(
@@ -272,11 +272,7 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
     it('returns 400 for invalid address format', async () => {
       const res = await request(app).get('/api/user/invalid-address/stats');
       expect(res.status).toBe(400);
-      expect(res.body).toEqual(
-        expect.objectContaining({
-          error: 'Invalid Stellar wallet address format',
-        })
-      );
+      expect(res.body.message).toBe('Invalid Stellar wallet address format');
     });
   });
 });

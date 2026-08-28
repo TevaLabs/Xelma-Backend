@@ -153,9 +153,19 @@ export const swaggerSpec = swaggerJSDoc({
             leaderboard: { type: 'array', items: { $ref: '#/components/schemas/LeaderboardEntry' } },
             userPosition: { $ref: '#/components/schemas/LeaderboardEntry', nullable: true },
             totalUsers: { type: 'number' },
-            lastUpdated: { type: 'string' },
+            lastUpdated: { type: 'string', format: 'date-time' },
+            pagination: {
+              type: 'object',
+              properties: {
+                limit: { type: 'integer' },
+                offset: { type: 'integer' },
+                total: { type: 'integer' },
+                hasNextPage: { type: 'boolean' },
+              },
+              required: ['limit', 'offset', 'total', 'hasNextPage'],
+            },
           },
-          required: ['leaderboard', 'totalUsers', 'lastUpdated'],
+          required: ['leaderboard', 'totalUsers', 'lastUpdated', 'pagination'],
           additionalProperties: true,
         },
         UserBalanceResponse: {

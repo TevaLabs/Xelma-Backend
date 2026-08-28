@@ -98,6 +98,39 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
           },
           required: ['error', 'path'],
         },
+        LeaderboardEntry: {
+          type: 'object',
+          properties: {
+            rank: { type: 'integer' },
+            userId: { type: 'string' },
+            walletAddress: { type: 'string' },
+            totalEarnings: { $ref: '#/components/schemas/MoneyAmount' },
+            totalPredictions: { type: 'integer' },
+            accuracy: { type: 'number' },
+            modeStats: { type: 'object' },
+          },
+          required: ['rank', 'userId', 'walletAddress', 'totalEarnings', 'totalPredictions', 'accuracy', 'modeStats'],
+        },
+        LeaderboardResponse: {
+          type: 'object',
+          properties: {
+            leaderboard: { type: 'array', items: { $ref: '#/components/schemas/LeaderboardEntry' } },
+            userPosition: { $ref: '#/components/schemas/LeaderboardEntry', nullable: true },
+            totalUsers: { type: 'integer' },
+            lastUpdated: { type: 'string', format: 'date-time' },
+            pagination: {
+              type: 'object',
+              properties: {
+                limit: { type: 'integer' },
+                offset: { type: 'integer' },
+                total: { type: 'integer' },
+                hasNextPage: { type: 'boolean' },
+              },
+              required: ['limit', 'offset', 'total', 'hasNextPage'],
+            },
+          },
+          required: ['leaderboard', 'totalUsers', 'lastUpdated', 'pagination'],
+        },
         PriceResponse: {
           type: 'object',
           description:

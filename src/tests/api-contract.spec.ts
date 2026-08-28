@@ -3,11 +3,21 @@ import request from 'supertest';
 import { z } from 'zod';
 import { createApp } from '../app';
 import { setRepositoriesForTests } from '../repositories';
+import config from '../config';
 
 jest.mock('../middleware/rateLimiter.middleware', () => ({
   apiRateLimiter: (_req: any, _res: any, next: any) => next(),
   writeRateLimiter: (_req: any, _res: any, next: any) => next(),
   betRateLimiter: (_req: any, _res: any, next: any) => next(),
+  authRateLimiter: (_req: any, _res: any, next: any) => next(),
+  challengeRateLimiter: (_req: any, _res: any, next: any) => next(),
+  connectRateLimiter: (_req: any, _res: any, next: any) => next(),
+  predictionRateLimiter: (_req: any, _res: any, next: any) => next(),
+  batchPredictionRateLimiter: (_req: any, _res: any, next: any) => next(),
+  chatMessageRateLimiter: (_req: any, _res: any, next: any) => next(),
+  adminRoundRateLimiter: (_req: any, _res: any, next: any) => next(),
+  oracleResolveRateLimiter: (_req: any, _res: any, next: any) => next(),
+  batchLeaderboardRateLimiter: (_req: any, _res: any, next: any) => next(),
 }));
 
 jest.mock('../services/priceService', () => ({
@@ -18,7 +28,6 @@ jest.mock('../services/priceService', () => ({
 import { getPrices } from '../services/priceService';
 
 const app = createApp();
-
 afterEach(() => {
   setRepositoriesForTests(null);
   jest.clearAllMocks();
@@ -46,15 +55,19 @@ describe('API Contract Tests - frontend-critical endpoints (Issue #333)', () => 
 
     it('matches the documented response contract', async () => {
       const repos = emptyRepos();
-      (repos.rounds.listActiveRounds as jest.Mock).mockResolvedValue([
-        { id: 'r-1', mode: 'UP_DOWN', status: 'ACTIVE', startPrice: 0.1234 },
-      ]);
+      (repos.rounds.listActiveRounds as jest.Mock).mockResolvedValue({
+        source: 'mock',
+        rounds: [{ id: 'r-1', mode: 'UP_DOWN', status: 'ACTIVE', startPrice: 0.1234, startTime: new Date().toISOString(), endTime: new Date().toISOString() }],
+      });
       setRepositoriesForTests(repos as any);
+      const originalRoundsMockMode = (config as any).app.roundsMockMode;
+      (config as any).app.roundsMockMode = true;
 
       const res = await request(app).get('/api/rounds');
 
       expect(res.status).toBe(200);
       expect(() => roundsContract.parse(res.body)).not.toThrow();
+      (config as any).app.roundsMockMode = originalRoundsMockMode;
     });
   });
 
@@ -62,29 +75,37 @@ describe('API Contract Tests - frontend-critical endpoints (Issue #333)', () => 
     const leaderboardContract = z.object({
       success: z.literal(true),
       data: z.object({
-        entries: z.array(
+        leaderboard: z.array(
           z.object({
             userId: z.string(),
             rank: z.number(),
-            score: z.union([z.string(), z.number()]),
+            totalEarnings: z.string(),
           }),
         ),
-      }),
-      meta: z.object({
+        totalUsers: z.number(),
+        lastUpdated: z.string(),
         pagination: z.object({
           limit: z.number(),
           offset: z.number(),
           total: z.number(),
+          hasNextPage: z.boolean(),
         }),
       }),
     });
 
     it('matches the documented response contract', async () => {
       const repos = emptyRepos();
-      (repos.leaderboard.listLeaderboard as jest.Mock).mockResolvedValue({
-        entries: [{ userId: 'u-1', rank: 1, score: 100 }],
-        pagination: { limit: 100, offset: 0, total: 1 },
-      });
+      (repos.leaderboard.listLeaderboard as jest.Mock).mockResolvedValue([
+        {
+          rank: 1,
+          address: 'GTEST',
+          totalWins: 10,
+          totalLosses: 2,
+          winStreak: 3,
+          xp: 100,
+          rankTitle: 'Bronze',
+        },
+      ]);
       setRepositoriesForTests(repos as any);
 
       const res = await request(app).get('/api/leaderboard');

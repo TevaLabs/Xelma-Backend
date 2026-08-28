@@ -66,16 +66,20 @@ describe('Hackathon Endpoints & Middleware', () => {
     it('returns exactly 10 users sorted by xp desc with correct ranks', async () => {
       const res = await request(app).get('/api/leaderboard');
       expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body.length).toBe(10);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toEqual(expect.objectContaining({
+        totalUsers: 10,
+        pagination: expect.objectContaining({ limit: 100, offset: 0, total: 10 }),
+      }));
+      expect(res.body.data.leaderboard).toHaveLength(10);
 
-      // Verify they are sorted by rank/xp desc
-      let previousXp = Infinity;
-      res.body.forEach((u: any, idx: number) => {
-        expect(u.rank).toBe(idx + 1);
-        expect(u.xp).toBeLessThanOrEqual(previousXp);
-        previousXp = u.xp;
-        expect(u.address).toBeDefined();
+      // Verify the normalized contract preserves rank order and values.
+      let previousEarnings = Infinity;
+      res.body.data.leaderboard.forEach((entry: any, idx: number) => {
+        expect(entry.rank).toBe(idx + 1);
+        expect(Number(entry.totalEarnings)).toBeLessThanOrEqual(previousEarnings);
+        previousEarnings = Number(entry.totalEarnings);
+        expect(entry.userId).toBeDefined();
       });
     });
   });
