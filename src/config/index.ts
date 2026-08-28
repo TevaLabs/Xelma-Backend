@@ -20,6 +20,7 @@ export interface AppConfig {
   dataStore: "memory" | "postgres";
   enableSimulation: boolean;
   enableMultiplayerSocial: boolean;
+  metricsScrapeToken: string;
 }
 
 export interface JwtConfig {
@@ -125,6 +126,7 @@ function buildConfig(): Config {
     ),
     enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
     enableMultiplayerSocial: v.boolean(env.ENABLE_MULTIPLAYER_SOCIAL, true),
+    metricsScrapeToken: v.optional(env.METRICS_SCRAPE_TOKEN, ""),
   };
 
   const jwt: JwtConfig = {
