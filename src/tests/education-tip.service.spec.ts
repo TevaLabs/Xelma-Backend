@@ -8,6 +8,7 @@ jest.mock('../lib/prisma', () => ({
 
 import { prisma } from '../lib/prisma';
 import educationTipService from '../services/education-tip.service';
+import { tipLibrarySchema } from '../schemas/education-tip.schema';
 
 const mockedFindUnique = prisma.round.findUnique as unknown as jest.Mock;
 
@@ -413,6 +414,94 @@ describe('EducationTipService', () => {
 
       // Should have variety of categories
       expect(categories.size).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('tip library validation', () => {
+    it('should validate the external JSON tip library', () => {
+      const validLibrary = [
+        {
+          id: 'test-001',
+          category: 'price-action',
+          message: 'Test message {priceChangePercent}%',
+          priority: 100,
+        },
+        {
+          id: 'test-002',
+          category: 'volatility',
+          message: 'High volatility test',
+          priority: 80,
+          condition: { type: 'highVolatility' },
+        },
+      ];
+
+      const result = tipLibrarySchema.safeParse(validLibrary);
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject tips missing required fields', () => {
+      const invalidLibrary = [
+        { id: 'test-001' },
+      ];
+
+      const result = tipLibrarySchema.safeParse(invalidLibrary);
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject tips with invalid category', () => {
+      const invalidLibrary = [
+        {
+          id: 'test-001',
+          category: 'invalid-category',
+          message: 'Test message',
+        },
+      ];
+
+      const result = tipLibrarySchema.safeParse(invalidLibrary);
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject tips with invalid condition type', () => {
+      const invalidLibrary = [
+        {
+          id: 'test-001',
+          category: 'price-action',
+          message: 'Test message',
+          condition: { type: 'unknownCondition' },
+        },
+      ];
+
+      const result = tipLibrarySchema.safeParse(invalidLibrary);
+      expect(result.success).toBe(false);
+    });
+
+    it('should accept tips without optional condition', () => {
+      const validLibrary = [
+        {
+          id: 'test-001',
+          category: 'stellar',
+          message: 'Stellar tip',
+        },
+      ];
+
+      const result = tipLibrarySchema.safeParse(validLibrary);
+      expect(result.success).toBe(true);
+    });
+
+    it('should default priority to 50 when omitted', () => {
+      const validLibrary = [
+        {
+          id: 'test-001',
+          category: 'oracle',
+          message: 'Oracle tip',
+        },
+      ];
+
+      const result = tipLibrarySchema.safeParse(validLibrary);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data[0].priority).toBe(50);
+      }
     });
   });
 });

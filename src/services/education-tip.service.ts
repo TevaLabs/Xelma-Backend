@@ -1,166 +1,46 @@
 
+import * as fs from "fs";
+import * as path from "path";
 import logger from "../utils/logger";
 import { EducationalTip, TipContext } from "../types/education.types";
 import { prisma } from "../lib/prisma";
-
+import {
+  tipLibrarySchema,
+  TipTemplateData,
+  TipConditionData,
+} from "../schemas/education-tip.schema";
 
 /**
- * Tip template with interpolation support
+ * Load and validate the tip library from the external JSON data file.
+ * Throws on missing file or invalid content so failures are caught at boot.
  */
-interface TipTemplate {
-  id: string;
-  message: string;
-  category: "volatility" | "oracle" | "stellar" | "price-action";
-  condition?: (context: TipContext) => boolean;
-  priority?: number; // Higher = more likely to be selected
+function loadTipLibrary(): TipTemplateData[] {
+  const filePath = path.resolve(__dirname, "../../data/education-tips.json");
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const parsed: unknown = JSON.parse(raw);
+  return tipLibrarySchema.parse(parsed);
 }
 
+const TIP_LIBRARY: TipTemplateData[] = loadTipLibrary();
+
 /**
- * Comprehensive library of educational tips
- * Organized by category with conditional logic
+ * Evaluate a declarative condition against round context.
  */
-const TIP_LIBRARY: TipTemplate[] = [
-  // ===== PRICE ACTION TIPS (Always relevant) =====
-  {
-    id: "price-action-001",
-    category: "price-action",
-    message:
-      "The price moved {priceChangePercent}% in this round. Price movements reflect the collective decisions of all market participants. Every trade is a vote on future value.",
-    priority: 100,
-  },
-  {
-    id: "price-action-002",
-    category: "price-action",
-    message:
-      "The XLM price went {outcome} by ${priceChange}. Understanding price trends helps you identify market momentum. Consistent directional movement often indicates strong conviction from traders.",
-    priority: 100,
-  },
-  {
-    id: "price-action-003",
-    category: "price-action",
-    message:
-      "This round lasted {duration} seconds. Shorter timeframes can show more erratic price movement, while longer timeframes tend to smooth out noise and reveal true trends.",
-    priority: 90,
-  },
-  {
-    id: "price-action-004",
-    category: "price-action",
-    message:
-      "Price remained relatively {outcome} this round. Sideways or consolidating price action often precedes significant breakouts in either direction. Watch for volume changes.",
-    priority: 80,
-    condition: (ctx) => Math.abs(ctx.priceChangePercent) < 0.5,
-  },
-
-  // ===== VOLATILITY TIPS (High/low movement) =====
-  {
-    id: "volatility-001",
-    category: "volatility",
-    message:
-      "This round showed high volatility with a {priceChangePercent}% change. Volatile markets offer opportunities but also increase risk. Consider reducing position sizes during high volatility periods.",
-    priority: 120,
-    condition: (ctx) => ctx.highVolatility,
-  },
-  {
-    id: "volatility-002",
-    category: "volatility",
-    message:
-      "The price moved {priceChangePercent}% - significant movement! Volatility can be measured using indicators like Bollinger Bands and ATR (Average True Range). These tools help quantify market uncertainty.",
-    priority: 110,
-    condition: (ctx) => Math.abs(ctx.priceChangePercent) > 2,
-  },
-  {
-    id: "volatility-003",
-    category: "volatility",
-    message:
-      "Low volatility detected with only a {priceChangePercent}% change. Low volatility periods often compress before explosive moves. Experienced traders watch for 'coiling' patterns that precede breakouts.",
-    priority: 100,
-    condition: (ctx) => Math.abs(ctx.priceChangePercent) < 0.5,
-  },
-  {
-    id: "volatility-004",
-    category: "volatility",
-    message:
-      "Market volatility affects risk-reward ratios. This {priceChangePercent}% move demonstrates how quickly prices can shift. Always set stop-losses and never risk more than you can afford to lose.",
-    priority: 90,
-    condition: (ctx) => Math.abs(ctx.priceChangePercent) > 1,
-  },
-  {
-    id: "volatility-005",
-    category: "volatility",
-    message:
-      "Extreme price movement of {priceChangePercent}%! When markets move rapidly, emotions can override logic. Successful traders stick to their plans and avoid FOMO (fear of missing out).",
-    priority: 130,
-    condition: (ctx) => Math.abs(ctx.priceChangePercent) > 5,
-  },
-
-  // ===== ORACLE TIPS (Data reliability) =====
-  {
-    id: "oracle-001",
-    category: "oracle",
-    message:
-      "This round used oracle price data to determine the outcome. Oracles bridge real-world data to blockchain applications. They're essential for DeFi platforms to access accurate, tamper-resistant market prices.",
-    priority: 80,
-  },
-  {
-    id: "oracle-002",
-    category: "oracle",
-    message:
-      "The final price of ${endPrice} was determined by our price oracle. Quality oracles aggregate data from multiple exchanges to prevent manipulation and ensure accuracy.",
-    priority: 75,
-  },
-  {
-    id: "oracle-003",
-    category: "oracle",
-    message:
-      "Oracle reliability is critical for blockchain applications. This round's outcome was resolved using verified price feeds. Decentralized oracles reduce single points of failure.",
-    priority: 70,
-  },
-  {
-    id: "oracle-004",
-    category: "oracle",
-    message:
-      "Price oracles update continuously to reflect market conditions. The {priceChangePercent}% change was captured by aggregating data from multiple sources for accuracy.",
-    priority: 85,
-    condition: (ctx) => Math.abs(ctx.priceChangePercent) > 1,
-  },
-
-  // ===== STELLAR NETWORK TIPS (Platform education) =====
-  {
-    id: "stellar-001",
-    category: "stellar",
-    message:
-      "XLM (Lumens) is the native asset of the Stellar network. Stellar enables fast, low-cost cross-border payments with 3-5 second transaction finality - much faster than traditional systems.",
-    priority: 70,
-  },
-  {
-    id: "stellar-002",
-    category: "stellar",
-    message:
-      "The Stellar network processes transactions for fractions of a cent. This round's {priceChangePercent}% price move affects XLM's value, but the network's utility remains consistent.",
-    priority: 65,
-  },
-  {
-    id: "stellar-003",
-    category: "stellar",
-    message:
-      "Stellar uses the Stellar Consensus Protocol (SCP), which is energy-efficient unlike proof-of-work systems. SCP enables fast consensus without mining.",
-    priority: 60,
-  },
-  {
-    id: "stellar-004",
-    category: "stellar",
-    message:
-      "This prediction market runs on blockchain technology similar to Stellar. The {outcome} outcome was recorded immutably, demonstrating blockchain's transparency.",
-    priority: 75,
-  },
-  {
-    id: "stellar-005",
-    category: "stellar",
-    message:
-      "Stellar supports multiple assets and has a built-in decentralized exchange. This makes it ideal for applications requiring cross-asset swaps and price discovery.",
-    priority: 70,
-  },
-];
+function evaluateCondition(
+  condition: TipConditionData,
+  context: TipContext,
+): boolean {
+  switch (condition.type) {
+    case "highVolatility":
+      return context.highVolatility;
+    case "priceChangeGreaterThan":
+      return Math.abs(context.priceChangePercent) > (condition.value ?? 0);
+    case "priceChangeLessThan":
+      return Math.abs(context.priceChangePercent) < (condition.value ?? 0);
+    default:
+      return true;
+  }
+}
 
 /**
  * In-memory cache for generated tips
@@ -313,7 +193,7 @@ export class EducationTipService {
     // Filter tips that match conditions
     const eligibleTips = TIP_LIBRARY.filter((template) => {
       if (template.condition) {
-        return template.condition(context);
+        return evaluateCondition(template.condition, context);
       }
       return true; // No condition = always eligible
     });
@@ -356,7 +236,7 @@ export class EducationTipService {
    * @param tips Array of tip templates
    * @returns Selected tip template
    */
-  private weightedRandomSelection(tips: TipTemplate[]): TipTemplate {
+  private weightedRandomSelection(tips: TipTemplateData[]): TipTemplateData {
     // Calculate total weight
     const totalWeight = tips.reduce(
       (sum, tip) => sum + (tip.priority || 50),
