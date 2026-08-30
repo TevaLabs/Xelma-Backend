@@ -1,5 +1,5 @@
 import { Keypair, Networks, Transaction } from "@stellar/stellar-sdk";
-import type { Client as XelmaClient, BetSide, OraclePayload, RoundMode, UserStats } from "@tevalabs/xelma-bindings";
+import type { Client as XelmaClient, BetSide, OraclePayload, RoundMode, UserStats, contract } from "@tevalabs/xelma-bindings";
 import config from "../config";
 import logger from "../utils/logger";
 import { toDecimal } from "../utils/decimal.util";
@@ -31,6 +31,55 @@ export interface TransactionStatus {
   ledger?: number;
   feeCharged?: number;
   error?: string;
+}
+
+/**
+ * Shape of a successfully claimed `claim_winnings` transaction, derived
+ * from the `SentTransaction<bigint>` returned by the generated bindings'
+ * `claim_winnings` client method (see `claim_winnings: (json: string) =>
+ * AssembledTransaction<bigint>` in @tevalabs/xelma-bindings).
+ */
+export interface ClaimResult {
+  state: "on-chain-success";
+  amount: number;
+  txHash?: string;
+}
+
+/** Thrown when a `claim_winnings` response does not have the shape the contract promises. */
+export class InvalidClaimResultError extends Error {
+  constructor(reason: string) {
+    super(`Invalid Soroban claim_winnings result: ${reason}`);
+    this.name = "InvalidClaimResultError";
+  }
+}
+
+/**
+ * Safely parses a sent `claim_winnings` transaction into a {@link ClaimResult}.
+ * `sent.result` is typed as `bigint` by the generated bindings, but since it
+ * ultimately comes from parsed RPC/XDR data we still validate it at runtime
+ * before trusting it, rather than casting past the type system.
+ */
+export function parseClaimResult(
+  sent: contract.SentTransaction<bigint>,
+): ClaimResult {
+  const claimedStroops = sent.result;
+
+  if (typeof claimedStroops !== "bigint") {
+    throw new InvalidClaimResultError(
+      `expected a bigint result, received ${typeof claimedStroops}`,
+    );
+  }
+  if (claimedStroops < BigInt(0)) {
+    throw new InvalidClaimResultError(
+      `claimed amount must not be negative, received ${claimedStroops}`,
+    );
+  }
+
+  return {
+    state: "on-chain-success",
+    amount: stroopsToXlm(claimedStroops),
+    txHash: sent.sendTransactionResponse?.hash,
+  };
 }
 
 /**
@@ -659,9 +708,7 @@ export class SorobanService {
    *
    * Uses timeout wrapper with retry logic. Signed by the admin keypair (backend relay).
    */
-  async claimWinnings(
-    userAddress: string,
-  ): Promise<{ state: string; amount: number; txHash?: string }> {
+  async claimWinnings(userAddress: string): Promise<ClaimResult> {
     await this.ensureInitialized();
 
     const result = await this.callWithBreaker("sorobanClaimWinnings", () =>
@@ -674,12 +721,7 @@ export class SorobanService {
             signTransaction: this.signWithAdmin.bind(this),
           });
 
-          const claimedStroops = (res as any)?.result ?? tx.result ?? BigInt(0);
-          return {
-            state: "on-chain-success",
-            amount: stroopsToXlm(claimedStroops),
-            txHash: (res as any).hash,
-          };
+          return parseClaimResult(res);
         },
         {
           timeoutMs: this.CALL_TIMEOUT_MS,
