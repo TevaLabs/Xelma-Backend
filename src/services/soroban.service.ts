@@ -14,6 +14,7 @@ import {
   sorobanRpcCallsTotal,
   sorobanRpcDurationSeconds,
 } from "../metrics/application.metrics";
+import { traceSubSpan } from "../utils/tracing";
 
 export interface SorobanHealth {
   initialized: boolean;
@@ -47,6 +48,10 @@ export interface TransactionStatus {
  * TIMEOUT POLICY:
  * All contract calls have bounded timeouts with automatic retry logic.
  * Slow or hanging upstream responses are aborted and retried.
+ *
+ * TRACING (#534):
+ * All critical-path operations are instrumented with trace spans that
+ * correlate with the HTTP requestId for latency debugging.
  */
 export class SorobanService {
   private client: XelmaClient | null = null;
@@ -245,58 +250,68 @@ export class SorobanService {
   /**
    * Creates a new round on the Soroban contract (admin only).
    * mode: 0 = Up/Down (default), 1 = Precision (Legends)
-   * 
+   *
    * Uses timeout wrapper with retry logic to handle slow/hanging responses.
    */
   async createRound(
     startPrice: number | string | Decimal,
     mode: RoundMode = 0 as RoundMode,
   ): Promise<void> {
-    await this.ensureInitialized();
-    
-    const result = await this.callWithBreaker("sorobanCreateRound", () =>
-      withTimeout(
-        async () => {
-        logger.debug(
-          `Initiating Soroban createRound: price=${startPrice}, mode=${mode}`,
-        );
+    return traceSubSpan('soroban.createRound', {
+      'soroban.operation': 'createRound',
+      'soroban.price': String(startPrice),
+      'soroban.mode': String(mode),
+    }, async (span) => {
+      await this.ensureInitialized();
 
-        // Price scaled to 4 decimal places (e.g. 0.2297 → 2297)
-        const priceScaled = BigInt(toDecimal(startPrice).mul(10_000).toFixed(0));
+      const result = await this.callWithBreaker("sorobanCreateRound", () =>
+        withTimeout(
+          async () => {
+            logger.debug(
+              `Initiating Soroban createRound: price=${startPrice}, mode=${mode}`,
+            );
 
-        const tx = await this.client!.create_round({
-          start_price: priceScaled,
-          mode,
+            // Price scaled to 4 decimal places (e.g. 0.2297 → 2297)
+            const priceScaled = BigInt(toDecimal(startPrice).mul(10_000).toFixed(0));
+
+            const tx = await this.client!.create_round({
+              start_price: priceScaled,
+              mode,
+            });
+            await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+            return undefined;
+          },
+          {
+            timeoutMs: this.CALL_TIMEOUT_MS,
+            operationName: 'sorobanCreateRound',
+            retries: this.MAX_RETRIES,
+          }
+        )
+      );
+
+      if (!result.success) {
+        span.setAttribute('error', true);
+        span.setAttribute('error.message', result.error?.message ?? 'unknown');
+        logger.error("Failed to create Soroban round after retries", {
+          error: result.error?.message,
+          timedOut: result.timedOut,
+          durationMs: result.durationMs,
         });
-        await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        return undefined;
-      },
-      {
-        timeoutMs: this.CALL_TIMEOUT_MS,
-        operationName: 'sorobanCreateRound',
-        retries: this.MAX_RETRIES,
+        throw mapSorobanError(result.error?.message);
       }
-      )
-    );
 
-    if (!result.success) {
-      logger.error("Failed to create Soroban round after retries", {
-        error: result.error?.message,
-        timedOut: result.timedOut,
+      span.setAttribute('soroban.duration_ms', result.durationMs ?? 0);
+      span.setAttribute('soroban.retries_used', result.retriesUsed ?? 0);
+      logger.info("Soroban round created successfully", {
         durationMs: result.durationMs,
+        retriesUsed: result.retriesUsed,
       });
-      throw mapSorobanError(result.error?.message);
-    }
-
-    logger.info("Soroban round created successfully", {
-      durationMs: result.durationMs,
-      retriesUsed: result.retriesUsed,
     });
   }
 
   /**
    * Places a bet on the Soroban contract (Up/Down mode only).
-   * 
+   *
    * Uses timeout wrapper with retry logic.
    */
   async placeBet(
@@ -304,60 +319,71 @@ export class SorobanService {
     amount: number | string,
     side: "UP" | "DOWN",
   ): Promise<{ state: string; txHash?: string }> {
-    await this.ensureInitialized();
-    
-    const result = await this.callWithBreaker("sorobanPlaceBet", () =>
-      withTimeout(
-        async () => {
-        logger.debug(
-          `Initiating Soroban placeBet: user=${userAddress}, amount=${amount}, side=${side}`,
-        );
+    return traceSubSpan('soroban.placeBet', {
+      'soroban.operation': 'placeBet',
+      'soroban.side': side,
+      'soroban.amount': String(amount),
+      'soroban.user': userAddress,
+    }, async (span) => {
+      await this.ensureInitialized();
 
-        // Amount in stroops (1 XLM = 10^7 stroops)
-        const amountInStroops = BigInt(toDecimal(amount).mul(10_000_000).toFixed(0));
+      const result = await this.callWithBreaker("sorobanPlaceBet", () =>
+        withTimeout(
+          async () => {
+            logger.debug(
+              `Initiating Soroban placeBet: user=${userAddress}, amount=${amount}, side=${side}`,
+            );
 
-        const betSide: BetSide =
-          side === "UP"
-            ? { tag: "Up", values: undefined }
-            : { tag: "Down", values: undefined };
+            // Amount in stroops (1 XLM = 10^7 stroops)
+            const amountInStroops = BigInt(toDecimal(amount).mul(10_000_000).toFixed(0));
 
-        const tx = await this.client!.place_bet({
-          user: userAddress,
-          amount: amountInStroops,
-          side: betSide,
+            const betSide: BetSide =
+              side === "UP"
+                ? { tag: "Up", values: undefined }
+                : { tag: "Down", values: undefined };
+
+            const tx = await this.client!.place_bet({
+              user: userAddress,
+              amount: amountInStroops,
+              side: betSide,
+            });
+            const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+            // Return a generic state, or the tx hash if the bindings expose it
+            return { state: "on-chain-success", txHash: (res as any).hash };
+          },
+          {
+            timeoutMs: this.CALL_TIMEOUT_MS,
+            operationName: 'sorobanPlaceBet',
+            retries: this.MAX_RETRIES,
+          }
+        )
+      );
+
+      if (!result.success) {
+        span.setAttribute('error', true);
+        span.setAttribute('error.message', result.error?.message ?? 'unknown');
+        logger.error("Failed to place bet on Soroban after retries", {
+          error: result.error?.message,
+          timedOut: result.timedOut,
+          durationMs: result.durationMs,
         });
-        const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        // Return a generic state, or the tx hash if the bindings expose it
-        return { state: "on-chain-success", txHash: (res as any).hash };
-      },
-      {
-        timeoutMs: this.CALL_TIMEOUT_MS,
-        operationName: 'sorobanPlaceBet',
-        retries: this.MAX_RETRIES,
+        throw mapSorobanError(result.error?.message);
       }
-      )
-    );
 
-    if (!result.success) {
-      logger.error("Failed to place bet on Soroban after retries", {
-        error: result.error?.message,
-        timedOut: result.timedOut,
+      span.setAttribute('soroban.tx_hash', result.data?.txHash ?? 'unknown');
+      span.setAttribute('soroban.duration_ms', result.durationMs ?? 0);
+      logger.info("Bet placed successfully on Soroban", {
         durationMs: result.durationMs,
+        retriesUsed: result.retriesUsed,
       });
-      throw mapSorobanError(result.error?.message);
-    }
 
-    logger.info("Bet placed successfully on Soroban", {
-      durationMs: result.durationMs,
-      retriesUsed: result.retriesUsed,
+      return result.data!;
     });
-
-    return result.data!;
   }
 
   /**
    * Places a precision prediction on the Soroban contract.
-   * 
+   *
    * Uses timeout wrapper with retry logic.
    */
   async placePrecisionBet(
@@ -365,57 +391,68 @@ export class SorobanService {
     amount: number | string,
     predictedPrice: number | string,
   ): Promise<{ state: string; txHash?: string }> {
-    await this.ensureInitialized();
-    
-    const result = await this.callWithBreaker("sorobanPlacePrecisionBet", () =>
-      withTimeout(
-        async () => {
-        logger.debug(
-          `Initiating Soroban placePrecisionBet: user=${userAddress}, amount=${amount}, predictedPrice=${predictedPrice}`,
-        );
+    return traceSubSpan('soroban.placePrecisionBet', {
+      'soroban.operation': 'placePrecisionBet',
+      'soroban.predictedPrice': String(predictedPrice),
+      'soroban.amount': String(amount),
+      'soroban.user': userAddress,
+    }, async (span) => {
+      await this.ensureInitialized();
 
-        // Amount in stroops (1 XLM = 10^7 stroops)
-        const amountInStroops = BigInt(toDecimal(amount).mul(10_000_000).toFixed(0));
-        
-        // Price scaled to 4 decimal places
-        const priceScaled = BigInt(toDecimal(predictedPrice).mul(10_000).toFixed(0));
+      const result = await this.callWithBreaker("sorobanPlacePrecisionBet", () =>
+        withTimeout(
+          async () => {
+            logger.debug(
+              `Initiating Soroban placePrecisionBet: user=${userAddress}, amount=${amount}, predictedPrice=${predictedPrice}`,
+            );
 
-        const tx = await this.client!.place_precision_prediction({
-          user: userAddress,
-          amount: amountInStroops,
-          predicted_price: priceScaled,
+            // Amount in stroops (1 XLM = 10^7 stroops)
+            const amountInStroops = BigInt(toDecimal(amount).mul(10_000_000).toFixed(0));
+
+            // Price scaled to 4 decimal places
+            const priceScaled = BigInt(toDecimal(predictedPrice).mul(10_000).toFixed(0));
+
+            const tx = await this.client!.place_precision_prediction({
+              user: userAddress,
+              amount: amountInStroops,
+              predicted_price: priceScaled,
+            });
+            const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+            return { state: "on-chain-success", txHash: (res as any).hash };
+          },
+          {
+            timeoutMs: this.CALL_TIMEOUT_MS,
+            operationName: 'sorobanPlacePrecisionBet',
+            retries: this.MAX_RETRIES,
+          }
+        )
+      );
+
+      if (!result.success) {
+        span.setAttribute('error', true);
+        span.setAttribute('error.message', result.error?.message ?? 'unknown');
+        logger.error("Failed to place precision bet on Soroban after retries", {
+          error: result.error?.message,
+          timedOut: result.timedOut,
+          durationMs: result.durationMs,
         });
-        const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        return { state: "on-chain-success", txHash: (res as any).hash };
-      },
-      {
-        timeoutMs: this.CALL_TIMEOUT_MS,
-        operationName: 'sorobanPlacePrecisionBet',
-        retries: this.MAX_RETRIES,
+        throw mapSorobanError(result.error?.message);
       }
-      )
-    );
 
-    if (!result.success) {
-      logger.error("Failed to place precision bet on Soroban after retries", {
-        error: result.error?.message,
-        timedOut: result.timedOut,
+      span.setAttribute('soroban.tx_hash', result.data?.txHash ?? 'unknown');
+      span.setAttribute('soroban.duration_ms', result.durationMs ?? 0);
+      logger.info("Precision bet placed successfully on Soroban", {
         durationMs: result.durationMs,
+        retriesUsed: result.retriesUsed,
       });
-      throw mapSorobanError(result.error?.message);
-    }
 
-    logger.info("Precision bet placed successfully on Soroban", {
-      durationMs: result.durationMs,
-      retriesUsed: result.retriesUsed,
+      return result.data!;
     });
-
-    return result.data!;
   }
 
   /**
    * Resolves the active round via oracle payload (oracle only).
-   * 
+   *
    * Uses timeout wrapper with retry logic.
    */
   async resolveRound(
@@ -423,162 +460,193 @@ export class SorobanService {
     roundId: number,
     timestamp: bigint,
   ): Promise<void> {
-    await this.ensureInitialized();
-    
-    const result = await this.callWithBreaker("sorobanResolveRound", () =>
-      withTimeout(
-        async () => {
-        logger.debug(
-          `Initiating Soroban resolveRound: finalPrice=${finalPrice}, roundId=${roundId}`,
-        );
+    return traceSubSpan('soroban.resolveRound', {
+      'soroban.operation': 'resolveRound',
+      'soroban.roundId': roundId,
+      'soroban.price': String(finalPrice),
+    }, async (span) => {
+      await this.ensureInitialized();
 
-        // Price scaled to 4 decimal places
-        const priceScaled = BigInt(toDecimal(finalPrice).mul(10_000).toFixed(0));
+      const result = await this.callWithBreaker("sorobanResolveRound", () =>
+        withTimeout(
+          async () => {
+            logger.debug(
+              `Initiating Soroban resolveRound: finalPrice=${finalPrice}, roundId=${roundId}`,
+            );
 
-        const payload: OraclePayload = {
-          price: priceScaled,
-          round_id: roundId,
-          timestamp,
-        };
+            // Price scaled to 4 decimal places
+            const priceScaled = BigInt(toDecimal(finalPrice).mul(10_000).toFixed(0));
 
-        const tx = await this.client!.resolve_round({ payload });
-        await tx.signAndSend({ signTransaction: this.signWithOracle.bind(this) });
-        return undefined;
-      },
-      {
-        timeoutMs: this.CALL_TIMEOUT_MS,
-        operationName: 'sorobanResolveRound',
-        retries: this.MAX_RETRIES,
+            const payload: OraclePayload = {
+              price: priceScaled,
+              round_id: roundId,
+              timestamp,
+            };
+
+            const tx = await this.client!.resolve_round({ payload });
+            await tx.signAndSend({ signTransaction: this.signWithOracle.bind(this) });
+            return undefined;
+          },
+          {
+            timeoutMs: this.CALL_TIMEOUT_MS,
+            operationName: 'sorobanResolveRound',
+            retries: this.MAX_RETRIES,
+          }
+        )
+      );
+
+      if (!result.success) {
+        span.setAttribute('error', true);
+        span.setAttribute('error.message', result.error?.message ?? 'unknown');
+        logger.error("Failed to resolve Soroban round after retries", {
+          error: result.error?.message,
+          timedOut: result.timedOut,
+          durationMs: result.durationMs,
+        });
+        throw mapSorobanError(result.error?.message);
       }
-      )
-    );
 
-    if (!result.success) {
-      logger.error("Failed to resolve Soroban round after retries", {
-        error: result.error?.message,
-        timedOut: result.timedOut,
+      span.setAttribute('soroban.duration_ms', result.durationMs ?? 0);
+      logger.info("Soroban round resolved successfully", {
         durationMs: result.durationMs,
+        retriesUsed: result.retriesUsed,
       });
-      throw mapSorobanError(result.error?.message);
-    }
-
-    logger.info("Soroban round resolved successfully", {
-      durationMs: result.durationMs,
-      retriesUsed: result.retriesUsed,
     });
   }
 
   /**
    * Gets the active round from Soroban (read-only simulation).
-   * 
+   *
    * Timeout: 10s for read-only queries (faster than write operations)
    */
   async getActiveRound(): Promise<any> {
-    await this.ready;
-    if (!this.initialized) return null;
-    
-    const result = await this.callWithBreaker("sorobanGetActiveRound", () =>
-      withTimeout(
-        async () => {
-        const tx = await this.client!.get_active_round();
-        return tx.result;
-      },
-      {
-        timeoutMs: 10000, // Shorter timeout for read-only
-        operationName: 'sorobanGetActiveRound',
-        retries: 1, // Only retry once for read-only
+    return traceSubSpan('soroban.getActiveRound', {
+      'soroban.operation': 'getActiveRound',
+      'soroban.read_only': true,
+    }, async (span) => {
+      await this.ready;
+      if (!this.initialized) return null;
+
+      const result = await this.callWithBreaker("sorobanGetActiveRound", () =>
+        withTimeout(
+          async () => {
+            const tx = await this.client!.get_active_round();
+            return tx.result;
+          },
+          {
+            timeoutMs: 10000, // Shorter timeout for read-only
+            operationName: 'sorobanGetActiveRound',
+            retries: 1, // Only retry once for read-only
+          }
+        ),
+        null,
+      );
+
+      if (!result.success) {
+        span.setAttribute('error', true);
+        logger.warn("Failed to get active round from Soroban", {
+          error: result.error?.message,
+          timedOut: result.timedOut,
+        });
+        return null;
       }
-      ),
-      null,
-    );
 
-    if (!result.success) {
-      logger.warn("Failed to get active round from Soroban", {
-        error: result.error?.message,
-        timedOut: result.timedOut,
-      });
-      return null;
-    }
-
-    return result.data;
+      return result.data;
+    });
   }
 
   /**
    * Mints 1000 vXLM for a new user (one-time only).
    * Returns the minted amount converted from stroops to XLM.
-   * 
+   *
    * Uses timeout wrapper with retry logic.
    */
   async mintInitial(userAddress: string): Promise<number> {
-    await this.ensureInitialized();
-    
-    const result = await this.callWithBreaker("sorobanMintInitial", () =>
-      withTimeout(
-        async () => {
-        logger.debug(`Initiating Soroban mintInitial: user=${userAddress}`);
-        const tx = await this.client!.mint_initial({ user: userAddress });
-        await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        return Number(tx.result) / 10_000_000;
-      },
-      {
-        timeoutMs: this.CALL_TIMEOUT_MS,
-        operationName: 'sorobanMintInitial',
-        retries: this.MAX_RETRIES,
-      }
-      )
-    );
+    return traceSubSpan('soroban.mintInitial', {
+      'soroban.operation': 'mintInitial',
+      'soroban.user': userAddress,
+    }, async (span) => {
+      await this.ensureInitialized();
 
-    if (!result.success) {
-      logger.error("Failed to mint initial tokens after retries", {
-        error: result.error?.message,
-        timedOut: result.timedOut,
+      const result = await this.callWithBreaker("sorobanMintInitial", () =>
+        withTimeout(
+          async () => {
+            logger.debug(`Initiating Soroban mintInitial: user=${userAddress}`);
+            const tx = await this.client!.mint_initial({ user: userAddress });
+            await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+            return Number(tx.result) / 10_000_000;
+          },
+          {
+            timeoutMs: this.CALL_TIMEOUT_MS,
+            operationName: 'sorobanMintInitial',
+            retries: this.MAX_RETRIES,
+          }
+        )
+      );
+
+      if (!result.success) {
+        span.setAttribute('error', true);
+        span.setAttribute('error.message', result.error?.message ?? 'unknown');
+        logger.error("Failed to mint initial tokens after retries", {
+          error: result.error?.message,
+          timedOut: result.timedOut,
+          durationMs: result.durationMs,
+        });
+        throw mapSorobanError(result.error?.message);
+      }
+
+      span.setAttribute('soroban.amount', result.data!);
+      span.setAttribute('soroban.duration_ms', result.durationMs ?? 0);
+      logger.info("Initial tokens minted successfully", {
+        amount: result.data,
         durationMs: result.durationMs,
       });
-      throw mapSorobanError(result.error?.message);
-    }
 
-    logger.info("Initial tokens minted successfully", {
-      amount: result.data,
-      durationMs: result.durationMs,
+      return result.data!;
     });
-
-    return result.data!;
   }
 
   /**
    * Gets user balance from Soroban (read-only simulation).
    * Returns balance in XLM (converted from stroops).
-   * 
+   *
    * Timeout: 10s for read-only queries
    */
   async getBalance(userAddress: string): Promise<number> {
-    await this.ready;
-    if (!this.initialized) return 0;
-    
-    const result = await this.callWithBreaker("sorobanGetBalance", () =>
-      withTimeout(
-        async () => {
-        const tx = await this.client!.balance({ user: userAddress });
-        return Number(tx.result) / 10_000_000;
-      },
-      {
-        timeoutMs: 10000, // Shorter timeout for read-only
-        operationName: 'sorobanGetBalance',
-        retries: 1, // Only retry once for read-only
+    return traceSubSpan('soroban.getBalance', {
+      'soroban.operation': 'getBalance',
+      'soroban.user': userAddress,
+      'soroban.read_only': true,
+    }, async (span) => {
+      await this.ready;
+      if (!this.initialized) return 0;
+
+      const result = await this.callWithBreaker("sorobanGetBalance", () =>
+        withTimeout(
+          async () => {
+            const tx = await this.client!.balance({ user: userAddress });
+            return Number(tx.result) / 10_000_000;
+          },
+          {
+            timeoutMs: 10000, // Shorter timeout for read-only
+            operationName: 'sorobanGetBalance',
+            retries: 1, // Only retry once for read-only
+          }
+        ),
+        0,
+      );
+
+      if (!result.success) {
+        span.setAttribute('error', true);
+        logger.warn("Failed to get balance from Soroban", {
+          error: result.error?.message,
+          timedOut: result.timedOut,
+        });
+        return 0;
       }
-      ),
-      0,
-    );
 
-    if (!result.success) {
-      logger.warn("Failed to get balance from Soroban", {
-        error: result.error?.message,
-        timedOut: result.timedOut,
-      });
-      return 0;
-    }
-
-    return result.data!;
+      return result.data!;
+    });
   }
 
   /**
@@ -588,33 +656,40 @@ export class SorobanService {
    * Timeout: 10s for read-only queries
    */
   async getUserStats(userAddress: string): Promise<UserStats | null> {
-    await this.ready;
-    if (!this.initialized) return null;
+    return traceSubSpan('soroban.getUserStats', {
+      'soroban.operation': 'getUserStats',
+      'soroban.user': userAddress,
+      'soroban.read_only': true,
+    }, async (span) => {
+      await this.ready;
+      if (!this.initialized) return null;
 
-    const result = await this.callWithBreaker("sorobanGetUserStats", () =>
-      withTimeout(
-        async () => {
-          const tx = await this.client!.get_user_stats({ user: userAddress });
-          return tx.result;
-        },
-        {
-          timeoutMs: 10000,
-          operationName: 'sorobanGetUserStats',
-          retries: 1,
-        }
-      ),
-      null,
-    );
+      const result = await this.callWithBreaker("sorobanGetUserStats", () =>
+        withTimeout(
+          async () => {
+            const tx = await this.client!.get_user_stats({ user: userAddress });
+            return tx.result;
+          },
+          {
+            timeoutMs: 10000,
+            operationName: 'sorobanGetUserStats',
+            retries: 1,
+          }
+        ),
+        null,
+      );
 
-    if (!result.success) {
-      logger.warn("Failed to get user stats from Soroban", {
-        error: result.error?.message,
-        timedOut: result.timedOut,
-      });
-      return null;
-    }
+      if (!result.success) {
+        span.setAttribute('error', true);
+        logger.warn("Failed to get user stats from Soroban", {
+          error: result.error?.message,
+          timedOut: result.timedOut,
+        });
+        return null;
+      }
 
-    return result.data;
+      return result.data;
+    });
   }
 
   /**
@@ -624,33 +699,40 @@ export class SorobanService {
    * Timeout: 10s for read-only queries
    */
   async getPendingWinnings(userAddress: string): Promise<bigint> {
-    await this.ready;
-    if (!this.initialized) return BigInt(0);
+    return traceSubSpan('soroban.getPendingWinnings', {
+      'soroban.operation': 'getPendingWinnings',
+      'soroban.user': userAddress,
+      'soroban.read_only': true,
+    }, async (span) => {
+      await this.ready;
+      if (!this.initialized) return BigInt(0);
 
-    const result = await this.callWithBreaker("sorobanGetPendingWinnings", () =>
-      withTimeout(
-        async () => {
-          const tx = await this.client!.get_pending_winnings({ user: userAddress });
-          return tx.result;
-        },
-        {
-          timeoutMs: 10000,
-          operationName: 'sorobanGetPendingWinnings',
-          retries: 1,
-        }
-      ),
-      BigInt(0),
-    );
+      const result = await this.callWithBreaker("sorobanGetPendingWinnings", () =>
+        withTimeout(
+          async () => {
+            const tx = await this.client!.get_pending_winnings({ user: userAddress });
+            return tx.result;
+          },
+          {
+            timeoutMs: 10000,
+            operationName: 'sorobanGetPendingWinnings',
+            retries: 1,
+          }
+        ),
+        BigInt(0),
+      );
 
-    if (!result.success) {
-      logger.warn("Failed to get pending winnings from Soroban", {
-        error: result.error?.message,
-        timedOut: result.timedOut,
-      });
-      return BigInt(0);
-    }
+      if (!result.success) {
+        span.setAttribute('error', true);
+        logger.warn("Failed to get pending winnings from Soroban", {
+          error: result.error?.message,
+          timedOut: result.timedOut,
+        });
+        return BigInt(0);
+      }
 
-    return result.data!;
+      return result.data!;
+    });
   }
 
   /**
@@ -662,49 +744,59 @@ export class SorobanService {
   async claimWinnings(
     userAddress: string,
   ): Promise<{ state: string; amount: number; txHash?: string }> {
-    await this.ensureInitialized();
+    return traceSubSpan('soroban.claimWinnings', {
+      'soroban.operation': 'claimWinnings',
+      'soroban.user': userAddress,
+    }, async (span) => {
+      await this.ensureInitialized();
 
-    const result = await this.callWithBreaker("sorobanClaimWinnings", () =>
-      withTimeout(
-        async () => {
-          logger.debug(`Initiating Soroban claimWinnings: user=${userAddress}`);
+      const result = await this.callWithBreaker("sorobanClaimWinnings", () =>
+        withTimeout(
+          async () => {
+            logger.debug(`Initiating Soroban claimWinnings: user=${userAddress}`);
 
-          const tx = await this.client!.claim_winnings({ user: userAddress });
-          const res = await tx.signAndSend({
-            signTransaction: this.signWithAdmin.bind(this),
-          });
+            const tx = await this.client!.claim_winnings({ user: userAddress });
+            const res = await tx.signAndSend({
+              signTransaction: this.signWithAdmin.bind(this),
+            });
 
-          const claimedStroops = (res as any)?.result ?? tx.result ?? BigInt(0);
-          return {
-            state: "on-chain-success",
-            amount: stroopsToXlm(claimedStroops),
-            txHash: (res as any).hash,
-          };
-        },
-        {
-          timeoutMs: this.CALL_TIMEOUT_MS,
-          operationName: "sorobanClaimWinnings",
-          retries: this.MAX_RETRIES,
-        },
-      ),
-    );
+            const claimedStroops = (res as any)?.result ?? tx.result ?? BigInt(0);
+            return {
+              state: "on-chain-success",
+              amount: stroopsToXlm(claimedStroops),
+              txHash: (res as any).hash,
+            };
+          },
+          {
+            timeoutMs: this.CALL_TIMEOUT_MS,
+            operationName: "sorobanClaimWinnings",
+            retries: this.MAX_RETRIES,
+          },
+        ),
+      );
 
-    if (!result.success) {
-      logger.error("Failed to claim winnings on Soroban after retries", {
-        error: result.error?.message,
-        timedOut: result.timedOut,
+      if (!result.success) {
+        span.setAttribute('error', true);
+        span.setAttribute('error.message', result.error?.message ?? 'unknown');
+        logger.error("Failed to claim winnings on Soroban after retries", {
+          error: result.error?.message,
+          timedOut: result.timedOut,
+          durationMs: result.durationMs,
+        });
+        throw mapSorobanError(result.error?.message);
+      }
+
+      span.setAttribute('soroban.amount', result.data?.amount ?? 0);
+      span.setAttribute('soroban.tx_hash', result.data?.txHash ?? 'unknown');
+      span.setAttribute('soroban.duration_ms', result.durationMs ?? 0);
+      logger.info("Winnings claimed successfully on Soroban", {
+        amount: result.data?.amount,
         durationMs: result.durationMs,
+        retriesUsed: result.retriesUsed,
       });
-      throw mapSorobanError(result.error?.message);
-    }
 
-    logger.info("Winnings claimed successfully on Soroban", {
-      amount: result.data?.amount,
-      durationMs: result.durationMs,
-      retriesUsed: result.retriesUsed,
+      return result.data!;
     });
-
-    return result.data!;
   }
 
   /**
@@ -712,77 +804,86 @@ export class SorobanService {
    * Used for reconciliation of stranded SUBMITTED bets.
    */
   async getTransactionStatus(txHash: string): Promise<TransactionStatus> {
-    await this.ensureInitialized();
+    return traceSubSpan('soroban.getTransactionStatus', {
+      'soroban.operation': 'getTransactionStatus',
+      'soroban.txHash': txHash,
+      'soroban.read_only': true,
+    }, async (span) => {
+      await this.ensureInitialized();
 
-    const result = await this.callWithBreaker("sorobanGetTransactionStatus", () =>
-      withTimeout(
-        async () => {
-          logger.debug(`Checking Soroban transaction status: ${txHash}`);
+      const result = await this.callWithBreaker("sorobanGetTransactionStatus", () =>
+        withTimeout(
+          async () => {
+            logger.debug(`Checking Soroban transaction status: ${txHash}`);
 
-          // Use the RPC to get transaction details
-          const rpcUrl = config.soroban.rpcUrl;
-          const response = await fetch(rpcUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: 1,
-              method: 'getTransaction',
-              params: { hash: txHash },
-            }),
-          });
+            // Use the RPC to get transaction details
+            const rpcUrl = config.soroban.rpcUrl;
+            const response = await fetch(rpcUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'getTransaction',
+                params: { hash: txHash },
+              }),
+            });
 
-          const data = await response.json();
+            const data = await response.json();
 
-          if (data.error) {
+            if (data.error) {
+              return {
+                confirmed: false,
+                successful: false,
+                error: data.error.message,
+              };
+            }
+
+            const txResult = data.result;
+            if (!txResult) {
+              return {
+                confirmed: false,
+                successful: false,
+                error: 'Transaction not found',
+              };
+            }
+
+            // Check if transaction is successful (status === "SUCCESS")
+            const status = txResult.status;
+            const successful = status === 'SUCCESS';
+            const confirmed = status !== 'NOT_FOUND' && status !== 'PENDING';
+
             return {
-              confirmed: false,
-              successful: false,
-              error: data.error.message,
+              confirmed,
+              successful,
+              ledger: txResult.ledger ? parseInt(txResult.ledger, 10) : undefined,
+              feeCharged: txResult.feeCharged ? parseInt(txResult.feeCharged, 10) : undefined,
+              error: successful ? undefined : txResult.resultXdr ? 'Transaction failed' : undefined,
             };
+          },
+          {
+            timeoutMs: 10000,
+            operationName: 'sorobanGetTransactionStatus',
+            retries: 1,
           }
+        ),
+        { confirmed: false, successful: false, error: 'RPC call failed' },
+      );
 
-          const txResult = data.result;
-          if (!txResult) {
-            return {
-              confirmed: false,
-              successful: false,
-              error: 'Transaction not found',
-            };
-          }
+      if (!result.success) {
+        span.setAttribute('error', true);
+        logger.warn('Failed to get transaction status from Soroban', {
+          txHash,
+          error: result.error?.message,
+          timedOut: result.timedOut,
+        });
+        return { confirmed: false, successful: false, error: result.error?.message ?? 'Unknown error' };
+      }
 
-          // Check if transaction is successful (status === "SUCCESS")
-          const status = txResult.status;
-          const successful = status === 'SUCCESS';
-          const confirmed = status !== 'NOT_FOUND' && status !== 'PENDING';
-
-          return {
-            confirmed,
-            successful,
-            ledger: txResult.ledger ? parseInt(txResult.ledger, 10) : undefined,
-            feeCharged: txResult.feeCharged ? parseInt(txResult.feeCharged, 10) : undefined,
-            error: successful ? undefined : txResult.resultXdr ? 'Transaction failed' : undefined,
-          };
-        },
-        {
-          timeoutMs: 10000,
-          operationName: 'sorobanGetTransactionStatus',
-          retries: 1,
-        }
-      ),
-      { confirmed: false, successful: false, error: 'RPC call failed' },
-    );
-
-    if (!result.success) {
-      logger.warn('Failed to get transaction status from Soroban', {
-        txHash,
-        error: result.error?.message,
-        timedOut: result.timedOut,
-      });
-      return { confirmed: false, successful: false, error: result.error?.message ?? 'Unknown error' };
-    }
-
-    return result.data!;
+      span.setAttribute('soroban.confirmed', result.data!.confirmed);
+      span.setAttribute('soroban.successful', result.data!.successful);
+      return result.data!;
+    });
   }
 
   // ---------------------------------------------------------------------------
