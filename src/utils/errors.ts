@@ -29,6 +29,7 @@ export enum ErrorCode {
   ACTIVE_ROUND_EXISTS = "ACTIVE_ROUND_EXISTS",
   IDEMPOTENCY_KEY_CONFLICT = "IDEMPOTENCY_KEY_CONFLICT",
   CONTRACT_INVALID_STATE = "CONTRACT_INVALID_STATE",
+  ILLEGAL_ROUND_TRANSITION = "ILLEGAL_ROUND_TRANSITION",
 }
 
 export interface ErrorDetail {
@@ -89,6 +90,27 @@ export class NotFoundError extends AppError {
 export class ConflictError extends AppError {
   constructor(message: string, code: ErrorCode | string = ErrorCode.CONFLICT) {
     super(message, 409, code);
+  }
+}
+
+/**
+ * 409 – a round attempted a status transition the lifecycle state machine
+ * forbids (Issue #490). Distinct from a generic ConflictError so the error
+ * handler can surface the offending from/to pair to callers and operators.
+ */
+export class IllegalRoundTransitionError extends ConflictError {
+  readonly from: string;
+  readonly to: string;
+
+  constructor(from: string, to: string, message?: string) {
+    super(
+      message ??
+        `Illegal round transition: ${from} -> ${to} is not a valid lifecycle edge.`,
+      ErrorCode.ILLEGAL_ROUND_TRANSITION,
+    );
+    this.name = "IllegalRoundTransitionError";
+    this.from = from;
+    this.to = to;
   }
 }
 
@@ -308,6 +330,14 @@ export const ERROR_CATALOG: readonly ErrorCatalogEntry[] = [
     errorClass: "BusinessRuleError",
     description:
       "Contract operation rejected due to invalid state on the blockchain.",
+  },
+  {
+    code: ErrorCode.ILLEGAL_ROUND_TRANSITION,
+    status: 409,
+    errorClass: "IllegalRoundTransitionError",
+    description:
+      "Round status change skipped a valid lifecycle state (e.g. trying to resolve " +
+      "an open round, or re-settle an already-final round).",
   },
 ];
 

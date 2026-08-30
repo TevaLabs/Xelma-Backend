@@ -367,3 +367,20 @@ export const distributedLockHeldSeconds = new Histogram({
    buckets: [0.05, 0.25, 1, 5, 15, 30, 60, 120, 300, 600],
    registers: [metricsRegistry],
 });
+
+/**
+ * Round lifecycle violations (Issue #490).
+ *
+ * Incremented every time a round status transition is rejected by the state
+ * machine -- either an illegal hop (e.g. ACTIVE -> RESOLVED) or a terminal
+ * state being written twice. `from`/`to` are low-cardinality labels (the five
+ * persisted RoundStatus values), so this metric stays alert-able without
+ * blowing up cardinality. A nonzero sustained rate means something is trying
+ * to fast-forward or re-settle a round and should be investigated.
+ */
+export const roundTransitionFailuresTotal = new Counter({
+   name: 'round_transition_failures_total',
+   help: 'Total round status transitions rejected by the lifecycle state machine',
+   labelNames: ['from', 'to'] as const,
+   registers: [metricsRegistry],
+});
