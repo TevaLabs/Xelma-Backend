@@ -1481,6 +1481,15 @@ build only when a **required** check fails â€” soft "nice to have"
 checks emit warnings without blocking merges. New checks live in
 [`scripts/production-readiness-scorecard.js`](scripts/production-readiness-scorecard.js).
 
+The scorecard also reports on current security/DX expectations (#558):
+
+- `docs/architecture.md` is present — yellow until authored, since
+  `README.md` links to it.
+- `POST /api/auth/refresh` is implemented — green because the refresh
+  route is required for long-lived client sessions.
+- `/metrics` is protected by authentication — yellow until the gauges
+  are moved behind role-based auth so operational data is not public.
+
 ---
 
 ## Troubleshooting
