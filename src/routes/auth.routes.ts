@@ -46,7 +46,9 @@ const router = Router();
  *           schema:
  *             $ref: '#/components/schemas/AuthChallengeRequest'
  *           example:
- *             walletAddress: GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX
+ *             # Cryptographically valid G... StrKey (see src/docs/strkey-fixtures.ts) so
+ *             # consumers can paste it without tripping the wallet-format middleware.
+ *             walletAddress: GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN
  *     responses:
  *       200:
  *         description: Challenge created
@@ -87,7 +89,7 @@ const router = Router();
  *         source: |
  *           curl -X POST "$API_BASE_URL/api/auth/challenge" \\
  *             -H "Content-Type: application/json" \\
- *             -d '{"walletAddress":"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX"}'
+ *             -d '{"walletAddress":"GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN"}'
  */
 router.post(
   "/challenge",
@@ -179,7 +181,9 @@ router.post(
  *           schema:
  *             $ref: '#/components/schemas/AuthConnectRequest'
  *           example:
- *             walletAddress: GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX
+ *             # Same valid StrKey contract as the schema examples (see
+ *             # src/docs/strkey-fixtures.ts) — never a real wallet or secret.
+ *             walletAddress: GDRHOLGIIVOGHNURCNVVGUXBUJCVTSKH2V7ACB4E4ZOR7KC3XGIBK5CT
  *             challenge: random-challenge-string
  *             signature: base64-or-hex-signature
  *     responses:
@@ -226,7 +230,7 @@ router.post(
  *         source: |
  *           curl -X POST "$API_BASE_URL/api/auth/connect" \\
  *             -H "Content-Type: application/json" \\
- *             -d '{"walletAddress":"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX","challenge":"random-challenge-string","signature":"base64-or-hex-signature"}'
+ *             -d '{"walletAddress":"GDRHOLGIIVOGHNURCNVVGUXBUJCVTSKH2V7ACB4E4ZOR7KC3XGIBK5CT","challenge":"random-challenge-string","signature":"base64-or-hex-signature"}'
  */
 const connectHandler = async (
   req: Request,
