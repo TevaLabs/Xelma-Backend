@@ -18,10 +18,13 @@
  *  3. DATABASE_URL is parseable as a URL
  *  4. JWT_SECRET meets minimum length (16+ chars)
  *  5. REDIS_URL (warning only)
+ *
+ * Soroban live mode checks (#537):
+ *  6. Vendored bindings validated when Soroban is configured in live mode
  */
 
-import { execSync } from 'child_process';
 import logger from '../utils/logger';
+import { validateVendoredBindings, formatBindingsReport } from '../utils/bindings-validator';
 export type RuntimeMode = 'hackathon' | 'full';
 export type SafetyProfile = 'production' | 'demo';
 
@@ -222,6 +225,93 @@ function checkProductionSafetyProfile(
 }
 
 /**
+ * Determine whether Soroban is in "live" mode — meaning the backend
+ * expects to make real on-chain calls.  This is true when:
+ *   - A contract ID is configured, AND
+ *   - BET_STUB_MODE is not enabled
+ *
+ * When live + fail-closed (or explicit BINDINGS_CHECK=strict), broken
+ * vendored bindings must be fatal so a mismatched contract client
+ * never reaches production traffic (#537).
+ */
+function isSorobanLiveMode(env: NodeJS.ProcessEnv): boolean {
+  const hasContract = Boolean(env.SOROBAN_CONTRACT_ID || env.CONTRACT_ID);
+  const stubMode = env.BET_STUB_MODE === 'true';
+  return hasContract && !stubMode;
+}
+
+/**
+ * When Soroban live mode is active, validate vendored bindings.
+ *
+ * This catches a drift between vendor/xelma-bindings and bindings.pin.json
+ * early — before any money-path code can reach the network.  In stub or
+ * demo mode the check is skipped (or warns only) because the vendored
+ * bindings are not used at runtime.
+ */
+function checkBindingsForSorobanLiveMode(
+  env: NodeJS.ProcessEnv,
+): { errors: string[]; warnings: string[] } {
+  const liveMode = isSorobanLiveMode(env);
+  const failClosed = env.SOROBAN_FAIL_CLOSED === 'true';
+  const explicitPolicy = env.BINDINGS_CHECK?.trim().toLowerCase();
+
+  // Skip entirely when bindings check is explicitly disabled
+  if (explicitPolicy === 'off') {
+    return { errors: [], warnings: [] };
+  }
+
+  const shouldFail = liveMode && (failClosed || explicitPolicy === 'strict');
+
+  let result;
+  try {
+    result = validateVendoredBindings();
+  } catch (e) {
+    // If the pin file itself is broken, that is always fatal in live mode
+    if (shouldFail) {
+      return {
+        errors: [
+          `Soroban live mode enabled but vendored bindings could not be validated: ${(e as Error).message}. ` +
+            `Run "npm run check:bindings" and see docs/bindings-upgrade.md.`,
+        ],
+        warnings: [],
+      };
+    }
+    return {
+      errors: [],
+      warnings: [
+        `Vendored bindings validation threw: ${(e as Error).message}. ` +
+          `Non-fatal in demo/stub mode.`,
+      ],
+    };
+  }
+
+  if (result.ok) {
+    return { errors: [], warnings: [] };
+  }
+
+  const report = formatBindingsReport(result);
+
+  if (shouldFail) {
+    return {
+      errors: [
+        `Soroban live mode is enabled but vendored bindings are invalid. ` +
+          `Refusing to start with a possibly-mismatched contract client.\n` +
+          report,
+      ],
+      warnings: [],
+    };
+  }
+
+  // Non-live mode or non-strict: warn only
+  return {
+    errors: [],
+    warnings: [
+      `Vendored bindings validation failed (non-fatal in demo/stub mode).\n${report}`,
+    ],
+  };
+}
+
+/**
  * Run all preflight checks against the supplied environment.
  * Does NOT call process.exit — callers decide what to do with the result.
  */
@@ -231,6 +321,9 @@ export function runPreflightChecks(
   const mode: RuntimeMode = detectMode(env);
   const safetyProfile: SafetyProfile = detectSafetyProfile(env);
 
+  const { errors: bindingsErrors, warnings: bindingsWarnings } =
+    checkBindingsForSorobanLiveMode(env);
+
   const errors: string[] = [
     ...checkRequiredEnvVars(env, mode, safetyProfile),
     ...checkDataMode(env, mode),
@@ -238,9 +331,13 @@ export function runPreflightChecks(
     ...checkDatabaseUrl(env, mode),
     ...checkJwtSecretStrength(env, mode),
     ...checkProductionSafetyProfile(env, safetyProfile),
+    ...bindingsErrors,
   ];
 
-  const warnings: string[] = [...checkRedisIfConfigured(env)];
+  const warnings: string[] = [
+    ...checkRedisIfConfigured(env),
+    ...bindingsWarnings,
+  ];
 
   return {
     ok: errors.length === 0,

@@ -38,6 +38,9 @@
     "pr:publish": "node scripts/publish-pr.js"
   },
   "keywords": [],
+  "engines": {
+    "node": ">=22"
+  },
   "author": "",
   "license": "ISC",
   "dependencies": {

@@ -58,6 +58,7 @@ import { apiRateLimiter, writeRateLimiter } from './middleware/rateLimiter.middl
 import { requestIdMiddleware } from './middleware/requestId.middleware';
 import { metricsMiddleware } from './middleware/metrics.middleware';
 import { httpLoggerMiddleware } from './middleware/httpLogger.middleware';
+import { tracingMiddleware } from './middleware/tracing.middleware';
 import { securityHeadersMiddleware } from './middleware/securityHeaders.middleware';
 import { notFoundHandler } from './middleware/notFound';
 import { errorHandler as hackathonErrorHandler } from './middleware/errorHandler';
@@ -204,6 +205,7 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
   // Correlation ID first, so everything downstream can log it.
   app.use(requestIdMiddleware);
   app.use(metricsMiddleware);
+  app.use(tracingMiddleware);
   // Both modes log the same shape (method, path, status, durationMs,
   // requestId) on response finish — see src/middleware/httpLogger.middleware.ts
   // and src/tests/http-logger-unified.spec.ts (Issue #423).
