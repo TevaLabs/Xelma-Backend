@@ -29,6 +29,7 @@ export enum ErrorCode {
   ACTIVE_ROUND_EXISTS = "ACTIVE_ROUND_EXISTS",
   IDEMPOTENCY_KEY_CONFLICT = "IDEMPOTENCY_KEY_CONFLICT",
   CONTRACT_INVALID_STATE = "CONTRACT_INVALID_STATE",
+  TOURNAMENT_INVALID_STATE = "TOURNAMENT_INVALID_STATE",
 }
 
 export interface ErrorDetail {
@@ -89,6 +90,26 @@ export class NotFoundError extends AppError {
 export class ConflictError extends AppError {
   constructor(message: string, code: ErrorCode | string = ErrorCode.CONFLICT) {
     super(message, 409, code);
+  }
+}
+
+/**
+ * 409 – a tournament lifecycle request was made out of order (Issue #502).
+ * Distinct from a generic ConflictError so the saga's bad-state rejections are
+ * machine-recognisable and can increment the transition-failure metric.
+ */
+export class TournamentInvalidStateError extends ConflictError {
+  readonly from: string;
+  readonly to: string;
+
+  constructor(from: string, to: string, message?: string) {
+    super(
+      message ?? `Invalid tournament state: cannot ${to} a ${from} tournament.`,
+      ErrorCode.TOURNAMENT_INVALID_STATE,
+    );
+    this.name = "TournamentInvalidStateError";
+    this.from = from;
+    this.to = to;
   }
 }
 
@@ -308,6 +329,14 @@ export const ERROR_CATALOG: readonly ErrorCatalogEntry[] = [
     errorClass: "BusinessRuleError",
     description:
       "Contract operation rejected due to invalid state on the blockchain.",
+  },
+  {
+    code: ErrorCode.TOURNAMENT_INVALID_STATE,
+    status: 409,
+    errorClass: "TournamentInvalidStateError",
+    description:
+      "Tournament lifecycle request made out of order (e.g. locking a tournament " +
+      "that is not UPCOMING, or settling one that never locked).",
   },
 ];
 

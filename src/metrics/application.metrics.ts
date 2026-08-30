@@ -367,3 +367,20 @@ export const distributedLockHeldSeconds = new Histogram({
    buckets: [0.05, 0.25, 1, 5, 15, 30, 60, 120, 300, 600],
    registers: [metricsRegistry],
 });
+
+/**
+ * Tournament saga violations (Issue #502).
+ *
+ * Incremented whenever a tournament lifecycle transition (create -> join ->
+ * lock -> settle -> payout, plus cancel) is rejected as out-of-order — e.g.
+ * locking a COMPLETED tournament or settling one that was never locked.
+ * `from`/`to` are low-cardinality status labels, so this metric stays
+ * alert-able without exploding cardinality. A sustained nonzero rate means
+ * clients are driving the saga out of order and should be fixed.
+ */
+export const tournamentTransitionFailuresTotal = new Counter({
+   name: 'tournament_transition_failures_total',
+   help: 'Total tournament lifecycle transitions rejected as out-of-order',
+   labelNames: ['from', 'to'] as const,
+   registers: [metricsRegistry],
+});
