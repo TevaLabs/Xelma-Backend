@@ -254,6 +254,38 @@ const newChecks = [
     detail:
       "The most recent migration directory is missing migration.sql. It may be corrupt. Run `npx prisma migrate dev` to regenerate.",
   },
+
+  // ── Architecture & DX/security expectations (#558) ───────────────
+  {
+    name: "Architecture document is present (docs/architecture.md)",
+    required: false,
+    run: () => fileExists("docs/architecture.md"),
+    detail:
+      "README links to docs/architecture.md but the file is missing. Add an architecture doc covering the layer map, data flow, and the checklist for adding new routes.",
+  },
+  {
+    name: "JWT token refresh route is implemented (POST /api/auth/refresh)",
+    required: true,
+    run: () => {
+      const auth = readFileMaybe("src/routes/auth.routes.ts");
+      return auth ? /["'`]\/refresh["'`]/.test(auth) : false;
+    },
+    detail:
+      "A /api/auth/refresh route re-issues a JWT without forcing a fresh wallet signature, keeping long-lived clients authenticated across token expiry.",
+  },
+  {
+    name: "Metrics endpoint is protected by authentication",
+    required: false,
+    run: () => {
+      const metrics = readFileMaybe("src/routes/metrics.routes.ts");
+      if (!metrics) return false;
+      return /(requireRole|authenticateUser|authenticateToken|requireAuth|isAdmin)/.test(
+        metrics,
+      );
+    },
+    detail:
+      "The /metrics endpoint exposes internal gauges to unauthenticated callers. Protect it behind role-based auth so operational data is not public.",
+  },
 ];
 
 checks.push(...newChecks);
