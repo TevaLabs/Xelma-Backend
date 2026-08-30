@@ -26,7 +26,7 @@ const shouldRunDbTests =
 
 const describeDb = shouldRunDbTests ? describe : describe.skip;
 
-describeDb('Tournament saga lifecycle (Issue #502)', () => {
+describeDb('tournament lifecycle (Issue #502)', () => {
   beforeAll(async () => {
     if (shouldRunDbTests) {
       try {
