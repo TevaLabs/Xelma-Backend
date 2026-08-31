@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import sorobanService from '../services/soroban.service';
 import priceOracle from '../services/oracle';
-import { checkRedisHealth } from '../lib/redis';
+import { checkRedisHealth, isRedisCacheEnabled } from '../lib/redis';
 import { withTimeout } from '../utils/timeout-wrapper';
 import logger from '../utils/logger';
 import { asyncHandler } from '../middleware/errorHandler.middleware';
@@ -20,7 +20,7 @@ async function checkDatabase(): Promise<{
 }> {
   const start = Date.now();
   try {
-    await withTimeout(
+    const result = await withTimeout(
       () => prisma.$queryRaw`SELECT 1`,
       {
         timeoutMs: HEALTH_TIMEOUT_MS,
@@ -28,6 +28,16 @@ async function checkDatabase(): Promise<{
         retries: 1,
       },
     );
+    if (!result.success) {
+      logger.warn('Health check: database unreachable', {
+        error: result.error,
+      });
+      return {
+        status: 'unhealthy',
+        durationMs: Date.now() - start,
+        error: result.error?.message,
+      };
+    }
     return { status: 'healthy', durationMs: Date.now() - start };
   } catch (err) {
     logger.warn('Health check: database unreachable', { error: err });
@@ -150,24 +160,41 @@ router.get(
   }),
 );
 
+function isDatabaseConfigured(): boolean {
+  // The DB is a configured dependency when the app runs in postgres mode
+  // (i.e. DATA_STORE=postgres, which is the default for live mode).
+  return config.app.dataStore === 'postgres';
+}
+
+function isRedisConfigured(): boolean {
+  // Redis is configured when REDIS_URL is present and cache is not explicitly
+  // disabled.  isRedisCacheEnabled() returns false both when REDIS_URL is
+  // absent and when REDIS_CACHE_ENABLED=false.
+  return isRedisCacheEnabled();
+}
+
 /**
  * Lightweight hackathon health endpoint.
  *
- * Returns the process status plus timed checks for the two deps that
- * the hackathon app actually owns: the price data source and the Soroban
- * service.  No database ping is performed here so the response stays fast
- * enough for readiness probes.
+ * Returns the process status plus timed checks for deps that the hackathon
+ * app actually owns: the price data source, the Soroban service, and — when
+ * configured — the database and Redis cache.
+ *
+ * Unconfigured dependencies are omitted from the response entirely so the
+ * health payload stays small and accurate.
  *
  * Status semantics:
  *   ok       – process is healthy, all checked deps report ok
- *   degraded – at least one non-critical dep (e.g. Soroban not initialized)
- *              is unavailable; the service is still serving requests
+ *   degraded – at least one non-critical dep (e.g. Soroban not initialized,
+ *              database ping failed, Redis unreachable) is unavailable;
+ *              the service is still serving requests
  */
-router.get('/health', (_req: Request, res: Response) => {
+router.get('/health', asyncHandler(async (_req: Request, res: Response) => {
+  const startTime = Date.now();
   const isMockMode = config.app.dataMode === 'mock';
   const sorobanReady = sorobanService.isReady();
 
-  const services = {
+  const services: Record<string, unknown> = {
     price: {
       status: 'ok',
       source: isMockMode ? 'static-mock' : 'coingecko',
@@ -179,14 +206,44 @@ router.get('/health', (_req: Request, res: Response) => {
     },
   };
 
-  const overallStatus: 'ok' | 'degraded' = sorobanReady ? 'ok' : 'degraded';
+  let degraded = !sorobanReady;
+
+  // Run optional dependency probes in parallel so the response stays fast.
+  const probes: Array<Promise<void>> = [];
+
+  if (isDatabaseConfigured()) {
+    probes.push(
+      checkDatabase().then((result) => {
+        services.database = result;
+        if (result.status !== 'healthy') {
+          degraded = true;
+        }
+      }),
+    );
+  }
+
+  if (isRedisConfigured()) {
+    probes.push(
+      checkRedis().then((result) => {
+        services.redis = result;
+        if (result.status !== 'healthy' && result.status !== 'bypassed') {
+          degraded = true;
+        }
+      }),
+    );
+  }
+
+  await Promise.all(probes);
+
+  const overallStatus: 'ok' | 'degraded' = degraded ? 'degraded' : 'ok';
 
   sendSuccess(res, {
     status: overallStatus,
     timestamp: Date.now(),
+    durationMs: Date.now() - startTime,
     services,
   });
-});
+}));
 
 /**
  * @openapi
