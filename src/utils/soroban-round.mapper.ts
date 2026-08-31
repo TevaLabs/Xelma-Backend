@@ -67,12 +67,26 @@ function toNumber(value: bigint | number | string | undefined | null): number {
   return 0;
 }
 
+/**
+ * Narrows a Soroban round's mode into the API's discriminated shape.
+ * Throws instead of silently defaulting so an unrecognized mode value
+ * (e.g. a contract ABI change) fails loudly rather than slipping into
+ * an API response as UP_DOWN.
+ */
+export function resolveRoundMode(mode: RoundMode): "UP_DOWN" | "LEGENDS" {
+  switch (mode) {
+    case RoundMode.UpDown:
+      return "UP_DOWN";
+    case RoundMode.Precision:
+      return "LEGENDS";
+    default:
+      throw new Error(`Unsupported Soroban round mode: ${String(mode)}`);
+  }
+}
+
 export function mapSorobanActiveRound(round: SorobanRound): MappedActiveRound {
   const roundId = toNumber(round.round_id);
-  const mode =
-    (round.mode as any) === RoundMode.Precision || (round.mode as any) === 1
-      ? "LEGENDS"
-      : "UP_DOWN";
+  const mode = resolveRoundMode(round.mode);
 
   return {
     id: `soroban-${roundId}`,
