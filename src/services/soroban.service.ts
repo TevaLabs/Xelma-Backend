@@ -14,6 +14,7 @@ import {
   sorobanRpcCallsTotal,
   sorobanRpcDurationSeconds,
 } from "../metrics/application.metrics";
+import { getRequestId } from "../utils/requestContext";
 
 export interface SorobanHealth {
   initialized: boolean;
@@ -354,12 +355,14 @@ export class SorobanService {
     side: "UP" | "DOWN",
   ): Promise<{ state: string; txHash?: string }> {
     await this.ensureInitialized();
+    const requestId = getRequestId();
     
     const result = await this.callWithBreaker("sorobanPlaceBet", () =>
       withTimeout(
         async () => {
         logger.debug(
           `Initiating Soroban placeBet: user=${userAddress}, amount=${amount}, side=${side}`,
+          { requestId, userAddress, amount, side },
         );
 
         // Amount in stroops (1 XLM = 10^7 stroops)
@@ -392,6 +395,8 @@ export class SorobanService {
         error: result.error?.message,
         timedOut: result.timedOut,
         durationMs: result.durationMs,
+        requestId,
+        userAddress,
       });
       throw mapSorobanError(result.error?.message);
     }
@@ -399,6 +404,10 @@ export class SorobanService {
     logger.info("Bet placed successfully on Soroban", {
       durationMs: result.durationMs,
       retriesUsed: result.retriesUsed,
+      requestId,
+      txHash: result.data?.txHash,
+      userAddress,
+      correlationId: requestId && result.data?.txHash ? `${requestId}:${result.data.txHash}` : undefined,
     });
 
     return result.data!;
@@ -415,12 +424,14 @@ export class SorobanService {
     predictedPrice: number | string,
   ): Promise<{ state: string; txHash?: string }> {
     await this.ensureInitialized();
+    const requestId = getRequestId();
     
     const result = await this.callWithBreaker("sorobanPlacePrecisionBet", () =>
       withTimeout(
         async () => {
         logger.debug(
           `Initiating Soroban placePrecisionBet: user=${userAddress}, amount=${amount}, predictedPrice=${predictedPrice}`,
+          { requestId, userAddress, amount, predictedPrice },
         );
 
         // Amount in stroops (1 XLM = 10^7 stroops)
@@ -450,6 +461,8 @@ export class SorobanService {
         error: result.error?.message,
         timedOut: result.timedOut,
         durationMs: result.durationMs,
+        requestId,
+        userAddress,
       });
       throw mapSorobanError(result.error?.message);
     }
@@ -457,6 +470,10 @@ export class SorobanService {
     logger.info("Precision bet placed successfully on Soroban", {
       durationMs: result.durationMs,
       retriesUsed: result.retriesUsed,
+      requestId,
+      txHash: result.data?.txHash,
+      userAddress,
+      correlationId: requestId && result.data?.txHash ? `${requestId}:${result.data.txHash}` : undefined,
     });
 
     return result.data!;
@@ -710,11 +727,12 @@ export class SorobanService {
    */
   async claimWinnings(userAddress: string): Promise<ClaimResult> {
     await this.ensureInitialized();
+    const requestId = getRequestId();
 
     const result = await this.callWithBreaker("sorobanClaimWinnings", () =>
       withTimeout(
         async () => {
-          logger.debug(`Initiating Soroban claimWinnings: user=${userAddress}`);
+          logger.debug(`Initiating Soroban claimWinnings: user=${userAddress}`, { requestId, userAddress });
 
           const tx = await this.client!.claim_winnings({ user: userAddress });
           const res = await tx.signAndSend({
@@ -736,6 +754,8 @@ export class SorobanService {
         error: result.error?.message,
         timedOut: result.timedOut,
         durationMs: result.durationMs,
+        requestId,
+        userAddress,
       });
       throw mapSorobanError(result.error?.message);
     }
@@ -744,6 +764,10 @@ export class SorobanService {
       amount: result.data?.amount,
       durationMs: result.durationMs,
       retriesUsed: result.retriesUsed,
+      requestId,
+      txHash: result.data?.txHash,
+      userAddress,
+      correlationId: requestId && result.data?.txHash ? `${requestId}:${result.data.txHash}` : undefined,
     });
 
     return result.data!;
