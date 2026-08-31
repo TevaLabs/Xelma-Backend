@@ -56,6 +56,24 @@ export interface BetAcceptedPayload {
   txHash?: string;
 }
 
+export interface BetConfirmedPayload {
+  betId: string;
+  txHash: string;
+  mode: 'UP_DOWN' | 'PRECISION';
+}
+
+export interface BetResolvedPayload {
+  betId: string;
+  roundId: string;
+  won: boolean;
+  payout: number;
+}
+
+export interface BetFailedPayload {
+  betId: string;
+  failureReason: string;
+}
+
 export interface RoundResolvedPayload {
   id: string;
   status: string;
@@ -147,6 +165,9 @@ export interface ServerToClientEvents {
   'round:started': (data: RoundStartedPayload) => void;
   'prediction:placed': (data: PredictionPlacedPayload) => void;
   'bet:accepted': (data: BetAcceptedPayload) => void;
+  'bet:confirmed': (data: BetConfirmedPayload) => void;
+  'bet:resolved': (data: BetResolvedPayload) => void;
+  'bet:failed': (data: BetFailedPayload) => void;
   'round:resolved': (data: RoundResolvedPayload) => void;
   'price:update': (data: PriceUpdatePayload) => void;
   'price_update': (data: PriceUpdatePayload) => void;

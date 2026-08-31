@@ -104,14 +104,11 @@ npm run build          # compile to dist/
 
 ## Database migrations
 
-The database is owned by **two** migration tools: **Prisma** (core schema, under
-`prisma/migrations/`) and **Drizzle** (the hackathon schema, under `drizzle/`).
-Do not run them separately — `npm run db:migrate` applies both in order, and
-`npm run db:prepare` runs `prisma generate` then `db:migrate`. This is the same
-command CI and the deploy workflow use. Change the core schema with
-`npm run prisma:migrate`; change the hackathon schema with
-`npx drizzle-kit generate` and commit the new file under `drizzle/`. See the
-README "Migration story" section for the full table.
+Prisma is the single database ORM and migration tool. The schema lives in
+`prisma/schema.prisma`, and committed migrations live under
+`prisma/migrations/`. Run `npm run db:prepare` to generate the Prisma client
+and apply migrations, or use `npm run prisma:migrate` when changing the schema.
+See the README "Migration story" section for more detail.
 
 ## Keeping the repo root clean
 

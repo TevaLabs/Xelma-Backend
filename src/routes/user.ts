@@ -6,21 +6,9 @@ import logger from '../utils/logger';
 import { serializeMoney } from '../utils/decimal.util';
 import { serializeUserBalance } from '../serializers/monetary.serializer';
 import { sendSuccess } from '../utils/response';
+import { computeXp, computeRankTitle } from '../utils/user-rank.util';
 
 const router = Router();
-
-function computeXp(totalWins: number, bestStreak: number): number {
-  return totalWins * 100 + bestStreak * 50;
-}
-
-function computeRankTitle(xp: number): string {
-  if (xp >= 10000) return 'Diamond';
-  if (xp >= 5000) return 'Platinum';
-  if (xp >= 3000) return 'Gold';
-  if (xp >= 1500) return 'Silver';
-  if (xp >= 500) return 'Bronze';
-  return 'Rookie';
-}
 
 /**
  * @openapi

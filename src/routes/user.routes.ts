@@ -17,6 +17,7 @@ import {
 import config from "../config";
 import { getMockBetHistory } from "../data/mockData";
 import { sendSuccess, sendError } from "../utils/response";
+import { computeXp, computeRankTitle } from "../utils/user-rank.util";
 
 const router = Router();
 
@@ -135,27 +136,6 @@ router.get("/stats", authenticateUser, (async (req: AuthenticatedRequest, res: R
     next(error);
   }
 }) as any);
-
-/**
- * Computes an XP score from on-chain user stats.
- * XP = totalWins × 100 + bestStreak × 50
- */
-function computeXp(totalWins: number, bestStreak: number): number {
-  return totalWins * 100 + bestStreak * 50;
-}
-
-/**
- * Derives a rank title from XP.
- * Thresholds match hackathon profile expectations.
- */
-function computeRankTitle(xp: number): string {
-  if (xp >= 10000) return "Diamond";
-  if (xp >= 5000) return "Platinum";
-  if (xp >= 3000) return "Gold";
-  if (xp >= 1500) return "Silver";
-  if (xp >= 500) return "Bronze";
-  return "Rookie";
-}
 
 /**
  * GET /api/user/:address/stats

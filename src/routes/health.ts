@@ -287,5 +287,14 @@ router.get('/health', (_req: Request, res: Response) => {
  *                           description: Provider that supplied the current price (e.g. coingecko).
  *                         error:
  *                           type: string
+ *
+ * /api/health:
+ *   get:
+ *     summary: Lightweight hackathon health check
+ *     tags:
+ *       - health
+ *     responses:
+ *       200:
+ *         description: Process and dependency status
  */
 export default router;

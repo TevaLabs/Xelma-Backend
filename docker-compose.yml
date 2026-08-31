@@ -20,7 +20,6 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    profiles: ["full"]
     ports:
       - "6379:6379"
     healthcheck:
@@ -41,11 +40,17 @@ services:
     environment:
       PORT: 3000
       DATABASE_URL: postgresql://xelma:xelma@postgres:5432/xelma
+      # Distributed idempotency locks (Issue #493) fail closed without Redis,
+      # so the API service is wired to the compose Redis instance.
+      REDIS_URL: redis://redis:6379
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      # Full mode (default) — health route lives at GET /health (root, outside /api).
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:${PORT:-3000}/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -58,14 +63,18 @@ services:
     restart: unless-stopped
     profiles: ["hackathon"]
     ports:
-      - "3000:3000"
+      - "3001:3001"
     env_file:
       - .env.hackathon.example
     environment:
-      PORT: 3000
+      PORT: 3001
+      API_MODE: hackathon
+      # Hackathon health route lives at GET /api/health.
+      # The entrypoint also sets HEALTHCHECK_PATH automatically when
+      # API_MODE=hackathon, but we set it here for the compose-level probe.
       HEALTHCHECK_PATH: /api/health
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

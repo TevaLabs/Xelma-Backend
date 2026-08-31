@@ -35,6 +35,172 @@ jest.mock('../services/priceService', () => ({
   getPrices: jest.fn(async () => ({ btc: 1, eth: 2, xlm: 0.1, stale: false })),
 }));
 
+jest.mock('../lib/redis', () => ({
+  invalidateNamespace: jest.fn(),
+  invalidateLeaderboardSortedSet: jest.fn(),
+  checkRedisHealth: jest.fn().mockResolvedValue(true),
+  getCache: jest.fn(),
+  setCache: jest.fn(),
+  deleteCache: jest.fn(),
+}));
+
+jest.mock('../services/websocket.service', () => ({
+  __esModule: true,
+  default: {
+    emitBetAccepted: jest.fn(),
+    emitRoundResolved: jest.fn(),
+    emitNotification: jest.fn(),
+    replayEmit: jest.fn(),
+  },
+}));
+
+jest.mock('../services/chat.service', () => ({
+  __esModule: true,
+  default: {
+    sendMessage: jest.fn(),
+    getMessages: jest.fn(),
+  },
+}));
+
+jest.mock('../services/notification.service', () => ({
+  __esModule: true,
+  default: {
+    createNotification: jest.fn(),
+    getNotifications: jest.fn(),
+    markAsRead: jest.fn(),
+    markAllAsRead: jest.fn(),
+  },
+}));
+
+jest.mock('../services/round.service', () => ({
+  __esModule: true,
+  default: {
+    getRoundsForApi: jest.fn().mockResolvedValue({ source: 'mock', rounds: [] }),
+    getActiveRound: jest.fn(),
+    startNewRound: jest.fn(),
+    lockRound: jest.fn(),
+  },
+}));
+
+jest.mock('../services/resolution.service', () => ({
+  __esModule: true,
+  default: {
+    resolveRound: jest.fn(),
+  },
+  ResolutionService: jest.fn().mockImplementation(() => ({
+    resolveRound: jest.fn(),
+  })),
+}));
+
+jest.mock('../services/simulation.service', () => ({
+  __esModule: true,
+  default: {
+    simulate: jest.fn(),
+    simulateRound: jest.fn(),
+  },
+}));
+
+jest.mock('../services/tournament.service', () => ({
+  __esModule: true,
+  default: {
+    listTournaments: jest.fn().mockResolvedValue({ tournaments: [], pagination: { limit: 20, offset: 0, total: 0 } }),
+    getTournament: jest.fn(),
+    joinTournament: jest.fn(),
+    createTournament: jest.fn(),
+  },
+}));
+
+jest.mock('../services/education-tip.service', () => ({
+  __esModule: true,
+  default: {
+    generateTip: jest.fn().mockResolvedValue({ category: 'tip', message: 'learn' }),
+  },
+}));
+
+jest.mock('../services/bet.service', () => ({
+  __esModule: true,
+  default: {
+    recordUpDownBet: jest.fn(),
+    recordPrecisionBet: jest.fn(),
+    getBet: jest.fn(),
+    getBets: jest.fn().mockResolvedValue([]),
+    reconcileBet: jest.fn(),
+    claimWinnings: jest.fn(),
+  },
+}));
+
+jest.mock('../services/bet-audit.service', () => ({
+  __esModule: true,
+  default: {
+    emitBetAccepted: jest.fn(),
+    emitBetFailed: jest.fn(),
+    emitBetReconciled: jest.fn(),
+    emitClaimAccepted: jest.fn(),
+  },
+}));
+
+jest.mock('../services/outbox.service', () => ({
+  __esModule: true,
+  default: {
+    processOutbox: jest.fn(),
+    cleanupProcessed: jest.fn(),
+  },
+}));
+
+jest.mock('../services/dead-letter-queue.service', () => ({
+  __esModule: true,
+  default: {
+    recordFailure: jest.fn(),
+    retry: jest.fn(),
+    retryAll: jest.fn(),
+    list: jest.fn().mockResolvedValue([]),
+  },
+}));
+
+jest.mock('../services/schema-readiness.service', () => ({
+  checkSchemaReadiness: jest.fn().mockResolvedValue({ ready: true }),
+}));
+
+jest.mock('../services/hackathon.service', () => ({
+  __esModule: true,
+  default: {
+    getHackathonStats: jest.fn(),
+  },
+}));
+
+jest.mock('../metrics/application.metrics', () => {
+  const metric = () => ({
+    inc: jest.fn(),
+    observe: jest.fn(),
+    set: jest.fn(),
+    labels: jest.fn(),
+  });
+  const base: Record<string, unknown> = {
+    metricsRegistry: {
+      getSingleMetricAsString: jest.fn(() => ''),
+      getMetricsAsJSON: jest.fn(() => []),
+      removeSingleMetric: jest.fn(),
+    },
+    recordOracleHealth: jest.fn(),
+    setSocketConnectionsActive: jest.fn(),
+  };
+  return new Proxy(base, {
+    get: (obj, prop) => {
+      if (prop in obj) return obj[prop];
+      return metric();
+    },
+  });
+});
+
+jest.mock('../middleware/auth.middleware', () => ({
+  authenticateUser: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireOracle: (_req: unknown, _res: unknown, next: () => void) => next(),
+  verifyStellarAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+  bindAuthenticatedWallet: (_req: unknown, _res: unknown, next: () => void) => next(),
+  optionalAuthentication: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 jest.mock('../routes/bets.routes', () => {
   const { Router } = require('express');
   const router = Router();
@@ -48,6 +214,8 @@ jest.mock('../routes/bets.routes', () => {
 });
 
 jest.mock('../middleware/rateLimiter.middleware', () => ({
+  apiRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  writeRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   challengeRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   connectRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),

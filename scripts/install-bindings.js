@@ -20,6 +20,10 @@ const REPO_URL = "https://github.com/TevaLabs/Xelma-Blockchain.git";
 const BRANCH = "main";
 const SUBDIR = "bindings";
 const DEST = path.resolve(__dirname, "..", "vendor", "xelma-bindings");
+// Repo metadata — deliberately OUTSIDE vendor/ so `rm -rf vendor/xelma-bindings`
+// cannot take the expected revision with it. Shared with the runtime validator
+// in src/utils/bindings-validator.ts; see docs/bindings-upgrade.md.
+const PIN_PATH = path.resolve(__dirname, "..", "bindings.pin.json");
 
 /** tsconfig override for CJS build */
 const CJS_TSCONFIG = {
@@ -36,24 +40,43 @@ function run(cmd, cwd) {
 }
 
 function main() {
+  if (process.argv.includes("--check")) {
+    checkPin();
+    return;
+  }
+
+  const pin = readPin();
+  const forceRefresh = process.argv.includes("--refresh");
+
   // Skip if already built
   if (
+    !forceRefresh &&
     fs.existsSync(path.join(DEST, "dist", "index.js")) &&
-    fs.existsSync(path.join(DEST, "dist", "cjs", "index.js"))
+    fs.existsSync(path.join(DEST, "dist", "cjs", "index.js")) &&
+    fs.existsSync(path.join(DEST, ".commit-sha")) &&
+    fs.readFileSync(path.join(DEST, ".commit-sha"), "utf8").trim() ===
+      pin.commitSha
   ) {
-    console.log("[install-bindings] vendor/xelma-bindings already built, skipping.");
+    console.log(
+      "[install-bindings] vendor/xelma-bindings already built, skipping.",
+    );
     return;
   }
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "xelma-bindings-"));
-  console.log(`[install-bindings] Sparse-cloning ${REPO_URL}#${BRANCH}/${SUBDIR}`);
+  console.log(
+    `[install-bindings] Sparse-cloning ${REPO_URL}#${BRANCH}/${SUBDIR}`,
+  );
 
   try {
     run("git init", tmp);
     run(`git remote add origin ${REPO_URL}`, tmp);
     run("git config core.sparseCheckout true", tmp);
-    fs.writeFileSync(path.join(tmp, ".git", "info", "sparse-checkout"), `${SUBDIR}/\n`);
-    run(`git fetch --depth=1 origin ${BRANCH}`, tmp);
+    fs.writeFileSync(
+      path.join(tmp, ".git", "info", "sparse-checkout"),
+      `${SUBDIR}/\n`,
+    );
+    run(`git fetch --depth=1 origin ${pin.commitSha}`, tmp);
     run("git checkout FETCH_HEAD", tmp);
 
     let commitSha = "";
@@ -62,7 +85,10 @@ function main() {
         .toString()
         .trim();
     } catch (e) {
-      console.warn("[install-bindings] could not resolve upstream SHA:", e.message);
+      console.warn(
+        "[install-bindings] could not resolve upstream SHA:",
+        e.message,
+      );
     }
 
     const srcDir = path.join(tmp, SUBDIR);
@@ -81,7 +107,7 @@ function main() {
     // Add a package.json marker in dist/cjs so Node knows it's CJS
     fs.writeFileSync(
       path.join(srcDir, "dist", "cjs", "package.json"),
-      JSON.stringify({ type: "commonjs" }, null, 2)
+      JSON.stringify({ type: "commonjs" }, null, 2),
     );
 
     console.log(`[install-bindings] Copying to ${DEST}…`);
@@ -101,6 +127,81 @@ function main() {
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+function readPin() {
+  if (!fs.existsSync(PIN_PATH)) {
+    throw new Error(
+      `Missing ${path.relative(process.cwd(), PIN_PATH)}. It records the expected ` +
+        "@tevalabs/xelma-bindings commit and contract surface.",
+    );
+  }
+
+  let pin;
+  try {
+    pin = JSON.parse(fs.readFileSync(PIN_PATH, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Invalid ${path.relative(process.cwd(), PIN_PATH)}: ${error.message}`,
+    );
+  }
+
+  if (
+    pin.repository !== REPO_URL ||
+    pin.ref !== BRANCH ||
+    !/^[0-9a-f]{40}$/.test(pin.commitSha)
+  ) {
+    throw new Error(
+      `${path.relative(process.cwd(), PIN_PATH)} must declare repository, ref, and a 40-character commitSha.`,
+    );
+  }
+  return pin;
+}
+
+function checkPin() {
+  const pin = readPin();
+  const markerPath = path.join(DEST, ".commit-sha");
+  if (!fs.existsSync(markerPath)) {
+    throw new Error(
+      `Missing ${path.relative(process.cwd(), markerPath)}. Run npm run install-bindings.`,
+    );
+  }
+
+  const marker = fs.readFileSync(markerPath, "utf8").trim();
+  if (marker !== pin.commitSha) {
+    throw new Error(
+      `Binding pin drift: ${path.relative(process.cwd(), markerPath)} is ${marker || "empty"}, expected ${pin.commitSha}.`,
+    );
+  }
+
+  const requiredArtifacts = pin.requiredArtifacts || [
+    "dist/index.js",
+    "dist/cjs/index.js",
+    "package.json",
+  ];
+  for (const artifact of requiredArtifacts) {
+    if (!fs.existsSync(path.join(DEST, artifact))) {
+      throw new Error(
+        `Missing vendored binding artifact: ${path.join("vendor/xelma-bindings", artifact)}.`,
+      );
+    }
+  }
+  const declared = Object.keys(pin.requiredMethods || {});
+  if (declared.length === 0) {
+    throw new Error(
+      `${path.relative(process.cwd(), PIN_PATH)} declares no requiredMethods; ` +
+        "the contract surface check would be a no-op.",
+    );
+  }
+
+  console.log(
+    `[install-bindings] Pin verified: ${pin.commitSha} ` +
+      `(${declared.length} required contract methods declared).`,
+  );
+  console.log(
+    "[install-bindings] Run `npm run build && npm run check:bindings:abi` for the " +
+      "full contract-surface check.",
+  );
 }
 
 function patchPackageJson(pkgPath) {

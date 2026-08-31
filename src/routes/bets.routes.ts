@@ -8,7 +8,7 @@ import {
 import { betRateLimiter } from "../middleware/rateLimiter.middleware";
 import { upDownBetSchema, precisionBetSchema, claimWinningsSchema } from "../schemas/bets.schema";
 import betService from "../services/bet.service";
-import { BetStatus } from "../data/bet-store";
+import { BetStatus } from "@prisma/client";
 import {
   acquireIdempotencyLock,
   IDEMPOTENCY_STORE_UNAVAILABLE,
@@ -18,14 +18,19 @@ import {
   isValidIdempotencyKey,
 } from "../utils/idempotency.util";
 import {
+  DistributedIdempotencyLockUnavailableError,
+  withDistributedIdempotencyLock,
+} from "../utils/distributed-idempotency-lock";
+import {
   ConflictError,
   ValidationError,
   ErrorCode,
   ExternalServiceError,
   NotFoundError,
 } from "../utils/errors";
-import { sendSuccess } from "../utils/response";
 import { serializeBet } from "../serializers/monetary.serializer";
+import { prisma } from "../lib/prisma";
+import { executeBet } from "./bet-execution";
 
 const router = Router();
 
@@ -43,7 +48,7 @@ const router = Router();
  *         application/json:
  *           schema:
  *             type: object
- *             required: [amount, side]
+ *             required: [address, amount, side]
  *             properties:
  *               address: { type: string, description: "Optional; must match JWT wallet when provided" }
  *               amount: { type: number }
@@ -63,90 +68,11 @@ router.post(
   betRateLimiter,
   validate(upDownBetSchema),
   (async (req: any, res: Response, next: NextFunction) => {
-    const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
-    const userId = req.user.userId;
-    const endpoint = "/api/bets/up-down";
-    let lockAcquired = false;
-    let operationCompleted = false;
-
-    try {
-      if (idempotencyKey) {
-        if (!isValidIdempotencyKey(idempotencyKey)) {
-          throw new ValidationError(
-            "Invalid Idempotency-Key format. Must be 8-255 alphanumeric characters."
-          );
-        }
-
-        const lockResult = await acquireIdempotencyLock(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          24 // TTL hours
-        );
-
-        if (lockResult.isIdempotent && lockResult.cachedResponse) {
-          return res
-            .status(lockResult.cachedResponse.status)
-            .json(lockResult.cachedResponse.body);
-        }
-
-        if (lockResult.error === IDEMPOTENCY_STORE_UNAVAILABLE) {
-          throw new ExternalServiceError(
-            "Idempotency store unavailable. Please try again.",
-            ErrorCode.EXTERNAL_SERVICE_ERROR
-          );
-        }
-
-        if (lockResult.error) {
-          throw new ConflictError(
-            lockResult.error,
-            ErrorCode.IDEMPOTENCY_KEY_CONFLICT
-          );
-        }
-
-        lockAcquired = !!lockResult.lockAcquired;
-      }
-
-      const result = await betService.recordUpDownBet(req.body, idempotencyKey);
-      operationCompleted = true;
-      const data = {
-        message: result.state === "stub" ? "Bet recorded (stub)" : "Bet placed on-chain",
-        state: result.state,
-        betId: result.betId,
-        status: result.status,
-        ...(result.txHash ? { txHash: result.txHash } : {}),
-      };
-      const responseBody = { success: true as const, data };
-
-      if (idempotencyKey && lockAcquired) {
-        await storeIdempotencyResult(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          200,
-          responseBody,
-          { ttlHours: 24 }
-        );
-      }
-
-      return sendSuccess(res, data);
-    } catch (error: any) {
-      if (idempotencyKey && lockAcquired && !operationCompleted) {
-        await releaseIdempotencyLock(userId, endpoint, idempotencyKey);
-      }
-
-      if (error instanceof IdempotencyStoreUnavailableError) {
-        return next(new ExternalServiceError(
-          "Idempotency store unavailable. Please try again.",
-          ErrorCode.EXTERNAL_SERVICE_ERROR
-        ));
-      }
-
-      return next(error);
-    }
-  }),
+    await executeBet(req, res, next, {
+      kind: "up-down",
+      endpoint: "/api/bets/up-down",
+    });
+  }) as any,
 );
 
 /**
@@ -163,7 +89,7 @@ router.post(
  *         application/json:
  *           schema:
  *             type: object
- *             required: [amount, predictedPrice]
+ *             required: [address, amount, predictedPrice]
  *             properties:
  *               address: { type: string, description: "Optional; must match JWT wallet when provided" }
  *               amount: { type: number }
@@ -183,82 +109,10 @@ router.post(
   betRateLimiter,
   validate(precisionBetSchema),
   (async (req: any, res: Response, next: NextFunction) => {
-    const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
-    const userId = req.user.userId;
-    const endpoint = "/api/bets/precision";
-    let lockAcquired = false;
-    let operationCompleted = false;
-
-    try {
-      if (idempotencyKey) {
-        if (!isValidIdempotencyKey(idempotencyKey)) {
-          throw new ValidationError(
-            "Invalid Idempotency-Key format. Must be 8-255 alphanumeric characters."
-          );
-        }
-
-        const lockResult = await acquireIdempotencyLock(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          24 // TTL hours
-        );
-
-        if (lockResult.isIdempotent && lockResult.cachedResponse) {
-          return res
-            .status(lockResult.cachedResponse.status)
-            .json(lockResult.cachedResponse.body);
-        }
-
-        if (lockResult.error === IDEMPOTENCY_STORE_UNAVAILABLE) {
-          throw new ExternalServiceError(
-            "Idempotency store unavailable. Please try again.",
-            ErrorCode.EXTERNAL_SERVICE_ERROR
-          );
-        }
-
-        if (lockResult.error) {
-          throw new ConflictError(
-            lockResult.error,
-            ErrorCode.IDEMPOTENCY_KEY_CONFLICT
-          );
-        }
-
-        lockAcquired = !!lockResult.lockAcquired;
-      }
-
-      const result = await betService.recordPrecisionBet(req.body, idempotencyKey);
-      operationCompleted = true;
-      const data = {
-        message: result.state === "stub" ? "Bet recorded (stub)" : "Bet placed on-chain",
-        state: result.state,
-        betId: result.betId,
-        status: result.status,
-        ...(result.txHash ? { txHash: result.txHash } : {}),
-      };
-      const responseBody = { success: true as const, data };
-
-      if (idempotencyKey && lockAcquired) {
-        await storeIdempotencyResult(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          200,
-          responseBody,
-          { ttlHours: 24 }
-        );
-      }
-
-      return sendSuccess(res, data);
-    } catch (error: any) {
-      if (idempotencyKey && lockAcquired && !operationCompleted) {
-        await releaseIdempotencyLock(userId, endpoint, idempotencyKey);
-      }
-
-      next(error);
-    }
+    await executeBet(req, res, next, {
+      kind: "precision",
+      endpoint: "/api/bets/precision",
+    });
   }) as any,
 );
 
@@ -312,7 +166,7 @@ router.post(
     const endpoint = "/api/bets/claim";
     let lockAcquired = false;
 
-    try {
+    const execute = async () => {
       if (idempotencyKey) {
         if (!isValidIdempotencyKey(idempotencyKey)) {
           throw new ValidationError(
@@ -332,6 +186,13 @@ router.post(
           return res
             .status(lockResult.cachedResponse.status)
             .json(lockResult.cachedResponse.body);
+        }
+
+        if (lockResult.error === IDEMPOTENCY_STORE_UNAVAILABLE) {
+          throw new ExternalServiceError(
+            "Idempotency store unavailable. Please try again.",
+            ErrorCode.EXTERNAL_SERVICE_ERROR
+          );
         }
 
         if (lockResult.error) {
@@ -368,10 +229,39 @@ router.post(
         );
       }
 
-      res.json(responseBody);
+      return res.json(responseBody);
+    };
+
+    try {
+      if (idempotencyKey) {
+        // Fail-closed distributed lock (Redis) in front of the Prisma flow so
+        // concurrent replicas cannot both process the same key.
+        await withDistributedIdempotencyLock(
+          userId,
+          endpoint,
+          idempotencyKey,
+          execute
+        );
+      } else {
+        await execute();
+      }
     } catch (error: any) {
       if (idempotencyKey && lockAcquired) {
         await releaseIdempotencyLock(userId, endpoint, idempotencyKey);
+      }
+
+      if (error instanceof DistributedIdempotencyLockUnavailableError) {
+        return next(new ExternalServiceError(
+          "Distributed idempotency lock unavailable. Please try again.",
+          ErrorCode.EXTERNAL_SERVICE_ERROR
+        ));
+      }
+
+      if (error instanceof IdempotencyStoreUnavailableError) {
+        return next(new ExternalServiceError(
+          "Idempotency store unavailable. Please try again.",
+          ErrorCode.EXTERNAL_SERVICE_ERROR
+        ));
       }
 
       return next(error);
@@ -379,7 +269,7 @@ router.post(
   }),
 );
 
-const BET_STATUSES: BetStatus[] = ["STUB", "SUBMITTED", "CONFIRMED", "FAILED"];
+const BET_STATUSES: BetStatus[] = ["ACCEPTED", "SUBMITTED", "CONFIRMED", "RESOLVED", "FAILED"];
 
 /**
  * @swagger
@@ -419,7 +309,7 @@ const BET_STATUSES: BetStatus[] = ["STUB", "SUBMITTED", "CONFIRMED", "FAILED"];
 router.get(
   "/reconciliation",
   requireAdmin,
-  ((req: Request, res: Response, next: NextFunction) => {
+  (async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { address, roundId, status } = req.query;
 
@@ -429,22 +319,34 @@ router.get(
         );
       }
 
-      const bets = betService.getBets({
-        address: address as string | undefined,
+      // If address is provided, look up userId
+      let userId: string | undefined;
+      if (address) {
+        const user = await prisma.user.findUnique({
+          where: { walletAddress: address as string },
+          select: { id: true },
+        });
+        userId = user?.id;
+      }
+
+      const bets = await betService.getBets({
+        userId,
         roundId: roundId as string | undefined,
         status: status as BetStatus | undefined,
       });
 
+      const summary = await betService.getReconciliationSummary();
+
       res.json({
         success: true,
-        summary: betService.getReconciliationSummary(),
+        summary,
         count: bets.length,
         bets: bets.map((bet) => serializeBet(bet as unknown as Record<string, unknown>)),
       });
     } catch (error) {
       next(error);
     }
-  }) as any,
+  }),
 );
 
 /**
@@ -486,7 +388,7 @@ router.get(
     } catch (error) {
       next(error);
     }
-  }) as any,
+  }) as any
 );
 
 export default router;

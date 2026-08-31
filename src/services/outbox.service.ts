@@ -77,11 +77,52 @@ export interface WebsocketOutboxPayload {
   userId?: string | null;
 }
 
+export interface BetAcceptedOutboxPayload {
+  betId: string;
+  userId: string;
+  roundId: string | null;
+  mode: 'UP_DOWN' | 'PRECISION';
+  side?: 'UP' | 'DOWN';
+  amount: number;
+  predictedPrice?: number;
+  state: 'accepted' | 'stub';
+  txHash?: string;
+}
+
+export interface BetConfirmedOutboxPayload {
+  betId: string;
+  userId: string;
+  roundId: string | null;
+  mode: 'UP_DOWN' | 'PRECISION';
+  txHash: string;
+}
+
+export interface BetResolvedOutboxPayload {
+  betId: string;
+  userId: string;
+  roundId: string;
+  mode: 'UP_DOWN' | 'PRECISION';
+  won: boolean;
+  payout: number;
+}
+
+export interface BetFailedOutboxPayload {
+  betId: string;
+  userId: string;
+  roundId: string | null;
+  mode: 'UP_DOWN' | 'PRECISION';
+  failureReason: string;
+}
+
 // ─── dispatch handlers (injected so the service stays testable) ───────────────
 
 export interface OutboxDispatchHandlers {
   notificationCreate: (payload: NotificationOutboxPayload) => Promise<unknown>;
   websocketEmit: (payload: WebsocketOutboxPayload) => void | Promise<void>;
+  betAccepted: (payload: BetAcceptedOutboxPayload) => Promise<unknown>;
+  betConfirmed: (payload: BetConfirmedOutboxPayload) => Promise<unknown>;
+  betResolved: (payload: BetResolvedOutboxPayload) => Promise<unknown>;
+  betFailed: (payload: BetFailedOutboxPayload) => Promise<unknown>;
 }
 
 // ─── truncation helper (mirrors DLQ) ─────────────────────────────────────────
@@ -215,12 +256,27 @@ class OutboxService {
     row: { id: string; eventType: OutboxEventType; payload: unknown },
     handlers: OutboxDispatchHandlers,
   ): Promise<void> {
-    if (row.eventType === OutboxEventType.NOTIFICATION_CREATE) {
-      await handlers.notificationCreate(row.payload as NotificationOutboxPayload);
-    } else if (row.eventType === OutboxEventType.WEBSOCKET_EMIT) {
-      await handlers.websocketEmit(row.payload as WebsocketOutboxPayload);
-    } else {
-      throw new Error(`Unknown outbox event type: ${row.eventType}`);
+    switch (row.eventType) {
+      case OutboxEventType.NOTIFICATION_CREATE:
+        await handlers.notificationCreate(row.payload as NotificationOutboxPayload);
+        break;
+      case OutboxEventType.WEBSOCKET_EMIT:
+        await handlers.websocketEmit(row.payload as WebsocketOutboxPayload);
+        break;
+      case OutboxEventType.BET_ACCEPTED:
+        await handlers.betAccepted(row.payload as BetAcceptedOutboxPayload);
+        break;
+      case OutboxEventType.BET_CONFIRMED:
+        await handlers.betConfirmed(row.payload as BetConfirmedOutboxPayload);
+        break;
+      case OutboxEventType.BET_RESOLVED:
+        await handlers.betResolved(row.payload as BetResolvedOutboxPayload);
+        break;
+      case OutboxEventType.BET_FAILED:
+        await handlers.betFailed(row.payload as BetFailedOutboxPayload);
+        break;
+      default:
+        throw new Error(`Unknown outbox event type: ${row.eventType}`);
     }
   }
 

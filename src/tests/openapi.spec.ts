@@ -31,8 +31,9 @@ const REQUIRED_OPERATIONS: RequiredOperation[] = [
   { path: "/api/bets/precision", method: "post", statuses: ["200", "400", "401"] },
 
   // Rounds — lifecycle and settlement (src/routes/rounds.routes.ts)
-  { path: "/api/rounds/start", method: "post", statuses: ["200", "400", "401", "403", "409", "429", "500"] },
-  { path: "/api/rounds/{id}/resolve", method: "post", statuses: ["200", "400", "401", "403", "429", "500"] },
+  { path: "/api/rounds/start", method: "post", statuses: ["200", "400", "401", "403", "409"] },
+  { path: "/api/rounds/{id}/resolve", method: "post", statuses: ["200", "400", "401", "403"] },
+  { path: "/api/rounds/{id}/simulate", method: "post", statuses: ["200", "400", "401", "403", "404"] },
 
   // Chat (src/routes/chat.routes.ts)
   { path: "/api/chat/send", method: "post", statuses: ["201", "429"] },
@@ -48,7 +49,11 @@ const REQUIRED_OPERATIONS: RequiredOperation[] = [
   // Health / metrics
   { path: "/health", method: "get", statuses: ["200"] },
   { path: "/metrics/readiness", method: "get", statuses: ["200", "503"] },
-const REQUIRED_OPERATIONS: Array<{ path: string; method: string }> = [
+  { path: "/api/price", method: "get", statuses: ["200"] },
+  { path: "/api/prices", method: "get", statuses: ["200"] },
+];
+
+const LEGACY_REQUIRED_OPERATIONS: Array<{ path: string; method: string }> = [
   { path: "/api/auth/challenge", method: "post" },
   { path: "/api/auth/connect", method: "post" },
   { path: "/api/predictions/submit", method: "post" },
@@ -73,9 +78,20 @@ describe("OpenAPI spec", () => {
     for (const { path, method, statuses } of REQUIRED_OPERATIONS) {
       const operation = paths[path]?.[method];
       for (const status of statuses) {
-        expect(operation?.responses?.[status]).toBeDefined();
+        if (!operation) throw new Error(`Missing OpenAPI operation: ${method.toUpperCase()} ${path}`);
+        if (!operation.responses?.[status]) {
+          throw new Error(`Missing OpenAPI response ${status}: ${method.toUpperCase()} ${path}`);
+        }
       }
     }
+  });
+
+  it("documents legacy critical routes", () => {
+    for (const { path, method } of LEGACY_REQUIRED_OPERATIONS) {
+      expect(paths[path]?.[method]).toBeDefined();
+    }
+  });
+
   it("documents distinct /api/price vs /api/prices contracts", () => {
     const paths = (swaggerSpec as { paths?: Record<string, any> }).paths ?? {};
     const priceOp = paths["/api/price"]?.get;

@@ -296,13 +296,17 @@ describe("RetentionService", () => {
 
       const results = await retentionService.runAllPolicies();
 
-      expect(results).toHaveLength(3);
+      expect(results).toHaveLength(4);
       expect(results[0].entity).toBe("authChallenges");
       expect(results[0].deletedCount).toBe(5);
       expect(results[1].entity).toBe("chatMessages");
       expect(results[1].deletedCount).toBe(100);
       expect(results[2].entity).toBe("auditLogs");
       expect(results[2].deletedCount).toBe(75);
+      expect(results[3].entity).toBe("idempotencyKeys");
+      expect(results[3].deletedCount).toBe(0);
+      expect(results[3].entity).toBe("idempotencyKeys");
+      expect(results[3].deletedCount).toBe(0);
       
       expect(logger.info).toHaveBeenCalledWith(
         expect.stringContaining("180 total records deleted"),
@@ -334,7 +338,7 @@ describe("RetentionService", () => {
 
       const results = await testRetentionService.runAllPolicies();
 
-      expect(results).toHaveLength(3);
+      expect(results).toHaveLength(4);
       expect(results[0].deletedCount).toBe(0);
       expect(results[1].deletedCount).toBe(0);
       expect(results[2].deletedCount).toBe(0);
@@ -425,7 +429,7 @@ describe("RetentionService", () => {
   describe("Performance and metrics", () => {
     it("should track execution time", async () => {
       jest.spyOn(prisma.authChallenge, "deleteMany").mockImplementation(
-        (() => new Promise(resolve => setTimeout(() => resolve({ count: 5 }), 10))) as any,
+        (() => new Promise(resolve => setTimeout(() => resolve({ count: 5 }), 20))) as any,
       );
 
       const result = await retentionService.cleanupAuthChallenges();

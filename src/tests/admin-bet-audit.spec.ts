@@ -5,6 +5,7 @@ import { UserRole } from "@prisma/client";
 import { betAuditService } from "../services/bet-audit.service";
 import { prisma } from "../lib/prisma";
 import { generateToken } from "../utils/jwt.util";
+import { createApp } from "../index";
 
 jest.mock("../lib/prisma", () => ({
   prisma: {
@@ -20,6 +21,12 @@ jest.mock("../utils/logger", () => ({
 }));
 
 const mockPrisma = prisma as any;
+
+// Preflight (full mode) requires JWT_SECRET >= 16 chars, and auth middleware
+// verifies tokens against process.env.JWT_SECRET at request time. Set one
+// value BEFORE generateToken() runs so tokens and verification agree.
+const TEST_JWT_SECRET = "admin-bet-audit-test-jwt-secret-2026-x";
+process.env.JWT_SECRET = TEST_JWT_SECRET;
 
 describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
   let app: Express;
@@ -54,16 +61,25 @@ describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
       txHash: "0xf1e2d3c4b5a697887766554433221100ffeeddccbbaa99",
     });
 
-    mockPrisma.user.findUnique.mockResolvedValue({
-      id: "admin-id",
-      walletAddress: ADMIN_ADDRESS,
-      role: UserRole.ADMIN,
+    mockPrisma.user.findUnique.mockImplementation((args: any) => {
+      const id = args?.where?.id ?? args?.where?.walletAddress;
+      if (id === USER_ADDRESS || id === "user-id") {
+        return Promise.resolve({
+          id: "user-id",
+          walletAddress: USER_ADDRESS,
+          role: UserRole.USER,
+        });
+      }
+      return Promise.resolve({
+        id: "admin-id",
+        walletAddress: ADMIN_ADDRESS,
+        role: UserRole.ADMIN,
+      });
     });
 
     process.env.NODE_ENV = "development";
-    process.env.JWT_SECRET = "test-secret";
-    jest.resetModules();
-    app = require("../index").createApp();
+    process.env.JWT_SECRET = TEST_JWT_SECRET;
+    app = createApp();
   });
 
   afterEach(() => {

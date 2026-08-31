@@ -8,7 +8,6 @@ import {
   TournamentListQuery,
 } from "../schemas/tournament.schema";
 import tournamentService from "../services/tournament.service";
-import { NotFoundError } from "../utils/errors";
 import { sendSuccess } from "../utils/response";
 
 const router = Router();
@@ -91,19 +90,180 @@ router.get(
 );
 
 /**
- * GET /api/tournaments/:id
- * Get tournament detail by id.
+ * @openapi
+ * /api/tournaments:
+ *   post:
+ *     tags: [tournaments]
+ *     summary: Create a tournament (start of the saga lifecycle)
+ *     description: |
+ *       Starts the tournament saga at UPCOMING. Subsequent lifecycle steps
+ *       (join -> lock -> settle -> payout) are validated exclusively in the
+ *       service layer, not in this route, so out-of-order requests fail with a
+ *       structured bad-state rejection. Requires authentication.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, description, mode, entryFee, prizePool, maxParticipants, startTime, endTime, rounds]
+ *             properties:
+ *               name: { type: string }
+ *               description: { type: string }
+ *               mode: { type: string, enum: [UP_DOWN, LEGENDS] }
+ *               entryFee: { type: string }
+ *               prizePool: { type: string }
+ *               maxParticipants: { type: integer }
+ *               startTime: { type: string, format: date-time }
+ *               endTime: { type: string, format: date-time }
+ *               rounds: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Tournament created
+ *       400:
+ *         description: Invalid tournament parameters
+ *       401:
+ *         description: Authentication required
+ *       409:
+ *         description: Lifecycle violation
  */
-router.get("/:id", (req: Request, res: Response, next: NextFunction) => {
-  const { id } = req.params;
-  const tournament = tournamentService.getMockById(id);
+router.post(
+  "/",
+  authenticateUser,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const created = await tournamentService.createTournament(req.body);
+    return sendSuccess(res, created);
+  }),
+);
 
-  if (!tournament) {
-    return next(new NotFoundError("Tournament not found"));
-  }
+/**
+ * GET /api/tournaments/:id
+ * Get tournament detail by id. Uses the mock seed for idempotent listing/detail
+ * demos (as before); the saga write endpoints below are DB-backed via the service.
+ */
+router.get(
+  "/:id",
+  validate(joinTournamentParamsSchema, "params"),
+  asyncHandler(async (req: Request, res: Response) => {
+    const tournament = tournamentService.getMockById(req.params.id);
+    if (!tournament) {
+      return res.status(404).json({ success: false, error: "Tournament not found" });
+    }
+    return sendSuccess(res, tournament);
+  }),
+);
 
-  return sendSuccess(res, tournament);
-});
+/**
+ * @openapi
+ * /api/tournaments/{id}/lock:
+ *   post:
+ *     tags: [tournaments]
+ *     summary: Lock a tournament (close the join window)
+ *     description: |
+ *       Transitions the tournament UPCOMING -> ACTIVE, freezing registration
+ *       before rounds begin. Validated by the saga state machine in the service.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Tournament locked
+ *       401:
+ *         description: Authentication required
+ *       404:
+ *         description: Tournament not found
+ *       409:
+ *         description: Lifecycle violation (e.g. locking a COMPLETED tournament)
+ */
+router.post(
+  "/:id/lock",
+  authenticateUser,
+  validate(joinTournamentParamsSchema, "params"),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const result = await tournamentService.lockTournament(req.params.id);
+    return sendSuccess(res, result);
+  }),
+);
+
+/**
+ * @openapi
+ * /api/tournaments/{id}/settle:
+ *   post:
+ *     tags: [tournaments]
+ *     summary: Settle a tournament and pay out winners
+ *     description: |
+ *       Transitions the tournament ACTIVE -> COMPLETED and distributes the prize
+ *       pool deterministically based on the tied round leaderboard. The settle +
+ *       payout is atomic and validated by the saga state machine.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Settlement completed with winner allocations
+ *       401:
+ *         description: Authentication required
+ *       404:
+ *         description: Tournament not found
+ *       409:
+ *         description: Lifecycle violation (e.g. settling an un-locked tournament)
+ */
+router.post(
+  "/:id/settle",
+  authenticateUser,
+  validate(joinTournamentParamsSchema, "params"),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const result = await tournamentService.settleTournament(req.params.id);
+    return sendSuccess(res, result);
+  }),
+);
+
+/**
+ * @openapi
+ * /api/tournaments/{id}/cancel:
+ *   post:
+ *     tags: [tournaments]
+ *     summary: Cancel a tournament
+ *     description: |
+ *       Transitions the tournament UPCOMING/ACTIVE -> CANCELLED. Terminal
+ *       suppression: a COMPLETED tournament cannot be cancelled. Validated by
+ *       the saga state machine in the service layer.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Tournament cancelled
+ *       401:
+ *         description: Authentication required
+ *       404:
+ *         description: Tournament not found
+ *       409:
+ *         description: Lifecycle violation (e.g. cancelling a COMPLETED tournament)
+ */
+router.post(
+  "/:id/cancel",
+  authenticateUser,
+  validate(joinTournamentParamsSchema, "params"),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const result = await tournamentService.cancelTournament(req.params.id);
+    return sendSuccess(res, result);
+  }),
+);
 
 /**
  * POST /api/tournaments/:id/join

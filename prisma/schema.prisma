@@ -68,6 +68,10 @@ enum DispatchStatus {
 enum OutboxEventType {
   NOTIFICATION_CREATE
   WEBSOCKET_EMIT
+  BET_ACCEPTED
+  BET_CONFIRMED
+  BET_RESOLVED
+  BET_FAILED
 }
 
 /// Outbox event status lifecycle:
@@ -119,6 +123,7 @@ model User {
   transactions        Transaction[]
   multiplayerSessions MultiplayerSession[]
   tournamentParticipants TournamentParticipant[]
+  bets                Bet[]
 }
 
 model Tournament {
@@ -203,6 +208,7 @@ model Round {
   updatedAt DateTime @updatedAt
 
   predictions Prediction[]
+  bets        Bet[]
   User        User?        @relation(fields: [userId], references: [id])
   userId      String?
 
@@ -230,6 +236,46 @@ model Prediction {
   @@unique([roundId, userId])
   @@index([userId])
   @@index([roundId])
+}
+
+enum BetStatus {
+  ACCEPTED
+  SUBMITTED
+  CONFIRMED
+  RESOLVED
+  FAILED
+}
+
+enum BetMode {
+  UP_DOWN
+  PRECISION
+}
+
+model Bet {
+  id              String     @id @default(uuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundId         String?
+  round           Round?     @relation(fields: [roundId], references: [id], onDelete: SetNull)
+  mode            BetMode
+  side            PredictionSide?
+  amount          Decimal    @db.Decimal(20, 8)
+  predictedPrice  Decimal?   @db.Decimal(18, 8)
+  status          BetStatus  @default(ACCEPTED)
+  txHash          String?    @unique
+  failureReason   String?
+  submittedAt     DateTime?
+  confirmedAt     DateTime?
+  resolvedAt      DateTime?
+  failedAt        DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([userId])
+  @@index([roundId])
+  @@index([status])
+  @@index([txHash])
+  @@index([createdAt])
 }
 
 model Notification {
@@ -470,34 +516,40 @@ model MockRound {
   asset           String
   mode            String
   status          String
-  startPrice      Decimal @db.Decimal(20, 8)
-  poolUp          Decimal? @db.Decimal(20, 8)
-  poolDown        Decimal? @db.Decimal(20, 8)
-  totalPool       Decimal? @db.Decimal(20, 8)
-  predictionCount Int?
-  closesAt        String
+  startPrice      Decimal @map("start_price") @db.Decimal(20, 8)
+  poolUp          Decimal? @map("pool_up") @db.Decimal(20, 8)
+  poolDown        Decimal? @map("pool_down") @db.Decimal(20, 8)
+  totalPool       Decimal? @map("total_pool") @db.Decimal(20, 8)
+  predictionCount Int?   @map("prediction_count")
+  closesAt        String @map("closes_at")
+
+  @@map("hackathon_rounds")
 }
 
 model MockLeaderboard {
-  address     String @id
-  rank        Int
-  totalWins   Int
-  totalLosses Int
-  winStreak   Int
-  xp          Int
-  rankTitle   String
+  address         String @id
+  rank            Int
+  totalWins       Int    @map("total_wins")
+  totalLosses     Int    @map("total_losses")
+  winStreak       Int    @map("current_streak")
+  xp              Int
+  rankTitle       String @map("rank_title")
   balance         Decimal @default(1000) @db.Decimal(20, 8)
-  pendingWinnings Decimal @default(0) @db.Decimal(20, 8)
+  pendingWinnings Decimal @map("pending_winnings") @default(0) @db.Decimal(20, 8)
+
+  @@map("hackathon_users")
 }
 
 model MockBet {
-  id             Int      @id @default(autoincrement())
-  roundId        String
+  id             Int       @id @default(autoincrement())
+  roundId        String    @map("round_id")
   address        String
   amount         Decimal  @db.Decimal(20, 8)
   side           String?
-  predictedPrice Decimal? @db.Decimal(20, 8)
-  createdAt      DateTime @default(now())
+  predictedPrice Decimal?  @map("predicted_price") @db.Decimal(20, 8)
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("hackathon_bets")
 }
 
 model MockPlatformStat {

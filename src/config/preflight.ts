@@ -23,6 +23,7 @@
 import { execSync } from 'child_process';
 import logger from '../utils/logger';
 export type RuntimeMode = 'hackathon' | 'full';
+export type SafetyProfile = 'production' | 'demo';
 
 export interface PreflightResult {
   ok: boolean;
@@ -31,6 +32,7 @@ export interface PreflightResult {
   nodeVersion: string;
   environment: string;
   mode: RuntimeMode;
+  safetyProfile: SafetyProfile;
 }
 
 /** Variables required in ALL modes. */
@@ -43,6 +45,14 @@ const BASE_REQUIRED_VARS: Record<string, string> = {
 const FULL_REQUIRED_VARS: Record<string, string> = {
   DATABASE_URL:
     'Expected format: postgresql://user:pass@host:5432/database',
+};
+
+/** Variables required when SAFETY_PROFILE=production. */
+const PRODUCTION_REQUIRED_VARS: Record<string, string> = {
+  SOROBAN_ADMIN_SECRET:
+    'Production requires SOROBAN_ADMIN_SECRET for on-chain bet placement.',
+  SOROBAN_ORACLE_SECRET:
+    'Production requires SOROBAN_ORACLE_SECRET for round resolution.',
 };
 
 /** Minimum Node.js major version required (mirrors package.json engines). */
@@ -60,6 +70,14 @@ export function detectMode(env: NodeJS.ProcessEnv): RuntimeMode {
 }
 
 /**
+ * Detect safety profile from environment.
+ * SAFETY_PROFILE=production => production, anything else => demo.
+ */
+export function detectSafetyProfile(env: NodeJS.ProcessEnv): SafetyProfile {
+  return env.SAFETY_PROFILE === 'production' ? 'production' : 'demo';
+}
+
+/**
  * Return the env template file to recommend based on mode.
  */
 function envTemplateForMode(mode: RuntimeMode): string {
@@ -69,10 +87,14 @@ function envTemplateForMode(mode: RuntimeMode): string {
 function checkRequiredEnvVars(
   env: NodeJS.ProcessEnv,
   mode: RuntimeMode,
+  safetyProfile: SafetyProfile,
 ): string[] {
   const required = { ...BASE_REQUIRED_VARS };
   if (mode === 'full') {
     Object.assign(required, FULL_REQUIRED_VARS);
+  }
+  if (safetyProfile === 'production') {
+    Object.assign(required, PRODUCTION_REQUIRED_VARS);
   }
 
   return Object.entries(required)
@@ -170,6 +192,35 @@ function checkRedisIfConfigured(env: NodeJS.ProcessEnv): string[] {
   }
 }
 
+function checkProductionSafetyProfile(
+  env: NodeJS.ProcessEnv,
+  safetyProfile: SafetyProfile,
+): string[] {
+  if (safetyProfile !== 'production') return [];
+
+  const errors: string[] = [];
+
+  // BET_STUB_MODE must NOT be true in production
+  if (env.BET_STUB_MODE === 'true') {
+    errors.push(
+      `BET_STUB_MODE=true is forbidden under SAFETY_PROFILE=production. ` +
+        `Stub mode bypasses on-chain settlement and is unsafe for real stakes. ` +
+        `Set BET_STUB_MODE=false or remove it, or switch to SAFETY_PROFILE=demo.`,
+    );
+  }
+
+  // SOROBAN_FAIL_CLOSED must be true in production
+  if (env.SOROBAN_FAIL_CLOSED !== 'true') {
+    errors.push(
+      `SAFETY_PROFILE=production requires SOROBAN_FAIL_CLOSED=true. ` +
+        `Current value: "${env.SOROBAN_FAIL_CLOSED ?? '(unset defaults to false)'}". ` +
+        `Fail-closed ensures bets abort when Soroban chain verification fails.`,
+    );
+  }
+
+  return errors;
+}
+
 /**
  * Run all preflight checks against the supplied environment.
  * Does NOT call process.exit — callers decide what to do with the result.
@@ -178,13 +229,15 @@ export function runPreflightChecks(
   env: NodeJS.ProcessEnv = process.env,
 ): PreflightResult {
   const mode: RuntimeMode = detectMode(env);
+  const safetyProfile: SafetyProfile = detectSafetyProfile(env);
 
   const errors: string[] = [
-    ...checkRequiredEnvVars(env, mode),
+    ...checkRequiredEnvVars(env, mode, safetyProfile),
     ...checkDataMode(env, mode),
     ...checkNodeVersion(),
     ...checkDatabaseUrl(env, mode),
     ...checkJwtSecretStrength(env, mode),
+    ...checkProductionSafetyProfile(env, safetyProfile),
   ];
 
   const warnings: string[] = [...checkRedisIfConfigured(env)];
@@ -196,13 +249,14 @@ export function runPreflightChecks(
     nodeVersion: process.version,
     environment: env.NODE_ENV ?? 'development',
     mode,
+    safetyProfile,
   };
 }
 
 /**
  * Build a human-readable setup guide based on runtime mode.
  */
-function setupGuide(mode: RuntimeMode): string[] {
+function setupGuide(mode: RuntimeMode, safetyProfile: SafetyProfile): string[] {
   if (mode === 'hackathon') {
     return [
       'Local hackathon setup:',
@@ -218,7 +272,7 @@ function setupGuide(mode: RuntimeMode): string[] {
       '',
     ];
   }
-  return [
+  const lines = [
     'Local full-mode setup:',
     '  1. cp .env.example .env',
     '  2. Fill in DATABASE_URL with a running PostgreSQL connection string',
@@ -230,6 +284,16 @@ function setupGuide(mode: RuntimeMode): string[] {
     '  - Configure DATABASE_URL, JWT_SECRET, and Soroban secrets as secret env vars',
     '',
   ];
+  if (safetyProfile === 'production') {
+    lines.push(
+      'Production safety profile (SAFETY_PROFILE=production):',
+      '  - BET_STUB_MODE must be false or unset',
+      '  - SOROBAN_FAIL_CLOSED must be true',
+      '  - SOROBAN_ADMIN_SECRET and SOROBAN_ORACLE_SECRET are required',
+      '',
+    );
+  }
+  return lines;
 }
 
 /**
@@ -263,8 +327,9 @@ export function assertPreflightOrExit(
       `  Node.js : ${result.nodeVersion}`,
       `  Env     : ${result.environment}`,
       `  Mode    : ${result.mode.toUpperCase()}`,
+      `  Profile : ${result.safetyProfile.toUpperCase()}`,
       '',
-      ...setupGuide(result.mode),
+      ...setupGuide(result.mode, result.safetyProfile),
       '',
     ];
 
