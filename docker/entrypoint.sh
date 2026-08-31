@@ -19,7 +19,11 @@ fi
 
 echo "Starting API server..."
 if [ "$API_MODE" = "hackathon" ]; then
+  # Align the Dockerfile HEALTHCHECK path with the hackathon health route.
+  export HEALTHCHECK_PATH="/api/health"
   exec node dist/server.js
 else
+  # Full mode default — health probe lives at GET /health (root, outside /api).
+  export HEALTHCHECK_PATH="/health"
   exec node dist/index.js
 fi
