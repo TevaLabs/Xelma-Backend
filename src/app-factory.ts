@@ -88,6 +88,8 @@ export interface AppFeatures {
   errorCatalog: boolean;
   /** Admin surfaces: metrics, CORS diagnostics, dead-letter queue, bet audit. */
   adminRoutes: boolean;
+  /** CORS diagnostics only — mounted independently behind ENABLE_CORS_DIAGNOSTICS. */
+  corsDiagnostics: boolean;
   /** Mirror every `/api/*` route under `/api/v1/*`. */
   versionedAlias: boolean;
   /** Emit Deprecation/Sunset headers on unversioned `/api/*` paths. */
@@ -131,6 +133,7 @@ const FULL_FEATURES: AppFeatures = {
   education: true,
   errorCatalog: true,
   adminRoutes: true,
+  corsDiagnostics: true,
   versionedAlias: true,
   deprecationHeaders: true,
   globalApiRateLimit: false,
@@ -154,6 +157,7 @@ const HACKATHON_FEATURES: AppFeatures = {
   education: false,
   errorCatalog: false,
   adminRoutes: false,
+  corsDiagnostics: Boolean(process.env.ENABLE_CORS_DIAGNOSTICS),
   versionedAlias: false,
   deprecationHeaders: false,
   globalApiRateLimit: true,
@@ -266,6 +270,11 @@ function mountApiRoutes(
     target.use('/admin/cors-diagnostics', corsDiagnosticsRoutes);
     target.use('/admin/dead-letter', deadLetterRoutes);
     target.use('/admin/bet-audit', betAuditRoutes);
+  } else if (features.corsDiagnostics) {
+    // In hackathon mode, mount CORS diagnostics independently when
+    // ENABLE_CORS_DIAGNOSTICS is set. Auth/admin checks are still enforced
+    // by the route's own requireAdmin middleware.
+    target.use('/admin/cors-diagnostics', corsDiagnosticsRoutes);
   }
 
   if (features.errorCatalog) {

@@ -68,10 +68,18 @@ describe("app factory", () => {
       expect(features.predictions).toBe(false);
       expect(features.education).toBe(false);
       expect(features.adminRoutes).toBe(false);
+      expect(features.corsDiagnostics).toBe(false);
       expect(features.errorCatalog).toBe(false);
       expect(features.versionedAlias).toBe(false);
       expect(features.platformStats).toBe(true);
       expect(features.globalApiRateLimit).toBe(true);
+    });
+
+    it("enables corsDiagnostics in hackathon mode via override", () => {
+      const features = resolveFeatures("hackathon", { corsDiagnostics: true });
+
+      expect(features.corsDiagnostics).toBe(true);
+      expect(features.adminRoutes).toBe(false);
     });
 
     it("lets an explicit override win over the mode default", () => {
@@ -102,8 +110,17 @@ describe("app factory", () => {
       );
 
       expect(routes.has("GET /api/admin/metrics/rate-limits")).toBe(false);
-      expect(routes.has("GET /api/admin/cors-diagnostics")).toBe(false);
+      // corsDiagnostics is independently gated; it may still be mounted.
       expect(routes.has("GET /api/admin/dead-letter")).toBe(false);
+    });
+
+    it("mounts cors-diagnostics independently when corsDiagnostics flag is on", () => {
+      const routes = pathsOf(
+        createApp({ mode: "full", features: { adminRoutes: false, corsDiagnostics: true } }),
+      );
+
+      expect(routes.has("GET /api/admin/cors-diagnostics")).toBe(true);
+      expect(routes.has("GET /api/admin/metrics/rate-limits")).toBe(false);
     });
 
     it("omits prediction routes when predictions is off", () => {
