@@ -1,4 +1,4 @@
-import { createClient } from "redis";
+import { createClient, type RedisClientType } from "redis";
 import { withTimeout } from "../utils/timeout-wrapper";
 import logger from "../utils/logger";
 
@@ -33,10 +33,8 @@ const metrics: CacheMetrics = {
 
 const redisCacheDebug = process.env.REDIS_CACHE_DEBUG === "true";
 
-type RedisClient = any;
-
-let client: RedisClient | null = null;
-let clientConnecting: Promise<RedisClient | null> | null = null;
+let client: RedisClientType | null = null;
+let clientConnecting: Promise<RedisClientType | null> | null = null;
 let lastRedisFailureAtMs = 0;
 
 function getRedisUrl(): string | null {
@@ -55,8 +53,16 @@ function getRedisCachePrefix(): string {
   return process.env.REDIS_CACHE_PREFIX?.trim() || "xelma:cache";
 }
 
-async function ensureClient(): Promise<RedisClient | null> {
-  const shouldEnable = getRedisCacheEnabled();
+/**
+ * Resolves the shared Redis client, connecting on first use.
+ *
+ * @param respectCacheFlag When true (cache paths), a Redis URL present but
+ *   `REDIS_CACHE_ENABLED=false` disables the client. When false (fail-closed
+ *   paths such as distributed idempotency locks), the client is only skipped
+ *   when no Redis URL is configured or Redis is unreachable.
+ */
+async function ensureClient(respectCacheFlag = true): Promise<RedisClientType | null> {
+  const shouldEnable = respectCacheFlag ? getRedisCacheEnabled() : true;
   const redisUrl = getRedisUrl();
 
   if (!shouldEnable || !redisUrl) {
@@ -425,8 +431,44 @@ export async function invalidateLeaderboardSortedSet(): Promise<void> {
   }
 }
 
-export function getRedisClient(): RedisClient | null {
+export function getRedisClient(): RedisClientType | null {
   return client;
+}
+
+/**
+ * Closes the shared Redis client and resets connection state. Used by tests
+ * that connect to a real Redis so Jest workers can exit cleanly.
+ */
+export async function closeRedisClient(): Promise<void> {
+  if (client) {
+    try {
+      await client.quit();
+    } catch (error) {
+      logger.warn("Failed to close Redis client cleanly", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    client = null;
+  }
+  clientConnecting = null;
+  lastRedisFailureAtMs = 0;
+}
+
+/**
+ * Ensures the shared Redis client is connected and returns it.
+ *
+ * This is the fail-closed entry point used by money-path distributed locks
+ * (Issue #493). Unlike the cache helpers, which intentionally bypass when
+ * Redis is unavailable, callers of this function MUST treat a `null` return
+ * as "Redis is unreachable" and reject the request rather than proceeding
+ * without the lock. `REDIS_CACHE_ENABLED=false` does not disable this path;
+ * only the absence of a configured `REDIS_URL` or an unreachable Redis does.
+ *
+ * @returns The connected shared client, or `null` when Redis is not
+ *          configured or cannot be reached.
+ */
+export async function getConnectedRedisClient(): Promise<RedisClientType | null> {
+  return ensureClient(false);
 }
 
 export async function checkRedisHealth(

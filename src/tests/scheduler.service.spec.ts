@@ -4,9 +4,9 @@ jest.mock("node-cron", () => ({
   schedule: jest.fn().mockReturnValue({ stop: jest.fn() }),
 }));
 
-jest.mock("../utils/distributed-lock", () => ({
-  withDistributedLock: jest.fn((lockName: string, fn: () => any) => fn()),
-}));
+jest.mock("../utils/distributed-lock", () =>
+  require("./helpers/distributed-lock.mock").passThroughLockModule(),
+);
 
 jest.mock("../services/oracle", () => ({
   __esModule: true,
@@ -164,7 +164,7 @@ describeDb("SchedulerService", () => {
     it("does not schedule tasks when AUTO_RESOLVE_ENABLED is not set", () => {
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(4);
+      expect(cron.schedule).toHaveBeenCalledTimes(5);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),
@@ -179,6 +179,10 @@ describeDb("SchedulerService", () => {
       );
       expect(cron.schedule).toHaveBeenCalledWith(
         "30 3 * * *",
+        expect.any(Function),
+      );
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "* * * * *",
         expect.any(Function),
       );
     });
@@ -188,7 +192,7 @@ describeDb("SchedulerService", () => {
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(4);
+      expect(cron.schedule).toHaveBeenCalledTimes(5);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),
@@ -205,6 +209,10 @@ describeDb("SchedulerService", () => {
         "30 3 * * *",
         expect.any(Function),
       );
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "* * * * *",
+        expect.any(Function),
+      );
     });
 
     it('schedules exactly three tasks when AUTO_RESOLVE_ENABLED is "true"', () => {
@@ -212,7 +220,7 @@ describeDb("SchedulerService", () => {
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(5);
+      expect(cron.schedule).toHaveBeenCalledTimes(6);
     });
 
     it("uses the default 30-second interval in the auto-resolve cron expression", () => {

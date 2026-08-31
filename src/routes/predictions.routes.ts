@@ -3,6 +3,7 @@ import {
    authenticateUser,
    AuthenticatedRequest,
 } from '../middleware/auth.middleware';
+import { asyncHandler } from '../middleware/errorHandler.middleware';
 import {
    batchPredictionRateLimiter,
    predictionRateLimiter,
@@ -12,7 +13,9 @@ import {
    batchSubmitPredictionsSchema,
    submitPredictionSchema,
 } from '../schemas/predictions.schema';
-import predictionService from '../services/prediction.service';
+import predictionService, {
+   type PredictionRow,
+} from '../services/prediction.service';
 import {
    checkIdempotency,
    IDEMPOTENCY_STORE_UNAVAILABLE,
@@ -31,7 +34,7 @@ import { serializePrediction, serializeRound } from '../serializers/monetary.ser
 const router = Router();
 const SUBMIT_PREDICTION_ENDPOINT = '/api/predictions/submit';
 
-function buildSubmitPredictionResponse(prediction: any) {
+function buildSubmitPredictionResponse(prediction: PredictionRow) {
    return {
       success: true,
       prediction: serializePrediction({
@@ -103,7 +106,7 @@ router.post(
    authenticateUser,
    predictionRateLimiter,
    validate(submitPredictionSchema),
-   (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+   asyncHandler(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
          const { roundId, amount, side, priceRange } = req.body;
          const userId = req.user.userId;
@@ -185,7 +188,7 @@ router.post(
          }
          next(error);
       }
-   }) as any
+   })
 );
 
 /**
@@ -226,24 +229,20 @@ router.post(
    authenticateUser,
    batchPredictionRateLimiter,
    validate(batchSubmitPredictionsSchema),
-   (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-      try {
-         const { predictions } = req.body;
-         const userId = req.user.userId;
+   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+      const { predictions } = req.body;
+      const userId = req.user.userId;
 
-         const result = await predictionService.submitBatchPredictions(
-            userId,
-            predictions
-         );
+      const result = await predictionService.submitBatchPredictions(
+         userId,
+         predictions
+      );
 
-         res.json({
-            ...result,
-            success: true,
-         });
-      } catch (error) {
-         next(error);
-      }
-   }) as any
+      res.json({
+         ...result,
+         success: true,
+      });
+   })
 );
 
 /**
@@ -258,36 +257,34 @@ router.post(
  *       200:
  *         description: List of predictions
  */
-router.get('/user', authenticateUser, (async (
-   req: AuthenticatedRequest,
-   res: Response,
-   next: NextFunction
-) => {
-   try {
+router.get(
+   '/user',
+   authenticateUser,
+   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       const userId = req.user.userId;
 
       const predictions = await predictionService.getUserPredictions(userId);
 
-      const serializedPredictions = predictions.map((p: any) =>
+      const serializedPredictions = predictions.map((p) =>
          serializePrediction({
-         id: p.id,
-         roundId: p.roundId,
-         userId: p.userId,
-         amount: p.amount,
-         side: p.side,
-         priceRange: p.priceRange,
-         payout: p.payout,
-         won: p.won,
-         createdAt: p.createdAt?.toISOString?.() ?? p.createdAt,
-         round: p.round
-            ? serializeRound({
-                 id: p.round.id,
-                 mode: p.round.mode,
-                 status: p.round.status,
-                 startPrice: p.round.startPrice,
-                 endPrice: p.round.endPrice,
-              })
-            : null,
+            id: p.id,
+            roundId: p.roundId,
+            userId: p.userId,
+            amount: p.amount,
+            side: p.side,
+            priceRange: p.priceRange,
+            payout: p.payout,
+            won: p.won,
+            createdAt: p.createdAt?.toISOString?.() ?? p.createdAt,
+            round: p.round
+               ? serializeRound({
+                    id: p.round.id,
+                    mode: p.round.mode,
+                    status: p.round.status,
+                    startPrice: p.round.startPrice,
+                    endPrice: p.round.endPrice,
+                 })
+               : null,
          }),
       );
 
@@ -295,10 +292,8 @@ router.get('/user', authenticateUser, (async (
          success: true,
          predictions: serializedPredictions,
       });
-   } catch (error) {
-      next(error);
-   }
-}) as any);
+   })
+);
 
 /**
  * @openapi
@@ -318,15 +313,14 @@ router.get('/user', authenticateUser, (async (
  */
 router.get(
    '/round/:roundId',
-   async (req: Request, res: Response, next: NextFunction) => {
-      try {
-         const { roundId } = req.params;
+   asyncHandler(async (req: Request, res: Response) => {
+      const { roundId } = req.params;
 
-         const predictions =
-            await predictionService.getRoundPredictions(roundId);
+      const predictions =
+         await predictionService.getRoundPredictions(roundId);
 
-         const serializedPredictions = predictions.map((p: any) =>
-            serializePrediction({
+      const serializedPredictions = predictions.map((p) =>
+         serializePrediction({
             id: p.id,
             roundId: p.roundId,
             userId: p.userId,
@@ -342,17 +336,14 @@ router.get(
                     walletAddress: p.user.walletAddress,
                  }
                : null,
-            }),
-         );
+         }),
+      );
 
-         res.json({
-            success: true,
-            predictions: serializedPredictions,
-         });
-      } catch (error) {
-         next(error);
-      }
-   }
+      res.json({
+         success: true,
+         predictions: serializedPredictions,
+      });
+   })
 );
 
 export default router;

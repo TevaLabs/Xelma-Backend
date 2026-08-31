@@ -1,4 +1,4 @@
-﻿import type { Express, Application } from "express";
+import type { Express, Application } from "express";
 
 export type AppEntrypoint = "main" | "hackathon";
 
@@ -10,23 +10,18 @@ export interface RouteRecord {
 export interface ParityAllowlistEntry {
   method: string;
   path: string;
-  only: AppEntrypoint;
-  reason: string;
+  only: AppEntrypoint;  reason: string;
   /**
    * The `AppFeatures` flag (or mode-specific router choice) in
    * `src/app-factory.ts` that causes this route to exist in only one app.
    * Every accepted difference must trace back to a flag — if it does not,
    * it is drift rather than a decision.
    */
-  flag: string;
+  flag?: string;
 }
 
 export const VERSIONED_ALIAS_ALLOWLIST: string[] = [
-  // Single-asset XLM oracle — intentionally no /api/v1/price mirror yet.
-  "GET /price",
-  // Multi-asset ticker is mounted after the v1 router today; keep unversioned
-  // until /api/v1/prices is wired. Distinct from GET /price (different payload).
-  "GET /prices",
+  // Price endpoints (/api/v1/prices and /api/v1/price) are now fully wired into the v1 mirror
 ];
 
 /**

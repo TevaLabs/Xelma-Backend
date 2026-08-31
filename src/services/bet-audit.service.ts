@@ -41,8 +41,7 @@
 
 import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
-import { GameMode } from "@prisma/client";
-import type { BetStatus } from "../data/bet-store";
+import { GameMode, BetStatus } from "@prisma/client";
 
 export type BetAuditEventName =
   | "BET_ACCEPTED"

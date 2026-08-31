@@ -3,6 +3,7 @@ import { RoundMode } from "@tevalabs/xelma-bindings";
 import {
   mapSorobanActiveRound,
   mapSorobanRoundToFrontendCards,
+  resolveRoundMode,
 } from "../utils/soroban-round.mapper";
 
 describe("mapSorobanActiveRound", () => {
@@ -48,6 +49,34 @@ describe("mapSorobanActiveRound", () => {
 
     expect(mapped.mode).toBe("LEGENDS");
     expect(mapped.startPrice).toBe("1.00000000");
+  });
+
+  it("rejects an unrecognized round mode instead of silently mapping it", () => {
+    expect(() =>
+      mapSorobanActiveRound({
+        round_id: 1,
+        mode: 99 as RoundMode,
+        price_start: 10000,
+        pool_up: 0,
+        pool_down: 0,
+        start_ledger: 1,
+        bet_end_ledger: 2,
+        end_ledger: 3,
+      }),
+    ).toThrow(/Unsupported Soroban round mode/);
+  });
+});
+
+describe("resolveRoundMode", () => {
+  it("maps known modes", () => {
+    expect(resolveRoundMode(RoundMode.UpDown)).toBe("UP_DOWN");
+    expect(resolveRoundMode(RoundMode.Precision)).toBe("LEGENDS");
+  });
+
+  it("throws on an unknown mode value", () => {
+    expect(() => resolveRoundMode(99 as RoundMode)).toThrow(
+      /Unsupported Soroban round mode/,
+    );
   });
 });
 

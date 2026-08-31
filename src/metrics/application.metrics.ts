@@ -312,3 +312,75 @@ export const redisCacheHitRatio = new Gauge({
       this.set(total > 0 ? m.hits / total : 0);
    }
 });
+
+/**
+ * Distributed lock metrics (Issue #601).
+ *
+ * These make single-leader behaviour observable across replicas. `lock` is the
+ * fixed job name (create-round, oracle-resolve-rounds, ...), so cardinality is
+ * bounded by the number of scheduled jobs.
+ *
+ * Expected steady state on an N-replica deploy: one `acquired` and N-1 `denied`
+ * per tick, a flat stream of `renewed`, and zero `stolen`/`expired`.
+ *
+ * Alert-worthy:
+ * - `distributed_lock_lost_total{reason="stolen"}` > 0 — two instances briefly
+ *   believed they were the leader; the TTL is too short for the heartbeat, or
+ *   the event loop stalled.
+ * - `distributed_lock_acquisitions_total{outcome="unavailable"}` climbing — Redis
+ *   is down and every replica is now skipping the job (fail-closed).
+ * - `distributed_lock_acquisitions_total{outcome="unlocked"}` > 0 on a
+ *   multi-replica deploy — REDIS_URL is missing and jobs are running unguarded.
+ */
+export const distributedLockAcquisitionsTotal = new Counter({
+   name: 'distributed_lock_acquisitions_total',
+   help: 'Distributed lock acquisition attempts by lock name and outcome (acquired, denied, denied_local, unavailable, unlocked, error)',
+   labelNames: ['lock', 'outcome'] as const,
+   registers: [metricsRegistry],
+});
+
+export const distributedLockRenewalsTotal = new Counter({
+   name: 'distributed_lock_renewals_total',
+   help: 'Distributed lock heartbeat renewals by lock name and outcome (renewed, stolen, expired, error)',
+   labelNames: ['lock', 'outcome'] as const,
+   registers: [metricsRegistry],
+});
+
+export const distributedLockLostTotal = new Counter({
+   name: 'distributed_lock_lost_total',
+   help: 'Times a held distributed lock was lost mid-job, by reason (stolen, expired, redis_error, max_hold_exceeded)',
+   labelNames: ['lock', 'reason'] as const,
+   registers: [metricsRegistry],
+});
+
+export const distributedLocksHeld = new Gauge({
+   name: 'distributed_locks_held',
+   help: 'Number of distributed locks currently held by this instance, by lock name',
+   labelNames: ['lock'] as const,
+   registers: [metricsRegistry],
+});
+
+export const distributedLockHeldSeconds = new Histogram({
+   name: 'distributed_lock_held_seconds',
+   help: 'How long distributed locks were held, in seconds. Compare against the lock TTL when tuning.',
+   labelNames: ['lock'] as const,
+   buckets: [0.05, 0.25, 1, 5, 15, 30, 60, 120, 300, 600],
+   registers: [metricsRegistry],
+});
+
+/**
+ * Tournament saga violations (Issue #502).
+ *
+ * Incremented whenever a tournament lifecycle transition (create -> join ->
+ * lock -> settle -> payout, plus cancel) is rejected as out-of-order — e.g.
+ * locking a COMPLETED tournament or settling one that was never locked.
+ * `from`/`to` are low-cardinality status labels, so this metric stays
+ * alert-able without exploding cardinality. A sustained nonzero rate means
+ * clients are driving the saga out of order and should be fixed.
+ */
+export const tournamentTransitionFailuresTotal = new Counter({
+   name: 'tournament_transition_failures_total',
+   help: 'Total tournament lifecycle transitions rejected as out-of-order',
+   labelNames: ['from', 'to'] as const,
+   registers: [metricsRegistry],
+});

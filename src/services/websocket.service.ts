@@ -2,6 +2,7 @@ import { DispatchChannel } from '@prisma/client';
 import logger from '../utils/logger';
 import deadLetterQueueService from './dead-letter-queue.service';
 import { websocketEmitsTotal } from '../metrics/application.metrics';
+import config from '../config';
 import { prisma } from '../lib/prisma';
 import type {
   BetAcceptedPayload,
@@ -27,15 +28,18 @@ export const WebSocketEvents = {
   NotificationUnreadCount: 'notification:unread-count',
   RoundUpdate: 'round_update',
   PriceUpdateV2: 'price_update',
+  BetConfirmed: 'bet:confirmed',
+  BetResolved: 'bet:resolved',
+  BetFailed: 'bet:failed',
 } as const;
-
-export type WebSocketEventName =
-  (typeof WebSocketEvents)[keyof typeof WebSocketEvents];
 
 type EventPayloadMap = {
   [K in keyof ServerToClientEvents]: Parameters<ServerToClientEvents[K]>[0];
 };
 
+type WebSocketEventName = keyof EventPayloadMap;
+
+/** Payload for live bet acceptance broadcasts (Issue #376). */
 interface SafeEmitInput<E extends WebSocketEventName> {
   room: string;
   event: E;
@@ -241,6 +245,18 @@ export class WebSocketService {
 
     // Broadcast new real-time price update to general room
     this.safeEmit({ room: 'round', event: WebSocketEvents.PriceUpdateV2, payload });
+
+    // In demo mode, clients join explicit round rooms; skip Prisma round lookup.
+    if (config.app.socketDemoMode) {
+      // Broadcast to every existing round room so demo clients that joined a
+      // specific room still receive live ticks, without needing a DB query.
+      for (const room of (this.io?.of('/').adapter.rooms.keys() ?? [])) {
+        if (room.startsWith('round:')) {
+          this.safeEmit({ room, event: WebSocketEvents.PriceUpdateV2, payload });
+        }
+      }
+      return;
+    }
 
     // Broadcast price update to room per active round
     try {

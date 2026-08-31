@@ -147,8 +147,8 @@ export class HackathonService {
   }
 
   async getLeaderboard() {
-    const users = await prisma.mockLeaderboard.findMany({ orderBy: { xp: 'desc' } });
-    return users.slice(0, 10).map((u, index) => ({
+    const users = await (prisma as any).mockLeaderboard.findMany({ orderBy: { xp: 'desc' } });
+    return users.slice(0, 10).map((u: any, index: number) => ({
       rank: index + 1,
       address: u.address,
       totalWins: u.totalWins,
@@ -160,7 +160,8 @@ export class HackathonService {
   }
 
   async getUserStats(address: string) {
-    const existing = await prisma.mockLeaderboard.findUnique({ where: { address } });
+    const mockPrisma = prisma as any;
+    const existing = await mockPrisma.mockLeaderboard.findUnique({ where: { address } });
     if (existing) {
       return {
         address: existing.address,
@@ -183,7 +184,7 @@ export class HackathonService {
       xp: 410,
       rankTitle: 'Rookie',
     };
-    await prisma.mockLeaderboard.create({
+    await mockPrisma.mockLeaderboard.create({
       data: {
         address: defaultUser.address,
         rank: 0,
@@ -206,61 +207,58 @@ export class HackathonService {
     side?: 'UP' | 'DOWN',
     predictedPrice?: number,
   ): Promise<void> {
-    const round = await prisma.mockRound.findUnique({ where: { id: roundId } });
-    if (!round) {
-      throw new Error('Round not found');
-    }
+    await prisma.$transaction(async (tx) => {
+      const round = await tx.mockRound.findUnique({ where: { id: roundId } });
+      if (!round) {
+        throw new Error('Round not found');
+      }
 
-    let user = await prisma.mockLeaderboard.findUnique({ where: { address } });
-    if (!user) {
-      user = await prisma.mockLeaderboard.create({
+      let user = await tx.mockLeaderboard.findUnique({ where: { address } });
+      if (!user) {
+        user = await tx.mockLeaderboard.create({
+          data: {
+            address,
+            rank: 0,
+            balance: 1000,
+            pendingWinnings: 0,
+            totalWins: 3,
+            totalLosses: 1,
+            winStreak: 3,
+            xp: 410,
+            rankTitle: 'Rookie',
+          },
+        });
+      }
+
+      if (user.balance && toDecimal(user.balance).lt(toDecimal(amount))) {
+        throw new Error('Insufficient balance');
+      }
+
+      await tx.mockBet.create({
         data: {
+          roundId,
           address,
-          rank: 0,
-          balance: 1000,
-          pendingWinnings: 0,
-          totalWins: 3,
-          totalLosses: 1,
-          winStreak: 3,
-          xp: 410,
-          rankTitle: 'Rookie',
+          amount,
+          side,
+          predictedPrice,
         },
       });
-    }
 
-    if (user.balance && toDecimal(user.balance).lt(toDecimal(amount))) {
-      throw new Error('Insufficient balance');
-    }
+      await tx.mockLeaderboard.update({
+        where: { address },
+        data: { balance: { decrement: amount } },
+      });
 
-    await prisma.mockBet.create({
-      data: {
-        roundId,
-        address,
-        amount,
-        side,
-        predictedPrice,
-      },
-    });
-
-    await prisma.mockLeaderboard.update({
-      where: { address },
-      data: { balance: { decrement: amount } },
-    });
-
-    if (round.mode === 'updown' && side) {
-        if (side === 'UP') {
-          await prisma.mockRound.update({
-            where: { id: roundId },
-            data: { poolUp: { increment: amount } },
-          });
-        } else {
-          await prisma.mockRound.update({
-            where: { id: roundId },
-            data: { poolDown: { increment: amount } },
-          });
-        }
+      if (round.mode === 'updown' && side) {
+        await tx.mockRound.update({
+          where: { id: roundId },
+          data:
+            side === 'UP'
+              ? { poolUp: { increment: amount } }
+              : { poolDown: { increment: amount } },
+        });
       } else if (round.mode === 'precision') {
-        await prisma.mockRound.update({
+        await tx.mockRound.update({
           where: { id: roundId },
           data: {
             totalPool: { increment: amount },
@@ -268,6 +266,7 @@ export class HackathonService {
           },
         });
       }
+    });
   }
 }
 

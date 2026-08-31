@@ -1,5 +1,5 @@
-import type { Prisma } from '@prisma/client';
 import { OutboxEventType } from '@prisma/client';
+import type { PredictionSide, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { invalidateNamespace, invalidateLeaderboardSortedSet } from '../lib/redis';
 import { UserPriceRange } from '../types/round.types';
@@ -21,6 +21,53 @@ import {
 } from '../utils/price-range.util';
 import sorobanService from './soroban.service';
 
+/** A single `Prediction` row as created/submitted by this service (all scalar fields). */
+export type PredictionRow = Prisma.PredictionGetPayload<{}>;
+
+/** A `Prediction` row with its fully-loaded related `Round`. */
+export type UserPredictionRow = Prisma.PredictionGetPayload<{
+   include: {
+      round: true;
+   };
+}>;
+
+/** A `Prediction` row with its related `User` (id + walletAddress only). */
+export type RoundPredictionRow = Prisma.PredictionGetPayload<{
+   include: {
+      user: {
+         select: {
+            id: true;
+            walletAddress: true;
+         };
+      };
+   };
+}>;
+
+/** A single serialized prediction entry within a batch result. */
+export interface BatchPredictionEntry {
+   id: string;
+   roundId: string;
+   /** Serialized decimal string (8-dp), never a raw JSON number. */
+   amount: string;
+   side: PredictionSide | null;
+   priceRange: Prisma.JsonValue | null;
+   createdAt: Date;
+}
+
+/** One processed item inside {@link BatchPredictionsResult.results}. */
+export interface BatchPredictionResultItem {
+   index: number;
+   success: boolean;
+   prediction?: BatchPredictionEntry;
+   error?: string;
+}
+
+/** Aggregated outcome of {@link PredictionService.submitBatchPredictions}. */
+export interface BatchPredictionsResult {
+   success: boolean;
+   results: BatchPredictionResultItem[];
+}
+
 export class PredictionService {
    /**
     * Submits a prediction for a round
@@ -31,7 +78,7 @@ export class PredictionService {
       amount: number,
       side?: 'UP' | 'DOWN',
       priceRange?: UserPriceRange,
-   ): Promise<any> {
+   ): Promise<PredictionRow> {
       // Wrap with retry logic to handle transient DB conflicts and race conditions
       return retryOrThrow(
          () =>
@@ -62,7 +109,7 @@ export class PredictionService {
       amount: number,
       side?: 'UP' | 'DOWN',
       priceRange?: UserPriceRange,
-   ): Promise<any> {
+   ): Promise<PredictionRow> {
       try {
          const prediction = await prisma.$transaction(async tx => {
             // 1. Get round inside transaction to ensure consistency
@@ -158,8 +205,13 @@ export class PredictionService {
                      virtualBalance: { decrement: amountNum },
                   },
                })
-               .catch((err: any) => {
-                  if (err.code === 'P2025') {
+               .catch((err: unknown) => {
+                  if (
+                     typeof err === 'object' &&
+                     err !== null &&
+                     'code' in err &&
+                     err.code === 'P2025'
+                  ) {
                      throw new BusinessRuleError(
                         'Insufficient balance',
                         ErrorCode.INSUFFICIENT_FUNDS
@@ -397,21 +449,8 @@ export class PredictionService {
          side?: 'UP' | 'DOWN';
          priceRange?: UserPriceRange;
       }>
-   ): Promise<{
-      success: boolean;
-      results: Array<{
-         index: number;
-         success: boolean;
-         prediction?: any;
-         error?: string;
-      }>;
-   }> {
-      const results: Array<{
-         index: number;
-         success: boolean;
-         prediction?: any;
-         error?: string;
-      }> = [];
+   ): Promise<BatchPredictionsResult> {
+      const results: BatchPredictionResultItem[] = [];
 
       // Process each prediction individually to maintain transaction isolation
       for (let i = 0; i < predictions.length; i++) {
@@ -456,7 +495,7 @@ export class PredictionService {
    /**
     * Gets user's predictions
     */
-   async getUserPredictions(userId: string): Promise<any[]> {
+   async getUserPredictions(userId: string): Promise<UserPredictionRow[]> {
       try {
          const predictions = await prisma.prediction.findMany({
             where: { userId },
@@ -478,7 +517,7 @@ export class PredictionService {
    /**
     * Gets predictions for a round
     */
-   async getRoundPredictions(roundId: string): Promise<any[]> {
+   async getRoundPredictions(roundId: string): Promise<RoundPredictionRow[]> {
       try {
          const predictions = await prisma.prediction.findMany({
             where: { roundId },

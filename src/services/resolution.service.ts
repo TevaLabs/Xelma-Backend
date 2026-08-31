@@ -3,9 +3,10 @@ import priceOracle from './oracle';
 import logger from '../utils/logger';
 import educationTipService from './education-tip.service';
 import websocketService from './websocket.service';
+import betService from './bet.service';
 import { prisma } from '../lib/prisma';
 import { invalidateNamespace, invalidateLeaderboardSortedSet } from '../lib/redis';
-import { OutboxEventType } from '@prisma/client';
+import { OutboxEventType, BetStatus } from '@prisma/client';
 import {
    toDecimal,
    toNumber,
@@ -257,33 +258,46 @@ export class ResolutionService {
 
       const winningSide = priceWentUp ? 'UP' : priceWentDown ? 'DOWN' : null;
 
-      if (priceUnchanged) {
-         // Refund everyone
-         for (const prediction of round.predictions) {
-            const refundAmount = toDecimal(prediction.amount);
-            await db.prediction.update({
-               where: { id: prediction.id },
-               data: {
-                  won: null,
-                  payout: toNumber(refundAmount),
-               },
-            });
+if (priceUnchanged) {
+          // Refund everyone
+          for (const prediction of round.predictions) {
+             const refundAmount = toDecimal(prediction.amount);
+             await db.prediction.update({
+                where: { id: prediction.id },
+                data: {
+                   won: null,
+                   payout: toNumber(refundAmount),
+                },
+             });
 
-            await db.user.update({
-               where: { id: prediction.userId },
-               data: {
-                  virtualBalance: {
-                     increment: toNumber(refundAmount),
-                  },
-               },
-            });
-         }
+             await db.user.update({
+                where: { id: prediction.userId },
+                data: {
+                   virtualBalance: {
+                      increment: toNumber(refundAmount),
+                   },
+                },
+             });
 
-         logger.info(
-            `Round ${round.id}: Price unchanged, refunded all predictions`
-         );
-         return;
-      }
+             // Resolve the corresponding bet as refund (won = null)
+             const bet = await db.bet.findFirst({
+                where: {
+                   userId: prediction.userId,
+                   roundId: round.id,
+                   status: BetStatus.CONFIRMED,
+                },
+             });
+
+             if (bet) {
+                await betService.resolveBet(bet.id, false, toNumber(refundAmount));
+             }
+          }
+
+          logger.info(
+             `Round ${round.id}: Price unchanged, refunded all predictions`
+          );
+          return;
+       }
 
       // Calculate payouts for winners (decimal-safe)
       const winningPool = toDecimal(
@@ -298,127 +312,88 @@ export class ResolutionService {
          return;
       }
 
-      for (const prediction of round.predictions) {
-         if (prediction.side === winningSide) {
-            // Winner: gets bet back + proportional share of losing pool (decimal-safe)
-            const predAmount = toDecimal(prediction.amount);
-            const payout = calculatePayout(predAmount, winningPool, losingPool);
+for (const prediction of round.predictions) {
+          const won = prediction.side === winningSide;
+          const predAmount = toDecimal(prediction.amount);
+          const payout = won ? calculatePayout(predAmount, winningPool, losingPool) : toDecimal(0);
 
-            await db.prediction.update({
-               where: { id: prediction.id },
-               data: {
-                  won: true,
-                  payout: toNumber(payout),
-               },
-            });
+          await db.prediction.update({
+             where: { id: prediction.id },
+             data: {
+                won,
+                payout: toNumber(payout),
+             },
+          });
 
-            await db.user.update({
-               where: { id: prediction.userId },
-               data: {
-                  virtualBalance: {
-                     increment: toNumber(payout),
-                  },
-                  wins: {
-                     increment: 1,
-                  },
-                  streak: {
-                     increment: 1,
-                  },
-               },
-            });
+          await db.user.update({
+             where: { id: prediction.userId },
+             data: {
+                virtualBalance: {
+                   increment: toNumber(payout),
+                },
+                wins: {
+                   increment: won ? 1 : 0,
+                },
+                streak: won ? { increment: 1 } : 0,
+             },
+          });
 
-            // Write WIN notification outbox event atomically with the payout.
-            // The outbox poller will dispatch the notification and websocket
-            // emit after the transaction commits, guaranteeing at-least-once
-            // delivery even if the process crashes mid-resolution.
-            await db.outboxEvent.create({
-               data: {
-                  eventType: OutboxEventType.NOTIFICATION_CREATE,
-                  aggregateId: round.id,
-                  aggregateType: 'round',
-                  payload: {
-                     userId: prediction.userId,
-                     type: 'WIN',
-                     title: 'You Won!',
-                     message: `Your prediction was correct! You won ${decFixed(payout)} XLM in Round #${round.id.slice(0, 6)}.`,
-                     data: { roundId: round.id, amount: toNumber(payout) },
-                  },
-               },
-            });
+          // Resolve the corresponding bet (if exists and is CONFIRMED)
+          const bet = await db.bet.findFirst({
+             where: {
+                userId: prediction.userId,
+                roundId: round.id,
+                status: BetStatus.CONFIRMED,
+             },
+          });
 
-            await db.outboxEvent.create({
-               data: {
-                  eventType: OutboxEventType.WEBSOCKET_EMIT,
-                  aggregateId: round.id,
-                  aggregateType: 'round',
-                  payload: {
-                     eventName: 'notification:new',
-                     room: `user:${prediction.userId}`,
-                     userId: prediction.userId,
-                     data: {
-                        type: 'WIN',
-                        title: 'You Won!',
-                        message: `Your prediction was correct! You won ${decFixed(payout)} XLM in Round #${round.id.slice(0, 6)}.`,
-                        data: { roundId: round.id, amount: toNumber(payout) },
-                        isRead: false,
-                     },
-                  },
-               },
-            });
-         } else {
-            // Loser
-            await db.prediction.update({
-               where: { id: prediction.id },
-               data: {
-                  won: false,
-                  payout: 0,
-               },
-            });
+          if (bet) {
+             await betService.resolveBet(bet.id, won, toNumber(payout));
+          }
 
-            await db.user.update({
-               where: { id: prediction.userId },
-               data: {
-                  streak: 0,
-               },
-            });
+          // Write notification outbox event atomically with the payout.
+          // The outbox poller will dispatch the notification and websocket
+          // emit after the transaction commits, guaranteeing at-least-once
+          // delivery even if the process crashes mid-resolution.
+          await db.outboxEvent.create({
+             data: {
+                eventType: OutboxEventType.NOTIFICATION_CREATE,
+                aggregateId: round.id,
+                aggregateType: 'round',
+                payload: {
+                   userId: prediction.userId,
+                   type: won ? 'WIN' : 'LOSS',
+                   title: won ? 'You Won!' : 'Prediction Did Not Win',
+                   message: won
+                      ? `Your prediction was correct! You won ${decFixed(payout)} XLM in Round #${round.id.slice(0, 6)}.`
+                      : `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
+                   data: { roundId: round.id, amount: toNumber(payout) },
+                },
+             },
+          });
 
-            // Write LOSS notification outbox event atomically with the payout.
-            await db.outboxEvent.create({
-               data: {
-                  eventType: OutboxEventType.NOTIFICATION_CREATE,
-                  aggregateId: round.id,
-                  aggregateType: 'round',
-                  payload: {
-                     userId: prediction.userId,
-                     type: 'LOSS',
-                     title: 'Prediction Did Not Win',
-                     message: `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
-                     data: { roundId: round.id },
-                  },
-               },
-            });
-
-            await db.outboxEvent.create({
-               data: {
-                  eventType: OutboxEventType.WEBSOCKET_EMIT,
-                  aggregateId: round.id,
-                  aggregateType: 'round',
-                  payload: {
-                     eventName: 'notification:new',
-                     room: `user:${prediction.userId}`,
-                     userId: prediction.userId,
-                     data: {
-                        type: 'LOSS',
-                        title: 'Prediction Did Not Win',
-                        message: `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
-                        data: { roundId: round.id },
-                        isRead: false,
-                     },
-                  },
-               },
-            });
-         }
-      }
+          await db.outboxEvent.create({
+             data: {
+                eventType: OutboxEventType.WEBSOCKET_EMIT,
+                aggregateId: round.id,
+                aggregateType: 'round',
+                payload: {
+                   eventName: 'notification:new',
+                   room: `user:${prediction.userId}`,
+                   userId: prediction.userId,
+                   data: {
+                      type: won ? 'WIN' : 'LOSS',
+                      title: won ? 'You Won!' : 'Prediction Did Not Win',
+                      message: won
+                         ? `Your prediction was correct! You won ${decFixed(payout)} XLM in Round #${round.id.slice(0, 6)}.`
+                         : `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
+                      data: { roundId: round.id, amount: toNumber(payout) },
+                      isRead: false,
+                   },
+                },
+             },
+          });
+       }
 
       logger.info(
          `Round ${round.id}: Distributed payouts to ${round.predictions.filter((p: any) => p.side === winningSide).length} winners`
@@ -466,33 +441,46 @@ export class ResolutionService {
             : finalPrice.gte(min) && finalPrice.lt(max);
       });
 
-      if (!winningRange) {
-         // Price outside all ranges - refund everyone
-         for (const prediction of round.predictions) {
-            const refundAmount = toDecimal(prediction.amount);
-            await db.prediction.update({
-               where: { id: prediction.id },
-               data: {
-                  won: null,
-                  payout: toNumber(refundAmount),
-               },
-            });
+if (!winningRange) {
+          // Price outside all ranges - refund everyone
+          for (const prediction of round.predictions) {
+             const refundAmount = toDecimal(prediction.amount);
+             await db.prediction.update({
+                where: { id: prediction.id },
+                data: {
+                   won: null,
+                   payout: toNumber(refundAmount),
+                },
+             });
 
-            await db.user.update({
-               where: { id: prediction.userId },
-               data: {
-                  virtualBalance: {
-                     increment: toNumber(refundAmount),
-                  },
-               },
-            });
-         }
+             await db.user.update({
+                where: { id: prediction.userId },
+                data: {
+                   virtualBalance: {
+                      increment: toNumber(refundAmount),
+                   },
+                },
+             });
 
-         logger.info(
-            `Round ${round.id}: Price outside all ranges, refunded all predictions`
-         );
-         return;
-      }
+             // Resolve the corresponding bet as refund (won = null)
+             const bet = await db.bet.findFirst({
+                where: {
+                   userId: prediction.userId,
+                   roundId: round.id,
+                   status: BetStatus.CONFIRMED,
+                },
+             });
+
+             if (bet) {
+                await betService.resolveBet(bet.id, false, toNumber(refundAmount));
+             }
+          }
+
+          logger.info(
+             `Round ${round.id}: Price outside all ranges, refunded all predictions`
+          );
+          return;
+       }
 
       // Calculate total pool and winning pool (decimal-safe)
       const totalPool = sortedRanges.reduce(
@@ -502,38 +490,51 @@ export class ResolutionService {
       const decWinningPool = toDecimal(winningRange.pool);
       const decLosingPool = toDecimal(totalPool).sub(decWinningPool);
 
-      if (decEq(decWinningPool, 0)) {
-         for (const prediction of round.predictions) {
-            await db.prediction.update({
-               where: { id: prediction.id },
-               data: {
-                  won: false,
-                  payout: 0,
-               },
-            });
+if (decEq(decWinningPool, 0)) {
+          for (const prediction of round.predictions) {
+             await db.prediction.update({
+                where: { id: prediction.id },
+                data: {
+                   won: false,
+                   payout: 0,
+                },
+             });
 
-            await db.user.update({
-               where: { id: prediction.userId },
-               data: {
-                  streak: 0,
-               },
-            });
+             await db.user.update({
+                where: { id: prediction.userId },
+                data: {
+                   streak: 0,
+                },
+             });
 
-            // Write LOSS outbox event — winning range existed but had no pool
-            // (no one bet on it), so everyone is a loser.
-            await db.outboxEvent.create({
-               data: {
-                  eventType: OutboxEventType.NOTIFICATION_CREATE,
-                  aggregateId: round.id,
-                  aggregateType: 'round',
-                  payload: {
-                     userId: prediction.userId,
-                     type: 'LOSS',
-                     title: 'Prediction Did Not Win',
-                     message: `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
-                     data: { roundId: round.id },
-                  },
-               },
+             // Resolve the corresponding bet as loss
+             const bet = await db.bet.findFirst({
+                where: {
+                   userId: prediction.userId,
+                   roundId: round.id,
+                   status: BetStatus.CONFIRMED,
+                },
+             });
+
+             if (bet) {
+                await betService.resolveBet(bet.id, false, 0);
+             }
+
+             // Write LOSS outbox event — winning range existed but had no pool
+             // (no one bet on it), so everyone is a loser.
+             await db.outboxEvent.create({
+                data: {
+                   eventType: OutboxEventType.NOTIFICATION_CREATE,
+                   aggregateId: round.id,
+                   aggregateType: 'round',
+                   payload: {
+                      userId: prediction.userId,
+                      type: 'LOSS',
+                      title: 'Prediction Did Not Win',
+                      message: `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
+                      data: { roundId: round.id },
+                   },
+                },
             });
 
             await db.outboxEvent.create({
@@ -563,138 +564,98 @@ export class ResolutionService {
          return;
       }
 
-      for (const prediction of round.predictions) {
-         const priceRangeValidation = validateUserPriceRange(
-            prediction.priceRange
-         );
-         if (!priceRangeValidation.valid) {
-            logger.warn(
-               `Invalid price range in prediction ${prediction.id}: ${(priceRangeValidation as any).error}`
-            );
-            continue;
-         }
-         const predictionRange: UserPriceRange = priceRangeValidation.data;
+for (const prediction of round.predictions) {
+          const priceRangeValidation = validateUserPriceRange(
+             prediction.priceRange
+          );
+          if (!priceRangeValidation.valid) {
+             logger.warn(
+                `Invalid price range in prediction ${prediction.id}: ${(priceRangeValidation as any).error}`
+             );
+             continue;
+          }
+          const predictionRange: UserPriceRange = priceRangeValidation.data;
 
-         if (
-            toDecimal(predictionRange.min).eq(toDecimal(winningRange.min)) &&
-            toDecimal(predictionRange.max).eq(toDecimal(winningRange.max))
-         ) {
-            // Winner (decimal-safe)
-            const predAmount = toDecimal(prediction.amount);
-            const payout = calculatePayout(predAmount, decWinningPool, decLosingPool);
+          const won =
+             toDecimal(predictionRange.min).eq(toDecimal(winningRange.min)) &&
+             toDecimal(predictionRange.max).eq(toDecimal(winningRange.max));
+          const predAmount = toDecimal(prediction.amount);
+          const payout = won ? calculatePayout(predAmount, decWinningPool, decLosingPool) : toDecimal(0);
 
-            await db.prediction.update({
-               where: { id: prediction.id },
-               data: {
-                  won: true,
-                  payout: toNumber(payout),
-               },
-            });
+          await db.prediction.update({
+             where: { id: prediction.id },
+             data: {
+                won,
+                payout: toNumber(payout),
+             },
+          });
 
-            await db.user.update({
-               where: { id: prediction.userId },
-               data: {
-                  virtualBalance: {
-                     increment: toNumber(payout),
-                  },
-                  wins: {
-                     increment: 1,
-                  },
-                  streak: {
-                     increment: 1,
-                  },
-               },
-            });
+          await db.user.update({
+             where: { id: prediction.userId },
+             data: {
+                virtualBalance: {
+                   increment: toNumber(payout),
+                },
+                wins: {
+                   increment: won ? 1 : 0,
+                },
+                streak: won ? { increment: 1 } : 0,
+             },
+          });
 
-            // Write WIN outbox events atomically with the payout (LEGENDS mode).
-            await db.outboxEvent.create({
-               data: {
-                  eventType: OutboxEventType.NOTIFICATION_CREATE,
-                  aggregateId: round.id,
-                  aggregateType: 'round',
-                  payload: {
-                     userId: prediction.userId,
-                     type: 'WIN',
-                     title: 'You Won!',
-                     message: `Your prediction was correct! You won ${decFixed(payout)} XLM in Round #${round.id.slice(0, 6)}.`,
-                     data: { roundId: round.id, amount: toNumber(payout) },
-                  },
-               },
-            });
+          // Resolve the corresponding bet (if exists and is CONFIRMED)
+          const bet = await db.bet.findFirst({
+             where: {
+                userId: prediction.userId,
+                roundId: round.id,
+                status: BetStatus.CONFIRMED,
+             },
+          });
 
-            await db.outboxEvent.create({
-               data: {
-                  eventType: OutboxEventType.WEBSOCKET_EMIT,
-                  aggregateId: round.id,
-                  aggregateType: 'round',
-                  payload: {
-                     eventName: 'notification:new',
-                     room: `user:${prediction.userId}`,
-                     userId: prediction.userId,
-                     data: {
-                        type: 'WIN',
-                        title: 'You Won!',
-                        message: `Your prediction was correct! You won ${decFixed(payout)} XLM in Round #${round.id.slice(0, 6)}.`,
-                        data: { roundId: round.id, amount: toNumber(payout) },
-                        isRead: false,
-                     },
-                  },
-               },
-            });
-         } else {
-            // Loser
-            await db.prediction.update({
-               where: { id: prediction.id },
-               data: {
-                  won: false,
-                  payout: 0,
-               },
-            });
+          if (bet) {
+             await betService.resolveBet(bet.id, won, toNumber(payout));
+          }
 
-            await db.user.update({
-               where: { id: prediction.userId },
-               data: {
-                  streak: 0,
-               },
-            });
+          // Write notification outbox events atomically with the payout (LEGENDS mode).
+          await db.outboxEvent.create({
+             data: {
+                eventType: OutboxEventType.NOTIFICATION_CREATE,
+                aggregateId: round.id,
+                aggregateType: 'round',
+                payload: {
+                   userId: prediction.userId,
+                   type: won ? 'WIN' : 'LOSS',
+                   title: won ? 'You Won!' : 'Prediction Did Not Win',
+                   message: won
+                      ? `Your prediction was correct! You won ${decFixed(payout)} XLM in Round #${round.id.slice(0, 6)}.`
+                      : `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
+                   data: { roundId: round.id, amount: toNumber(payout) },
+                },
+             },
+          });
 
-            // Write LOSS outbox events atomically with the payout (LEGENDS mode).
-            await db.outboxEvent.create({
-               data: {
-                  eventType: OutboxEventType.NOTIFICATION_CREATE,
-                  aggregateId: round.id,
-                  aggregateType: 'round',
-                  payload: {
-                     userId: prediction.userId,
-                     type: 'LOSS',
-                     title: 'Prediction Did Not Win',
-                     message: `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
-                     data: { roundId: round.id },
-                  },
-               },
-            });
-
-            await db.outboxEvent.create({
-               data: {
-                  eventType: OutboxEventType.WEBSOCKET_EMIT,
-                  aggregateId: round.id,
-                  aggregateType: 'round',
-                  payload: {
-                     eventName: 'notification:new',
-                     room: `user:${prediction.userId}`,
-                     userId: prediction.userId,
-                     data: {
-                        type: 'LOSS',
-                        title: 'Prediction Did Not Win',
-                        message: `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
-                        data: { roundId: round.id },
-                        isRead: false,
-                     },
-                  },
-               },
-            });
-         }
-      }
+          await db.outboxEvent.create({
+             data: {
+                eventType: OutboxEventType.WEBSOCKET_EMIT,
+                aggregateId: round.id,
+                aggregateType: 'round',
+                payload: {
+                   eventName: 'notification:new',
+                   room: `user:${prediction.userId}`,
+                   userId: prediction.userId,
+                   data: {
+                      type: won ? 'WIN' : 'LOSS',
+                      title: won ? 'You Won!' : 'Prediction Did Not Win',
+                      message: won
+                         ? `Your prediction was correct! You won ${decFixed(payout)} XLM in Round #${round.id.slice(0, 6)}.`
+                         : `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
+                      data: { roundId: round.id, amount: toNumber(payout) },
+                      isRead: false,
+                   },
+                },
+             },
+          });
+       }
 
       logger.info(
          `Round ${round.id}: Distributed payouts to winners in range [${winningRange.min}, ${winningRange.max}]`

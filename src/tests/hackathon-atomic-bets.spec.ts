@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
-import { prisma } from '../lib/prisma';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
 import hackathonService from '../services/hackathon.service';
+import { prisma } from '../lib/prisma';
 
 jest.mock('../services/stellar.service', () => ({
   isValidStellarAddress: () => true,
@@ -16,6 +16,11 @@ jest.mock('../services/soroban.service', () => ({
 const TEST_ADDRESS = 'GAAAAATOMIC_BET_TEST_ADDR_000000000000000001';
 
 describe('Hackathon Atomic Bets', () => {
+  beforeAll(async () => {
+    await prisma.mockBet.deleteMany({ where: { address: TEST_ADDRESS } });
+    await prisma.mockLeaderboard.deleteMany({ where: { address: TEST_ADDRESS } });
+  });
+
   beforeEach(async () => {
     await prisma.mockBet.deleteMany({ where: { address: TEST_ADDRESS } });
     await prisma.mockLeaderboard.deleteMany({ where: { address: TEST_ADDRESS } });
@@ -96,6 +101,29 @@ describe('Hackathon Atomic Bets', () => {
       expect(bets.length).toBe(0);
       expect(userAfter!.balance.toString()).toBe(userBefore!.balance.toString());
       expect(roundsAfter).toEqual(roundsBefore);
+    });
+
+    it('rolls back all changes when transaction throws', async () => {
+      const userBefore = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
+      const roundsBefore = await prisma.mockRound.findMany();
+
+      const txSpy = jest.spyOn(prisma, '$transaction').mockRejectedValue(new Error('Simulated transaction failure'));
+
+      await expect(
+        hackathonService.placeBet('btc-updown-live', TEST_ADDRESS, 100, 'UP')
+      ).rejects.toThrow('Simulated transaction failure');
+
+      const userAfter = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
+      const roundsAfter = await prisma.mockRound.findMany();
+      const bets = await prisma.mockBet.findMany({
+        where: { address: TEST_ADDRESS, roundId: 'btc-updown-live' },
+      });
+
+      expect(bets.length).toBe(0);
+      expect(userAfter!.balance.toString()).toBe(userBefore!.balance.toString());
+      expect(roundsAfter).toEqual(roundsBefore);
+      
+      txSpy.mockRestore();
     });
   });
 

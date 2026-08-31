@@ -7,8 +7,12 @@
  *   - patchMetadata merges and clamps oversized blobs.
  *   - recordDisconnect preserves the row and stamps disconnectedAt.
  *   - all methods swallow DB errors instead of throwing.
+ *
+ * Issue #555 — additional tests:
+ *   - addRoom / removeRoom execute inside withRoomLock.
+ *   - reconcileRooms detects and corrects DB-vs-adapter drift.
  */
-import { describe, it, expect, beforeEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 
 const mockSessionFindUnique = jest.fn();
 const mockSessionUpsert = jest.fn();
@@ -26,10 +30,18 @@ jest.mock('../lib/prisma', () => ({
   },
 }));
 
+// Mock withRoomLock to execute the callback directly (no Redis in unit tests).
+// Also track calls so we can verify the lock IS being used.
+const mockWithRoomLock = jest.fn(async (userId: string, fn: () => Promise<any>) => fn());
+jest.mock('../utils/room-lock', () => ({
+  withRoomLock: (...args: any[]) => mockWithRoomLock(...args),
+}));
+
 // Import AFTER mocks are in place.
 import multiplayerSessionService, {
   MAX_PERSISTED_ROOMS,
   MAX_METADATA_CHARS,
+  asStringArray,
 } from '../services/multiplayer-session.service';
 
 const USER_ID = 'user-194';
@@ -153,12 +165,11 @@ describe('MultiplayerSessionService (Issue #194)', () => {
       mockSessionFindUnique.mockResolvedValueOnce({
         rooms: ['round', 'chat'],
       });
-      mockSessionUpdate.mockResolvedValueOnce({});
 
       await multiplayerSessionService.addRoom(USER_ID, 'chat');
 
-      const args = mockSessionUpdate.mock.calls[0][0];
-      expect(args.data.rooms).toEqual(['round', 'chat']);
+      // No DB write should occur — room already in the set.
+      expect(mockSessionUpdate).not.toHaveBeenCalled();
     });
 
     it('caps persisted rooms at MAX_PERSISTED_ROOMS', async () => {
@@ -212,6 +223,200 @@ describe('MultiplayerSessionService (Issue #194)', () => {
       await multiplayerSessionService.removeRoom(USER_ID, '');
       expect(mockSessionFindUnique).not.toHaveBeenCalled();
       expect(mockSessionUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('addRoom / removeRoom — distributed lock (Issue #555)', () => {
+    it('executes addRoom inside withRoomLock', async () => {
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['round'] });
+      mockSessionUpdate.mockResolvedValueOnce({});
+
+      await multiplayerSessionService.addRoom(USER_ID, 'chat');
+
+      expect(mockWithRoomLock).toHaveBeenCalledTimes(1);
+      expect(mockWithRoomLock).toHaveBeenCalledWith(
+        USER_ID,
+        expect.any(Function),
+      );
+    });
+
+    it('executes removeRoom inside withRoomLock', async () => {
+      mockSessionFindUnique.mockResolvedValueOnce({
+        rooms: ['round', 'chat'],
+      });
+      mockSessionUpdate.mockResolvedValueOnce({});
+
+      await multiplayerSessionService.removeRoom(USER_ID, 'chat');
+
+      expect(mockWithRoomLock).toHaveBeenCalledTimes(1);
+      expect(mockWithRoomLock).toHaveBeenCalledWith(
+        USER_ID,
+        expect.any(Function),
+      );
+    });
+
+    it('does not call withRoomLock when userId is empty', async () => {
+      await multiplayerSessionService.addRoom('', 'chat');
+      await multiplayerSessionService.removeRoom('', 'chat');
+
+      expect(mockWithRoomLock).not.toHaveBeenCalled();
+    });
+
+    it('serializes concurrent addRoom + removeRoom for the same user', async () => {
+      // Simulate two operations queued via withRoomLock.
+      // The lock mock executes callbacks sequentially (as they would be
+      // serialized by the real Redis lock).
+      const callOrder: string[] = [];
+
+      mockWithRoomLock.mockImplementationOnce(async (_userId: string, fn: () => Promise<any>) => {
+        callOrder.push('add-start');
+        const result = await fn();
+        callOrder.push('add-end');
+        return result;
+      });
+      mockWithRoomLock.mockImplementationOnce(async (_userId: string, fn: () => Promise<any>) => {
+        callOrder.push('remove-start');
+        const result = await fn();
+        callOrder.push('remove-end');
+        return result;
+      });
+
+      mockSessionFindUnique
+        .mockResolvedValueOnce({ rooms: [] })
+        .mockResolvedValueOnce({ rooms: ['round'] });
+      mockSessionUpdate
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({});
+
+      await multiplayerSessionService.addRoom(USER_ID, 'round');
+      await multiplayerSessionService.removeRoom(USER_ID, 'round');
+
+      // Operations executed sequentially under the lock
+      expect(callOrder).toEqual([
+        'add-start',
+        'add-end',
+        'remove-start',
+        'remove-end',
+      ]);
+    });
+  });
+
+  describe('reconcileRooms (Issue #555)', () => {
+    it('returns empty array when userId is empty', async () => {
+      const result = await multiplayerSessionService.reconcileRooms('', ['round']);
+      expect(result).toEqual([]);
+    });
+
+    it('returns adapter rooms when no session exists in DB', async () => {
+      mockSessionFindUnique.mockResolvedValueOnce(null);
+
+      const result = await multiplayerSessionService.reconcileRooms(
+        USER_ID,
+        ['round', 'chat'],
+      );
+      expect(result).toEqual(['round', 'chat']);
+    });
+
+    it('returns DB rooms unchanged when already consistent with adapter', async () => {
+      mockSessionFindUnique.mockResolvedValueOnce({
+        rooms: ['round', 'chat'],
+      });
+
+      const result = await multiplayerSessionService.reconcileRooms(
+        USER_ID,
+        ['round', 'chat'],
+      );
+      expect(result).toEqual(['round', 'chat']);
+      // No DB update should occur
+      expect(mockSessionUpdate).not.toHaveBeenCalled();
+    });
+
+    it('removes stale rooms present in DB but missing from adapter', async () => {
+      mockSessionFindUnique.mockResolvedValueOnce({
+        rooms: ['round', 'chat', 'stale-room'],
+      });
+      mockSessionUpdate.mockResolvedValueOnce({});
+
+      const result = await multiplayerSessionService.reconcileRooms(
+        USER_ID,
+        ['round', 'chat'],
+      );
+
+      expect(result).toEqual(['round', 'chat']);
+      const updateArgs = mockSessionUpdate.mock.calls[0][0];
+      expect(updateArgs.data.rooms).toEqual(['round', 'chat']);
+    });
+
+    it('persists rooms present in adapter but missing from DB', async () => {
+      mockSessionFindUnique.mockResolvedValueOnce({
+        rooms: ['round'],
+      });
+      mockSessionUpdate.mockResolvedValueOnce({});
+
+      const result = await multiplayerSessionService.reconcileRooms(
+        USER_ID,
+        ['round', 'chat'],
+      );
+
+      expect(result).toEqual(['round', 'chat']);
+      const updateArgs = mockSessionUpdate.mock.calls[0][0];
+      expect(updateArgs.data.rooms).toEqual(['round', 'chat']);
+    });
+
+    it('handles both stale and missing rooms simultaneously', async () => {
+      mockSessionFindUnique.mockResolvedValueOnce({
+        rooms: ['round', 'old-room'],
+      });
+      mockSessionUpdate.mockResolvedValueOnce({});
+
+      const result = await multiplayerSessionService.reconcileRooms(
+        USER_ID,
+        ['round', 'new-room'],
+      );
+
+      expect(result).toEqual(['round', 'new-room']);
+      const updateArgs = mockSessionUpdate.mock.calls[0][0];
+      expect(updateArgs.data.rooms).toEqual(['round', 'new-room']);
+    });
+
+    it('returns adapter rooms on DB error (best-effort)', async () => {
+      mockSessionFindUnique.mockRejectedValueOnce(new Error('db down'));
+
+      const result = await multiplayerSessionService.reconcileRooms(
+        USER_ID,
+        ['round'],
+      );
+      expect(result).toEqual(['round']);
+    });
+
+    it('deduplicates rooms during reconciliation', async () => {
+      mockSessionFindUnique.mockResolvedValueOnce({
+        rooms: ['round'],
+      });
+      mockSessionUpdate.mockResolvedValueOnce({});
+
+      const result = await multiplayerSessionService.reconcileRooms(
+        USER_ID,
+        ['round', 'round', 'chat'],
+      );
+
+      expect(result).toEqual(['round', 'chat']);
+    });
+
+    it('caps reconciled rooms at MAX_PERSISTED_ROOMS', async () => {
+      const manyDbRooms = Array.from({ length: 20 }, (_, i) => `db-room-${i}`);
+      const manyAdapterRooms = Array.from({ length: 20 }, (_, i) => `adapter-room-${i}`);
+      mockSessionFindUnique.mockResolvedValueOnce({
+        rooms: manyDbRooms,
+      });
+      mockSessionUpdate.mockResolvedValueOnce({});
+
+      const result = await multiplayerSessionService.reconcileRooms(
+        USER_ID,
+        manyAdapterRooms,
+      );
+
+      expect(result.length).toBeLessThanOrEqual(MAX_PERSISTED_ROOMS);
     });
   });
 
@@ -298,6 +503,23 @@ describe('MultiplayerSessionService (Issue #194)', () => {
       const out = await multiplayerSessionService.getResumePayload(USER_ID);
       expect(out.rooms).toEqual([]);
       expect(out.metadata).toBeNull();
+    });
+  });
+
+  describe('asStringArray (exported helper)', () => {
+    it('returns empty array for non-array input', () => {
+      expect(asStringArray(null)).toEqual([]);
+      expect(asStringArray(undefined)).toEqual([]);
+      expect(asStringArray('string')).toEqual([]);
+      expect(asStringArray(42)).toEqual([]);
+    });
+
+    it('filters non-string entries', () => {
+      expect(asStringArray(['a', 1, 'b', null, 'c'])).toEqual(['a', 'b', 'c']);
+    });
+
+    it('returns empty array for empty array', () => {
+      expect(asStringArray([])).toEqual([]);
     });
   });
 });

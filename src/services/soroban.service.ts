@@ -1,5 +1,5 @@
 import { Keypair, Networks, Transaction } from "@stellar/stellar-sdk";
-import type { Client as XelmaClient, BetSide, OraclePayload, RoundMode, UserStats } from "@tevalabs/xelma-bindings";
+import type { Client as XelmaClient, BetSide, OraclePayload, RoundMode, UserStats, contract } from "@tevalabs/xelma-bindings";
 import config from "../config";
 import logger from "../utils/logger";
 import { toDecimal } from "../utils/decimal.util";
@@ -23,6 +23,63 @@ export interface SorobanHealth {
   hasAdminKey: boolean;
   hasOracleKey: boolean;
   failClosed: boolean;
+}
+
+export interface TransactionStatus {
+  confirmed: boolean;
+  successful: boolean;
+  ledger?: number;
+  feeCharged?: number;
+  error?: string;
+}
+
+/**
+ * Shape of a successfully claimed `claim_winnings` transaction, derived
+ * from the `SentTransaction<bigint>` returned by the generated bindings'
+ * `claim_winnings` client method (see `claim_winnings: (json: string) =>
+ * AssembledTransaction<bigint>` in @tevalabs/xelma-bindings).
+ */
+export interface ClaimResult {
+  state: "on-chain-success";
+  amount: number;
+  txHash?: string;
+}
+
+/** Thrown when a `claim_winnings` response does not have the shape the contract promises. */
+export class InvalidClaimResultError extends Error {
+  constructor(reason: string) {
+    super(`Invalid Soroban claim_winnings result: ${reason}`);
+    this.name = "InvalidClaimResultError";
+  }
+}
+
+/**
+ * Safely parses a sent `claim_winnings` transaction into a {@link ClaimResult}.
+ * `sent.result` is typed as `bigint` by the generated bindings, but since it
+ * ultimately comes from parsed RPC/XDR data we still validate it at runtime
+ * before trusting it, rather than casting past the type system.
+ */
+export function parseClaimResult(
+  sent: contract.SentTransaction<bigint>,
+): ClaimResult {
+  const claimedStroops = sent.result;
+
+  if (typeof claimedStroops !== "bigint") {
+    throw new InvalidClaimResultError(
+      `expected a bigint result, received ${typeof claimedStroops}`,
+    );
+  }
+  if (claimedStroops < BigInt(0)) {
+    throw new InvalidClaimResultError(
+      `claimed amount must not be negative, received ${claimedStroops}`,
+    );
+  }
+
+  return {
+    state: "on-chain-success",
+    amount: stroopsToXlm(claimedStroops),
+    txHash: sent.sendTransactionResponse?.hash,
+  };
 }
 
 /**
@@ -651,9 +708,7 @@ export class SorobanService {
    *
    * Uses timeout wrapper with retry logic. Signed by the admin keypair (backend relay).
    */
-  async claimWinnings(
-    userAddress: string,
-  ): Promise<{ state: string; amount: number; txHash?: string }> {
+  async claimWinnings(userAddress: string): Promise<ClaimResult> {
     await this.ensureInitialized();
 
     const result = await this.callWithBreaker("sorobanClaimWinnings", () =>
@@ -666,12 +721,7 @@ export class SorobanService {
             signTransaction: this.signWithAdmin.bind(this),
           });
 
-          const claimedStroops = (res as any)?.result ?? tx.result ?? BigInt(0);
-          return {
-            state: "on-chain-success",
-            amount: stroopsToXlm(claimedStroops),
-            txHash: (res as any).hash,
-          };
+          return parseClaimResult(res);
         },
         {
           timeoutMs: this.CALL_TIMEOUT_MS,
@@ -695,6 +745,84 @@ export class SorobanService {
       durationMs: result.durationMs,
       retriesUsed: result.retriesUsed,
     });
+
+    return result.data!;
+  }
+
+  /**
+   * Checks the status of a transaction by its hash.
+   * Used for reconciliation of stranded SUBMITTED bets.
+   */
+  async getTransactionStatus(txHash: string): Promise<TransactionStatus> {
+    await this.ensureInitialized();
+
+    const result = await this.callWithBreaker("sorobanGetTransactionStatus", () =>
+      withTimeout(
+        async () => {
+          logger.debug(`Checking Soroban transaction status: ${txHash}`);
+
+          // Use the RPC to get transaction details
+          const rpcUrl = config.soroban.rpcUrl;
+          const response = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getTransaction',
+              params: { hash: txHash },
+            }),
+          });
+
+          const data = await response.json();
+
+          if (data.error) {
+            return {
+              confirmed: false,
+              successful: false,
+              error: data.error.message,
+            };
+          }
+
+          const txResult = data.result;
+          if (!txResult) {
+            return {
+              confirmed: false,
+              successful: false,
+              error: 'Transaction not found',
+            };
+          }
+
+          // Check if transaction is successful (status === "SUCCESS")
+          const status = txResult.status;
+          const successful = status === 'SUCCESS';
+          const confirmed = status !== 'NOT_FOUND' && status !== 'PENDING';
+
+          return {
+            confirmed,
+            successful,
+            ledger: txResult.ledger ? parseInt(txResult.ledger, 10) : undefined,
+            feeCharged: txResult.feeCharged ? parseInt(txResult.feeCharged, 10) : undefined,
+            error: successful ? undefined : txResult.resultXdr ? 'Transaction failed' : undefined,
+          };
+        },
+        {
+          timeoutMs: 10000,
+          operationName: 'sorobanGetTransactionStatus',
+          retries: 1,
+        }
+      ),
+      { confirmed: false, successful: false, error: 'RPC call failed' },
+    );
+
+    if (!result.success) {
+      logger.warn('Failed to get transaction status from Soroban', {
+        txHash,
+        error: result.error?.message,
+        timedOut: result.timedOut,
+      });
+      return { confirmed: false, successful: false, error: result.error?.message ?? 'Unknown error' };
+    }
 
     return result.data!;
   }

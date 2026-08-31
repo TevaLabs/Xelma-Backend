@@ -1,4 +1,4 @@
-import { betStore, StoredRound } from "../data/bet-store";
+import { betStore } from "../data/bet-store";
 import { mockLeaderboard, MOCK_PLATFORM_STATS } from "../data/mockData";
 import {
   LeaderboardRepository,
@@ -8,27 +8,15 @@ import {
 } from "./interfaces";
 import { PlatformStats } from "../services/stats.service";
 
-import { toDecimal } from "../utils/decimal.util";
-
-function storedRoundToMockPredictionRound(r: StoredRound) {
-  if (r.mode === 'updown') {
-    return {
-      id: r.id, asset: r.asset, mode: 'updown' as const, status: r.status as 'live' | 'new',
-      startPrice: toDecimal(r.startPrice), poolUp: toDecimal(r.poolUp), poolDown: toDecimal(r.poolDown), closesAt: r.closesAt,
-    };
-  }
-  return {
-    id: r.id, asset: r.asset, mode: 'precision' as const, status: r.status as 'live' | 'new',
-    startPrice: toDecimal(r.startPrice), totalPool: toDecimal(r.totalPool), predictionCount: r.predictionCount, closesAt: r.closesAt,
-  };
-}
 
 export class InMemoryRoundRepository implements RoundRepository {
-  async listActiveRounds() {
-    return betStore.getRounds().map(storedRoundToMockPredictionRound);
-  }
-
-  async placeBet(roundId: string, _address: string, amount: number, side?: "UP" | "DOWN", predictedPrice?: number): Promise<void> {
+  async placeBet(
+    roundId: string,
+    _address: string,
+    amount: number,
+    side?: "UP" | "DOWN",
+    predictedPrice?: number,
+  ): Promise<void> {
     if (side) {
       betStore.addUpDownBet(roundId, _address, amount, side);
     } else if (predictedPrice !== undefined) {

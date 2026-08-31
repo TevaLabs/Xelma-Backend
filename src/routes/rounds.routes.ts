@@ -1,19 +1,34 @@
-import { Router, Request, Response, NextFunction } from 'express';
-import roundService from '../services/round.service';
-import resolutionService from '../services/resolution.service';
-import simulationService from '../services/simulation.service';
-import { requireAdmin, requireOracle, AuthenticatedRequest } from '../middleware/auth.middleware';
-import { asyncHandler } from '../middleware/errorHandler.middleware';
-import { toDecimal } from '../utils/decimal.util';
-import { serializeRound } from '../serializers/monetary.serializer';
-import { adminRoundRateLimiter, betRateLimiter, oracleResolveRateLimiter } from '../middleware/rateLimiter.middleware';
-import { validate } from '../middleware/validate.middleware';
-import { sendSuccess } from '../utils/response';
-import { startRoundSchema, resolveRoundSchema } from '../schemas/rounds.schema';
-import { betSchema, upDownBetSchema, precisionBetSchema } from '../schemas/bets.schema';
-import { NotFoundError } from '../utils/errors';
-import { getRepositories } from '../repositories';
-import config from '../config';
+import { Router, Request, Response, NextFunction } from "express";
+import roundService from "../services/round.service";
+import resolutionService from "../services/resolution.service";
+import simulationService from "../services/simulation.service";
+import {
+  requireAdmin,
+  requireOracle,
+  verifyStellarAuth,
+  bindAuthenticatedWallet,
+  AuthenticatedRequest,
+} from "../middleware/auth.middleware";
+import { asyncHandler } from "../middleware/errorHandler.middleware";
+import { toDecimal } from "../utils/decimal.util";
+import { serializeRound } from "../serializers/monetary.serializer";
+import {
+  adminRoundRateLimiter,
+  betRateLimiter,
+  oracleResolveRateLimiter,
+} from "../middleware/rateLimiter.middleware";
+import { validate } from "../middleware/validate.middleware";
+import { sendSuccess } from "../utils/response";
+import { startRoundSchema, resolveRoundSchema } from "../schemas/rounds.schema";
+import {
+  betSchema,
+  upDownBetSchema,
+  precisionBetSchema,
+} from "../schemas/bets.schema";
+import { NotFoundError } from "../utils/errors";
+import { getRepositories } from "../repositories";
+import config from "../config";
+import { executeBet, BetKind } from "./bet-execution";
 
 const router = Router();
 
@@ -29,10 +44,15 @@ const router = Router();
  *       200:
  *         description: Active rounds with source metadata
  */
-router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
+router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
   try {
+    // Source fallback order: Soroban on-chain → database → mock data.
+    // Controlled by roundService.getRoundsForApi(); see round.service.ts.
     const { source, rounds } = await roundService.getRoundsForApi();
-    sendSuccess(res, { source, rounds: rounds.map((round: Record<string, unknown>) => serializeRound(round)) });
+    sendSuccess(res, {
+      source,
+      rounds: rounds.map((round) => serializeRound(round)),
+    });
   } catch (err) {
     next(err);
   }
@@ -86,9 +106,14 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
  *       409:
  *         description: Conflict - active round exists
  */
-router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.post(
+  "/start",
+  requireAdmin,
+  adminRoundRateLimiter,
+  validate(startRoundSchema),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { mode, startPrice, duration, priceRanges } = req.body;
-    const gameMode = mode === 0 ? 'UP_DOWN' : 'LEGENDS';
+    const gameMode = mode === 0 ? "UP_DOWN" : "LEGENDS";
     const round = await roundService.startRound(
       gameMode,
       startPrice,
@@ -97,47 +122,25 @@ router.post('/start', requireAdmin, adminRoundRateLimiter, validate(startRoundSc
     );
 
     res.json({
-        success: true,
-        round: serializeRound({
-            id: round.id,
-            mode: round.mode,
-            status: round.status,
-            startTime: round.startTime,
-            endTime: round.endTime,
-            startPrice: round.startPrice,
-            sorobanRoundId: round.sorobanRoundId,
-            isSoroban: round.isSoroban,
-            priceRanges: round.priceRanges,
-        }),
+      success: true,
+      round: serializeRound({
+        id: round.id,
+        mode: round.mode,
+        status: round.status,
+        startTime: round.startTime,
+        endTime: round.endTime,
+        startPrice: round.startPrice,
+        sorobanRoundId: round.sorobanRoundId,
+        isSoroban: round.isSoroban,
+        priceRanges: round.priceRanges,
+      }),
     });
-}));
+  }),
+);
 
-/**
- * @swagger
- * /api/rounds/active:
- *   get:
- *     summary: Get active rounds
- *     description: Returns active rounds. Delegates to shared round service with fallback chain.
- *     tags: [rounds]
- *     responses:
- *       200:
- *         description: Active rounds
- */
-router.get('/active', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const { source, rounds } = await roundService.getRoundsForApi();
-
-        const serializedRounds = rounds.map((round: Record<string, unknown>) => serializeRound(round));
-
-        res.json({
-            success: true,
-            source,
-            rounds: serializedRounds,
-        });
-    } catch (error) {
-        next(error);
-    }
-});
+// NOTE: GET /active was removed — it duplicated GET / (both called
+// roundService.getRoundsForApi()). Callers should use GET / instead.
+// Kept here as a comment for discoverability; see issue #370.
 
 /**
  * @swagger
@@ -156,29 +159,81 @@ router.get('/active', async (req: Request, res: Response, next: NextFunction) =>
  *       404:
  *         description: Round not found
  */
-router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const { id } = req.params;
+router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
 
-        const round = await roundService.getRound(id);
+    const round = await roundService.getRound(id);
 
-        if (!round) {
-            return next(new NotFoundError('Round not found'));
-        }
-
-         res.json({
-            success: true,
-            round: serializeRound(round),
-        });
-    } catch (error) {
-        next(error);
+    if (!round) {
+      return next(new NotFoundError("Round not found"));
     }
+
+    res.json({
+      success: true,
+      round: serializeRound(round),
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
-// Stub bet endpoint — for logging/analytics only; on-chain bets go via Soroban
-router.post('/:id/bet', betRateLimiter, validate(betSchema), (_req: Request, res: Response) => {
-  res.json({ success: true, message: 'Bet recorded (stub)' });
-});
+/**
+ * @swagger
+ * /api/rounds/{id}/bet:
+ *   post:
+ *     summary: Place a bet on a specific round
+ *     description: >
+ *       Round-scoped bet placement. The body shape selects the bet kind: a
+ *       `side` places an UP/DOWN bet, a `predictedPrice` places a Precision
+ *       bet. Runs through the same BetService execution path as
+ *       `/api/bets/*`, so `BET_STUB_MODE` decides between recording a stub bet
+ *       and submitting to Soroban, and on-chain failures surface as structured
+ *       errors.
+ *     tags: [rounds]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: header
+ *         name: Idempotency-Key
+ *         schema: { type: string }
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Bet recorded (stub) or placed on-chain
+ *       400:
+ *         description: Validation error, or round mode does not match the bet kind
+ *       401:
+ *         description: Missing or invalid JWT
+ *       403:
+ *         description: Wallet address mismatch
+ *       404:
+ *         description: Round not found
+ *       409:
+ *         description: Idempotency key conflict
+ */
+router.post(
+  "/:id/bet",
+  verifyStellarAuth,
+  bindAuthenticatedWallet,
+  betRateLimiter,
+  validate(betSchema),
+  (async (req: Request, res: Response, next: NextFunction) => {
+    // betSchema is a union: `side` means UP/DOWN, `predictedPrice` means Precision.
+    const kind: BetKind =
+      req.body.predictedPrice !== undefined ? "precision" : "up-down";
+
+    await executeBet(req, res, next, {
+      kind,
+      endpoint: "/api/rounds/:id/bet",
+      roundId: req.params.id,
+    });
+  }) as any,
+);
 
 /**
  * @swagger
@@ -215,44 +270,87 @@ router.post('/:id/bet', betRateLimiter, validate(betSchema), (_req: Request, res
  *       404:
  *         description: Round not found
  */
-router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(resolveRoundSchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.post(
+  "/:id/resolve",
+  requireOracle,
+  oracleResolveRateLimiter,
+  validate(resolveRoundSchema),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const { finalPrice } = req.body;
 
-    const { outcome, round } = await resolutionService.resolveRound(id, toDecimal(finalPrice));
+    const { outcome, round } = await resolutionService.resolveRound(
+      id,
+      toDecimal(finalPrice),
+    );
 
     if (!round) {
-        return res.status(404).json({ success: false, error: "Round not found" });
+      return res.status(404).json({ success: false, error: "Round not found" });
     }
 
     res.json({
-        success: true,
-        outcome,
-        round: {
-            ...serializeRound({
-                id: round.id,
-                status: round.status,
-                startPrice: round.startPrice,
-                endPrice: round.endPrice,
-                resolvedAt: round.resolvedAt,
-            }),
-            predictions: round.predictions ? round.predictions.length : 0,
-            winners: round.predictions ? round.predictions.filter((p: any) => p.won === true).length : 0,
-        },
+      success: true,
+      outcome,
+      round: {
+        ...serializeRound({
+          id: round.id,
+          status: round.status,
+          startPrice: round.startPrice,
+          endPrice: round.endPrice,
+          resolvedAt: round.resolvedAt,
+        }),
+        predictions: round.predictions ? round.predictions.length : 0,
+        winners: round.predictions
+          ? round.predictions.filter((p: any) => p.won === true).length
+          : 0,
+      },
     });
-}));
+  }),
+);
+
+/**
+ * ENABLE_SIMULATION is the master switch for the QA simulate endpoint.
+ * When it is off the route is locked down (403) in EVERY environment —
+ * including development and test — so simulation can never run misconfigured.
+ * When it is on, only ADMIN callers may use it (see requireAdmin below).
+ */
+const requireSimulationEnabled = (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+): void => {
+  if (!config.app.enableSimulation) {
+    res.status(403).json({
+      success: false,
+      error:
+        "Simulation is disabled. Set ENABLE_SIMULATION=true to enable this QA endpoint.",
+    });
+    return;
+  }
+  next();
+};
 
 /**
  * @swagger
  * /api/rounds/{id}/simulate:
  *   post:
  *     summary: Simulate a round resolution (Non-Production QA Endpoint)
- *     description: Simulates payout distribution without placing real bets or mutating the round. Disabled in production unless ENABLE_SIMULATION=true.
+ *     description: >
+ *       Simulates payout distribution for a round WITHOUT placing real bets or
+ *       mutating the round. This is a QA/admin-only endpoint and must not be
+ *       enabled on production builds. It is gated by the ENABLE_SIMULATION
+ *       environment variable (default: false): when the flag is off the route
+ *       returns 403 in EVERY environment, including development and test. When
+ *       the flag is on, the caller must present an ADMIN bearer token
+ *       (`Authorization: Bearer <JWT>`).
  *     tags: [rounds]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
+ *         description: Round ID to simulate
  *         schema: { type: string }
  *     requestBody:
  *       required: true
@@ -261,73 +359,152 @@ router.post('/:id/resolve', requireOracle, oracleResolveRateLimiter, validate(re
  *           schema:
  *             type: object
  *             properties:
- *               finalPrice: { type: number }
+ *               finalPrice:
+ *                 type: number
+ *                 description: Hypothetical final price used to compute winners
  *             required: [finalPrice]
  *     responses:
  *       200:
  *         description: Simulation results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 roundId: { type: string }
+ *                 simulatedPrice: { type: number }
+ *                 mode: { type: string, enum: [UP_DOWN, LEGENDS] }
+ *                 startPrice: { type: number }
+ *                 winningSide: { type: string, nullable: true, enum: [UP, DOWN] }
+ *                 winningRange:
+ *                   type: object
+ *                   nullable: true
+ *                   properties:
+ *                     min: { type: number }
+ *                     max: { type: number }
+ *                 predictions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       won: { type: boolean, nullable: true }
+ *                       payout: { type: number }
+ *                       amount: { type: number }
+ *                       side: { type: string, nullable: true, enum: [UP, DOWN] }
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     totalPredictions: { type: integer }
+ *                     winners: { type: integer }
+ *                     losers: { type: integer }
+ *                     refunded: { type: integer }
+ *                     totalPayout: { type: number }
  *       400:
- *         description: Validation error
+ *         description: Validation error - finalPrice missing
+ *       401:
+ *         description: Unauthorized - missing or invalid bearer token
  *       403:
- *         description: Disabled in production
+ *         description: Forbidden - simulation disabled (ENABLE_SIMULATION=false) or caller is not an admin
  *       404:
  *         description: Round not found
  */
-router.post('/:id/simulate', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        if (config.app.nodeEnv === 'production' && !config.app.enableSimulation) {
-            return res.status(403).json({ success: false, error: 'Simulation disabled in production unless ENABLE_SIMULATION=true' });
-        }
+router.post(
+  "/:id/simulate",
+  requireSimulationEnabled,
+  requireAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { id } = req.params;
+    const { finalPrice } = req.body;
 
-        const { id } = req.params;
-        const { finalPrice } = req.body;
-
-        if (finalPrice === undefined || finalPrice === null) {
-            return res.status(400).json({ success: false, error: 'finalPrice is required' });
-        }
-
-        const result = await simulationService.simulateRound(id, finalPrice);
-        if (!result) {
-            return res.status(404).json({ success: false, error: 'Round not found' });
-        }
-
-        res.json({
-            success: true,
-            roundId: result.roundId,
-            simulatedPrice: result.simulatedPrice,
-            mode: result.mode,
-            startPrice: result.startPrice,
-            winningSide: result.winningSide,
-            winningRange: result.winningRange,
-            predictions: result.predictions,
-            summary: result.summary,
-        });
-    } catch (error) {
-        next(error);
+    if (finalPrice === undefined || finalPrice === null) {
+      return res
+        .status(400)
+        .json({ success: false, error: "finalPrice is required" });
     }
-});
 
-// Hackathon mutation endpoints - with Zod validation
-router.post('/hackathon/up-down/:id/bet', betRateLimiter, validate(upDownBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
-  try {
+    const result = await simulationService.simulateRound(id, finalPrice);
+    if (!result) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Round not found" });
+    }
+
+    res.json({
+      success: true,
+      roundId: result.roundId,
+      simulatedPrice: result.simulatedPrice,
+      mode: result.mode,
+      startPrice: result.startPrice,
+      winningSide: result.winningSide,
+      winningRange: result.winningRange,
+      predictions: result.predictions,
+      summary: result.summary,
+    });
+  }),
+);
+
+/**
+ * Hackathon mutation endpoints.
+ *
+ * These are round-scoped aliases of `/api/bets/{up-down,precision}` and run
+ * through the same BetService execution path, so pools, audit events and
+ * on-chain placement stay consistent no matter which URL a demo client uses.
+ * The hackathon round repository is still updated first so the in-memory
+ * hackathon views keep reflecting the bet.
+ */
+router.post(
+  "/hackathon/up-down/:id/bet",
+  verifyStellarAuth,
+  bindAuthenticatedWallet,
+  betRateLimiter,
+  validate(upDownBetSchema),
+  (async (req: Request, res: Response, next: NextFunction) => {
     const { id } = req.params;
     const { address, amount, side } = req.body;
-    await getRepositories().rounds.placeBet(id, address, amount, side);
-    sendSuccess(res, { message: 'Bet recorded (stub)' });
-  } catch (err) {
-    next(err);
-  }
-}) as any);
 
-router.post('/hackathon/precision/:id/bet', betRateLimiter, validate(precisionBetSchema), (async (req: Request, res: Response, next: NextFunction) => {
-  try {
+    try {
+      await getRepositories().rounds.placeBet(id, address, amount, side);
+    } catch (err) {
+      return next(err);
+    }
+
+    await executeBet(req, res, next, {
+      kind: "up-down",
+      endpoint: "/api/rounds/hackathon/up-down/:id/bet",
+      roundId: id,
+    });
+  }) as any,
+);
+
+router.post(
+  "/hackathon/precision/:id/bet",
+  verifyStellarAuth,
+  bindAuthenticatedWallet,
+  betRateLimiter,
+  validate(precisionBetSchema),
+  (async (req: Request, res: Response, next: NextFunction) => {
     const { id } = req.params;
     const { address, amount, predictedPrice } = req.body;
-    await getRepositories().rounds.placeBet(id, address, amount, undefined, predictedPrice);
-    sendSuccess(res, { message: 'Precision bet recorded (stub)' });
-  } catch (err) {
-    next(err);
-  }
-}) as any);
+
+    try {
+      await getRepositories().rounds.placeBet(
+        id,
+        address,
+        amount,
+        undefined,
+        predictedPrice,
+      );
+    } catch (err) {
+      return next(err);
+    }
+
+    await executeBet(req, res, next, {
+      kind: "precision",
+      endpoint: "/api/rounds/hackathon/precision/:id/bet",
+      roundId: id,
+    });
+  }) as any,
+);
 
 export default router;
