@@ -47,8 +47,8 @@ or from in-memory mock data. This is the highest-level mode switch.
 | Endpoint | `DATA_MODE=live` (default) | `DATA_MODE=mock` |
 |---|---|---|
 | `GET /api/prices` | CoinGecko (30 s cache), falls back to stale cache, then static defaults | Static in-memory array (`mockData.prices`) |
-| `GET /api/rounds` | Drizzle / Postgres (`hackathon_rounds` table) | **Same** — Drizzle is always used for rounds |
-| `GET /api/leaderboard` | Drizzle / Postgres leaderboard table | In-memory seed (`mockLeaderboard`) when `DATA_STORE=memory` |
+| `GET /api/rounds` | Prisma / Postgres (`hackathon_rounds` table) | **Same** — Prisma is always used for rounds |
+| `GET /api/leaderboard` | Prisma / Postgres leaderboard table | In-memory seed (`mockLeaderboard`) when `DATA_STORE=memory` |
 | `GET /api/stats` | Prisma / Postgres aggregation | `MOCK_PLATFORM_STATS` constants (zero-value defaults) |
 | `GET /api/health` | Live Soroban RPC readiness check | Soroban `isReady()` flag only (no RPC call) |
 
@@ -241,3 +241,22 @@ for your current workflow.
 - **`.env.hackathon.example`** — Minimal template for hackathon/demo mode (mock data, no DB).
 
 Both files are in the repository root and include these flags with inline comments.
+
+---
+
+## Docker Deployment Profiles & Soroban Bindings
+
+The multi-stage `Dockerfile` packages both full production (with live Soroban contracts and database migrations) and lightweight hackathon/API-only deployment profiles.
+
+### Vendored Bindings & Dependency Resolution
+- The dependency `@tevalabs/xelma-bindings` is declared via `"file:vendor/xelma-bindings"`.
+- The `Dockerfile` explicitly copies `./vendor` in both `deps` and `runner` stages to guarantee offline/container build resolution.
+- `docker/entrypoint.sh` executes `scripts/install-bindings.js --check` when `DATA_MODE=live` or `BET_STUB_MODE=false` before booting the API server.
+
+### Container Profiles
+| Profile | Environment Configuration | Entrypoint Behavior |
+|---|---|---|
+| **Full Production (Live)** | `DATA_MODE=live`, `BET_STUB_MODE=false`, `API_MODE=full` | Verifies Soroban bindings, applies Prisma migrations, and boots full app `dist/index.js`. |
+| **Demo / Hackathon** | `DATA_MODE=mock`, `API_MODE=hackathon`, `RUN_MIGRATIONS=false` | Boots lightweight mock demo server `dist/server.js` without requiring external database or Soroban keys. |
+| **API Only** | `API_ONLY=true`, `BET_STUB_MODE=true` | Boots standard API server without running background schedulers or oracle loops. |
+

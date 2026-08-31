@@ -363,4 +363,43 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
       expect(res.status).toBe(401);
     });
   });
+
+  describe("POST /api/auth/refresh", () => {
+    it("should successfully refresh token with valid Authorization header", async () => {
+      const res = await request(app)
+        .post("/api/auth/refresh")
+        .set("Authorization", `Bearer ${validToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.user).toBeDefined();
+      expect(res.body.user.id).toBe(testUser.id);
+    });
+
+    it("should successfully refresh token when provided in request body", async () => {
+      const res = await request(app)
+        .post("/api/auth/refresh")
+        .send({ token: validToken });
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.user.id).toBe(testUser.id);
+    });
+
+    it("should return 401 when no token is provided", async () => {
+      const res = await request(app).post("/api/auth/refresh").send({});
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it("should return 401 when invalid token is provided", async () => {
+      const res = await request(app)
+        .post("/api/auth/refresh")
+        .set("Authorization", "Bearer invalid.token.value");
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBeDefined();
+    });
+  });
 });

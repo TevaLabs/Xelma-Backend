@@ -26,13 +26,33 @@ jest.mock('../services/soroban.service', () => ({
   default: { getActiveRound: jest.fn().mockResolvedValue(null), isReady: jest.fn().mockReturnValue(false) },
 }));
 
+// GET /api/rounds delegates to round.service.getRoundsForApi; mock it so the
+// route returns 200 without a database.
+jest.mock('../services/round.service', () => ({
+  __esModule: true,
+  default: { getRoundsForApi: jest.fn().mockResolvedValue({ source: 'mock', rounds: [] }) },
+}));
+
 // Both apps are now built by the same factory, so importing either one loads
 // every router — including src/routes/rounds.ts, which needs betRateLimiter.
 // An omitted export here surfaces as "Route.post() requires a callback
 // function but got a [object Undefined]" at import time.
-jest.mock('../middleware/rateLimiter', () => {
+jest.mock('../middleware/rateLimiter.middleware', () => {
   const pass = (_req: any, _res: any, next: any) => next();
-  return { apiRateLimiter: pass, writeRateLimiter: pass, betRateLimiter: pass };
+  return {
+    apiRateLimiter: pass,
+    writeRateLimiter: pass,
+    betRateLimiter: pass,
+    adminRoundRateLimiter: pass,
+    oracleResolveRateLimiter: pass,
+    challengeRateLimiter: pass,
+    connectRateLimiter: pass,
+    authRateLimiter: pass,
+    chatMessageRateLimiter: pass,
+    predictionRateLimiter: pass,
+    batchPredictionRateLimiter: pass,
+    batchLeaderboardRateLimiter: pass,
+  };
 });
 
 jest.mock('../lib/prisma', () => ({ prisma: {} }));
@@ -108,68 +128,45 @@ describe('HTTP request log shape is identical across apps', () => {
 
   describe('production app (src/index.ts)', () => {
     it('logs every expected field on GET /api/health', async () => {
-      // The production module has side effects on import; isolate to avoid
-      // polluting the test runner's global state.
-      jest.isolateModules(async () => {
-        process.env.NODE_ENV = 'test';
-        process.env.DATA_MODE = 'mock';
-        process.env.JWT_SECRET = 'test-jwt-secret-for-production';
-        process.env.DATABASE_URL = 'postgresql://u:p@localhost:5432/db';
+      const { createApp: createFullApp } = await import('../index');
+      const app = createFullApp();
+      await request(app).get('/api/health');
 
-        jest.clearAllMocks();
+      const log = getLastHttpLog();
+      expect(log).toBeDefined();
 
-        const { createApp } = await import('../index');
+      for (const field of EXPECTED_FIELDS) {
+        expect(log).toHaveProperty(field);
+      }
 
-        const app = createApp();
-        await request(app).get('/api/health');
-
-        const log = getLastHttpLog();
-        expect(log).toBeDefined();
-
-        for (const field of EXPECTED_FIELDS) {
-          expect(log).toHaveProperty(field);
-        }
-
-        expect(log!.method).toBe('GET');
-        expect(typeof log!.status).toBe('number');
-        expect(typeof log!.durationMs).toBe('number');
-        expect(typeof log!.requestId).toBe('string');
-      });
+      expect(log!.method).toBe('GET');
+      expect(typeof log!.status).toBe('number');
+      expect(typeof log!.durationMs).toBe('number');
+      expect(typeof log!.requestId).toBe('string');
     });
   });
 
   describe('log field consistency', () => {
     it('both apps produce the same set of log fields', async () => {
-      jest.isolateModules(async () => {
-        process.env.NODE_ENV = 'test';
-        process.env.DATA_MODE = 'mock';
-        process.env.JWT_SECRET = 'test-jwt-secret-for-production';
-        process.env.DATABASE_URL = 'postgresql://u:p@localhost:5432/db';
+      const { createApp: createFullApp } = await import('../index');
+      const fullApp = createFullApp();
+      await request(fullApp).get('/api/health');
+      const fullLog = getLastHttpLog();
+      const fullKeys = fullLog ? Object.keys(fullLog).filter(k => k !== 'cachedAt') : [];
 
-        jest.clearAllMocks();
+      const { createApp: createHackathonApp } = await import('../app');
+      const hackApp = createHackathonApp();
+      await request(hackApp).get('/api/health');
+      const hackLog = getLastHttpLog();
+      const hackKeys = hackLog ? Object.keys(hackLog).filter(k => k !== 'cachedAt') : [];
 
-        const { createApp: createFullApp } = await import('../index');
-        const fullApp = createFullApp();
-        await request(fullApp).get('/api/health');
-        const fullLog = getLastHttpLog();
-        const fullKeys = fullLog ? Object.keys(fullLog).filter(k => k !== 'cachedAt') : [];
+      for (const key of EXPECTED_FIELDS) {
+        expect(fullKeys).toContain(key);
+        expect(hackKeys).toContain(key);
+      }
 
-        jest.clearAllMocks();
-
-        const { createApp: createHackathonApp } = await import('../app');
-        const hackApp = createHackathonApp();
-        await request(hackApp).get('/api/health');
-        const hackLog = getLastHttpLog();
-        const hackKeys = hackLog ? Object.keys(hackLog).filter(k => k !== 'cachedAt') : [];
-
-        for (const key of EXPECTED_FIELDS) {
-          expect(fullKeys).toContain(key);
-          expect(hackKeys).toContain(key);
-        }
-
-        // Verify the two log shapes have the same fields
-        expect(fullKeys.sort()).toEqual(hackKeys.sort());
-      });
+      // Verify the two log shapes have the same fields
+      expect(fullKeys.sort()).toEqual(hackKeys.sort());
     });
   });
 });

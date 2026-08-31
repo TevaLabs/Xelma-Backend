@@ -55,6 +55,13 @@ function parseInt32(raw: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function parseDryRun(req: Request): boolean {
+  const fromQuery = req.query.dryRun;
+  if (fromQuery === 'true' || fromQuery === '1') return true;
+  const fromBody = req.body?.dryRun;
+  return fromBody === true || fromBody === 'true';
+}
+
 /**
  * @openapi
  * /api/admin/dead-letter:
@@ -97,9 +104,12 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
 router.post('/retry-all', requireAdmin, async (req: Request, res: Response) => {
   try {
     const limit = parseInt32(req.body?.limit ?? req.query?.limit, 50);
+    const dryRun = parseDryRun(req);
     const result = await deadLetterQueueService.retryAll(
       buildRetryHandlers(),
       limit,
+      undefined,
+      { dryRun },
     );
     res.json(result);
   } catch (err) {
@@ -120,9 +130,12 @@ router.post('/retry-all', requireAdmin, async (req: Request, res: Response) => {
  */
 router.post('/:id/retry', requireAdmin, async (req: Request, res: Response) => {
   try {
+    const dryRun = parseDryRun(req);
     const result = await deadLetterQueueService.retry(
       req.params.id,
       buildRetryHandlers(),
+      undefined,
+      { dryRun },
     );
     if (!result) {
       res.status(404).json({ error: 'Dead-letter entry not found' });

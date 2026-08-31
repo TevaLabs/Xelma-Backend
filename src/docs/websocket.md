@@ -67,10 +67,15 @@ interface AuthErrorPayload {
 ```
 
 **Client flow:**
-1. Listen for `auth:error` events
-2. On `code === "AUTH_TOKEN_EXPIRED"`: call the HTTP token-refresh endpoint
-3. Reconnect with the new token in `socket.handshake.auth.token`
-4. Re-join rooms (e.g. `join:round`, `join:chat`) after reconnect
+1. Listen for `auth:error` events.
+2. On `code === "AUTH_TOKEN_EXPIRED"`: call the HTTP token refresh endpoint `POST /api/auth/refresh`:
+   ```bash
+   curl -X POST "$API_BASE_URL/api/auth/refresh" \
+     -H "Authorization: Bearer YOUR_EXPIRED_JWT"
+   ```
+   Or send the token in the request body `{ "token": "YOUR_EXPIRED_JWT" }`.
+3. Reconnect with the new token returned in `response.data.token` set as `socket.handshake.auth.token`.
+4. Re-join rooms (e.g. `join:round`, `join:chat`) after reconnect without requiring a full wallet re-authentication challenge.
 
 ### 4. Reconnect Continuity
 

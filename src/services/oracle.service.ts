@@ -2,7 +2,11 @@ import cron, { ScheduledTask } from "node-cron";
 import priceOracle from "./oracle";
 import resolutionService from "./resolution.service";
 import logger from "../utils/logger";
-import { withDistributedLock } from "../utils/distributed-lock";
+import {
+  isLockLostError,
+  withDistributedLock,
+  type LockHandle,
+} from "../utils/distributed-lock";
 import { prisma } from "../lib/prisma";
 import { RoundLifecycleOutcome } from "../types/round.types";
 import { oracleResolveBlockedTotal } from "../metrics/application.metrics";
@@ -54,15 +58,24 @@ class OracleService {
     return this._running;
   }
 
+  /**
+   * Resolve every eligible round as the single leader across all instances.
+   *
+   * This is the longest-running critical job: it loops N rounds, each with up
+   * to MAX_RESOLVE_RETRIES attempts and 5 s/10 s backoff sleeps, so a busy tick
+   * can far outlast any fixed TTL. The heartbeat keeps the 60 s lock alive for
+   * the whole run; `maxHoldSeconds` still caps a hung run so a stuck instance
+   * cannot hold leadership indefinitely.
+   */
   async resolveEligibleRounds(): Promise<void> {
     await withDistributedLock(
       "oracle-resolve-rounds",
-      () => this.resolveEligibleRoundsInternal(),
-      { ttlSeconds: 60 },
+      (lock) => this.resolveEligibleRoundsInternal(lock),
+      { ttlSeconds: 60, maxHoldSeconds: 600 },
     );
   }
 
-  private async resolveEligibleRoundsInternal(): Promise<void> {
+  private async resolveEligibleRoundsInternal(lock: LockHandle): Promise<void> {
     try {
       const currentPrice = priceOracle.getPrice();
 
@@ -105,18 +118,39 @@ class OracleService {
       );
 
       for (const round of eligibleRounds) {
-        await this.resolveWithRetry(round.id, currentPrice.toString());
+        // Fail closed between rounds: the batch may have outlived our
+        // leadership, and the new leader is resolving these same rounds.
+        lock.assertHeld();
+        await this.resolveWithRetry(round.id, currentPrice.toString(), lock);
       }
     } catch (error) {
+      if (isLockLostError(error)) {
+        oracleResolveBlockedTotal.inc({ reason: "lock_lost" });
+        logger.warn(
+          "[OracleService] Aborted resolve loop: distributed lock lost",
+          { reason: error.reason },
+        );
+        return;
+      }
       logger.error("[OracleService] Error in resolve loop:", error);
     }
   }
 
+  /**
+   * Resolve one round with bounded retries.
+   *
+   * Leadership is re-checked before every attempt, including after each
+   * backoff sleep — those sleeps are where a lock is most likely to be lost.
+   * A {@link LockLostError} propagates to the caller and ends the whole batch.
+   */
   private async resolveWithRetry(
     roundId: string,
     price: string,
+    lock: LockHandle,
   ): Promise<void> {
     for (let attempt = 1; attempt <= MAX_RESOLVE_RETRIES; attempt++) {
+      lock.assertHeld();
+
       try {
         const result = await resolutionService.resolveRound(roundId, price);
 
@@ -150,6 +184,10 @@ class OracleService {
 
         return;
       } catch (error) {
+        if (isLockLostError(error)) {
+          throw error;
+        }
+
         logger.error(
           `[OracleService] Failed to resolve round ${roundId} (attempt ${attempt}/${MAX_RESOLVE_RETRIES}):`,
           error,

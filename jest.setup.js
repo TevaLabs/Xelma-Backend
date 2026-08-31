@@ -8,8 +8,8 @@ dotenv.config({ path: path.resolve(__dirname, '.env.test'), override: false });
 dotenv.config({ override: false });
 
 // Ensure JWT_SECRET is set so validateEnv() in src/index.ts does not process.exit(1) when tests import createApp.
-if (!process.env.JWT_SECRET) {
-  process.env.JWT_SECRET = 'test-jwt-secret';
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) {
+  process.env.JWT_SECRET = 'test-jwt-secret-with-sufficient-length';
 }
 
 const DUMMY_DB_URL = 'postgresql://test_user:test_pass@localhost:5432/test_db?schema=public';
@@ -42,9 +42,10 @@ if (!process.env.SOROBAN_ORACLE_SECRET) {
 
 // Global helper to check if a real DB is available
 global.hasDb = Boolean(
-  process.env.DATABASE_URL && 
+  process.env.DATABASE_URL &&
   process.env.DATABASE_URL !== DUMMY_DB_URL &&
-  !process.env.DATABASE_URL.includes('test_pass@localhost')
+  !process.env.DATABASE_URL.includes('test_pass@localhost') &&
+  !process.env.DATABASE_URL.includes('test_user:test_pass@localhost')
 );
 
 /**

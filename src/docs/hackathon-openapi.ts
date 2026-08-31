@@ -103,13 +103,20 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
           description:
             'Multi-asset ticker payload inside the success envelope from GET /api/prices. The hackathon app does not expose GET /api/price (that path is production-only XLM oracle).',
           properties: {
-            BTC: { type: 'number', example: 67420.12 },
-            ETH: { type: 'number', example: 3241.55 },
-            XLM: { type: 'number', example: 0.2891 },
-            stale: { type: 'boolean', example: false },
-            lastUpdatedAt: { type: 'string', format: 'date-time', nullable: true },
+            success: { type: 'boolean', example: true },
+            data: {
+              type: 'object',
+              properties: {
+                BTC: { type: 'number', example: 67420.12 },
+                ETH: { type: 'number', example: 3241.55 },
+                XLM: { type: 'number', example: 0.2891 },
+                stale: { type: 'boolean', example: false },
+                lastUpdatedAt: { type: 'string', format: 'date-time', nullable: true },
+              },
+              required: ['BTC', 'ETH', 'XLM', 'stale', 'lastUpdatedAt'],
+            },
           },
-          required: ['BTC', 'ETH', 'XLM', 'stale', 'lastUpdatedAt'],
+          required: ['success', 'data'],
         },
         HealthResponse: {
           type: 'object',
@@ -228,7 +235,7 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
     path.join(process.cwd(), 'src/routes/health.ts'),
     path.join(process.cwd(), 'src/routes/index.ts'),
     path.join(process.cwd(), 'src/routes/stats.ts'),
-    path.join(process.cwd(), 'src/routes/rounds.ts'),
+    path.join(process.cwd(), 'src/routes/rounds.routes.ts'),
     path.join(process.cwd(), 'src/routes/leaderboard.ts'),
     path.join(process.cwd(), 'src/routes/tournaments.routes.ts'),
     path.join(process.cwd(), 'src/routes/user.ts'),

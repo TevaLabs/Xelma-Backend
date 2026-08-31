@@ -68,6 +68,10 @@ enum DispatchStatus {
 enum OutboxEventType {
   NOTIFICATION_CREATE
   WEBSOCKET_EMIT
+  BET_ACCEPTED
+  BET_CONFIRMED
+  BET_RESOLVED
+  BET_FAILED
 }
 
 /// Outbox event status lifecycle:
@@ -119,6 +123,7 @@ model User {
   transactions        Transaction[]
   multiplayerSessions MultiplayerSession[]
   tournamentParticipants TournamentParticipant[]
+  bets                Bet[]
 }
 
 model Tournament {
@@ -203,6 +208,7 @@ model Round {
   updatedAt DateTime @updatedAt
 
   predictions Prediction[]
+  bets        Bet[]
   User        User?        @relation(fields: [userId], references: [id])
   userId      String?
 
@@ -230,6 +236,46 @@ model Prediction {
   @@unique([roundId, userId])
   @@index([userId])
   @@index([roundId])
+}
+
+enum BetStatus {
+  ACCEPTED
+  SUBMITTED
+  CONFIRMED
+  RESOLVED
+  FAILED
+}
+
+enum BetMode {
+  UP_DOWN
+  PRECISION
+}
+
+model Bet {
+  id              String     @id @default(uuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundId         String?
+  round           Round?     @relation(fields: [roundId], references: [id], onDelete: SetNull)
+  mode            BetMode
+  side            PredictionSide?
+  amount          Decimal    @db.Decimal(20, 8)
+  predictedPrice  Decimal?   @db.Decimal(18, 8)
+  status          BetStatus  @default(ACCEPTED)
+  txHash          String?    @unique
+  failureReason   String?
+  submittedAt     DateTime?
+  confirmedAt     DateTime?
+  resolvedAt      DateTime?
+  failedAt        DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([userId])
+  @@index([roundId])
+  @@index([status])
+  @@index([txHash])
+  @@index([createdAt])
 }
 
 model Notification {
@@ -470,34 +516,40 @@ model MockRound {
   asset           String
   mode            String
   status          String
-  startPrice      Float
-  poolUp          Float?
-  poolDown        Float?
-  totalPool       Float?
-  predictionCount Int?
-  closesAt        String
+  startPrice      Float  @map("start_price")
+  poolUp          Float? @map("pool_up")
+  poolDown        Float? @map("pool_down")
+  totalPool       Float? @map("total_pool")
+  predictionCount Int?   @map("prediction_count")
+  closesAt        String @map("closes_at")
+
+  @@map("hackathon_rounds")
 }
 
 model MockLeaderboard {
-  address     String @id
-  rank        Int
-  totalWins   Int
-  totalLosses Int
-  winStreak   Int
-  xp          Int
-  rankTitle   String
+  address         String @id
+  rank            Int
+  totalWins       Int    @map("total_wins")
+  totalLosses     Int    @map("total_losses")
+  winStreak       Int    @map("current_streak")
+  xp              Int
+  rankTitle       String @map("rank_title")
   balance         Int    @default(1000)
-  pendingWinnings Int    @default(0)
+  pendingWinnings Int    @map("pending_winnings") @default(0)
+
+  @@map("hackathon_users")
 }
 
 model MockBet {
-  id             Int      @id @default(autoincrement())
-  roundId        String
+  id             Int       @id @default(autoincrement())
+  roundId        String    @map("round_id")
   address        String
   amount         Float
   side           String?
-  predictedPrice Float?
-  createdAt      DateTime @default(now())
+  predictedPrice Float?    @map("predicted_price")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("hackathon_bets")
 }
 
 model MockPlatformStat {

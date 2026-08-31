@@ -1,4 +1,4 @@
-import { decAdd, toNumber } from '../utils/decimal.util';
+import { decAdd, toDecimal, toNumber } from '../utils/decimal.util';
 
 export type BetStatus = 'STUB' | 'SUBMITTED' | 'CONFIRMED' | 'FAILED';
 
@@ -112,22 +112,26 @@ class BetStore {
   addUpDownBet(
     roundId: string,
     address: string,
-    amount: number,
+    amount: number | string,
     side: 'UP' | 'DOWN',
     status: BetStatus = 'STUB',
   ): StoredBet {
+    const numAmount = toNumber(toDecimal(amount));
     const round = this.rounds.get(roundId);
 
     if (round && round.mode === 'updown') {
-      if (side === 'UP') round.poolUp += amount;
-      else round.poolDown += amount;
-      round.totalPool = round.poolUp + round.poolDown;
+      if (side === 'UP') {
+        round.poolUp = toNumber(decAdd(round.poolUp, numAmount));
+      } else {
+        round.poolDown = toNumber(decAdd(round.poolDown, numAmount));
+      }
+      round.totalPool = toNumber(decAdd(round.poolUp, round.poolDown));
     }
 
     return this.recordBet({
       roundId: round && round.mode === 'updown' ? roundId : undefined,
       address,
-      amount,
+      amount: numAmount,
       side,
       mode: 'updown',
       status,
@@ -138,21 +142,22 @@ class BetStore {
   addPrecisionBet(
     roundId: string,
     address: string,
-    amount: number,
+    amount: number | string,
     predictedPrice: number,
     status: BetStatus = 'STUB',
   ): StoredBet {
+    const numAmount = toNumber(toDecimal(amount));
     const round = this.rounds.get(roundId);
 
     if (round && round.mode === 'precision') {
-      round.totalPool += amount;
+      round.totalPool = toNumber(decAdd(round.totalPool, numAmount));
       round.predictionCount++;
     }
 
     return this.recordBet({
       roundId: round && round.mode === 'precision' ? roundId : undefined,
       address,
-      amount,
+      amount: numAmount,
       predictedPrice,
       mode: 'precision',
       status,

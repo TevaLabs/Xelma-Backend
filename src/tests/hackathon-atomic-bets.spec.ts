@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
-import { prisma } from '../lib/prisma';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
 import hackathonService from '../services/hackathon.service';
+import { prisma } from '../lib/prisma';
 
 jest.mock('../services/stellar.service', () => ({
   isValidStellarAddress: () => true,
@@ -16,6 +16,11 @@ jest.mock('../services/soroban.service', () => ({
 const TEST_ADDRESS = 'GAAAAATOMIC_BET_TEST_ADDR_000000000000000001';
 
 describe('Hackathon Atomic Bets', () => {
+  beforeAll(async () => {
+    await prisma.mockBet.deleteMany({ where: { address: TEST_ADDRESS } });
+    await prisma.mockLeaderboard.deleteMany({ where: { address: TEST_ADDRESS } });
+  });
+
   beforeEach(async () => {
     await prisma.mockBet.deleteMany({ where: { address: TEST_ADDRESS } });
     await prisma.mockLeaderboard.deleteMany({ where: { address: TEST_ADDRESS } });
@@ -55,7 +60,7 @@ describe('Hackathon Atomic Bets', () => {
       expect(freshBet!.amount).toBe(200);
       expect(freshBet!.side).toBe('UP');
       expect(userAfter!.balance).toBe(userBefore!.balance - 200);
-      expect(roundAfter!.poolUp).toBe((roundBefore!.poolUp ?? 0) + 200);
+      expect(roundAfter!.poolUp).toBe(roundBefore!.poolUp! + 200);
     });
 
     it('atomically inserts bet and updates totalPool for Precision mode', async () => {
@@ -73,8 +78,8 @@ describe('Hackathon Atomic Bets', () => {
       expect(freshBet!.amount).toBe(150);
       expect(freshBet!.predictedPrice).toBe(3250);
       expect(userAfter!.balance).toBe(userBefore!.balance - 150);
-      expect(roundAfter!.totalPool).toBe((roundBefore!.totalPool ?? 0) + 150);
-      expect(roundAfter!.predictionCount).toBe((roundBefore!.predictionCount ?? 0) + 1);
+      expect(roundAfter!.totalPool).toBe(roundBefore!.totalPool! + 150);
+      expect(roundAfter!.predictionCount).toBe(roundBefore!.predictionCount! + 1);
     });
   });
 
@@ -96,6 +101,29 @@ describe('Hackathon Atomic Bets', () => {
       expect(bets.length).toBe(0);
       expect(userAfter!.balance).toBe(userBefore!.balance);
       expect(roundsAfter).toEqual(roundsBefore);
+    });
+
+    it('rolls back all changes when transaction throws', async () => {
+      const userBefore = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
+      const roundsBefore = await prisma.mockRound.findMany();
+
+      const txSpy = jest.spyOn(prisma, '$transaction').mockRejectedValue(new Error('Simulated transaction failure'));
+
+      await expect(
+        hackathonService.placeBet('btc-updown-live', TEST_ADDRESS, 100, 'UP')
+      ).rejects.toThrow('Simulated transaction failure');
+
+      const userAfter = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
+      const roundsAfter = await prisma.mockRound.findMany();
+      const bets = await prisma.mockBet.findMany({
+        where: { address: TEST_ADDRESS, roundId: 'btc-updown-live' },
+      });
+
+      expect(bets.length).toBe(0);
+      expect(userAfter!.balance).toBe(userBefore!.balance);
+      expect(roundsAfter).toEqual(roundsBefore);
+
+      txSpy.mockRestore();
     });
   });
 
@@ -122,8 +150,8 @@ describe('Hackathon Atomic Bets', () => {
 
       const totalBetAmount = roundBets.reduce((sum, b) => sum + b.amount, 0);
       expect(userAfter!.balance).toBe(userBefore!.balance - totalBetAmount);
-      expect(roundAfter!.poolUp).toBe((roundBefore!.poolUp ?? 0) + 100 + 50);
-      expect(roundAfter!.poolDown).toBe((roundBefore!.poolDown ?? 0) + 200);
+      expect(roundAfter!.poolUp).toBe(roundBefore!.poolUp! + 100 + 50);
+      expect(roundAfter!.poolDown).toBe(roundBefore!.poolDown! + 200);
     });
   });
 });

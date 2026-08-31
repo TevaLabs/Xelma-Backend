@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import request from 'supertest';
 import { UserRole } from '@prisma/client';
 import { generateToken } from '../utils/jwt.util';
+import { prisma } from '../lib/prisma';
 
 // Mock Stellar and Soroban services to prevent loading @stellar/stellar-sdk (which contains ESM files that Jest fails to parse)
 jest.mock('../services/stellar.service', () => ({
@@ -13,6 +14,7 @@ jest.mock('../services/soroban.service', () => ({
   isReady: jest.fn().mockReturnValue(true),
   getUserStats: jest.fn(),
   getPendingWinnings: jest.fn(),
+  getBalance: jest.fn(),
   getHealth: jest.fn(),
 }));
 
@@ -24,10 +26,16 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
   const hackerWallet = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
   const hackerToken = generateToken('hackathon-http-user', hackerWallet, UserRole.USER);
 
-  afterAll(async () => {
-    const { pool } = require('../db/db');
-    await pool.end();
+  beforeAll(async () => {
+    await prisma.user.create({
+      data: { id: 'hackathon-http-user', walletAddress: hackerWallet },
+    });
   });
+
+  afterAll(async () => {
+    await prisma.user.deleteMany({ where: { walletAddress: hackerWallet } });
+  });
+
   describe('GET /api/health', () => {
     it('returns ok status and timestamp when soroban is initialized', async () => {
       const res = await request(app).get('/api/health');
@@ -126,9 +134,12 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual(
         expect.objectContaining({
-          BTC: expect.any(Number),
-          ETH: expect.any(Number),
-          XLM: expect.any(Number),
+          success: true,
+          data: expect.objectContaining({
+            BTC: expect.any(Number),
+            ETH: expect.any(Number),
+            XLM: expect.any(Number),
+          }),
         })
       );
     });
@@ -138,9 +149,10 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
     it('returns rankings schema', async () => {
       const res = await request(app).get('/api/leaderboard');
       expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-      if (res.body.length > 0) {
-        expect(res.body[0]).toEqual(
+      const leaderboard = res.body.data?.leaderboard;
+      expect(Array.isArray(leaderboard)).toBe(true);
+      if (leaderboard.length > 0) {
+        expect(leaderboard[0]).toEqual(
           expect.objectContaining({
             rank: expect.any(Number),
             address: expect.any(String),
@@ -160,7 +172,9 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
       const res = await request(app).get('/api/rounds');
       expect(res.status).toBe(200);
       // Depending on config, it either returns an array directly or an object { source, rounds }
-      const rounds = Array.isArray(res.body) ? res.body : res.body.rounds;
+      const rounds = Array.isArray(res.body)
+        ? res.body
+        : res.body.data?.rounds ?? res.body.rounds;
       expect(Array.isArray(rounds)).toBe(true);
       if (rounds.length > 0) {
         expect(rounds[0]).toEqual(
@@ -271,7 +285,7 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
       expect(res.status).toBe(400);
       expect(res.body).toEqual(
         expect.objectContaining({
-          error: 'Invalid Stellar wallet address format',
+          message: 'Invalid Stellar wallet address format',
         })
       );
     });

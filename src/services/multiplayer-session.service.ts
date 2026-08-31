@@ -17,6 +17,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
+import { withRoomLock } from '../utils/room-lock';
 
 /** Maximum number of rooms we will persist in `rooms` per session. */
 export const MAX_PERSISTED_ROOMS = 32;
@@ -143,43 +144,121 @@ class MultiplayerSessionService {
     }
   }
 
-  /** Add a room to the persisted set (no-op if already present). */
+  /**
+   * Add a room to the persisted set (no-op if already present).
+   *
+   * Protected by a per-user Redis distributed lock so concurrent
+   * addRoom / removeRoom calls across instances are serialized and
+   * cannot produce lost updates (Issue #555).
+   */
   async addRoom(userId: string, room: string): Promise<void> {
     if (!userId || !room) return;
-    try {
-      const session = await prisma.multiplayerSession.findUnique({
-        where: { userId },
-      });
-      if (!session) return;
-      const next = clampRooms([...asStringArray(session.rooms), room]);
-      await prisma.multiplayerSession.update({
-        where: { userId },
-        data: { rooms: next, lastSeenAt: new Date() },
-      });
-    } catch (error) {
-      logger.warn(
-        `[multiplayer-session] addRoom(${room}) failed for user ${userId}: ${(error as Error).message}`,
-      );
-    }
+    await withRoomLock(userId, async () => {
+      try {
+        const session = await prisma.multiplayerSession.findUnique({
+          where: { userId },
+        });
+        if (!session) return;
+        const currentRooms = asStringArray(session.rooms);
+        if (currentRooms.includes(room)) return;
+        const next = clampRooms([...currentRooms, room]);
+        await prisma.multiplayerSession.update({
+          where: { userId },
+          data: { rooms: next, lastSeenAt: new Date() },
+        });
+      } catch (error) {
+        logger.warn(
+          `[multiplayer-session] addRoom(${room}) failed for user ${userId}: ${(error as Error).message}`,
+        );
+      }
+    });
   }
 
-  /** Remove a room from the persisted set (no-op if absent). */
+  /**
+   * Remove a room from the persisted set (no-op if absent).
+   *
+   * Protected by a per-user Redis distributed lock (Issue #555).
+   */
   async removeRoom(userId: string, room: string): Promise<void> {
     if (!userId || !room) return;
+    await withRoomLock(userId, async () => {
+      try {
+        const session = await prisma.multiplayerSession.findUnique({
+          where: { userId },
+        });
+        if (!session) return;
+        const next = asStringArray(session.rooms).filter(r => r !== room);
+        await prisma.multiplayerSession.update({
+          where: { userId },
+          data: { rooms: next, lastSeenAt: new Date() },
+        });
+      } catch (error) {
+        logger.warn(
+          `[multiplayer-session] removeRoom(${room}) failed for user ${userId}: ${(error as Error).message}`,
+        );
+      }
+    });
+  }
+
+  /**
+   * Reconcile DB room membership against the actual adapter rooms.
+   *
+   * When an instance crashes between a DB write and an adapter room
+   * propagation (or vice versa), the two sources of truth can diverge.
+   * This method detects and corrects the drift:
+   *
+   *   - Rooms in the DB but NOT in the adapter are stale (removed).
+   *   - Rooms in the adapter but NOT in the DB are persisted.
+   *
+   * @param userId        The user whose rooms to reconcile.
+   * @param adapterRooms  The rooms the user is actually in per the adapter.
+   * @returns             The reconciled room list (written to DB).
+   */
+  async reconcileRooms(
+    userId: string,
+    adapterRooms: string[],
+  ): Promise<string[]> {
+    if (!userId) return [];
     try {
       const session = await prisma.multiplayerSession.findUnique({
         where: { userId },
       });
-      if (!session) return;
-      const next = asStringArray(session.rooms).filter(r => r !== room);
+      if (!session) return adapterRooms;
+
+      const dbRooms = asStringArray(session.rooms);
+      const adapterSet = new Set(adapterRooms);
+
+      // Rooms in DB but not in adapter → stale entries from a crashed instance
+      const staleRooms = dbRooms.filter(r => !adapterSet.has(r));
+      // Rooms in adapter but not in DB → need to be persisted
+      const missingRooms = adapterRooms.filter(r => !dbRooms.includes(r));
+
+      if (staleRooms.length === 0 && missingRooms.length === 0) {
+        // Already consistent — nothing to do.
+        return dbRooms;
+      }
+
+      // Merge: keep only rooms that exist in the adapter, plus any new ones
+      const reconciled = clampRooms(
+        [...dbRooms.filter(r => adapterSet.has(r)), ...adapterRooms],
+      );
+
       await prisma.multiplayerSession.update({
         where: { userId },
-        data: { rooms: next, lastSeenAt: new Date() },
+        data: { rooms: reconciled, lastSeenAt: new Date() },
       });
+
+      logger.info(
+        `[multiplayer-session] reconciled rooms for user ${userId}: ` +
+          `removed ${staleRooms.length} stale, added ${missingRooms.length} missing`,
+      );
+
+      return reconciled;
     } catch (error) {
       logger.warn(
-        `[multiplayer-session] removeRoom(${room}) failed for user ${userId}: ${(error as Error).message}`,
+        `[multiplayer-session] reconcileRooms failed for user ${userId}: ${(error as Error).message}`,
       );
+      return adapterRooms;
     }
   }
 
@@ -264,5 +343,8 @@ class MultiplayerSessionService {
     }
   }
 }
+
+// Exported for testing purposes.
+export { asStringArray };
 
 export default new MultiplayerSessionService();

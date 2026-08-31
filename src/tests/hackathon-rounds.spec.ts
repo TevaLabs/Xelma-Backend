@@ -177,16 +177,16 @@ describe('GET /api/rounds — delegating to shared round service', () => {
     expect(['soroban', 'database', 'mock']).toContain(res.body.data.source);
   });
 
-  it('mirrors source and rounds at the top level of the envelope', async () => {
+  it('places source and rounds inside the data envelope', async () => {
     mockGetRoundsForApi.mockResolvedValueOnce(MOCK_ROUND_RESPONSE);
 
     const res = await request(app).get('/api/rounds');
 
-    expect(res.body).toHaveProperty('source');
-    expect(res.body).toHaveProperty('rounds');
-    expect(res.body.source).toBe(res.body.data.source);
-    expect(res.body.rounds).toEqual(res.body.data.rounds);
-    expect(['soroban', 'database', 'mock']).toContain(res.body.source);
+    expect(res.body.data).toHaveProperty('source');
+    expect(res.body.data).toHaveProperty('rounds');
+    expect(Array.isArray(res.body.data.rounds)).toBe(true);
+    expect(res.body.data.rounds[0].id).toBe(MOCK_ROUND_RESPONSE.rounds[0].id);
+    expect(['soroban', 'database', 'mock']).toContain(res.body.data.source);
   });
 
   it('propagates service errors to the error handler', async () => {

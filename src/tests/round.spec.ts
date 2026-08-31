@@ -5,11 +5,14 @@ import app from '../index';
 import { UserRole } from '@prisma/client';
 import { generateToken } from '../utils/jwt.util';
 
-const hasDb = Boolean(process.env.DATABASE_URL);
-const isCI = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
-const runRoundE2E = process.env.RUN_ROUND_E2E === 'true';
+const shouldRunDbTests =
+  process.env.RUN_DB_TESTS === 'true' ||
+  process.env.CI === 'true' ||
+  (global as any).hasDb;
 
-describe('Round Management', () => {
+const describeRound = shouldRunDbTests ? describe : describe.skip;
+
+describeRound('Round Management', () => {
   let adminUser: any;
   let userA: any;
   let userB: any;
@@ -23,6 +26,14 @@ describe('Round Management', () => {
   });
 
   beforeAll(async () => {
+    if (!shouldRunDbTests) return;
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (error) {
+      throw new Error(
+        'Database unavailable for round integration tests. Run npm run test:db:setup',
+      );
+    }
     // Setup test users
     adminUser = await prisma.user.upsert({
       where: { walletAddress: 'G_ROUND_ADMIN_TEST' },
@@ -60,7 +71,7 @@ describe('Round Management', () => {
   });
 
   afterAll(async () => {
-    if (hasDb) {
+    if (shouldRunDbTests) {
       await prisma.prediction.deleteMany({
         where: {
           user: {

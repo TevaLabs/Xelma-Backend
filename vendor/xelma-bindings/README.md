@@ -13,28 +13,32 @@ soroban contract bindings ts \
 ```
 
 The network passphrase and contract ID are exported from [index.ts](./src/index.ts) in the `networks` constant. If you are the one who generated this library and you know that this contract is also deployed to other networks, feel free to update `networks` with other valid options. This will help your contract consumers use this library more easily.
+
 ## Regenerating from Latest Contract ABI
 
 This library is automatically generated from the latest Stellar contract ABI. To regenerate the bindings after updating the contract:
 
 1. Build the latest WASM contract:
-  ```bash
-  cd ../contracts
-  cargo build --target wasm32-unknown-unknown --release
-  ```
+
+```bash
+cd ../contracts
+cargo build --target wasm32-unknown-unknown --release
+```
 
 2. Generate new TypeScript bindings from the WASM:
-  ```bash
-  cd ../
-  stellar contract bindings typescript --wasm target/wasm32-unknown-unknown/release/hello_world.wasm --output-dir bindings/src --overwrite
-  ```
+
+```bash
+cd ../
+stellar contract bindings typescript --wasm target/wasm32-unknown-unknown/release/hello_world.wasm --output-dir bindings/src --overwrite
+```
 
 3. Build and verify the TypeScript:
-  ```bash
-  cd bindings
-  npm install
-  npm run build
-  ```
+
+```bash
+cd bindings
+npm install
+npm run build
+```
 
 ## API Features
 
@@ -83,3 +87,23 @@ contract.|
 ```
 
 As long as your editor is configured to show JavaScript/TypeScript documentation, you can pause your typing at that `|` to get a list of all exports and inline-documentation for each. It exports a separate [async](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function) function for each method in the smart contract, with documentation for each generated from the comments the contract's author included in the original source code.
+
+## Backend vendor pin upgrades
+
+The backend records the expected upstream revision **and the contract surface it
+depends on** in `bindings.pin.json` at the repo root (not in this directory, so
+deleting `vendor/xelma-bindings` cannot lose it). `.commit-sha` in this folder
+records the revision the checked-in `dist/` was actually built from.
+
+```bash
+npm run check:bindings                       # revision + build artifacts (fast, no install)
+npm run build && npm run check:bindings:abi  # + TypeScript surface + contract ABI
+```
+
+To upgrade deliberately: review the intended commit, update `commitSha` in
+`bindings.pin.json`, then run `node scripts/install-bindings.js --refresh`. The
+installer fetches that exact commit, builds ESM and CommonJS output, and writes
+`.commit-sha`. Do not edit `.commit-sha` by hand.
+
+CI runs both checks and fails on skew, and production boots refuse to start on a
+mismatch. Full procedure: **`docs/bindings-upgrade.md`**.

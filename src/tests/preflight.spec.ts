@@ -8,12 +8,21 @@ import {
   assertPreflightOrExit,
   PreflightError,
   detectMode,
+  detectSafetyProfile,
 } from '../config/preflight';
 
 const FULL_ENV: NodeJS.ProcessEnv = {
   JWT_SECRET: 'super-secret-value-for-tests-only',
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/xelma',
   NODE_ENV: 'test',
+};
+
+const PRODUCTION_ENV: NodeJS.ProcessEnv = {
+  ...FULL_ENV,
+  SAFETY_PROFILE: 'production',
+  SOROBAN_FAIL_CLOSED: 'true',
+  SOROBAN_ADMIN_SECRET: 'SABCDEF...test',
+  SOROBAN_ORACLE_SECRET: 'SABCDEF...test',
 };
 
 const HACKATHON_ENV: NodeJS.ProcessEnv = {
@@ -135,6 +144,101 @@ describe('runPreflightChecks — edge cases', () => {
     expect(result.nodeVersion).toMatch(/^v\d+/);
     expect(result.environment).toBe('test');
     expect(result.mode).toBe('full');
+  });
+});
+
+describe('detectSafetyProfile', () => {
+  it('detects production when SAFETY_PROFILE=production', () => {
+    expect(detectSafetyProfile({ SAFETY_PROFILE: 'production' })).toBe('production');
+  });
+
+  it('detects demo when SAFETY_PROFILE is unset', () => {
+    expect(detectSafetyProfile({})).toBe('demo');
+  });
+
+  it('detects demo when SAFETY_PROFILE=demo', () => {
+    expect(detectSafetyProfile({ SAFETY_PROFILE: 'demo' })).toBe('demo');
+  });
+});
+
+describe('runPreflightChecks — production safety profile', () => {
+  it('passes with a fully-valid production env', () => {
+    const result = runPreflightChecks(PRODUCTION_ENV);
+    expect(result.ok).toBe(true);
+    expect(result.safetyProfile).toBe('production');
+  });
+
+  it('rejects BET_STUB_MODE=true under production profile', () => {
+    const env = { ...PRODUCTION_ENV, BET_STUB_MODE: 'true' };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.includes('BET_STUB_MODE'))).toBe(true);
+    expect(result.errors.some(e => e.includes('forbidden'))).toBe(true);
+  });
+
+  it('allows BET_STUB_MODE=true under demo profile', () => {
+    const env = { ...FULL_ENV, BET_STUB_MODE: 'true' };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects SOROBAN_FAIL_CLOSED=false under production profile', () => {
+    const env = { ...PRODUCTION_ENV, SOROBAN_FAIL_CLOSED: 'false' };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.includes('SOROBAN_FAIL_CLOSED'))).toBe(true);
+  });
+
+  it('rejects SOROBAN_FAIL_CLOSED=unset under production profile', () => {
+    const env = { ...PRODUCTION_ENV, SOROBAN_FAIL_CLOSED: undefined };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.includes('SOROBAN_FAIL_CLOSED'))).toBe(true);
+  });
+
+  it('allows SOROBAN_FAIL_CLOSED=false under demo profile', () => {
+    const env = { ...FULL_ENV, SOROBAN_FAIL_CLOSED: 'false' };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects missing SOROBAN_ADMIN_SECRET under production profile', () => {
+    const env = { ...PRODUCTION_ENV, SOROBAN_ADMIN_SECRET: undefined };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.includes('SOROBAN_ADMIN_SECRET'))).toBe(true);
+  });
+
+  it('rejects missing SOROBAN_ORACLE_SECRET under production profile', () => {
+    const env = { ...PRODUCTION_ENV, SOROBAN_ORACLE_SECRET: undefined };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.includes('SOROBAN_ORACLE_SECRET'))).toBe(true);
+  });
+
+  it('allows missing Soroban secrets under demo profile', () => {
+    const env = {
+      ...FULL_ENV,
+      SOROBAN_ADMIN_SECRET: undefined,
+      SOROBAN_ORACLE_SECRET: undefined,
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(true);
+  });
+
+  it('reports ALL production failures at once', () => {
+    const env = {
+      ...FULL_ENV,
+      SAFETY_PROFILE: 'production',
+      BET_STUB_MODE: 'true',
+      SOROBAN_FAIL_CLOSED: 'false',
+      SOROBAN_ADMIN_SECRET: undefined,
+      SOROBAN_ORACLE_SECRET: undefined,
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    // Should have errors for BET_STUB_MODE, SOROBAN_FAIL_CLOSED, SOROBAN_ADMIN_SECRET, SOROBAN_ORACLE_SECRET
+    expect(result.errors.length).toBeGreaterThanOrEqual(4);
   });
 });
 
