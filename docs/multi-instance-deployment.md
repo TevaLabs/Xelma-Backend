@@ -249,6 +249,31 @@ so only the worker service boots the schedulers. The locks still apply and cost
 nothing extra; keep `REDIS_URL` set on every service either way, since the
 outbox poller and bet-idempotency locks need it regardless.
 
+### Socket.IO Redis adapter (Issue #494)
+
+Real-time fanout across replicas requires the same `REDIS_URL`.
+
+- **Module:** `src/utils/socket-adapter.ts` — `initializeSocketAdapter(io)` creates two Redis clients (`pub`/`sub`) and calls `io.adapter(createAdapter(pub, sub, { key: 'xelma:socket.io' }))`.
+- **Fallback:** If `REDIS_URL` is unset or Redis is unreachable, Socket.IO keeps the in-memory adapter. Broadcasts then reach only clients on the same instance (safe for single-instance/dev, **not safe** for multi-instance notifications/price ticks).
+- **Required config:**
+
+  | Variable | Default | Purpose |
+  |---|---|---|
+  | `REDIS_URL` | unset | **Required for multi-instance WebSocket.** Same Redis as locks. |
+  | Socket adapter `keyPrefix` | `xelma:socket.io` | Redis key namespace for adapter pub/sub. Override via `SocketAdapterConfig.keyPrefix` if you run multiple environments on one Redis. |
+  | `connectTimeout` | 2000 ms | Redis client connect timeout. |
+
+- **Verify multi-node emit:**
+
+  ```bash
+  REDIS_URL=redis://localhost:6379 npm run dev # on two terminals on different ports
+  # Join both clients to the same room (e.g. round:abc) and emit via websocketService; both should receive the event
+  ```
+
+- **ACL hardening:** `src/socket.ts:isAuthorizedPrivateRoomJoin` ensures `user:<id>` rooms are only joinable by the owning `userId`. Unauthorized `join:notifications` with a foreign `user:<otherId>` is rejected with an `error` event and logged as a warning. Auto-join on connect still runs (`socket.join(user:<own>)`) so `websocketService.emitNotification(userId, …)` reaches the correct tenant even across adapters.
+
+- **Monitoring:** `GET /metrics` exposes `websocket_connection_events_total` and `socket:io` metrics. After scale-up, `isUsingRedisAdapter(io)` should be `true` on every replica; otherwise broadcasts are instance-local.
+
 ---
 
 ## Testing

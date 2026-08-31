@@ -205,7 +205,8 @@ router.post(
         lockAcquired = !!lockResult.lockAcquired;
       }
 
-      const result = await betService.claimWinnings(req.body.address, idempotencyKey);
+      const requestId = (req as any).requestId as string | undefined;
+      const result = await betService.claimWinnings(req.body.address, idempotencyKey, requestId);
       const responseBody = {
         success: true,
         message:
@@ -215,6 +216,7 @@ router.post(
         state: result.state,
         amount: result.amount,
         ...(result.txHash ? { txHash: result.txHash } : {}),
+        ...(requestId ? { requestId } : {}),
       };
 
       if (idempotencyKey && lockAcquired) {
