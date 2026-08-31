@@ -3,18 +3,26 @@ import request from 'supertest';
 import { Express } from 'express';
 import { createApp } from '../app';
 
-const mockLogInfo = jest.fn();
-const mockLogWarn = jest.fn();
+jest.mock('../utils/logger', () => {
+  const info = jest.fn();
+  const warn = jest.fn();
+  const mod = {
+    __esModule: true,
+    default: {
+      info: (...args: any[]) => info(...args),
+      warn: (...args: any[]) => warn(...args),
+      error: jest.fn(),
+      debug: jest.fn(),
+    },
+    __mockLogInfo: info,
+    __mockLogWarn: warn,
+  };
+  return mod;
+});
 
-jest.mock('../utils/logger', () => ({
-  __esModule: true,
-  default: {
-    info: (...args: any[]) => mockLogInfo(...args),
-    warn: (...args: any[]) => mockLogWarn(...args),
-    error: jest.fn(),
-    debug: jest.fn(),
-  },
-}));
+const loggerMock = jest.requireMock('../utils/logger');
+const mockLogInfo = loggerMock.__mockLogInfo as jest.Mock;
+const mockLogWarn = loggerMock.__mockLogWarn as jest.Mock;
 
 jest.mock('../services/soroban.service', () => ({
   __esModule: true,

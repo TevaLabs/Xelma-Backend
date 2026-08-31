@@ -125,6 +125,9 @@ jest.mock("@tevalabs/xelma-bindings", () => ({
 // Imports (soroban.service will use the fixture-based xelma-bindings mock)
 // ---------------------------------------------------------------------------
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
+process.env.SOROBAN_CONTRACT_ID = process.env.SOROBAN_CONTRACT_ID || "CFixtureContractId";
+process.env.SOROBAN_ADMIN_SECRET = "";
+process.env.SOROBAN_ORACLE_SECRET = "";
 import sorobanService from "../services/soroban.service";
 import {
   createActiveUpDownRound,

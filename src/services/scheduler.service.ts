@@ -4,11 +4,16 @@ import notificationService from './notification.service';
 import retentionService from './retention.service';
 import priceOracle from './oracle';
 import logger from '../utils/logger';
-import { withDistributedLock } from '../utils/distributed-lock';
+import {
+   isLockLostError,
+   withDistributedLock,
+   type LockHandle,
+} from '../utils/distributed-lock';
 import { prisma } from '../lib/prisma';
 import { RoundLifecycleOutcome } from '../types/round.types';
 import websocketService from './websocket.service';
 import outboxService, { OutboxDispatchHandlers, getOutboxPollIntervalSeconds } from './outbox.service';
+import reconciliationService from './reconciliation.service';
 import {
    schedulerItemsProcessedTotal,
    schedulerRunsTotal,
@@ -79,6 +84,19 @@ class SchedulerService {
          })
       );
 
+      // Bet reconciliation — runs every minute to check stranded SUBMITTED bets.
+      // Only runs when Soroban is configured (has admin/oracle keys).
+      if (process.env.SOROBAN_ADMIN_SECRET && process.env.SOROBAN_ORACLE_SECRET) {
+         logger.info('Starting bet reconciliation scheduler (interval: 60s)');
+         this.cronTasks.push(
+            cron.schedule('* * * * *', async () => {
+               await this.reconcileBets();
+            })
+         );
+      } else {
+         logger.info('Bet reconciliation scheduler disabled (Soroban keys not configured)');
+      }
+
       if (process.env.AUTO_RESOLVE_ENABLED !== 'true') {
          logger.info('Auto-resolution scheduler is disabled');
          return;
@@ -120,11 +138,12 @@ class SchedulerService {
     * Protected by distributed lock to prevent duplicate resolution across instances
     */
    async autoResolveRounds(): Promise<void> {
-      // Use distributed lock to ensure only one instance runs this at a time
+      // Single-leader: the heartbeat holds the 30 s lock for the whole batch,
+      // however many rounds it contains; maxHoldSeconds caps a stuck run.
       await withDistributedLock(
          'auto-resolve-rounds',
-         () => this.autoResolveRoundsInternal(),
-         { ttlSeconds: 30 }
+         lock => this.autoResolveRoundsInternal(lock),
+         { ttlSeconds: 30, maxHoldSeconds: 600 }
       );
    }
 
@@ -132,7 +151,7 @@ class SchedulerService {
     * Internal implementation of auto-resolve
     * Wrapped by autoResolveRounds with distributed lock
     */
-   private async autoResolveRoundsInternal(): Promise<void> {
+   private async autoResolveRoundsInternal(lock: LockHandle): Promise<void> {
       try {
          const now = new Date();
 
@@ -188,6 +207,10 @@ class SchedulerService {
 
          // Resolve each round
          for (const round of expiredRounds) {
+            // Fail closed between rounds — a lost lock means another instance
+            // may already be resolving the rest of this batch.
+            lock.assertHeld();
+
             try {
                const result = await resolutionService.resolveRound(
                   round.id,
@@ -223,6 +246,10 @@ class SchedulerService {
                   });
                }
             } catch (error) {
+               if (isLockLostError(error)) {
+                  throw error;
+               }
+
                logger.error(`Failed to auto-resolve round ${round.id}:`, error);
                schedulerItemsProcessedTotal.inc({
                   job: 'auto_resolve_rounds',
@@ -235,6 +262,18 @@ class SchedulerService {
             outcome: 'success',
          });
       } catch (error) {
+         if (isLockLostError(error)) {
+            logger.warn(
+               'Aborted auto-resolution batch: distributed lock lost',
+               { reason: error.reason }
+            );
+            schedulerRunsTotal.inc({
+               job: 'auto_resolve_rounds',
+               outcome: 'aborted',
+            });
+            return;
+         }
+
          logger.error('Error in auto-resolution scheduler:', error);
          schedulerRunsTotal.inc({
             job: 'auto_resolve_rounds',
@@ -251,8 +290,8 @@ class SchedulerService {
    async cleanupOldNotifications(): Promise<void> {
       await withDistributedLock(
          'cleanup-old-notifications',
-         () => this.cleanupOldNotificationsInternal(),
-         { ttlSeconds: 60 }
+         lock => this.cleanupOldNotificationsInternal(lock),
+         { ttlSeconds: 60, maxHoldSeconds: 900 }
       );
    }
 
@@ -260,12 +299,16 @@ class SchedulerService {
     * Internal implementation of notification cleanup
     * Wrapped by cleanupOldNotifications with distributed lock
     */
-   private async cleanupOldNotificationsInternal(): Promise<void> {
+   private async cleanupOldNotificationsInternal(
+      lock: LockHandle
+   ): Promise<void> {
       const retentionDays = SchedulerService.getRetentionDays();
       logger.info(
          `Notification cleanup started (retention: ${retentionDays} days)`
       );
       try {
+         lock.assertHeld();
+
          const deletedCount =
             await notificationService.cleanupOldNotifications(retentionDays);
          logger.info(
@@ -280,6 +323,17 @@ class SchedulerService {
             outcome: 'success',
          });
       } catch (error) {
+         if (isLockLostError(error)) {
+            logger.warn('Aborted notification cleanup: distributed lock lost', {
+               reason: error.reason,
+            });
+            schedulerRunsTotal.inc({
+               job: 'notification_cleanup',
+               outcome: 'aborted',
+            });
+            return;
+         }
+
          logger.error('Error in notification cleanup scheduler:', error);
          schedulerRunsTotal.inc({
             job: 'notification_cleanup',
@@ -294,10 +348,13 @@ class SchedulerService {
     * @visibleForTesting
     */
    async runRetentionPolicies(): Promise<void> {
+      // TTL trimmed from 120 s to 60 s: with the heartbeat, the TTL only sets
+      // how long a crashed leader blocks the next nightly run, and a long
+      // multi-table sweep no longer needs to fit inside it.
       await withDistributedLock(
          'run-retention-policies',
-         () => this.runRetentionPoliciesInternal(),
-         { ttlSeconds: 120 }
+         lock => this.runRetentionPoliciesInternal(lock),
+         { ttlSeconds: 60, maxHoldSeconds: 1800 }
       );
    }
 
@@ -305,9 +362,10 @@ class SchedulerService {
     * Internal implementation of retention policies
     * Wrapped by runRetentionPolicies with distributed lock
     */
-   private async runRetentionPoliciesInternal(): Promise<void> {
+   private async runRetentionPoliciesInternal(lock: LockHandle): Promise<void> {
       try {
          logger.info('Starting scheduled retention policy execution');
+         lock.assertHeld();
          const results = await retentionService.runAllPolicies();
 
          // Log summary
@@ -327,6 +385,17 @@ class SchedulerService {
             outcome: 'success',
          });
       } catch (error) {
+         if (isLockLostError(error)) {
+            logger.warn('Aborted retention policies: distributed lock lost', {
+               reason: error.reason,
+            });
+            schedulerRunsTotal.inc({
+               job: 'retention_policies',
+               outcome: 'aborted',
+            });
+            return;
+         }
+
          logger.error('Error in retention policy scheduler:', error);
          schedulerRunsTotal.inc({
             job: 'retention_policies',
@@ -335,23 +404,58 @@ class SchedulerService {
       }
    }
 
-   /**
-    * Build the dispatch handlers used by the outbox poller.
-    * Kept here (not in outbox.service) to avoid a circular import:
-    * outbox.service → notification.service → (no cycle)
-    * outbox.service → websocket.service → (no cycle)
-    * scheduler.service already imports both, so wiring happens here.
-    */
-   private buildOutboxHandlers(): OutboxDispatchHandlers {
-      return {
-         notificationCreate: async (payload) => {
-            return notificationService.createNotificationForRetry(payload);
-         },
-         websocketEmit: ({ eventName, room, data }) => {
-            websocketService.replayEmit(eventName, { room, data });
-         },
-      };
-   }
+/**
+     * Build the dispatch handlers used by the outbox poller.
+     * Kept here (not in outbox.service) to avoid a circular import:
+     * outbox.service → notification.service → (no cycle)
+     * outbox.service → websocket.service → (no cycle)
+     * scheduler.service already imports both, so wiring happens here.
+     */
+    private buildOutboxHandlers(): OutboxDispatchHandlers {
+       return {
+          notificationCreate: async (payload) => {
+             return notificationService.createNotificationForRetry(payload);
+          },
+          websocketEmit: ({ eventName, room, data }) => {
+             websocketService.replayEmit(eventName, { room, data });
+          },
+betAccepted: async (payload) => {
+             websocketService.emitBetAccepted({
+               roundId: payload.roundId ?? undefined,
+               address: '', // Will be filled from user lookup if needed
+               amount: payload.amount.toString(),
+               side: payload.side,
+               mode: payload.mode,
+               state: payload.state,
+               txHash: payload.txHash,
+             });
+           },
+          betConfirmed: async (payload) => {
+             websocketService.replayEmit('bet:confirmed', {
+               room: 'round',
+               data: { betId: payload.betId, txHash: payload.txHash, mode: payload.mode },
+             });
+             if (payload.roundId) {
+               websocketService.replayEmit('bet:confirmed', {
+                 room: `round:${payload.roundId}`,
+                 data: { betId: payload.betId, txHash: payload.txHash, mode: payload.mode },
+               });
+             }
+          },
+          betResolved: async (payload) => {
+             websocketService.replayEmit('bet:resolved', {
+               room: `user:${payload.userId}`,
+               data: { betId: payload.betId, roundId: payload.roundId, won: payload.won, payout: payload.payout },
+             });
+          },
+          betFailed: async (payload) => {
+             websocketService.replayEmit('bet:failed', {
+               room: `user:${payload.userId}`,
+               data: { betId: payload.betId, failureReason: payload.failureReason },
+             });
+          },
+       };
+    }
 
    /**
     * Poll the outbox for PENDING events and dispatch them.
@@ -361,18 +465,28 @@ class SchedulerService {
    async pollOutbox(): Promise<void> {
       await withDistributedLock(
          'outbox-poll',
-         () => this.pollOutboxInternal(),
-         { ttlSeconds: getOutboxPollIntervalSeconds() + 5 }
+         lock => this.pollOutboxInternal(lock),
+         {
+            ttlSeconds: getOutboxPollIntervalSeconds() + 5,
+            maxHoldSeconds: 300,
+         }
       );
    }
 
-   private async pollOutboxInternal(): Promise<void> {
+   private async pollOutboxInternal(lock: LockHandle): Promise<void> {
       try {
+         lock.assertHeld();
          const result = await outboxService.processOutbox(this.buildOutboxHandlers());
          if (result.processed > 0 || result.failed > 0) {
             logger.info('Outbox poll completed', result);
          }
       } catch (error) {
+         if (isLockLostError(error)) {
+            logger.warn('Aborted outbox poll: distributed lock lost', {
+               reason: error.reason,
+            });
+            return;
+         }
          logger.error('Error in outbox poller:', error);
       }
    }
@@ -384,21 +498,79 @@ class SchedulerService {
    async cleanupOutbox(): Promise<void> {
       await withDistributedLock(
          'outbox-cleanup',
-         () => this.cleanupOutboxInternal(),
-         { ttlSeconds: 60 }
+         lock => this.cleanupOutboxInternal(lock),
+         { ttlSeconds: 60, maxHoldSeconds: 900 }
       );
    }
 
-   private async cleanupOutboxInternal(): Promise<void> {
-      try {
-         const count = await outboxService.cleanupProcessed();
-         if (count > 0) {
-            logger.info(`Outbox cleanup: removed ${count} processed event(s)`);
-         }
-      } catch (error) {
-         logger.error('Error in outbox cleanup scheduler:', error);
-      }
-   }
+private async cleanupOutboxInternal(lock: LockHandle): Promise<void> {
+       try {
+          lock.assertHeld();
+          const count = await outboxService.cleanupProcessed();
+          if (count > 0) {
+             logger.info(`Outbox cleanup: removed ${count} processed event(s)`);
+          }
+       } catch (error) {
+          if (isLockLostError(error)) {
+             logger.warn('Aborted outbox cleanup: distributed lock lost', {
+                reason: error.reason,
+             });
+             return;
+          }
+          logger.error('Error in outbox cleanup scheduler:', error);
+       }
+    }
+
+    /**
+     * Reconcile stranded SUBMITTED bets by checking their on-chain status.
+     * Protected by a distributed lock so only one instance runs per interval.
+     * @visibleForTesting
+     */
+    async reconcileBets(): Promise<void> {
+       await withDistributedLock(
+          'reconcile-bets',
+          lock => this.reconcileBetsInternal(lock),
+          { ttlSeconds: 70, maxHoldSeconds: 600 }
+       );
+    }
+
+    private async reconcileBetsInternal(lock: LockHandle): Promise<void> {
+       try {
+          lock.assertHeld();
+          const result = await reconciliationService.reconcileSubmittedBets();
+          if (result.checked > 0) {
+             logger.info('Bet reconciliation completed', result);
+             // Increment once per checked bet
+             for (let i = 0; i < result.checked; i++) {
+                schedulerItemsProcessedTotal.inc({
+                   job: 'bet_reconciliation',
+                   outcome: 'success',
+                });
+             }
+          }
+          schedulerRunsTotal.inc({
+             job: 'bet_reconciliation',
+             outcome: result.errors > 0 ? 'failure' : 'success',
+          });
+       } catch (error) {
+          if (isLockLostError(error)) {
+             logger.warn('Aborted bet reconciliation: distributed lock lost', {
+                reason: error.reason,
+             });
+             schedulerRunsTotal.inc({
+                job: 'bet_reconciliation',
+                outcome: 'aborted',
+             });
+             return;
+          }
+
+          logger.error('Error in bet reconciliation scheduler:', error);
+          schedulerRunsTotal.inc({
+             job: 'bet_reconciliation',
+             outcome: 'failure',
+          });
+       }
+    }
 }
 
 export default new SchedulerService();

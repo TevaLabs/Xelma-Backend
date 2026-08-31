@@ -6,7 +6,7 @@ const router = Router();
 
 /**
  * @openapi
- * /errors:
+ * /api/errors:
  *   get:
  *     summary: Backend error code catalog (#196)
  *     description: |

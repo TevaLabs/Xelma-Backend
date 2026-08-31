@@ -14,11 +14,11 @@ export interface IdempotencyConfig {
 /**
  * Result of idempotency check
  */
-export interface IdempotencyCheckResult {
+export interface IdempotencyCheckResult<T = unknown> {
    isIdempotent: boolean;
    cachedResponse?: {
       status: number;
-      body: any;
+      body: T;
    };
    error?: string;
 }
@@ -34,14 +34,14 @@ export class IdempotencyStoreUnavailableError extends Error {
    }
 }
 
-interface InMemoryIdempotencyRecord {
+interface InMemoryIdempotencyRecord<T = unknown> {
    requestHash: string;
    responseStatus: number;
-   responseBody: any;
+   responseBody: T;
    expiresAt: Date;
 }
 
-const inMemoryIdempotencyStore = new Map<string, InMemoryIdempotencyRecord>();
+const inMemoryIdempotencyStore = new Map<string, InMemoryIdempotencyRecord<unknown>>();
 
 /** Test helper: drop all in-memory idempotency records (expired or not). */
 export function resetInMemoryIdempotencyStore(): void {
@@ -60,13 +60,13 @@ function getStoreKey(userId: string, endpoint: string, idempotencyKey: string): 
    return `${userId}:${endpoint}:${idempotencyKey}`;
 }
 
-function getMemoryRecord(
+function getMemoryRecord<T = unknown>(
    userId: string,
    endpoint: string,
    idempotencyKey: string,
-): InMemoryIdempotencyRecord | undefined {
+): InMemoryIdempotencyRecord<T> | undefined {
    const key = getStoreKey(userId, endpoint, idempotencyKey);
-   const record = inMemoryIdempotencyStore.get(key);
+   const record = inMemoryIdempotencyStore.get(key) as InMemoryIdempotencyRecord<T> | undefined;
    if (record && record.expiresAt < new Date()) {
       inMemoryIdempotencyStore.delete(key);
       return undefined;
@@ -74,7 +74,7 @@ function getMemoryRecord(
    return record;
 }
 
-function toCachedResponse(record: InMemoryIdempotencyRecord) {
+function toCachedResponse<T>(record: InMemoryIdempotencyRecord<T>) {
    return {
       status: record.responseStatus,
       body: record.responseBody,
@@ -89,7 +89,7 @@ const DEFAULT_CONFIG: IdempotencyConfig = {
    hashAlgorithm: 'sha256',
 };
 
-function stableStringify(value: any): string {
+function stableStringify(value: unknown): string {
    if (value === null || typeof value !== 'object') {
       return JSON.stringify(value) ?? 'undefined';
    }
@@ -98,9 +98,10 @@ function stableStringify(value: any): string {
       return `[${value.map(stableStringify).join(',')}]`;
    }
 
-   return `{${Object.keys(value)
+   const obj = value as Record<string, unknown>;
+   return `{${Object.keys(obj)
       .sort()
-      .map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .map(key => `${JSON.stringify(key)}:${stableStringify(obj[key])}`)
       .join(',')}}`;
 }
 
@@ -108,7 +109,7 @@ function stableStringify(value: any): string {
  * Generates a hash of the request body for mutation detection
  * Ensures that retries with different payloads are treated as new requests
  */
-function hashRequestBody(body: any): string {
+function hashRequestBody(body: unknown): string {
    const bodyStr = stableStringify(body);
    return createHash('sha256').update(bodyStr).digest('hex');
 }
@@ -136,17 +137,17 @@ function hashRequestBody(body: any): string {
  *   return res.status(result.cachedResponse.status).json(result.cachedResponse.body);
  * }
  */
-export async function checkIdempotency(
+export async function checkIdempotency<TReq = unknown, TRes = unknown>(
    userId: string,
    endpoint: string,
    idempotencyKey: string,
-   requestBody: any,
+   requestBody: TReq,
    config: IdempotencyConfig = {}
-): Promise<IdempotencyCheckResult> {
+): Promise<IdempotencyCheckResult<TRes>> {
    const requestHash = hashRequestBody(requestBody);
 
    if (usesInMemoryStore()) {
-      const existing = getMemoryRecord(userId, endpoint, idempotencyKey);
+      const existing = getMemoryRecord<TRes>(userId, endpoint, idempotencyKey);
       if (!existing) return { isIdempotent: false };
 
       if (existing.requestHash !== requestHash) {
@@ -222,7 +223,7 @@ export async function checkIdempotency(
          isIdempotent: true,
          cachedResponse: {
             status: existing.responseStatus,
-            body: existing.responseBody,
+            body: existing.responseBody as unknown as TRes,
          },
       };
    } catch (error) {
@@ -261,13 +262,13 @@ export async function checkIdempotency(
  *   { success: true, prediction: {...} }
  * );
  */
-export async function storeIdempotencyResult(
+export async function storeIdempotencyResult<TReq = unknown, TRes = unknown>(
    userId: string,
    endpoint: string,
    idempotencyKey: string,
-   requestBody: any,
+   requestBody: TReq,
    responseStatus: number,
-   responseBody: any,
+   responseBody: TRes,
    config: IdempotencyConfig = {}
 ): Promise<void> {
    const requestHash = hashRequestBody(requestBody);
@@ -307,13 +308,13 @@ export async function storeIdempotencyResult(
             idempotencyKey,
             requestHash,
             responseStatus,
-            responseBody,
+            responseBody: responseBody as any,
             expiresAt,
          },
          update: {
             requestHash,
             responseStatus,
-            responseBody,
+            responseBody: responseBody as any,
             expiresAt,
          },
       });
@@ -405,26 +406,26 @@ export function isValidIdempotencyKey(key: string): boolean {
  * Concurrency-safe idempotency lock acquisition.
  * Uses DB unique constraint as an atomic lock. If a request is in progress, polls until completion.
  */
-export async function acquireIdempotencyLock(
+export async function acquireIdempotencyLock<TReq = unknown, TRes = unknown>(
    userId: string,
    endpoint: string,
    idempotencyKey: string,
-   requestBody: any,
+   requestBody: TReq,
    ttlHours: number = 24
-): Promise<IdempotencyCheckResult & { lockAcquired?: boolean }> {
+): Promise<IdempotencyCheckResult<TRes> & { lockAcquired?: boolean }> {
    const requestHash = hashRequestBody(requestBody);
    const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
 
    if (usesInMemoryStore()) {
       const key = getStoreKey(userId, endpoint, idempotencyKey);
-      const existing = getMemoryRecord(userId, endpoint, idempotencyKey);
+      const existing = getMemoryRecord<TRes>(userId, endpoint, idempotencyKey);
 
       if (existing) {
          if (existing.responseStatus === 102) {
             let attempts = 0;
             while (attempts < 20) {
                await new Promise(resolve => setTimeout(resolve, 250));
-               const current = getMemoryRecord(userId, endpoint, idempotencyKey);
+               const current = getMemoryRecord<TRes>(userId, endpoint, idempotencyKey);
                if (current && current.responseStatus !== 102) {
                   if (current.requestHash !== requestHash) {
                      return {
@@ -513,7 +514,7 @@ export async function acquireIdempotencyLock(
                      isIdempotent: true,
                      cachedResponse: {
                         status: polled.responseStatus,
-                        body: polled.responseBody,
+                        body: polled.responseBody as TRes,
                      },
                   };
                }
@@ -535,7 +536,7 @@ export async function acquireIdempotencyLock(
                isIdempotent: true,
                cachedResponse: {
                   status: existing.responseStatus,
-                  body: existing.responseBody,
+                  body: existing.responseBody as TRes,
                },
             };
          }
@@ -555,8 +556,13 @@ export async function acquireIdempotencyLock(
             },
          });
          return { isIdempotent: false, lockAcquired: true };
-      } catch (error: any) {
-         if (error.code === 'P2002') {
+      } catch (error: unknown) {
+         if (
+            typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            (error as { code: string }).code === 'P2002'
+         ) {
             // Someone else created it between our findUnique and create!
             // Recurse/poll
             return acquireIdempotencyLock(userId, endpoint, idempotencyKey, requestBody, ttlHours);

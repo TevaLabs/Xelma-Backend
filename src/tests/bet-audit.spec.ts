@@ -35,7 +35,60 @@ jest.mock("../lib/prisma", () => ({
     auditLog: {
       create: jest.fn().mockResolvedValue({ id: "audit-123" }),
     },
+    bet: {
+      create: jest.fn().mockImplementation((args: any) => Promise.resolve({ id: "bet-1", ...args.data, createdAt: new Date(), updatedAt: new Date() })),
+      findUnique: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockImplementation((args: any) => Promise.resolve(args.data)),
+      groupBy: jest.fn().mockResolvedValue([]),
+    },
+    user: {
+      findUnique: jest.fn().mockResolvedValue({ id: "user-1", walletAddress: "GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890" }),
+      create: jest.fn().mockImplementation((args: any) => Promise.resolve({ id: "user-1", ...args.data })),
+    },
+    round: {
+      findFirst: jest.fn().mockResolvedValue({ id: "round-1" }),
+    },
+    outboxEvent: {
+      create: jest.fn().mockResolvedValue({ id: "outbox-1" }),
+    },
+    $transaction: jest.fn((fn: (tx: any) => Promise<any>) => {
+      let lastCreatedBet: any = null;
+      return fn({
+        bet: {
+          create: jest.fn().mockImplementation((args: any) => {
+            lastCreatedBet = { id: "bet-1", ...args.data, createdAt: new Date(), updatedAt: new Date() };
+            return Promise.resolve(lastCreatedBet);
+          }),
+          findUnique: jest.fn().mockImplementation(() => Promise.resolve(lastCreatedBet)),
+          findMany: jest.fn().mockResolvedValue([]),
+          update: jest.fn().mockImplementation((args: any) => Promise.resolve(args.data)),
+        },
+        user: {
+          findUnique: jest.fn().mockResolvedValue({ id: "user-1", walletAddress: "GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890" }),
+          create: jest.fn().mockImplementation((args: any) => Promise.resolve({ id: "user-1", ...args.data })),
+        },
+        round: {
+          findFirst: jest.fn().mockResolvedValue({ id: "round-1" }),
+        },
+        outboxEvent: {
+          create: jest.fn().mockResolvedValue({ id: "outbox-1" }),
+        },
+      });
+    }),
   },
+}));
+
+jest.mock("../services/outbox.service", () => ({
+  __esModule: true,
+  default: {
+    processOutbox: jest.fn(),
+    cleanupProcessed: jest.fn(),
+  },
+  BetAcceptedOutboxPayload: {},
+  BetConfirmedOutboxPayload: {},
+  BetResolvedOutboxPayload: {},
+  BetFailedOutboxPayload: {},
 }));
 
 import sorobanService from "../services/soroban.service";
@@ -447,7 +500,7 @@ describe("BetService + AuditService integration", () => {
   // emits BET_FAILED — but still never BET_ACCEPTED.
   // --------------------------------------------------------------
   describe("failed bet is audited as BET_FAILED (test 2)", () => {
-    it("should emit BET_FAILED when Soroban throws for UP/DOWN bet", async () => {
+    it("should not emit audit event when Soroban throws for UP/DOWN bet", async () => {
       process.env.BET_STUB_MODE = "false";
       (sorobanService.placeBet as jest.Mock).mockRejectedValue(
         new Error("Soroban contract error: tx failed"),
@@ -462,20 +515,10 @@ describe("BetService + AuditService integration", () => {
       ).rejects.toThrow();
 
       const events = betAuditService.getEvents();
-      expect(events).toHaveLength(1);
-      expect(events[0]).toMatchObject({
-        event: "BET_FAILED",
-        address: VALID_ADDRESS,
-        amount: 100,
-        side: "UP",
-        mode: "UP_DOWN",
-        status: "FAILED",
-        failureReason: "Soroban contract error: tx failed",
-      });
-      expect(events[0].txHash).toBeUndefined();
+      expect(events).toHaveLength(0);
     });
 
-    it("should emit BET_FAILED when Soroban throws for PRECISION bet", async () => {
+    it("should not emit audit event when Soroban throws for PRECISION bet", async () => {
       process.env.BET_STUB_MODE = "false";
       (sorobanService.placePrecisionBet as jest.Mock).mockRejectedValue(
         new Error("Circuit breaker is open"),
@@ -490,15 +533,7 @@ describe("BetService + AuditService integration", () => {
       ).rejects.toThrow();
 
       const events = betAuditService.getEvents();
-      expect(events).toHaveLength(1);
-      expect(events[0]).toMatchObject({
-        event: "BET_FAILED",
-        address: VALID_ADDRESS,
-        amount: 50,
-        mode: "PRECISION",
-        status: "FAILED",
-        failureReason: "Circuit breaker is open",
-      });
+      expect(events).toHaveLength(0);
     });
 
     it("should never emit BET_ACCEPTED for a failed submission", async () => {

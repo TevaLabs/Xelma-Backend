@@ -19,7 +19,6 @@ const sharedRepositoryContract = (
     });
 
     it("exposes round, leaderboard, and stats repositories", () => {
-      expect(repositories.rounds).toHaveProperty("listActiveRounds");
       expect(repositories.rounds).toHaveProperty("placeBet");
       expect(repositories.leaderboard).toHaveProperty("listLeaderboard");
       expect(repositories.stats).toHaveProperty("getPlatformStats");
@@ -29,10 +28,6 @@ const sharedRepositoryContract = (
 };
 
 class ContractRoundRepository implements RoundRepository {
-  async listActiveRounds() {
-    return { source: "none", rounds: [] };
-  }
-
   async placeBet(): Promise<void> {}
 }
 
@@ -66,14 +61,10 @@ sharedRepositoryContract("in-memory", createInMemoryRepositories);
 sharedRepositoryContract("prisma", createContractPrismaRepositories);
 
 describe("repository selection", () => {
-  it("selects the in-memory repositories for DATA_STORE=memory", async () => {
+  it("selects the in-memory repositories for DATA_STORE=memory", () => {
     const repositories = createRepositories("memory");
 
-    await expect(repositories.rounds.listActiveRounds()).resolves.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "btc-updown-live" }),
-      ]),
-    );
+    expect(repositories.rounds.constructor.name).toBe("InMemoryRoundRepository");
   });
 
   it("selects Prisma-backed repositories for DATA_STORE=postgres", () => {

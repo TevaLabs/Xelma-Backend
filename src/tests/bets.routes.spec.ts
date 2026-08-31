@@ -8,6 +8,7 @@ import { createApp } from "../index";
 import sorobanService from "../services/soroban.service";
 import { generateToken } from "../utils/jwt.util";
 import { resetInMemoryIdempotencyStore } from "../utils/idempotency.util";
+import { getConnectedRedisClient } from "../lib/redis";
 
 jest.mock("../services/soroban.service", () => {
   return {
@@ -34,6 +35,18 @@ jest.mock("../middleware/rateLimiter.middleware", () => ({
   betRateLimiter: (_req: any, _res: any, next: any) => next(),
 }));
 
+// The distributed idempotency lock (Issue #493) requires a Redis client. These
+// route tests exercise the in-memory idempotency store, so provide a fake
+// lock client and keep the rest of the Redis module intact (cache stays
+// bypassed when REDIS_URL is unset, exactly as before).
+jest.mock("../lib/redis", () => {
+  const actual = jest.requireActual("../lib/redis");
+  return {
+    ...actual,
+    getConnectedRedisClient: jest.fn(),
+  };
+});
+
 const VALID_ADDRESS = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const OTHER_ADDRESS = "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H";
 
@@ -43,6 +56,10 @@ describe("Bets Routes", () => {
   const originalEnv = process.env;
 
   beforeAll(() => {
+    (getConnectedRedisClient as jest.Mock).mockResolvedValue({
+      set: jest.fn().mockResolvedValue("OK"),
+      eval: jest.fn().mockResolvedValue(1),
+    });
     app = createApp();
     token = generateToken("user-1", VALID_ADDRESS, UserRole.USER);
   });

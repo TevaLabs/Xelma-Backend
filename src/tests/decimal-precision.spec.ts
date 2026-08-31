@@ -203,11 +203,11 @@ describe("Decimal String Serialization (API Boundary)", () => {
     expect(toDecimalString(new Decimal("100"), 0)).toBe("100");
   });
 
-  it("JSON.stringify with Prisma Decimal produces MongoDB-style $numberDecimal, not a plain string", () => {
+  it("JSON.stringify with Prisma Decimal produces a plain JSON-safe string", () => {
     const decimal = new Decimal("1000.33333333");
     const json = JSON.stringify({ balance: decimal });
-    expect(json).toContain('"$numberDecimal"');
-    expect(json).not.toContain('"1000.33333333"');
+    expect(json).toBe('{"balance":"1000.33333333"}');
+    expect(json).not.toContain('"$numberDecimal"');
   });
 
   it("toDecimalString produces a JSON-safe plain string for monetary fields", () => {
@@ -220,7 +220,7 @@ describe("Decimal String Serialization (API Boundary)", () => {
 
   it("serializes fractional edge cases deterministically", () => {
     expect(toDecimalString(decAdd(0.1, 0.2))).toBe("0.30000000");
-    expect(toDecimalString(decMul(7.77777777, 1))).toBe("7.77777770");
+    expect(toDecimalString(decMul(7.77777777, 1))).toBe("7.77777777");
     expect(toDecimalString(decDiv(1, 3))).toBe("0.33333333");
   });
 

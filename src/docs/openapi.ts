@@ -219,7 +219,24 @@ export const swaggerSpec = swaggerJSDoc({
           required: ['min', 'max'],
           additionalProperties: false,
         },
-
+        PriceResponse: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: {
+              type: 'object',
+              properties: {
+                BTC: { type: 'number', example: 67420.12 },
+                ETH: { type: 'number', example: 3241.55 },
+                XLM: { type: 'number', example: 0.2891 },
+                stale: { type: 'boolean', example: false },
+                lastUpdatedAt: { type: 'string', format: 'date-time', nullable: true },
+              },
+              required: ['BTC', 'ETH', 'XLM', 'stale', 'lastUpdatedAt'],
+            },
+          },
+          required: ['success', 'data'],
+        },
         MultiAssetPriceResponse: {
           type: 'object',
           description:

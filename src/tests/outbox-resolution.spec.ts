@@ -28,12 +28,18 @@ const mockOutboxCreate = jest.fn((args: any) => {
   return Promise.resolve({ id: `outbox-${outboxCreates.length}` });
 });
 
+const mockBetFindFirst = jest.fn().mockResolvedValue(null);
+const mockBetFindUnique = jest.fn().mockResolvedValue(null);
+const mockBetUpdate = jest.fn().mockResolvedValue({});
+const mockBetCreate = jest.fn().mockResolvedValue({ id: 'bet-1' });
+
 // The transaction proxy exposes the same mock fns so the service's `tx.*`
 // calls resolve correctly.
 const txProxy = {
   round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
   prediction: { update: mockPredictionUpdate },
   user: { update: mockUserUpdate },
+  bet: { findFirst: mockBetFindFirst, findUnique: mockBetFindUnique, update: mockBetUpdate, create: mockBetCreate },
   outboxEvent: { create: mockOutboxCreate },
 };
 
@@ -51,6 +57,46 @@ jest.mock('../services/soroban.service', () => ({
   default: {
     resolveRound: jest.fn().mockResolvedValue(undefined),
   },
+}));
+
+// ─── mock oracle ─────────────────────────────────────────────────────────────
+
+jest.mock('../services/oracle', () => ({
+  __esModule: true,
+  default: {
+    isRunning: jest.fn().mockReturnValue(false),
+    isStale: jest.fn().mockReturnValue(false),
+    getPriceString: jest.fn().mockReturnValue('100'),
+    getLastUpdatedAt: jest.fn().mockReturnValue(new Date()),
+    getStalenessSeconds: jest.fn().mockReturnValue(0),
+    getStalenessThresholdMs: jest.fn().mockReturnValue(60000),
+  },
+}));
+
+// ─── mock websocket service ──────────────────────────────────────────────────
+
+jest.mock('../services/websocket.service', () => ({
+  __esModule: true,
+  default: {
+    emitRoundResolved: jest.fn(),
+    emitNotification: jest.fn(),
+  },
+}));
+
+// ─── mock bet service ────────────────────────────────────────────────────────
+
+jest.mock('../services/bet.service', () => ({
+  __esModule: true,
+  default: {
+    resolveBet: jest.fn().mockResolvedValue({ id: 'bet-1' }),
+  },
+}));
+
+// ─── mock metrics ────────────────────────────────────────────────────────────
+
+jest.mock('../metrics/application.metrics', () => ({
+  roundsResolvedTotal: { inc: jest.fn() },
+  oracleResolveBlockedTotal: { inc: jest.fn() },
 }));
 
 // ─── mock education tip (non-critical, runs outside transaction) ──────────────
@@ -84,6 +130,14 @@ jest.mock('@prisma/client', () => ({
   DispatchChannel: {
     NOTIFICATION_CREATE: 'NOTIFICATION_CREATE',
     WEBSOCKET_EMIT: 'WEBSOCKET_EMIT',
+  },
+  BetStatus: {
+    STUB: 'STUB',
+    ACCEPTED: 'ACCEPTED',
+    SUBMITTED: 'SUBMITTED',
+    CONFIRMED: 'CONFIRMED',
+    RESOLVED: 'RESOLVED',
+    FAILED: 'FAILED',
   },
 }));
 

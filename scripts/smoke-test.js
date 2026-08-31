@@ -161,22 +161,25 @@ async function checkHealth() {
 }
 
 async function checkActiveRound() {
-  const { status, body } = await get('/api/rounds/active');
+  const { status, body } = await get('/api/rounds');
 
-  // 200 = active round exists; 404 = no active round (valid between rounds)
-  const acceptable = status === 200 || status === 404;
+  // 200 = active rounds list; empty list is also valid between rounds
+  const acceptable = status === 200;
 
   let detail;
   if (status === 200) {
-    detail = `Active round found (id=${body?.id ?? '?'}, mode=${body?.mode ?? '?'})`;
-  } else if (status === 404) {
-    detail = 'No active round — OK between rounds';
+    const rounds = body?.data?.rounds ?? [];
+    if (rounds.length > 0) {
+      detail = `Active round found (id=${rounds[0]?.id ?? '?'}, mode=${rounds[0]?.mode ?? '?'})`;
+    } else {
+      detail = 'No active round — OK between rounds';
+    }
   } else {
     detail = `Unexpected HTTP ${status}`;
   }
 
   return {
-    name:     'GET /api/rounds/active',
+    name:     'GET /api/rounds',
     required: true,
     passed:   acceptable,
     warn:     false,
@@ -308,7 +311,7 @@ async function runChecks() {
 
   const checkFns = [
     { fn: checkHealth,       label: '/health' },
-    { fn: checkActiveRound,  label: '/api/rounds/active' },
+    { fn: checkActiveRound,  label: '/api/rounds' },
     { fn: checkPrice,        label: '/api/price' },
     { fn: checkLeaderboard,  label: '/api/leaderboard' },
     ...(SKIP_SOCKET ? [] : [{ fn: checkSocket, label: 'WebSocket' }]),

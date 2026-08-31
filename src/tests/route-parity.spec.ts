@@ -3,6 +3,10 @@ import { describe, expect, it } from "@jest/globals";
 jest.mock("@prisma/client", () => ({
   UserRole: { USER: "USER", ADMIN: "ADMIN", ORACLE: "ORACLE" },
   Prisma: {},
+  PrismaClient: jest.fn().mockImplementation(() => ({
+    $connect: jest.fn(),
+    $disconnect: jest.fn(),
+  })),
 }));
 
 jest.mock("../services/websocket.service", () => ({
@@ -41,9 +45,14 @@ jest.mock("../config/preflight", () => ({
 }));
 
 jest.mock("../utils/bindings-validator", () => ({
+  resolveBindingsPolicy: jest.fn(() => "warn"),
+  formatBindingsReport: jest.fn(() => "mock"),
   validateVendoredBindings: jest.fn(() => ({
     ok: true,
-    info: { vendorPath: "mock", packageName: "mock" },
+    errors: [],
+    warnings: [],
+    remediation: [],
+    info: { vendorPath: "mock", packageName: "mock", specMethods: [] },
   })),
 }));
 

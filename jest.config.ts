@@ -6,6 +6,9 @@ const integrationTestFiles = [
   "auth-audit-integration.spec.ts",
   "auth-race.spec.ts",
   "batch-routes.spec.ts",
+  "bets-idempotency-concurrency.spec.ts",
+  "bets-idempotency-redis-outage.spec.ts",
+  "bets.routes.spec.ts",
   "concurrent-rounds.spec.ts",
   "db-pool-config.spec.ts",
   "decimal-precision.spec.ts",
@@ -22,19 +25,32 @@ const integrationTestFiles = [
   "performance.spec.ts",
   "prediction-concurrency.spec.ts",
   "tournament-concurrency.spec.ts",
+  "tournament-lifecycle.spec.ts",
   "predictions.routes.spec.ts",
   "rate-limit-visibility.spec.ts",
   "requestId.middleware.spec.ts",
   "requestId.spec.ts",
   "resolution-concurrency.spec.ts",
+  "resolution-fail-closed.spec.ts",
   "round.spec.ts",
   "rounds.routes.spec.ts",
+  "round.service.active.spec.ts",
+  "rounds-active.routes.spec.ts",
+  "error.spec.ts",
+  "data-mode.spec.ts",
   "security.spec.ts",
+  "hackathon-endpoints.spec.ts",
+  "monetary-serialization.spec.ts",
+  "tournaments.routes.spec.ts",
+  "route-parity.spec.ts",
   "socket.spec.ts",
   "user.routes.spec.ts",
   "validate.middleware.spec.ts",
   "redis-adapter.spec.ts",
 ];
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Base configuration shared between unit and integration tests
 const baseConfig: Partial<JestConfig> = {
@@ -66,8 +82,13 @@ const unitConfig: JestConfig = {
   ],
   testPathIgnorePatterns: [
     "/node_modules/",
-    // Integration test files (DB, HTTP listener, or cross-service tests)
-    ...integrationTestFiles,
+    // Integration test files (DB, HTTP listener, or cross-service tests).
+    // Anchored on the path separator so a bare basename such as
+    // "bets.routes.spec.ts" cannot also swallow "hackathon-bets.routes.spec.ts",
+    // which would leave that suite matched by neither project and never run.
+    ...integrationTestFiles.map(
+      (file) => `[\\/]${escapeRegExp(file)}$`,
+    ),
   ],
   setupFiles: ["<rootDir>/jest.setup.js"],
 };

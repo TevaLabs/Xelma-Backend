@@ -1,0 +1,45 @@
+{
+  "documentation": "docs/bindings-upgrade.md",
+  "description": "Single source of truth for the vendored @tevalabs/xelma-bindings revision AND the contract surface src/services/soroban.service.ts depends on. Both scripts/install-bindings.js and src/utils/bindings-validator.ts read this file; CI and startup fail when vendor/xelma-bindings drifts from it.",
+  "repository": "https://github.com/TevaLabs/Xelma-Blockchain.git",
+  "ref": "main",
+  "commitSha": "bb50a67d5366e71959c72f1a55285520e9af3153",
+  "packageName": "@tevalabs/xelma-bindings",
+  "requiredArtifacts": [
+    "package.json",
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/cjs/index.js"
+  ],
+  "requiredValueExports": ["Client", "RoundMode"],
+  "requiredTypeExports": ["Round", "BetSide", "OraclePayload", "UserStats"],
+  "requiredEnumMembers": {
+    "RoundMode": ["UpDown", "Precision"]
+  },
+  "requiredTypeFields": {
+    "Round": [
+      "round_id",
+      "mode",
+      "price_start",
+      "pool_up",
+      "pool_down",
+      "start_ledger",
+      "bet_end_ledger",
+      "end_ledger"
+    ],
+    "OraclePayload": ["price", "round_id", "timestamp"],
+    "UserStats": ["best_streak", "current_streak", "total_losses", "total_wins"]
+  },
+  "requiredMethods": {
+    "create_round": ["start_price", "mode"],
+    "place_bet": ["user", "amount", "side"],
+    "place_precision_prediction": ["user", "amount", "predicted_price"],
+    "resolve_round": ["payload"],
+    "get_active_round": [],
+    "mint_initial": ["user"],
+    "balance": ["user"],
+    "get_user_stats": ["user"],
+    "get_pending_winnings": ["user"],
+    "claim_winnings": ["user"]
+  }
+}

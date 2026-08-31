@@ -11,8 +11,12 @@ import educationRoutes from "../routes/education.routes";
 import { prisma } from "../lib/prisma";
 import { errorHandler } from "../middleware/errorHandler.middleware";
 
-const hasDb = Boolean(process.env.DATABASE_URL);
-const describeEducationTip = hasDb ? describe : describe.skip;
+const shouldRunDbTests =
+  process.env.RUN_DB_TESTS === 'true' ||
+  process.env.CI === 'true' ||
+  (global as any).hasDb;
+
+const describeEducationTip = shouldRunDbTests ? describe : describe.skip;
 
 // Create test app
 const app = express();
@@ -25,6 +29,7 @@ describeEducationTip("GET /api/education/tip - Integration Tests", () => {
   let unresolvedRoundId: string | undefined;
 
   beforeAll(async () => {
+    if (!shouldRunDbTests) return;
     // Create a resolved test round
     const resolvedRound = await prisma.round.create({
       data: {

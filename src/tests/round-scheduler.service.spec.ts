@@ -20,9 +20,9 @@ jest.mock("../services/round.service", () => ({
   },
 }));
 
-jest.mock("../utils/distributed-lock", () => ({
-  withDistributedLock: jest.fn((lockName: string, fn: () => any) => fn()),
-}));
+jest.mock("../utils/distributed-lock", () =>
+  require("./helpers/distributed-lock.mock").passThroughLockModule(),
+);
 
 /**
  * Mock Prisma so these unit tests run without a real database.

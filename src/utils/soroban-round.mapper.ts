@@ -2,6 +2,7 @@ import type { Round as SorobanRound } from "@tevalabs/xelma-bindings";
 import { RoundMode } from "@tevalabs/xelma-bindings";
 import { serializeMoney } from "./decimal.util";
 import { serializeRound } from "../serializers/monetary.serializer";
+import type { RoundListItem } from "../repositories/interfaces";
 
 const PRICE_SCALE = 10_000;
 const STROOP_SCALE = 10_000_000;
@@ -66,10 +67,26 @@ function toNumber(value: bigint | number | string | undefined | null): number {
   return 0;
 }
 
+/**
+ * Narrows a Soroban round's mode into the API's discriminated shape.
+ * Throws instead of silently defaulting so an unrecognized mode value
+ * (e.g. a contract ABI change) fails loudly rather than slipping into
+ * an API response as UP_DOWN.
+ */
+export function resolveRoundMode(mode: RoundMode): "UP_DOWN" | "LEGENDS" {
+  switch (mode) {
+    case RoundMode.UpDown:
+      return "UP_DOWN";
+    case RoundMode.Precision:
+      return "LEGENDS";
+    default:
+      throw new Error(`Unsupported Soroban round mode: ${String(mode)}`);
+  }
+}
+
 export function mapSorobanActiveRound(round: SorobanRound): MappedActiveRound {
   const roundId = toNumber(round.round_id);
-  const mode =
-    (round.mode as any) === RoundMode.Precision || (round.mode as any) === 1 ? "LEGENDS" : "UP_DOWN";
+  const mode = resolveRoundMode(round.mode);
 
   return {
     id: `soroban-${roundId}`,
@@ -87,18 +104,22 @@ export function mapSorobanActiveRound(round: SorobanRound): MappedActiveRound {
   };
 }
 
-export function mapDatabaseActiveRound(round: Record<string, unknown>): Record<string, unknown> {
+export function mapDatabaseActiveRound(
+  round: Record<string, unknown>,
+): RoundListItem {
   return serializeRound({
     ...round,
     source: "database" as const,
-  });
+  }) as RoundListItem;
 }
 
-export function mapMockActiveRound(round: Record<string, unknown>): Record<string, unknown> {
+export function mapMockActiveRound(
+  round: Record<string, unknown>,
+): RoundListItem {
   return serializeRound({
     ...round,
     source: "mock" as const,
-  });
+  }) as RoundListItem;
 }
 
 const MOCK_ASSETS = [
@@ -107,7 +128,10 @@ const MOCK_ASSETS = [
   { asset: "XLM", symbol: "XLM", label: "Stellar" },
 ] as const;
 
-function buildMockFrontendCard(asset: string, index: number): FrontendRoundCard {
+function buildMockFrontendCard(
+  asset: string,
+  index: number,
+): FrontendRoundCard {
   const startPrice = asset === "BTC" ? 60000 : asset === "ETH" ? 3000 : 0.12;
   const currentPrice = asset === "BTC" ? 61000 : asset === "ETH" ? 3050 : 0.13;
   const upPool = asset === "BTC" ? 1800 : asset === "ETH" ? 1200 : 250;
@@ -147,7 +171,9 @@ function buildMockFrontendCard(asset: string, index: number): FrontendRoundCard 
   }) as unknown as FrontendRoundCard;
 }
 
-function buildLiveFrontendCard(round: SorobanRound | null): FrontendRoundCard | null {
+function buildLiveFrontendCard(
+  round: SorobanRound | null,
+): FrontendRoundCard | null {
   if (!round) return null;
 
   const mappedRound = mapSorobanActiveRound(round);
@@ -194,7 +220,9 @@ function buildLiveFrontendCard(round: SorobanRound | null): FrontendRoundCard | 
   }) as unknown as FrontendRoundCard;
 }
 
-export function mapSorobanRoundToFrontendCards(round: SorobanRound | null): FrontendRoundCard[] {
+export function mapSorobanRoundToFrontendCards(
+  round: SorobanRound | null,
+): FrontendRoundCard[] {
   const cards: FrontendRoundCard[] = [];
   const liveCard = buildLiveFrontendCard(round);
 
@@ -203,12 +231,18 @@ export function mapSorobanRoundToFrontendCards(round: SorobanRound | null): Fron
   }
 
   const mockAssets = MOCK_ASSETS.filter(({ asset }) => asset !== "XLM");
-  const mockCards = mockAssets.map((asset, index) => buildMockFrontendCard(asset.asset, index));
+  const mockCards = mockAssets.map((asset, index) =>
+    buildMockFrontendCard(asset.asset, index),
+  );
 
   if (liveCard) {
     cards.push(...mockCards);
   } else {
-    cards.push(...MOCK_ASSETS.map((asset, index) => buildMockFrontendCard(asset.asset, index)));
+    cards.push(
+      ...MOCK_ASSETS.map((asset, index) =>
+        buildMockFrontendCard(asset.asset, index),
+      ),
+    );
   }
 
   return cards;

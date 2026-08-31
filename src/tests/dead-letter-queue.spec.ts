@@ -126,6 +126,37 @@ describe('DeadLetterQueueService', () => {
       handlers.websocketEmit.mockReset();
     });
 
+    it('dry-run returns redacted preview without side effects', async () => {
+      mockFindUnique.mockResolvedValue({
+        id: 'dry-1',
+        status: 'PENDING',
+        channel: 'NOTIFICATION_CREATE',
+        attempts: 1,
+        payload: {
+          userId: 'u1',
+          walletAddress: 'GBZXN7KW34J5XFG2EXAMPLE9QRA',
+          apiKey: 'secret-key',
+          title: 't',
+          message: 'm',
+        },
+        eventName: 'WIN',
+        userId: 'u1',
+      });
+
+      const result = await deadLetterQueueService.retry('dry-1', handlers, 5, {
+        dryRun: true,
+      });
+
+      expect(result).toMatchObject({
+        dryRun: true,
+        id: 'dry-1',
+        channel: 'NOTIFICATION_CREATE',
+      });
+      expect((result as any).redactedPayload.apiKey).toBe('[REDACTED]');
+      expect(handlers.notificationCreate).not.toHaveBeenCalled();
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
     it('returns null for an unknown id', async () => {
       mockFindUnique.mockResolvedValue(null);
       const result = await deadLetterQueueService.retry('nope', handlers);
@@ -223,6 +254,41 @@ describe('DeadLetterQueueService', () => {
   });
 
   describe('retryAll', () => {
+    it('dry-run returns previews without invoking handlers', async () => {
+      const handlers = {
+        notificationCreate: jest.fn(),
+        websocketEmit: jest.fn(),
+      } as any;
+      mockFindMany.mockResolvedValue([
+        {
+          id: 'a',
+          status: 'PENDING',
+          channel: 'WEBSOCKET_EMIT',
+          attempts: 1,
+          payload: { token: 'abc' },
+          eventName: 'notification:new',
+          userId: 'u1',
+        },
+      ]);
+
+      const result = await deadLetterQueueService.retryAll(handlers, 50, 5, {
+        dryRun: true,
+      });
+
+      expect(result).toEqual({
+        dryRun: true,
+        attempted: 1,
+        previews: [
+          expect.objectContaining({
+            dryRun: true,
+            id: 'a',
+            redactedPayload: { token: '[REDACTED]' },
+          }),
+        ],
+      });
+      expect(handlers.websocketEmit).not.toHaveBeenCalled();
+    });
+
     it('returns a counts summary across mixed outcomes', async () => {
       const handlers = {
         notificationCreate: jest.fn(),

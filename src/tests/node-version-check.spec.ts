@@ -7,6 +7,7 @@ describe('Node version startup check', () => {
       execSync('npx -y -p node@18 node dist/index.js', {
         cwd: path.resolve(__dirname, '../../'),
         stdio: 'pipe',
+        env: { ...process.env, NODE_ENV: 'production' },
       });
       // Should not reach here
       expect(true).toBe(false);

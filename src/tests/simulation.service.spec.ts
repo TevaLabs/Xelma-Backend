@@ -1,5 +1,14 @@
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 import { Decimal } from '@prisma/client/runtime/library';
+
+jest.mock('../lib/prisma', () => ({
+  prisma: {
+    round: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
+  },
+}));
+
 import simulationService from '../services/simulation.service';
 import { calculatePayout } from '../utils/payout.util';
 import { toDecimal, toNumber } from '../utils/decimal.util';

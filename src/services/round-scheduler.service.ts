@@ -2,7 +2,11 @@ import cron, { ScheduledTask } from 'node-cron';
 import roundService from './round.service';
 import priceOracle from './oracle';
 import logger from '../utils/logger';
-import { withDistributedLock } from '../utils/distributed-lock';
+import {
+   isLockLostError,
+   withDistributedLock,
+   type LockHandle,
+} from '../utils/distributed-lock';
 import { prisma } from '../lib/prisma';
 import { toNumber } from '../utils/decimal.util';
 import {
@@ -46,16 +50,24 @@ class RoundSchedulerService {
       logger.info('[Round Scheduler] Stopped');
    }
 
-   /** @visibleForTesting */
+   /**
+    * Create the next round, as the single leader across all instances.
+    *
+    * TTL is 30 s against a 4-minute cron: the heartbeat keeps it alive for as
+    * long as `startRound` actually takes (which includes a Soroban call), so
+    * the TTL only bounds how long a crashed leader delays the next attempt.
+    *
+    * @visibleForTesting
+    */
    async createRound(): Promise<void> {
       await withDistributedLock(
          'create-round',
-         () => this.createRoundInternal(),
-         { ttlSeconds: 30 }
+         lock => this.createRoundInternal(lock),
+         { ttlSeconds: 30, maxHoldSeconds: 180 }
       );
    }
 
-   private async createRoundInternal(): Promise<void> {
+   private async createRoundInternal(lock: LockHandle): Promise<void> {
       try {
          const startPrice = priceOracle.getPrice();
 
@@ -103,6 +115,10 @@ class RoundSchedulerService {
             return;
          }
 
+         // Last checkpoint before the write: if leadership was lost during the
+         // reads above, another instance may already be creating this round.
+         lock.assertHeld();
+
          const round = await roundService.startRound(
             mode,
             toNumber(startPrice),
@@ -121,6 +137,18 @@ class RoundSchedulerService {
             outcome: 'success',
          });
       } catch (error: any) {
+         if (isLockLostError(error)) {
+            logger.warn(
+               '[Round Scheduler] Aborted round creation: distributed lock lost',
+               { reason: error.reason }
+            );
+            schedulerRunsTotal.inc({
+               job: 'round_create',
+               outcome: 'aborted',
+            });
+            return;
+         }
+
          if (error.code === 'ACTIVE_ROUND_EXISTS') {
             logger.info(`[Round Scheduler] ${error.message}`);
             schedulerRunsTotal.inc({
@@ -137,16 +165,20 @@ class RoundSchedulerService {
       }
    }
 
-   /** @visibleForTesting */
+   /**
+    * Lock expired rounds, as the single leader across all instances.
+    *
+    * @visibleForTesting
+    */
    async closeEligibleRounds(): Promise<void> {
       await withDistributedLock(
          'close-eligible-rounds',
-         () => this.closeEligibleRoundsInternal(),
-         { ttlSeconds: 30 }
+         lock => this.closeEligibleRoundsInternal(lock),
+         { ttlSeconds: 30, maxHoldSeconds: 180 }
       );
    }
 
-   private async closeEligibleRoundsInternal(): Promise<void> {
+   private async closeEligibleRoundsInternal(lock: LockHandle): Promise<void> {
       try {
          const now = new Date();
 
@@ -165,6 +197,8 @@ class RoundSchedulerService {
             return;
          }
 
+         lock.assertHeld();
+
          await roundService.autoLockExpiredRounds();
 
          logger.info(`[Round Scheduler] Locked ${expiredCount} expired rounds`);
@@ -177,6 +211,18 @@ class RoundSchedulerService {
             outcome: 'success',
          });
       } catch (error) {
+         if (isLockLostError(error)) {
+            logger.warn(
+               '[Round Scheduler] Aborted round close: distributed lock lost',
+               { reason: error.reason }
+            );
+            schedulerRunsTotal.inc({
+               job: 'round_close',
+               outcome: 'aborted',
+            });
+            return;
+         }
+
          logger.error('[Round Scheduler] Failed to close rounds:', error);
          schedulerRunsTotal.inc({
             job: 'round_close',

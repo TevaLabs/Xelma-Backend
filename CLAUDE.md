@@ -28,6 +28,10 @@ npx jest --testPathPattern="education-tip"
 npm run prisma:generate  # Regenerate Prisma client after schema changes
 npm run prisma:migrate   # Run pending migrations
 
+# Vendored Soroban bindings (see docs/bindings-upgrade.md)
+npm run check:bindings       # Pinned commit + build artifacts (fast, no install)
+npm run check:bindings:abi   # Full contract surface + ABI check (needs npm run build)
+
 # CI (runs lint → build → test)
 npm run ci
 ```
@@ -51,7 +55,7 @@ npm run ci
 - **Predictions** — User predictions on round outcomes; placement is transactional and race-safe
 - **Resolution** — Rounds are auto-resolved by comparing entry/exit XLM price via CoinGecko oracle ([src/services/oracle.ts](src/services/oracle.ts))
 - **Auth** — Wallet signature challenge/connect flow using Stellar keypairs; challenges are atomically consumed (one-time use)
-- **Soroban** — Smart contract interactions via `@tevalabs/xelma-bindings` and `@stellar/stellar-sdk`; controlled by `SOROBAN_ADMIN_SECRET` / `SOROBAN_ORACLE_SECRET`
+- **Soroban** — Smart contract interactions via `@tevalabs/xelma-bindings` and `@stellar/stellar-sdk`; controlled by `SOROBAN_ADMIN_SECRET` / `SOROBAN_ORACLE_SECRET`. The bindings are vendored at `vendor/xelma-bindings` and pinned by [bindings.pin.json](bindings.pin.json), which also declares the contract methods/types [src/services/soroban.service.ts](src/services/soroban.service.ts) depends on. [src/utils/bindings-validator.ts](src/utils/bindings-validator.ts) enforces that pin in CI and at startup — see [docs/bindings-upgrade.md](docs/bindings-upgrade.md) before changing anything under `vendor/`
 - **WebSocket** — Real-time events (round open/close/resolve, price ticks, notifications) broadcast via Socket.IO in [src/services/websocket.service.ts](src/services/websocket.service.ts)
 
 **Monetary precision:** All balance/amount fields use `Decimal(20, 8)` in Prisma. Never use native JS floats for financial math — use the utilities in [src/utils/decimal.util.ts](src/utils/decimal.util.ts).
@@ -79,6 +83,7 @@ See [.env.example](.env.example) for the full list. Critical variables:
 | `SOROBAN_ORACLE_SECRET` | Oracle keypair for price settlement |
 | `ROUND_SCHEDULER_ENABLED` | Set to `true` to activate cron-based round creation |
 | `ROUND_SCHEDULER_MODE` | `UP_DOWN` or `LEGENDS` |
+| `BINDINGS_CHECK` | `off`/`warn`/`strict` — startup enforcement for vendored-bindings skew |
 
 ## API Documentation
 

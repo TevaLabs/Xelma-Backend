@@ -6,9 +6,9 @@ import logger from "../utils/logger";
 jest.mock("../services/retention.service");
 jest.mock("../services/resolution.service");
 jest.mock("../services/oracle");
-jest.mock("../utils/distributed-lock", () => ({
-  withDistributedLock: jest.fn((lockName: string, fn: () => any) => fn()),
-}));
+jest.mock("../utils/distributed-lock", () =>
+  require("./helpers/distributed-lock.mock").passThroughLockModule(),
+);
 
 jest.mock("../lib/prisma", () => ({
   prisma: {

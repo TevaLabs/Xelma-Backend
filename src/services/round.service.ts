@@ -1,4 +1,4 @@
-import { GameMode } from "@prisma/client";
+import { GameMode, Round } from "@prisma/client";
 import sorobanService from "./soroban.service";
 import websocketService from "./websocket.service";
 import notificationService from "./notification.service";
@@ -17,6 +17,7 @@ import {
   mapSorobanActiveRound,
 } from "../utils/soroban-round.mapper";
 import { getMockRounds } from "../data/mockData";
+import type { RoundListItem } from "../repositories/interfaces";
 
 interface LegendsPriceRange {
   min: number;
@@ -182,7 +183,7 @@ export class RoundService {
    */
   async getRoundsForApi(): Promise<{
     source: ActiveRoundSource;
-    rounds: any[];
+    rounds: RoundListItem[];
   }> {
     if (config.app.roundsMockMode) {
       return { source: "mock", rounds: await this.getMockRoundsForApi() };
@@ -227,9 +228,11 @@ export class RoundService {
    * origin of an individual round the same way they can for the soroban and
    * database tiers.
    */
-  private async getMockRoundsForApi(): Promise<any[]> {
+  private async getMockRoundsForApi(): Promise<RoundListItem[]> {
     const rounds = await getMockRounds();
-    return rounds.map((round) => mapMockActiveRound(round as Record<string, unknown>));
+    return rounds.map((round) =>
+      mapMockActiveRound(round as Record<string, unknown>),
+    );
   }
 
   /**
@@ -238,7 +241,7 @@ export class RoundService {
    */
   async getActiveRoundsWithFallback(): Promise<{
     source: ActiveRoundSource;
-    rounds: any[];
+    rounds: RoundListItem[];
   }> {
     return this.getRoundsForApi();
   }
@@ -246,7 +249,7 @@ export class RoundService {
   /**
    * Gets all active rounds
    */
-  async getActiveRounds(): Promise<any[]> {
+  async getActiveRounds(): Promise<Round[]> {
     try {
       const rounds = await prisma.round.findMany({
         where: {
@@ -421,7 +424,9 @@ export class RoundService {
     }
   }
 
-  private generateDefaultLegendsRanges(startPrice: number): LegendsPriceRange[] {
+  private generateDefaultLegendsRanges(
+    startPrice: number,
+  ): LegendsPriceRange[] {
     const rangeWidth = startPrice * 0.05;
     return [
       { min: startPrice - rangeWidth * 2, max: startPrice - rangeWidth },
@@ -457,9 +462,7 @@ export class RoundService {
       if (i > 0) {
         const prev = sorted[i - 1];
         if (range.min < prev.max) {
-          throw new ValidationError(
-            "LEGENDS price ranges must not overlap",
-          );
+          throw new ValidationError("LEGENDS price ranges must not overlap");
         }
       }
     }
