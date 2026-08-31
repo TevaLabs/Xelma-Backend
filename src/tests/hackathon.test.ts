@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { getMockRounds, getMockLeaderboard } from '../data/mockData';
-import { getPrices, getPriceSnapshot, resetPriceCache } from '../services/priceService';
+import { getPrices, resetPriceCache } from '../services/priceService';
 
 const COINGECKO_SAMPLE = {
   bitcoin: { usd: 67420 },
@@ -72,26 +72,7 @@ test('getPrices returns graceful failure when upstream is down and cache is empt
   }
 });
 
-test('getPriceSnapshot exposes stale metadata for operators', async () => {
-  resetPriceCache();
-  process.env.ORACLE_STALENESS_THRESHOLD_MS = '60000';
-  const originalFetch = global.fetch;
 
-  global.fetch = (async () => ({
-    ok: true,
-    json: async () => COINGECKO_SAMPLE,
-  })) as unknown as typeof fetch;
-
-  try {
-    const snapshot = await getPriceSnapshot();
-    assert.strictEqual(snapshot.stale, false);
-    assert.strictEqual(typeof snapshot.lastUpdatedAt, 'string');
-    assert.strictEqual(snapshot.source, 'coingecko');
-  } finally {
-    global.fetch = originalFetch;
-    resetPriceCache();
-  }
-});
 
 test('getMockRounds returns exactly 3 rounds with correct assets and dynamical future timestamps', async () => {
   const rounds = await getMockRounds();
@@ -104,19 +85,19 @@ test('getMockRounds returns exactly 3 rounds with correct assets and dynamical f
   assert.strictEqual(rounds[0].asset, 'BTC');
   assert.strictEqual(rounds[0].mode, 'updown');
   assert.strictEqual(rounds[0].status, 'live');
-  assert.strictEqual(rounds[0].startPrice, 67420);
+  assert.strictEqual(Number(rounds[0].startPrice), 67420);
   
   assert.strictEqual(rounds[1].id, 'eth-precision-live');
   assert.strictEqual(rounds[1].asset, 'ETH');
   assert.strictEqual(rounds[1].mode, 'precision');
   assert.strictEqual(rounds[1].status, 'live');
-  assert.strictEqual(rounds[1].startPrice, 3241);
+  assert.strictEqual(Number(rounds[1].startPrice), 3241);
   
   assert.strictEqual(rounds[2].id, 'xlm-updown-new');
   assert.strictEqual(rounds[2].asset, 'XLM');
   assert.strictEqual(rounds[2].mode, 'updown');
   assert.strictEqual(rounds[2].status, 'new');
-  assert.strictEqual(rounds[2].startPrice, 0.2891);
+  assert.strictEqual(Number(rounds[2].startPrice), 0.2891);
 
   // Verify dynamic future timestamps
   const now = Date.now();

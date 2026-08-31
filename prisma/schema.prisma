@@ -516,12 +516,12 @@ model MockRound {
   asset           String
   mode            String
   status          String
-  startPrice      Float  @map("start_price")
-  poolUp          Float? @map("pool_up")
-  poolDown        Float? @map("pool_down")
-  totalPool       Float? @map("total_pool")
-  predictionCount Int?   @map("prediction_count")
-  closesAt        String @map("closes_at")
+  startPrice      Decimal  @map("start_price") @db.Decimal(20, 8)
+  poolUp          Decimal? @map("pool_up") @db.Decimal(20, 8)
+  poolDown        Decimal? @map("pool_down") @db.Decimal(20, 8)
+  totalPool       Decimal? @map("total_pool") @db.Decimal(20, 8)
+  predictionCount Int?     @map("prediction_count")
+  closesAt        String   @map("closes_at")
 
   @@map("hackathon_rounds")
 }
@@ -534,8 +534,8 @@ model MockLeaderboard {
   winStreak       Int    @map("current_streak")
   xp              Int
   rankTitle       String @map("rank_title")
-  balance         Int    @default(1000)
-  pendingWinnings Int    @map("pending_winnings") @default(0)
+  balance         Decimal @default(1000) @db.Decimal(20, 8)
+  pendingWinnings Decimal @default(0) @map("pending_winnings") @db.Decimal(20, 8)
 
   @@map("hackathon_users")
 }
@@ -544,18 +544,18 @@ model MockBet {
   id             Int       @id @default(autoincrement())
   roundId        String    @map("round_id")
   address        String
-  amount         Float
+  amount         Decimal   @db.Decimal(20, 8)
   side           String?
-  predictedPrice Float?    @map("predicted_price")
+  predictedPrice Decimal?  @map("predicted_price") @db.Decimal(20, 8)
   createdAt      DateTime  @default(now()) @map("created_at")
 
   @@map("hackathon_bets")
 }
 
 model MockPlatformStat {
-  id                   Int   @id @default(1)
+  id                   Int     @id @default(1)
   totalRounds          Int
-  totalVxlmDistributed Float
+  totalVxlmDistributed Decimal @db.Decimal(20, 8)
   activePlayers        Int
   totalBetsPlaced      Int
 }
