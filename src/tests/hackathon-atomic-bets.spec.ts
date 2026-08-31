@@ -20,7 +20,6 @@ describe('Hackathon Atomic Bets', () => {
     await prisma.mockBet.deleteMany({ where: { address: TEST_ADDRESS } });
     await prisma.mockLeaderboard.deleteMany({ where: { address: TEST_ADDRESS } });
   });
-
   beforeEach(async () => {
     await prisma.mockBet.deleteMany({ where: { address: TEST_ADDRESS } });
     await prisma.mockLeaderboard.deleteMany({ where: { address: TEST_ADDRESS } });
@@ -57,10 +56,10 @@ describe('Hackathon Atomic Bets', () => {
 
       const freshBet = bets.find(b => b.roundId === 'btc-updown-live');
       expect(freshBet).toBeDefined();
-      expect(freshBet!.amount).toBe(200);
+      expect(Number(freshBet!.amount)).toBe(200);
       expect(freshBet!.side).toBe('UP');
-      expect(userAfter!.balance).toBe(userBefore!.balance - 200);
-      expect(roundAfter!.poolUp).toBe(roundBefore!.poolUp! + 200);
+      expect(Number(userAfter!.balance)).toBe(Number(userBefore!.balance) - 200);
+      expect(Number(roundAfter!.poolUp)).toBe(Number(roundBefore!.poolUp ?? 0) + 200);
     });
 
     it('atomically inserts bet and updates totalPool for Precision mode', async () => {
@@ -75,11 +74,11 @@ describe('Hackathon Atomic Bets', () => {
 
       const freshBet = bets.find(b => b.roundId === 'eth-precision-live');
       expect(freshBet).toBeDefined();
-      expect(freshBet!.amount).toBe(150);
-      expect(freshBet!.predictedPrice).toBe(3250);
-      expect(userAfter!.balance).toBe(userBefore!.balance - 150);
-      expect(roundAfter!.totalPool).toBe(roundBefore!.totalPool! + 150);
-      expect(roundAfter!.predictionCount).toBe(roundBefore!.predictionCount! + 1);
+      expect(Number(freshBet!.amount)).toBe(150);
+      expect(Number(freshBet!.predictedPrice)).toBe(3250);
+      expect(Number(userAfter!.balance)).toBe(Number(userBefore!.balance) - 150);
+      expect(Number(roundAfter!.totalPool)).toBe(Number(roundBefore!.totalPool ?? 0) + 150);
+      expect(roundAfter!.predictionCount).toBe((roundBefore!.predictionCount ?? 0) + 1);
     });
   });
 
@@ -97,9 +96,8 @@ describe('Hackathon Atomic Bets', () => {
       const bets = await prisma.mockBet.findMany({
         where: { address: TEST_ADDRESS, roundId: 'nonexistent-round-id' },
       });
-
       expect(bets.length).toBe(0);
-      expect(userAfter!.balance).toBe(userBefore!.balance);
+      expect(Number(userAfter!.balance)).toBe(Number(userBefore!.balance));
       expect(roundsAfter).toEqual(roundsBefore);
     });
 
@@ -120,10 +118,8 @@ describe('Hackathon Atomic Bets', () => {
       });
 
       expect(bets.length).toBe(0);
-      expect(userAfter!.balance).toBe(userBefore!.balance);
+      expect(Number(userAfter!.balance)).toBe(Number(userBefore!.balance));
       expect(roundsAfter).toEqual(roundsBefore);
-
-      txSpy.mockRestore();
     });
   });
 
@@ -148,10 +144,10 @@ describe('Hackathon Atomic Bets', () => {
       const roundBets = bets.filter(b => b.roundId === roundId);
       expect(roundBets.length).toBe(3);
 
-      const totalBetAmount = roundBets.reduce((sum, b) => sum + b.amount, 0);
-      expect(userAfter!.balance).toBe(userBefore!.balance - totalBetAmount);
-      expect(roundAfter!.poolUp).toBe(roundBefore!.poolUp! + 100 + 50);
-      expect(roundAfter!.poolDown).toBe(roundBefore!.poolDown! + 200);
+      const totalBetAmount = roundBets.reduce((sum, b) => sum + Number(b.amount), 0);
+      expect(Number(userAfter!.balance)).toBe(Number(userBefore!.balance) - totalBetAmount);
+      expect(Number(roundAfter!.poolUp)).toBe(Number(roundBefore!.poolUp ?? 0) + 100 + 50);
+      expect(Number(roundAfter!.poolDown)).toBe(Number(roundBefore!.poolDown ?? 0) + 200);
     });
   });
 });

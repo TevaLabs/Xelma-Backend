@@ -208,9 +208,14 @@ export class HackathonService {
     predictedPrice?: number,
   ): Promise<void> {
     await prisma.$transaction(async (tx) => {
-      const existing = await tx.mockLeaderboard.findUnique({ where: { address } });
+      const round = await tx.mockRound.findUnique({ where: { id: roundId } });
+      if (!round) {
+        throw new Error('Round not found');
+      }
+
+      let existing = await tx.mockLeaderboard.findUnique({ where: { address } });
       if (!existing) {
-        await tx.mockLeaderboard.create({
+        existing = await tx.mockLeaderboard.create({
           data: {
             address,
             rank: 0,
@@ -223,6 +228,10 @@ export class HackathonService {
             rankTitle: 'Rookie',
           },
         });
+      }
+
+      if (existing.balance && toDecimal(existing.balance).lt(toDecimal(amount))) {
+        throw new Error('Insufficient balance');
       }
 
       await tx.mockBet.create({
@@ -240,25 +249,22 @@ export class HackathonService {
         data: { balance: { decrement: amount } },
       });
 
-      const round = await tx.mockRound.findUnique({ where: { id: roundId } });
-      if (round) {
-        if (round.mode === 'updown' && side) {
-          await tx.mockRound.update({
-            where: { id: roundId },
-            data:
-              side === 'UP'
-                ? { poolUp: { increment: amount } }
-                : { poolDown: { increment: amount } },
-          });
-        } else if (round.mode === 'precision') {
-          await tx.mockRound.update({
-            where: { id: roundId },
-            data: {
-              totalPool: { increment: amount },
-              predictionCount: { increment: 1 },
-            },
-          });
-        }
+      if (round.mode === 'updown' && side) {
+        await tx.mockRound.update({
+          where: { id: roundId },
+          data:
+            side === 'UP'
+              ? { poolUp: { increment: amount } }
+              : { poolDown: { increment: amount } },
+        });
+      } else if (round.mode === 'precision') {
+        await tx.mockRound.update({
+          where: { id: roundId },
+          data: {
+            totalPool: { increment: amount },
+            predictionCount: { increment: 1 },
+          },
+        });
       }
     });
   }
