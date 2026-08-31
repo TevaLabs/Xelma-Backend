@@ -422,9 +422,19 @@ The mapper in [src/utils/soroban-round.mapper.ts](src/utils/soroban-round.mapper
 
 #### **Tournaments (`/api/tournaments`)**
 
+Tournaments run through a **saga lifecycle** (`create → join → lock → settle →
+payout`), fully validated in the service layer (`services/tournament.service.ts`)
+against a single transition graph (`types/tournament.types.ts`). Out-of-order
+requests (e.g. locking a COMPLETED tournament) return a structured `409
+TOURNAMENT_INVALID_STATE` rather than mutating state.
+
 - `GET /` - List tournaments. Query: `?mode=UP_DOWN|LEGENDS`, `?status=UPCOMING|ACTIVE|COMPLETED|CANCELLED`, `limit`, `offset` (mode and status may be combined). Response: `{ success, data, pagination: { limit, offset, total } }`
+- `POST /` - [Auth] `createTournament` starts the saga at `UPCOMING`
 - `GET /:id` - Get tournament detail by id
-- `POST /:id/join` - [Auth] Join a tournament
+- `POST /:id/join` - [Auth] Join a tournament (atomic, race-safe capacity enforcement)
+- `POST /:id/lock` - [Auth] Lock the roster `UPCOMING → ACTIVE`
+- `POST /:id/settle` - [Auth] Settle `ACTIVE → COMPLETED` and pay winners
+- `POST /:id/cancel` - [Auth] Cancel `UPCOMING/ACTIVE → CANCELLED`
 
 #### **Leaderboard (`/api/leaderboard`)**
 

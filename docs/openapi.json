@@ -792,6 +792,202 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Create a tournament (start of the saga lifecycle)",
+        "description": "Starts the tournament saga at UPCOMING. Subsequent lifecycle steps\n(join -> lock -> settle -> payout) are validated exclusively in the\nservice layer, not in this route, so out-of-order requests fail with a\nstructured bad-state rejection. Requires authentication.\n",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "description",
+                  "mode",
+                  "entryFee",
+                  "prizePool",
+                  "maxParticipants",
+                  "startTime",
+                  "endTime",
+                  "rounds"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "UP_DOWN",
+                      "LEGENDS"
+                    ]
+                  },
+                  "entryFee": {
+                    "type": "string"
+                  },
+                  "prizePool": {
+                    "type": "string"
+                  },
+                  "maxParticipants": {
+                    "type": "integer"
+                  },
+                  "startTime": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endTime": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "rounds": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tournament created"
+          },
+          "400": {
+            "description": "Invalid tournament parameters"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "409": {
+            "description": "Lifecycle violation"
+          }
+        }
+      }
+    },
+    "/api/tournaments/{id}/lock": {
+      "post": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Lock a tournament (close the join window)",
+        "description": "Transitions the tournament UPCOMING -> ACTIVE, freezing registration\nbefore rounds begin. Validated by the saga state machine in the service.\n",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tournament locked"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Tournament not found"
+          },
+          "409": {
+            "description": "Lifecycle violation (e.g. locking a COMPLETED tournament)"
+          }
+        }
+      }
+    },
+    "/api/tournaments/{id}/settle": {
+      "post": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Settle a tournament and pay out winners",
+        "description": "Transitions the tournament ACTIVE -> COMPLETED and distributes the prize\npool deterministically based on the tied round leaderboard. The settle +\npayout is atomic and validated by the saga state machine.\n",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Settlement completed with winner allocations"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Tournament not found"
+          },
+          "409": {
+            "description": "Lifecycle violation (e.g. settling an un-locked tournament)"
+          }
+        }
+      }
+    },
+    "/api/tournaments/{id}/cancel": {
+      "post": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Cancel a tournament",
+        "description": "Transitions the tournament UPCOMING/ACTIVE -> CANCELLED. Terminal\nsuppression: a COMPLETED tournament cannot be cancelled. Validated by\nthe saga state machine in the service layer.\n",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tournament cancelled"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Tournament not found"
+          },
+          "409": {
+            "description": "Lifecycle violation (e.g. cancelling a COMPLETED tournament)"
+          }
+        }
       }
     },
     "/api/stats": {
