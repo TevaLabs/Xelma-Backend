@@ -7,6 +7,7 @@ import outboxService, { BetAcceptedOutboxPayload, BetConfirmedOutboxPayload, Bet
 import { serializeMoney } from '../utils/decimal.util';
 import { toDecimal, toNumber } from '../utils/decimal.util';
 import { NotFoundError, ValidationError } from '../utils/errors';
+import { getRequestId } from '../utils/requestContext';
 
 export interface UpDownBetInput {
   address: string;
@@ -112,14 +113,16 @@ export class BetService {
 
   async recordUpDownBet(
     input: UpDownBetInput,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    explicitRequestId?: string
   ): Promise<BetResult> {
+    const requestId = explicitRequestId ?? getRequestId();
     const stubMode = this.isStubMode();
 
     if (stubMode) {
-      logger.info('UP/DOWN bet recorded (stub mode)', { ...input, idempotencyKey });
+      logger.info('UP/DOWN bet recorded (stub mode)', { ...input, idempotencyKey, requestId });
     } else {
-      logger.info('Placing UP/DOWN bet on-chain', { ...input, idempotencyKey });
+      logger.info('Placing UP/DOWN bet on-chain', { ...input, idempotencyKey, requestId });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -192,6 +195,8 @@ export class BetService {
                 roundId: bet.roundId,
                 mode: 'UP_DOWN',
                 failureReason: reason,
+                requestId,
+                correlationId: requestId ? `${requestId}:${bet.id}` : undefined,
               } satisfies BetFailedOutboxPayload,
             },
           });
@@ -215,6 +220,8 @@ export class BetService {
             amount: input.amount,
             state: stubMode ? 'stub' : 'accepted',
             txHash,
+            requestId,
+            correlationId: requestId && txHash ? `${requestId}:${txHash}` : requestId ?? txHash,
           } satisfies BetAcceptedOutboxPayload,
         },
       });
@@ -223,7 +230,7 @@ export class BetService {
       return { bet: finalBet!, betStatus, txHash, chainResult };
     });
 
-    // Audit event (outside transaction, fire-and-forget)
+    // Audit event (outside transaction, fire-and-forget) - includes requestId via context or explicit
     betAuditService.emitBetAccepted({
       betId: result.bet.id,
       address: input.address,
@@ -233,6 +240,8 @@ export class BetService {
       result: stubMode ? 'stub' : 'on-chain-success',
       status: result.betStatus,
       txHash: result.txHash,
+      requestId,
+      correlationId: requestId && result.txHash ? `${requestId}:${result.txHash}` : requestId,
     });
 
     return {
@@ -245,14 +254,16 @@ export class BetService {
 
   async recordPrecisionBet(
     input: PrecisionBetInput,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    explicitRequestId?: string
   ): Promise<BetResult> {
+    const requestId = explicitRequestId ?? getRequestId();
     const stubMode = this.isStubMode();
 
     if (stubMode) {
-      logger.info('Precision bet recorded (stub mode)', { ...input, idempotencyKey });
+      logger.info('Precision bet recorded (stub mode)', { ...input, idempotencyKey, requestId });
     } else {
-      logger.info('Placing Precision bet on-chain', { ...input, idempotencyKey });
+      logger.info('Placing Precision bet on-chain', { ...input, idempotencyKey, requestId });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -322,6 +333,8 @@ export class BetService {
                 roundId: bet.roundId,
                 mode: 'PRECISION',
                 failureReason: reason,
+                requestId,
+                correlationId: requestId ? `${requestId}:${bet.id}` : undefined,
               } satisfies BetFailedOutboxPayload,
             },
           });
@@ -344,6 +357,8 @@ export class BetService {
             predictedPrice: input.predictedPrice,
             state: stubMode ? 'stub' : 'accepted',
             txHash,
+            requestId,
+            correlationId: requestId && txHash ? `${requestId}:${txHash}` : requestId ?? txHash,
           } satisfies BetAcceptedOutboxPayload,
         },
       });
@@ -360,6 +375,8 @@ export class BetService {
       result: stubMode ? 'stub' : 'on-chain-success',
       status: result.betStatus,
       txHash: result.txHash,
+      requestId,
+      correlationId: requestId && result.txHash ? `${requestId}:${result.txHash}` : requestId,
     });
 
     return {
@@ -374,14 +391,15 @@ export class BetService {
    * Attach an on-chain transaction hash to an existing bet record.
    * Used for reconciling SUBMITTED bets (stub→live upgrade or reconciliation job).
    */
-  async reconcileBet(betId: string, txHash: string): Promise<StoredBet | null> {
+  async reconcileBet(betId: string, txHash: string, explicitRequestId?: string): Promise<StoredBet | null> {
+    const requestId = explicitRequestId ?? getRequestId();
     const bet = await prisma.$transaction(async (tx) => {
       const existingBet = await tx.bet.findUnique({
         where: { id: betId },
       });
 
       if (!existingBet) {
-        logger.warn('Cannot reconcile unknown bet', { betId, txHash });
+        logger.warn('Cannot reconcile unknown bet', { betId, txHash, requestId });
         return null;
       }
 
@@ -420,6 +438,8 @@ export class BetService {
             roundId: updatedBet.roundId,
             mode: updatedBet.mode === BetMode.UP_DOWN ? 'UP_DOWN' : 'PRECISION',
             txHash,
+            requestId,
+            correlationId: requestId ? `${requestId}:${txHash}` : txHash,
           } satisfies BetConfirmedOutboxPayload,
         },
       });
@@ -432,6 +452,8 @@ export class BetService {
         betId,
         txHash,
         status: bet.status,
+        requestId,
+        correlationId: requestId ? `${requestId}:${txHash}` : txHash,
       });
 
       betAuditService.emitBetReconciled({
@@ -443,6 +465,8 @@ export class BetService {
         result: 'reconciled',
         status: bet.status,
         txHash,
+        requestId,
+        correlationId: requestId ? `${requestId}:${txHash}` : txHash,
       });
     }
 
@@ -495,15 +519,17 @@ export class BetService {
   async resolveBet(
     betId: string,
     won: boolean,
-    payout: number
+    payout: number,
+    explicitRequestId?: string
   ): Promise<StoredBet | null> {
+    const requestId = explicitRequestId ?? getRequestId();
     const bet = await prisma.$transaction(async (tx) => {
       const existingBet = await tx.bet.findUnique({
         where: { id: betId },
       });
 
       if (!existingBet) {
-        logger.warn('Cannot resolve unknown bet', { betId });
+        logger.warn('Cannot resolve unknown bet', { betId, requestId });
         return null;
       }
 
@@ -541,6 +567,8 @@ export class BetService {
             mode: updatedBet.mode === BetMode.UP_DOWN ? 'UP_DOWN' : 'PRECISION',
             won,
             payout,
+            requestId,
+            correlationId: requestId ? `${requestId}:${updatedBet.id}` : undefined,
           } satisfies BetResolvedOutboxPayload,
         },
       });
@@ -555,14 +583,15 @@ export class BetService {
    * Marks a bet as failed with a reason.
    * Used for manual failure or irrecoverable errors.
    */
-  async failBet(betId: string, reason: string): Promise<StoredBet | null> {
+  async failBet(betId: string, reason: string, explicitRequestId?: string): Promise<StoredBet | null> {
+    const requestId = explicitRequestId ?? getRequestId();
     const bet = await prisma.$transaction(async (tx) => {
       const existingBet = await tx.bet.findUnique({
         where: { id: betId },
       });
 
       if (!existingBet) {
-        logger.warn('Cannot fail unknown bet', { betId });
+        logger.warn('Cannot fail unknown bet', { betId, requestId });
         return null;
       }
 
@@ -597,6 +626,8 @@ export class BetService {
             roundId: updatedBet.roundId,
             mode: updatedBet.mode === BetMode.UP_DOWN ? 'UP_DOWN' : 'PRECISION',
             failureReason: reason,
+            requestId,
+            correlationId: requestId ? `${requestId}:${updatedBet.id}` : undefined,
           } satisfies BetFailedOutboxPayload,
         },
       });
@@ -614,6 +645,8 @@ export class BetService {
         result: 'manual-failure',
         status: BetStatus.FAILED,
         failureReason: reason,
+        requestId,
+        correlationId: requestId ? `${requestId}:${bet.id}` : undefined,
       });
     }
 
@@ -653,23 +686,30 @@ export class BetService {
 
   async claimWinnings(
     address: string,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    explicitRequestId?: string
   ): Promise<{ state: string; amount: number; txHash?: string }> {
+    const requestId = explicitRequestId ?? getRequestId();
     let result: { state: string; amount: number; txHash?: string };
 
     if (process.env.BET_STUB_MODE === 'true') {
-      logger.info('Claim winnings stub recorded', { address, idempotencyKey });
+      logger.info('Claim winnings stub recorded', { address, idempotencyKey, requestId });
       result = { state: 'stub', amount: 0 };
     } else {
-      logger.info('Claiming winnings on-chain', { address, idempotencyKey });
+      logger.info('Claiming winnings on-chain', { address, idempotencyKey, requestId });
       result = await sorobanService.claimWinnings(address);
     }
+
+    const correlationId = requestId && result.txHash ? `${requestId}:${result.txHash}` : requestId ?? result.txHash;
+    logger.info('Claim winnings result', { address, requestId, txHash: result.txHash, correlationId, state: result.state });
 
     betAuditService.emitClaimAccepted({
       address,
       amount: result.amount,
       result: result.state,
       txHash: result.txHash,
+      requestId,
+      correlationId,
     });
 
     return result;
