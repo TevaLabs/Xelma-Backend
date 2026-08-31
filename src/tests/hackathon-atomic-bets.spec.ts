@@ -52,10 +52,10 @@ describe('Hackathon Atomic Bets', () => {
 
       const freshBet = bets.find(b => b.roundId === 'btc-updown-live');
       expect(freshBet).toBeDefined();
-      expect(freshBet!.amount).toBe(200);
+      expect(freshBet!.amount.toNumber()).toBe(200);
       expect(freshBet!.side).toBe('UP');
-      expect(userAfter!.balance).toBe(userBefore!.balance - 200);
-      expect(roundAfter!.poolUp).toBe((roundBefore!.poolUp ?? 0) + 200);
+      expect(userAfter!.balance.toNumber()).toBe(userBefore!.balance.toNumber() - 200);
+      expect(roundAfter!.poolUp!.toNumber()).toBe((roundBefore!.poolUp?.toNumber() ?? 0) + 200);
     });
 
     it('atomically inserts bet and updates totalPool for Precision mode', async () => {
@@ -70,10 +70,10 @@ describe('Hackathon Atomic Bets', () => {
 
       const freshBet = bets.find(b => b.roundId === 'eth-precision-live');
       expect(freshBet).toBeDefined();
-      expect(freshBet!.amount).toBe(150);
-      expect(freshBet!.predictedPrice).toBe(3250);
-      expect(userAfter!.balance).toBe(userBefore!.balance - 150);
-      expect(roundAfter!.totalPool).toBe((roundBefore!.totalPool ?? 0) + 150);
+      expect(freshBet!.amount.toNumber()).toBe(150);
+      expect(freshBet!.predictedPrice!.toNumber()).toBe(3250);
+      expect(userAfter!.balance.toNumber()).toBe(userBefore!.balance.toNumber() - 150);
+      expect(roundAfter!.totalPool!.toNumber()).toBe((roundBefore!.totalPool?.toNumber() ?? 0) + 150);
       expect(roundAfter!.predictionCount).toBe((roundBefore!.predictionCount ?? 0) + 1);
     });
   });
@@ -94,7 +94,7 @@ describe('Hackathon Atomic Bets', () => {
       });
 
       expect(bets.length).toBe(0);
-      expect(userAfter!.balance).toBe(userBefore!.balance);
+      expect(userAfter!.balance.toString()).toBe(userBefore!.balance.toString());
       expect(roundsAfter).toEqual(roundsBefore);
     });
   });
@@ -120,10 +120,10 @@ describe('Hackathon Atomic Bets', () => {
       const roundBets = bets.filter(b => b.roundId === roundId);
       expect(roundBets.length).toBe(3);
 
-      const totalBetAmount = roundBets.reduce((sum, b) => sum + b.amount, 0);
-      expect(userAfter!.balance).toBe(userBefore!.balance - totalBetAmount);
-      expect(roundAfter!.poolUp).toBe((roundBefore!.poolUp ?? 0) + 100 + 50);
-      expect(roundAfter!.poolDown).toBe((roundBefore!.poolDown ?? 0) + 200);
+      const totalBetAmount = roundBets.reduce((sum, b) => sum + b.amount.toNumber(), 0);
+      expect(userAfter!.balance.toNumber()).toBe(userBefore!.balance.toNumber() - totalBetAmount);
+      expect(roundAfter!.poolUp!.toNumber()).toBe((roundBefore!.poolUp?.toNumber() ?? 0) + 100 + 50);
+      expect(roundAfter!.poolDown!.toNumber()).toBe((roundBefore!.poolDown?.toNumber() ?? 0) + 200);
     });
   });
 });

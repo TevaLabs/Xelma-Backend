@@ -24,6 +24,7 @@ import { mockDataRepository } from '../repositories/mockData.repository';
 
 // Types are kept for backward compatibility with callers that map to the union shape.
 import { Decimal } from '@prisma/client/runtime/library';
+import { toDecimal } from '../utils/decimal.util';
 
 export type MockPredictionRound =
   | { id: string; asset: string; mode: 'updown'; status: 'live' | 'new'; startPrice: Decimal; poolUp: Decimal; poolDown: Decimal; closesAt: string; }
@@ -55,12 +56,12 @@ export const getMockRounds = async (): Promise<MockPredictionRound[]> => {
     if (r.mode === 'updown') {
       return {
         id: r.id, asset: r.asset, mode: 'updown', status: r.status as 'live' | 'new',
-        startPrice: r.startPrice, poolUp: r.poolUp!, poolDown: r.poolDown!, closesAt: r.closesAt
+        startPrice: toDecimal(r.startPrice), poolUp: toDecimal(r.poolUp!), poolDown: toDecimal(r.poolDown!), closesAt: r.closesAt
       };
     }
     return {
       id: r.id, asset: r.asset, mode: 'precision', status: r.status as 'live' | 'new',
-      startPrice: r.startPrice, totalPool: r.totalPool!, predictionCount: r.predictionCount!, closesAt: r.closesAt
+      startPrice: toDecimal(r.startPrice), totalPool: toDecimal(r.totalPool!), predictionCount: r.predictionCount!, closesAt: r.closesAt
     };
   });
 };
