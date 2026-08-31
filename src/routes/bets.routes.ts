@@ -28,9 +28,9 @@ import {
   ExternalServiceError,
   NotFoundError,
 } from "../utils/errors";
-import { sendSuccess } from "../utils/response";
 import { serializeBet } from "../serializers/monetary.serializer";
 import { prisma } from "../lib/prisma";
+import { executeBet } from "./bet-execution";
 
 const router = Router();
 
@@ -68,111 +68,10 @@ router.post(
   betRateLimiter,
   validate(upDownBetSchema),
   (async (req: any, res: Response, next: NextFunction) => {
-    const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
-    const userId = req.user.userId;
-    const endpoint = "/api/bets/up-down";
-    let lockAcquired = false;
-    let operationCompleted = false;
-
-    const execute = async () => {
-      if (idempotencyKey) {
-        if (!isValidIdempotencyKey(idempotencyKey)) {
-          throw new ValidationError(
-            "Invalid Idempotency-Key format. Must be 8-255 alphanumeric characters."
-          );
-        }
-
-        const lockResult = await acquireIdempotencyLock(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          24 // TTL hours
-        );
-
-        if (lockResult.isIdempotent && lockResult.cachedResponse) {
-          return res
-            .status(lockResult.cachedResponse.status)
-            .json(lockResult.cachedResponse.body);
-        }
-
-        if (lockResult.error === IDEMPOTENCY_STORE_UNAVAILABLE) {
-          throw new ExternalServiceError(
-            "Idempotency store unavailable. Please try again.",
-            ErrorCode.EXTERNAL_SERVICE_ERROR
-          );
-        }
-
-        if (lockResult.error) {
-          throw new ConflictError(
-            lockResult.error,
-            ErrorCode.IDEMPOTENCY_KEY_CONFLICT
-          );
-        }
-
-        lockAcquired = !!lockResult.lockAcquired;
-      }
-
-      const result = await betService.recordUpDownBet(req.body, idempotencyKey);
-      operationCompleted = true;
-      const data = {
-        message: result.state === "stub" ? "Bet recorded (stub)" : "Bet placed on-chain",
-        state: result.state,
-        betId: result.betId,
-        status: result.status,
-        ...(result.txHash ? { txHash: result.txHash } : {}),
-      };
-      const responseBody = { success: true as const, data };
-
-      if (idempotencyKey && lockAcquired) {
-        await storeIdempotencyResult(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          200,
-          responseBody,
-          { ttlHours: 24 }
-        );
-      }
-
-      return sendSuccess(res, data);
-    };
-
-    try {
-      if (idempotencyKey) {
-        // Fail-closed distributed lock (Redis) in front of the Prisma flow so
-        // concurrent replicas cannot both process the same key.
-        await withDistributedIdempotencyLock(
-          userId,
-          endpoint,
-          idempotencyKey,
-          execute
-        );
-      } else {
-        await execute();
-      }
-    } catch (error: any) {
-      if (idempotencyKey && lockAcquired && !operationCompleted) {
-        await releaseIdempotencyLock(userId, endpoint, idempotencyKey);
-      }
-
-      if (error instanceof DistributedIdempotencyLockUnavailableError) {
-        return next(new ExternalServiceError(
-          "Distributed idempotency lock unavailable. Please try again.",
-          ErrorCode.EXTERNAL_SERVICE_ERROR
-        ));
-      }
-
-      if (error instanceof IdempotencyStoreUnavailableError) {
-        return next(new ExternalServiceError(
-          "Idempotency store unavailable. Please try again.",
-          ErrorCode.EXTERNAL_SERVICE_ERROR
-        ));
-      }
-
-      return next(error);
-    }
+    await executeBet(req, res, next, {
+      kind: "up-down",
+      endpoint: "/api/bets/up-down",
+    });
   }) as any,
 );
 
@@ -210,111 +109,10 @@ router.post(
   betRateLimiter,
   validate(precisionBetSchema),
   (async (req: any, res: Response, next: NextFunction) => {
-    const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
-    const userId = req.user.userId;
-    const endpoint = "/api/bets/precision";
-    let lockAcquired = false;
-    let operationCompleted = false;
-
-    const execute = async () => {
-      if (idempotencyKey) {
-        if (!isValidIdempotencyKey(idempotencyKey)) {
-          throw new ValidationError(
-            "Invalid Idempotency-Key format. Must be 8-255 alphanumeric characters."
-          );
-        }
-
-        const lockResult = await acquireIdempotencyLock(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          24 // TTL hours
-        );
-
-        if (lockResult.isIdempotent && lockResult.cachedResponse) {
-          return res
-            .status(lockResult.cachedResponse.status)
-            .json(lockResult.cachedResponse.body);
-        }
-
-        if (lockResult.error === IDEMPOTENCY_STORE_UNAVAILABLE) {
-          throw new ExternalServiceError(
-            "Idempotency store unavailable. Please try again.",
-            ErrorCode.EXTERNAL_SERVICE_ERROR
-          );
-        }
-
-        if (lockResult.error) {
-          throw new ConflictError(
-            lockResult.error,
-            ErrorCode.IDEMPOTENCY_KEY_CONFLICT
-          );
-        }
-
-        lockAcquired = !!lockResult.lockAcquired;
-      }
-
-      const result = await betService.recordPrecisionBet(req.body, idempotencyKey);
-      operationCompleted = true;
-      const data = {
-        message: result.state === "stub" ? "Bet recorded (stub)" : "Bet placed on-chain",
-        state: result.state,
-        betId: result.betId,
-        status: result.status,
-        ...(result.txHash ? { txHash: result.txHash } : {}),
-      };
-      const responseBody = { success: true as const, data };
-
-      if (idempotencyKey && lockAcquired) {
-        await storeIdempotencyResult(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          200,
-          responseBody,
-          { ttlHours: 24 }
-        );
-      }
-
-      return sendSuccess(res, data);
-    };
-
-    try {
-      if (idempotencyKey) {
-        // Fail-closed distributed lock (Redis) in front of the Prisma flow so
-        // concurrent replicas cannot both process the same key.
-        await withDistributedIdempotencyLock(
-          userId,
-          endpoint,
-          idempotencyKey,
-          execute
-        );
-      } else {
-        await execute();
-      }
-    } catch (error: any) {
-      if (idempotencyKey && lockAcquired && !operationCompleted) {
-        await releaseIdempotencyLock(userId, endpoint, idempotencyKey);
-      }
-
-      if (error instanceof DistributedIdempotencyLockUnavailableError) {
-        return next(new ExternalServiceError(
-          "Distributed idempotency lock unavailable. Please try again.",
-          ErrorCode.EXTERNAL_SERVICE_ERROR
-        ));
-      }
-
-      if (error instanceof IdempotencyStoreUnavailableError) {
-        return next(new ExternalServiceError(
-          "Idempotency store unavailable. Please try again.",
-          ErrorCode.EXTERNAL_SERVICE_ERROR
-        ));
-      }
-
-      return next(error);
-    }
+    await executeBet(req, res, next, {
+      kind: "precision",
+      endpoint: "/api/bets/precision",
+    });
   }) as any,
 );
 

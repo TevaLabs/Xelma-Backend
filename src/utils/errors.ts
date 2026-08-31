@@ -29,7 +29,7 @@ export enum ErrorCode {
   ACTIVE_ROUND_EXISTS = "ACTIVE_ROUND_EXISTS",
   IDEMPOTENCY_KEY_CONFLICT = "IDEMPOTENCY_KEY_CONFLICT",
   CONTRACT_INVALID_STATE = "CONTRACT_INVALID_STATE",
-  ILLEGAL_ROUND_TRANSITION = "ILLEGAL_ROUND_TRANSITION",
+  TOURNAMENT_INVALID_STATE = "TOURNAMENT_INVALID_STATE",
 }
 
 export interface ErrorDetail {
@@ -94,21 +94,20 @@ export class ConflictError extends AppError {
 }
 
 /**
- * 409 – a round attempted a status transition the lifecycle state machine
- * forbids (Issue #490). Distinct from a generic ConflictError so the error
- * handler can surface the offending from/to pair to callers and operators.
+ * 409 – a tournament lifecycle request was made out of order (Issue #502).
+ * Distinct from a generic ConflictError so the saga's bad-state rejections are
+ * machine-recognisable and can increment the transition-failure metric.
  */
-export class IllegalRoundTransitionError extends ConflictError {
+export class TournamentInvalidStateError extends ConflictError {
   readonly from: string;
   readonly to: string;
 
   constructor(from: string, to: string, message?: string) {
     super(
-      message ??
-        `Illegal round transition: ${from} -> ${to} is not a valid lifecycle edge.`,
-      ErrorCode.ILLEGAL_ROUND_TRANSITION,
+      message ?? `Invalid tournament state: cannot ${to} a ${from} tournament.`,
+      ErrorCode.TOURNAMENT_INVALID_STATE,
     );
-    this.name = "IllegalRoundTransitionError";
+    this.name = "TournamentInvalidStateError";
     this.from = from;
     this.to = to;
   }
@@ -332,12 +331,12 @@ export const ERROR_CATALOG: readonly ErrorCatalogEntry[] = [
       "Contract operation rejected due to invalid state on the blockchain.",
   },
   {
-    code: ErrorCode.ILLEGAL_ROUND_TRANSITION,
+    code: ErrorCode.TOURNAMENT_INVALID_STATE,
     status: 409,
-    errorClass: "IllegalRoundTransitionError",
+    errorClass: "TournamentInvalidStateError",
     description:
-      "Round status change skipped a valid lifecycle state (e.g. trying to resolve " +
-      "an open round, or re-settle an already-final round).",
+      "Tournament lifecycle request made out of order (e.g. locking a tournament " +
+      "that is not UPCOMING, or settling one that never locked).",
   },
 ];
 

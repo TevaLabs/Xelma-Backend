@@ -117,7 +117,7 @@ const mockClient = {
       result: mockClaimResult,
       signAndSend: async (_opts?: unknown) => ({
         result: mockClaimResult,
-        hash: "claim_tx_hash_xyz789",
+        sendTransactionResponse: { hash: "claim_tx_hash_xyz789" },
       }),
     };
   },

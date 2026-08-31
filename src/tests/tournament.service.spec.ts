@@ -9,7 +9,10 @@ const mockTransaction = jest.fn();
 
 // Mock tx object that mirrors the Prisma transaction client shape.
 // Delegates to the same mock fns so assertions remain straightforward.
+const mockQueryRaw = jest.fn().mockResolvedValue([{ id: 't-001' }]);
+
 const mockTx = {
+  $queryRaw: (...args: any[]) => mockQueryRaw(...args),
   tournament: {
     findUnique: (...args: any[]) => mockTournamentFindUnique(...args),
     update: (...args: any[]) => mockTournamentUpdate(...args),
@@ -88,6 +91,8 @@ describe('TournamentService.joinTournament (Issue #412)', () => {
     ).rejects.toBeInstanceOf(ConflictError);
 
     expect(mockTransaction).toHaveBeenCalledTimes(1);
+    // The row lock is taken before the capacity read inside the transaction
+    expect(mockQueryRaw).toHaveBeenCalledTimes(1);
     // Capacity check happens before membership check inside the transaction
     expect(mockParticipantFindUnique).not.toHaveBeenCalled();
   });

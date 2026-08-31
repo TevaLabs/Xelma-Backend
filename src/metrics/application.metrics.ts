@@ -369,18 +369,18 @@ export const distributedLockHeldSeconds = new Histogram({
 });
 
 /**
- * Round lifecycle violations (Issue #490).
+ * Tournament saga violations (Issue #502).
  *
- * Incremented every time a round status transition is rejected by the state
- * machine -- either an illegal hop (e.g. ACTIVE -> RESOLVED) or a terminal
- * state being written twice. `from`/`to` are low-cardinality labels (the five
- * persisted RoundStatus values), so this metric stays alert-able without
- * blowing up cardinality. A nonzero sustained rate means something is trying
- * to fast-forward or re-settle a round and should be investigated.
+ * Incremented whenever a tournament lifecycle transition (create -> join ->
+ * lock -> settle -> payout, plus cancel) is rejected as out-of-order — e.g.
+ * locking a COMPLETED tournament or settling one that was never locked.
+ * `from`/`to` are low-cardinality status labels, so this metric stays
+ * alert-able without exploding cardinality. A sustained nonzero rate means
+ * clients are driving the saga out of order and should be fixed.
  */
-export const roundTransitionFailuresTotal = new Counter({
-   name: 'round_transition_failures_total',
-   help: 'Total round status transitions rejected by the lifecycle state machine',
+export const tournamentTransitionFailuresTotal = new Counter({
+   name: 'tournament_transition_failures_total',
+   help: 'Total tournament lifecycle transitions rejected as out-of-order',
    labelNames: ['from', 'to'] as const,
    registers: [metricsRegistry],
 });

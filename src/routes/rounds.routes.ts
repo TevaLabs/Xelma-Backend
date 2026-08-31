@@ -5,7 +5,8 @@ import simulationService from "../services/simulation.service";
 import {
   requireAdmin,
   requireOracle,
-  authenticateUser,
+  verifyStellarAuth,
+  bindAuthenticatedWallet,
   AuthenticatedRequest,
 } from "../middleware/auth.middleware";
 import { asyncHandler } from "../middleware/errorHandler.middleware";
@@ -27,6 +28,7 @@ import {
 import { NotFoundError } from "../utils/errors";
 import { getRepositories } from "../repositories";
 import config from "../config";
+import { executeBet, BetKind } from "./bet-execution";
 
 const router = Router();
 
@@ -176,14 +178,61 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// Stub bet endpoint — for logging/analytics only; on-chain bets go via Soroban
+/**
+ * @swagger
+ * /api/rounds/{id}/bet:
+ *   post:
+ *     summary: Place a bet on a specific round
+ *     description: >
+ *       Round-scoped bet placement. The body shape selects the bet kind: a
+ *       `side` places an UP/DOWN bet, a `predictedPrice` places a Precision
+ *       bet. Runs through the same BetService execution path as
+ *       `/api/bets/*`, so `BET_STUB_MODE` decides between recording a stub bet
+ *       and submitting to Soroban, and on-chain failures surface as structured
+ *       errors.
+ *     tags: [rounds]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: header
+ *         name: Idempotency-Key
+ *         schema: { type: string }
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Bet recorded (stub) or placed on-chain
+ *       400:
+ *         description: Validation error, or round mode does not match the bet kind
+ *       401:
+ *         description: Missing or invalid JWT
+ *       403:
+ *         description: Wallet address mismatch
+ *       404:
+ *         description: Round not found
+ *       409:
+ *         description: Idempotency key conflict
+ */
 router.post(
   "/:id/bet",
+  verifyStellarAuth,
+  bindAuthenticatedWallet,
   betRateLimiter,
   validate(betSchema),
-  (_req: Request, res: Response) => {
-    res.json({ success: true, message: "Bet recorded (stub)" });
-  },
+  (async (req: Request, res: Response, next: NextFunction) => {
+    // betSchema is a union: `side` means UP/DOWN, `predictedPrice` means Precision.
+    const kind: BetKind =
+      req.body.predictedPrice !== undefined ? "precision" : "up-down";
+
+    await executeBet(req, res, next, {
+      kind,
+      endpoint: "/api/rounds/:id/bet",
+      roundId: req.params.id,
+    });
+  }) as any,
 );
 
 /**
@@ -395,33 +444,50 @@ router.post(
   }),
 );
 
-// Hackathon mutation endpoints - with Zod validation
+/**
+ * Hackathon mutation endpoints.
+ *
+ * These are round-scoped aliases of `/api/bets/{up-down,precision}` and run
+ * through the same BetService execution path, so pools, audit events and
+ * on-chain placement stay consistent no matter which URL a demo client uses.
+ * The hackathon round repository is still updated first so the in-memory
+ * hackathon views keep reflecting the bet.
+ */
 router.post(
   "/hackathon/up-down/:id/bet",
-  authenticateUser,
+  verifyStellarAuth,
+  bindAuthenticatedWallet,
   betRateLimiter,
   validate(upDownBetSchema),
   (async (req: Request, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const { address, amount, side } = req.body;
+
     try {
-      const { id } = req.params;
-      const { address, amount, side } = req.body;
       await getRepositories().rounds.placeBet(id, address, amount, side);
-      sendSuccess(res, { message: "Bet recorded (stub)" });
     } catch (err) {
-      next(err);
+      return next(err);
     }
+
+    await executeBet(req, res, next, {
+      kind: "up-down",
+      endpoint: "/api/rounds/hackathon/up-down/:id/bet",
+      roundId: id,
+    });
   }) as any,
 );
 
 router.post(
   "/hackathon/precision/:id/bet",
-  authenticateUser,
+  verifyStellarAuth,
+  bindAuthenticatedWallet,
   betRateLimiter,
   validate(precisionBetSchema),
   (async (req: Request, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const { address, amount, predictedPrice } = req.body;
+
     try {
-      const { id } = req.params;
-      const { address, amount, predictedPrice } = req.body;
       await getRepositories().rounds.placeBet(
         id,
         address,
@@ -429,10 +495,15 @@ router.post(
         undefined,
         predictedPrice,
       );
-      sendSuccess(res, { message: "Precision bet recorded (stub)" });
     } catch (err) {
-      next(err);
+      return next(err);
     }
+
+    await executeBet(req, res, next, {
+      kind: "precision",
+      endpoint: "/api/rounds/hackathon/precision/:id/bet",
+      roundId: id,
+    });
   }) as any,
 );
 

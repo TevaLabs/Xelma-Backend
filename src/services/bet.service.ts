@@ -6,17 +6,26 @@ import betAuditService from './bet-audit.service';
 import outboxService, { BetAcceptedOutboxPayload, BetConfirmedOutboxPayload, BetResolvedOutboxPayload, BetFailedOutboxPayload } from './outbox.service';
 import { serializeMoney } from '../utils/decimal.util';
 import { toDecimal, toNumber } from '../utils/decimal.util';
+import { NotFoundError, ValidationError } from '../utils/errors';
 
 export interface UpDownBetInput {
   address: string;
   amount: number;
   side: 'UP' | 'DOWN';
+  /**
+   * Bind the bet to a specific round. Round-scoped callers such as
+   * `POST /api/rounds/:id/bet` pass the path id; `/api/bets/*` omits it and
+   * falls back to the currently active round for the mode.
+   */
+  roundId?: string;
 }
 
 export interface PrecisionBetInput {
   address: string;
   amount: number;
   predictedPrice: number;
+  /** See {@link UpDownBetInput.roundId}. */
+  roundId?: string;
 }
 
 export interface BetResult {
@@ -51,14 +60,54 @@ export interface BetQuery {
   status?: BetStatus;
 }
 
-function getActiveRoundId(mode: 'UP_DOWN' | 'PRECISION'): string | null {
-  const gameMode = mode === 'UP_DOWN' ? 'UP_DOWN' : 'LEGENDS';
-  return null; // Will be resolved in transaction
-}
-
 export class BetService {
   private isStubMode(): boolean {
     return process.env.BET_STUB_MODE === 'true';
+  }
+
+  /**
+   * Resolve which round a bet belongs to.
+   *
+   * When the caller names a round explicitly (round-scoped endpoints such as
+   * `POST /api/rounds/:id/bet`) that round must exist and must be for the
+   * requested game mode — an unknown or wrong-mode id is a client error rather
+   * than a silent fallback onto whatever round happens to be active.
+   *
+   * When no round is named (`/api/bets/*`), the newest ACTIVE round for the
+   * mode is used, and a null result means "no active round" — bets are still
+   * recorded so they can be reconciled later.
+   */
+  private async resolveRoundId(
+    tx: Prisma.TransactionClient,
+    gameMode: 'UP_DOWN' | 'LEGENDS',
+    requestedRoundId?: string
+  ): Promise<string | null> {
+    if (requestedRoundId) {
+      const round = await tx.round.findUnique({
+        where: { id: requestedRoundId },
+        select: { id: true, mode: true },
+      });
+
+      if (!round) {
+        throw new NotFoundError(`Round ${requestedRoundId} not found`);
+      }
+
+      if (round.mode !== gameMode) {
+        throw new ValidationError(
+          `Round ${requestedRoundId} is a ${round.mode} round and does not accept ${gameMode} bets`
+        );
+      }
+
+      return round.id;
+    }
+
+    const activeRound = await tx.round.findFirst({
+      where: { mode: gameMode, status: 'ACTIVE' },
+      orderBy: { startTime: 'desc' },
+      select: { id: true },
+    });
+
+    return activeRound?.id ?? null;
   }
 
   async recordUpDownBet(
@@ -74,14 +123,7 @@ export class BetService {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      // Find active round for UP_DOWN mode
-      const activeRound = await tx.round.findFirst({
-        where: { mode: 'UP_DOWN', status: 'ACTIVE' },
-        orderBy: { startTime: 'desc' },
-        select: { id: true },
-      });
-
-      const roundId = activeRound?.id ?? null;
+      const roundId = await this.resolveRoundId(tx, 'UP_DOWN', input.roundId);
 
       // Create bet record with ACCEPTED status
       const bet = await tx.bet.create({
@@ -214,14 +256,7 @@ export class BetService {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      // Find active round for PRECISION (LEGENDS) mode
-      const activeRound = await tx.round.findFirst({
-        where: { mode: 'LEGENDS', status: 'ACTIVE' },
-        orderBy: { startTime: 'desc' },
-        select: { id: true },
-      });
-
-      const roundId = activeRound?.id ?? null;
+      const roundId = await this.resolveRoundId(tx, 'LEGENDS', input.roundId);
 
       // Create bet record with ACCEPTED status
       const bet = await tx.bet.create({
