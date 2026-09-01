@@ -422,9 +422,19 @@ The mapper in [src/utils/soroban-round.mapper.ts](src/utils/soroban-round.mapper
 
 #### **Tournaments (`/api/tournaments`)**
 
+Tournaments run through a **saga lifecycle** (`create → join → lock → settle →
+payout`), fully validated in the service layer (`services/tournament.service.ts`)
+against a single transition graph (`types/tournament.types.ts`). Out-of-order
+requests (e.g. locking a COMPLETED tournament) return a structured `409
+TOURNAMENT_INVALID_STATE` rather than mutating state.
+
 - `GET /` - List tournaments. Query: `?mode=UP_DOWN|LEGENDS`, `?status=UPCOMING|ACTIVE|COMPLETED|CANCELLED`, `limit`, `offset` (mode and status may be combined). Response: `{ success, data, pagination: { limit, offset, total } }`
+- `POST /` - [Auth] `createTournament` starts the saga at `UPCOMING`
 - `GET /:id` - Get tournament detail by id
-- `POST /:id/join` - [Auth] Join a tournament
+- `POST /:id/join` - [Auth] Join a tournament (atomic, race-safe capacity enforcement)
+- `POST /:id/lock` - [Auth] Lock the roster `UPCOMING → ACTIVE`
+- `POST /:id/settle` - [Auth] Settle `ACTIVE → COMPLETED` and pay winners
+- `POST /:id/cancel` - [Auth] Cancel `UPCOMING/ACTIVE → CANCELLED`
 
 #### **Leaderboard (`/api/leaderboard`)**
 
@@ -590,32 +600,57 @@ cp .env.docker.example .env
 docker compose up --build
 ```
 
-| Service          | Port   | Health check                       |
-| ---------------- | ------ | ---------------------------------- |
-| API              | `3000` | `GET http://localhost:3000/health` |
-| PostgreSQL       | `5432` | `pg_isready -U xelma -d xelma`     |
-| Redis            | `6379` | `redis-cli ping`                   |
+| Service          | Port   | Health check                                  | Mode            |
+| ---------------- | ------ | --------------------------------------------- | --------------- |
+| API              | `3000` | `GET http://localhost:3000/health`             | Full (default)  |
+| PostgreSQL       | `5432` | `pg_isready -U xelma -d xelma`                | —               |
+| Redis            | `6379` | `redis-cli ping`                               | —               |
 
 The API container runs `prisma migrate deploy` on startup before booting the server.
 Redis is part of the default stack (used by the Socket.IO adapter and the
 distributed idempotency locks described below); the API service waits for it
 to be healthy before starting.
 
-To run the **hackathon mode** (no database required, mock data only):
+#### Docker entrypoint modes
+
+The container entrypoint reads `API_MODE` to select which compiled binary to start:
+
+| `API_MODE`    | Binary started       | Default port | Health probe path    | Use when                                    |
+| ------------- | -------------------- | ------------ | -------------------- | ------------------------------------------- |
+| _(unset)_     | `dist/index.js`     | `3000`       | `GET /health`        | Full production backend (default)           |
+| `hackathon`   | `dist/server.js`    | `3001`       | `GET /api/health`    | Demo / hackathon — mock data, no DB needed  |
+
+The entrypoint automatically sets `HEALTHCHECK_PATH` to match the selected mode,
+so the Dockerfile `HEALTHCHECK` directive works without manual overrides. You can
+also set `HEALTHCHECK_PATH` explicitly when running a standalone container:
+
+```bash
+# Full mode (default)
+docker build -t xelma-api .
+docker run -p 3000:3000 --env-file .env xelma-api
+
+# Hackathon mode
+docker run -p 3001:3001 -e API_MODE=hackathon xelma-api
+```
+
+To run the **hackathon mode** via Docker Compose (no database required, mock data only):
 
 ```bash
 docker compose --profile hackathon up
 ```
 
+The hackathon service maps port `3001` and sets `API_MODE=hackathon` + `HEALTHCHECK_PATH=/api/health` automatically.
+
 **Troubleshooting Docker setup**
 
-| Symptom                       | Fix                                                                                                  |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `api` exits immediately       | Ensure `.env` exists and `JWT_SECRET` is set                                                         |
-| `Can't reach database server` | Wait for `postgres` health check to pass; confirm `DATABASE_URL` uses host `postgres` inside Compose |
-| Port `3000` already in use    | Change `PORT` in `.env` and map `3001:3001` (or similar) in `docker-compose.yml`                     |
-| Migrations fail on first boot | Run `docker compose logs api`; verify Postgres is healthy with `docker compose ps`                   |
+| Symptom                       | Fix                                                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `api` exits immediately       | Ensure `.env` exists and `JWT_SECRET` is set                                                               |
+| `Can't reach database server` | Wait for `postgres` health check to pass; confirm `DATABASE_URL` uses host `postgres` inside Compose       |
+| Port `3000` already in use    | Change `PORT` in `.env` and map `3001:3001` (or similar) in `docker-compose.yml`                           |
+| Migrations fail on first boot | Run `docker compose logs api`; verify Postgres is healthy with `docker compose ps`                         |
 | Redis connection warnings     | Confirm Redis is healthy (`docker compose ps`) and `REDIS_URL` points at `redis://redis:6379` inside Compose |
+| Container reports unhealthy   | Verify `HEALTHCHECK_PATH` matches the mode (`/health` for full, `/api/health` for hackathon); check `docker inspect <container>` |
 
 ---
 
@@ -898,6 +933,28 @@ The backend provides auto-generated **OpenAPI/Swagger** documentation.
 
 - **Swagger UI**: [http://localhost:3000/api-docs](http://localhost:3000/api-docs)
 - **OpenAPI JSON**: [http://localhost:3000/api-docs.json](http://localhost:3000/api-docs.json)
+
+#### Keeping the Postman collection in sync
+
+The committed `docs/postman-collection.json` is a generated artifact derived from
+the OpenAPI spec. To keep it from silently drifting out of step with the API you
+actually ship, the collection is regenerated and drift-checked from npm scripts:
+
+```bash
+npm run build          # compile TS (the OpenAPI generator lives in dist/)
+npm run docs:generate  # regenerates docs/openapi.json + docs/postman-collection.json
+```
+
+After any route/JSDoc change, run `npm run docs:generate` and commit the refreshed
+collection. CI runs `npm run docs:verify`, which fails if the committed collection
+no longer matches the current spec (a folder, request, HTTP method, or URL was
+added, removed, or changed). `npm run check:postman` runs only that drift check.
+
+> **Why this exists:** Postman collections are large, mostly-boilerplate JSON, so
+drift is easy to miss by eye. A regenerated-and-committed artifact means consumers
+of `docs/postman-collection.json` always see the same request/response contracts
+the OpenAPI spec declares, and any change to the API surface fails the CI gate
+until the collection is refreshed.
 
 ### Monetary field contract (breaking)
 
@@ -1419,7 +1476,10 @@ At minimum, migration PRs should include:
 | `npm run db:migrate`            | Apply all committed Prisma migrations                                                                                                                                                                                  |
 | `npm run db:prepare`            | Generate the Prisma client, then run `db:migrate` (the one-command DB setup used by CI and deploys)                                                                                                                   |
 | `npm run docs:openapi`          | Generate OpenAPI JSON spec to `docs/openapi.json`                                                                                                                                                                     |
-| `npm run docs:verify`           | Regenerate OpenAPI and verify required paths are documented (CI gate)                                                                                                                                                 |
+| `npm run docs:postman`          | Regenerate the Postman collection (`docs/postman-collection.json`) from `docs/openapi.json` (no server or DB needed)                                                                                                  |
+| `npm run docs:generate`         | Regenerate both `docs/openapi.json` and `docs/postman-collection.json` from the current source                                                                                                                        |
+| `npm run docs:verify`           | Regenerate OpenAPI, verify required paths are documented, and check the Postman collection for drift (CI gate)                                                                                                       |
+| `npm run check:postman`         | Run only the Postman ↔ OpenAPI drift check                                                                                                                                                                            |
 | `npm run scorecard`             | Run the production-readiness scorecard                                                                                                                                                                                |
 | `npm run pr:publish`            | Push the fork branch and open/update a PR as **your** git/GitHub user, stripping Cursor co-author trailers                                                                                                            |
 

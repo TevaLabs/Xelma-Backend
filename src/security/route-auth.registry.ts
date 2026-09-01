@@ -48,6 +48,12 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   { method: "POST", path: "/api/rounds/:id/simulate", auth: RouteAuthLevel.ADMIN, notes: "QA-only; gated by ENABLE_SIMULATION (403 when off, even outside production)" },
   { method: "POST", path: "/api/rounds/:id/resolve", auth: RouteAuthLevel.ORACLE },
 
+  // Round-scoped bets (JWT required — wallet bound from token, same
+  // BetService execution path as /api/bets/*)
+  { method: "POST", path: "/api/rounds/:id/bet", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "POST", path: "/api/rounds/hackathon/up-down/:id/bet", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "POST", path: "/api/rounds/hackathon/precision/:id/bet", auth: RouteAuthLevel.AUTHENTICATED },
+
   // Bets (JWT required — wallet bound from token)
   { method: "POST", path: "/api/bets/up-down", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "POST", path: "/api/bets/precision", auth: RouteAuthLevel.AUTHENTICATED },

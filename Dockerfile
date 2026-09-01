@@ -26,7 +26,14 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
+
+# Health probe path.  The full app (dist/index.js) serves a detailed health
+# check at GET /health; the hackathon app (dist/server.js) serves a
+# lightweight check at GET /api/health.  Override HEALTHCHECK_PATH at
+# runtime when switching modes (the entrypoint also sets this automatically
+# when API_MODE=hackathon).
+ENV HEALTHCHECK_PATH=/health
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:${PORT:-3000}${HEALTHCHECK_PATH:-/health} || exit 1
+  CMD wget -qO- http://127.0.0.1:${PORT:-3000}${HEALTHCHECK_PATH} || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]

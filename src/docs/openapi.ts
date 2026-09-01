@@ -84,8 +84,16 @@ export const swaggerSpec = swaggerJSDoc({
         },
         AuthChallengeResponse: {
           type: 'object',
+          description:
+            'SEP-10-style challenge. `challenge` is a human-readable message that includes Domain and Home Domain for wallet UX / anti-phishing. `domain`/`homeDomain` duplicate the embedded domains for convenience. Legacy `xelma_auth_*` challenges are still accepted on verify for backward compatibility.',
           properties: {
-            challenge: { type: 'string', example: 'random-challenge-string' },
+            challenge: {
+              type: 'string',
+              example:
+                'Xelma Authentication\nDomain: xelma.io\nHome Domain: xelma.io\nAddress: GBRPYHIL2C2V3F5YQZ4H6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B\nNonce: ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12\nIssued At: 2026-09-01T00:00:00.000Z\nVersion: 1\nTimestamp: 1725148800000',
+            },
+            domain: { type: 'string', example: 'xelma.io', description: 'SEP-10 web_auth_domain style' },
+            homeDomain: { type: 'string', example: 'xelma.io', description: 'SEP-10 home_domain style' },
             expiresAt: { type: 'string', format: 'date-time' },
           },
           required: ['challenge', 'expiresAt'],

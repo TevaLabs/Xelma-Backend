@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import config from '../config';
 import logger from '../utils/logger';
+import { createMemoryPrismaClient } from './memory-prisma';
 
 // PrismaClient is attached to the `global` object in development to prevent
 // exhausting your database connection limit.
@@ -17,9 +18,15 @@ function sanitizeDatabaseUrl(raw: string): string {
 }
 
 export const prisma = (() => {
-  if (process.env.NODE_ENV === 'test' && process.env.TEST_TYPE === 'unit') {
+  if (
+    process.env.NODE_ENV === 'test' &&
+    process.env.TEST_TYPE === 'unit' &&
+    config.app.dataStore !== 'memory'
+  ) {
     // Prefer a Jest-provided PrismaClient mock so service tests can assert on
     // model calls; fall back to a dependency-free mock for other unit tests.
+    // (A test that explicitly opts into DATA_STORE=memory wants the fuller
+    // in-memory store below instead of this partial mock.)
     const MockedPrismaClient = PrismaClient as unknown as {
       new (): PrismaClient;
       _isMockFunction?: boolean;
@@ -107,6 +114,15 @@ export const prisma = (() => {
     return mock as PrismaClient;
   }
 
+  // DB-less hackathon demo mode (DATA_STORE=memory / DATA_MODE=mock): back the
+  // Prisma client entirely with in-memory collections so hackathon-mounted
+  // routes work without a live Postgres instance. See src/lib/memory-prisma.ts
+  // for exactly which models/operations are covered.
+  if (config.app.dataStore === 'memory') {
+    logger.info('Prisma client backed by in-memory store (DATA_STORE=memory)');
+    return createMemoryPrismaClient() as unknown as PrismaClient;
+  }
+
   // Production / development client.
   return globalForPrisma.prisma || new PrismaClient({
     datasources: {
@@ -116,7 +132,7 @@ export const prisma = (() => {
   });
 })();
 
-if (!globalForPrisma.prisma) {
+if (!globalForPrisma.prisma && config.app.dataStore !== 'memory') {
   logger.info("Prisma datasource configured", {
     databaseUrl: sanitizeDatabaseUrl(config.database.url),
     pool: {

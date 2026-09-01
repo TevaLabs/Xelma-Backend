@@ -156,17 +156,29 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
       });
    });
 
-   afterAll(async () => {
-      if (httpServer) {
-         await new Promise<void>(resolve => {
-            httpServer.closeAllConnections?.();
-            httpServer.close(() => resolve());
-         });
-      }
-      jest.clearAllMocks();
-   }, 15000);
+    beforeEach(() => {
+       mockUserFindUnique.mockReset();
+       mockUserFindUnique.mockResolvedValue({
+          id: testUser.id,
+          walletAddress: testUser.walletAddress,
+          role: UserRole.USER,
+       });
+       mockChatSendMessage.mockReset();
+       mockRoundFindMany.mockReset();
+       mockRoundFindMany.mockResolvedValue([]);
+    });
 
-   describe('Socket auth', () => {
+    afterAll(async () => {
+       if (httpServer) {
+          await new Promise<void>(resolve => {
+             httpServer.closeAllConnections?.();
+             httpServer.close(() => resolve());
+          });
+       }
+       jest.clearAllMocks();
+    }, 15000);
+
+    describe('Socket auth', () => {
       it('should allow connection without token (unauthenticated)', async () => {
          const client = ioClient(baseURL, {
             transports: ['websocket'],
@@ -300,24 +312,77 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
          client.disconnect();
       });
 
-      it('should emit error when unauthenticated user tries join:notifications', async () => {
-         const client = ioClient(baseURL, {
-            transports: ['websocket'],
-            autoConnect: false,
-         });
+       it('should emit error when unauthenticated user tries join:notifications', async () => {
+          const client = ioClient(baseURL, {
+             transports: ['websocket'],
+             autoConnect: false,
+          });
 
-         client.connect();
-         await waitForConnect(client);
+          client.connect();
+          await waitForConnect(client);
 
-         const errMsg = waitFor(client, 'error');
-         client.emit('join:notifications');
+          const errMsg = waitFor(client, 'error');
+          client.emit('join:notifications');
 
-         const data = await errMsg;
-         expect(data.message).toContain('Authentication required');
+          const data = await errMsg;
+          expect(data.message).toContain('Authentication required');
 
-         client.disconnect();
-      });
-   });
+          client.disconnect();
+       });
+
+       it('should reject joining another user\'s private notification room', async () => {
+          const ownerToken = generateToken(
+             'socket-owner-user-id',
+             'GOWNER______________________________',
+             UserRole.USER,
+          );
+          const attackerToken = generateToken(
+             'socket-attacker-user-id',
+             'GATTACKER___________________________',
+             UserRole.USER,
+          );
+
+          mockUserFindUnique.mockImplementation(async ({ where }: any) => {
+             if (where.id === 'socket-owner-user-id') {
+                return {
+                   id: 'socket-owner-user-id',
+                   walletAddress: 'GOWNER______________________________',
+                };
+             }
+             if (where.id === 'socket-attacker-user-id') {
+                return {
+                   id: 'socket-attacker-user-id',
+                   walletAddress: 'GATTACKER___________________________',
+                };
+             }
+             return null;
+          });
+
+          const owner = ioClient(baseURL, {
+             auth: { token: ownerToken },
+             transports: ['websocket'],
+             autoConnect: false,
+          });
+          const attacker = ioClient(baseURL, {
+             auth: { token: attackerToken },
+             transports: ['websocket'],
+             autoConnect: false,
+          });
+
+          owner.connect();
+          attacker.connect();
+          await Promise.all([waitForConnect(owner), waitForConnect(attacker)]);
+
+          const err = waitFor(attacker, 'error');
+          attacker.emit('join:notifications', `user:socket-owner-user-id`);
+
+          const data = await err;
+          expect(data.message).toContain('Unauthorized');
+
+          owner.disconnect();
+          attacker.disconnect();
+       });
+    });
 
    describe('chat:send', () => {
       beforeEach(() => {

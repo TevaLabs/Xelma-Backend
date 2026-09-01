@@ -45,8 +45,16 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
         },
         AuthChallengeResponse: {
           type: 'object',
+          description:
+            'SEP-10-style challenge (same as production). Challenge string includes Domain/Home Domain for wallet UX. Legacy xelma_auth_* still verifies.',
           properties: {
-            challenge: { type: 'string', example: 'random-challenge-string' },
+            challenge: {
+              type: 'string',
+              example:
+                'Xelma Authentication\nDomain: xelma.io\nHome Domain: xelma.io\nNonce: ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12\nIssued At: 2026-09-01T00:00:00.000Z\nVersion: 1\nTimestamp: 1725148800000',
+            },
+            domain: { type: 'string', example: 'xelma.io' },
+            homeDomain: { type: 'string', example: 'xelma.io' },
             expiresAt: { type: 'string', format: 'date-time' },
           },
           required: ['challenge', 'expiresAt'],
