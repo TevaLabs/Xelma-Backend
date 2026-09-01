@@ -35,8 +35,15 @@ const mockBetCreate = jest.fn().mockResolvedValue({ id: 'bet-1' });
 
 // The transaction proxy exposes the same mock fns so the service's `tx.*`
 // calls resolve correctly.
+const mockRoundUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+
 const txProxy = {
-  round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
+  round: {
+    findUnique: mockRoundFindUnique,
+    update: mockRoundUpdate,
+    // The lifecycle state machine settles rounds via updateMany (Issue #490).
+    updateMany: mockRoundUpdateMany,
+  },
   prediction: { update: mockPredictionUpdate },
   user: { update: mockUserUpdate },
   bet: { findFirst: mockBetFindFirst, findUnique: mockBetFindUnique, update: mockBetUpdate, create: mockBetCreate },

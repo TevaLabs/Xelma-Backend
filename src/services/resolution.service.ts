@@ -4,6 +4,7 @@ import logger from '../utils/logger';
 import educationTipService from './education-tip.service';
 import websocketService from './websocket.service';
 import betService from './bet.service';
+import roundLifecycleService from './round-lifecycle.service';
 import { prisma } from '../lib/prisma';
 import { invalidateNamespace, invalidateLeaderboardSortedSet } from '../lib/redis';
 import { OutboxEventType, BetStatus } from '@prisma/client';
@@ -117,7 +118,10 @@ export class ResolutionService {
             };
          }
 
-         if (round.status !== 'LOCKED' && round.status !== 'ACTIVE') {
+         // Only LOCKED rounds settle. An ACTIVE (open) round is ineligible:
+         // it must be locked by the scheduler first. This mirrors the lifecycle
+         // state machine (ACTIVE -> RESOLVED is illegal) without throwing.
+         if (round.status !== 'LOCKED') {
             return { outcome: RoundLifecycleOutcome.NO_OP };
          }
 
@@ -151,7 +155,8 @@ export class ResolutionService {
                };
             }
 
-            if (txRound.status !== 'LOCKED' && txRound.status !== 'ACTIVE') {
+            // Mirror the outside-transaction guard: only LOCKED rounds settle.
+            if (txRound.status !== 'LOCKED') {
                return { outcome: RoundLifecycleOutcome.NO_OP };
             }
 
@@ -162,19 +167,27 @@ export class ResolutionService {
                await this.resolveLegendsRound(txRound, finalPriceDec, tx);
             }
 
-            // Update round status and persist resolvedAt (atomic with all payout updates)
+            // Update round status and persist resolvedAt (atomic with all
+            // payout updates). The status write goes through the lifecycle
+            // state machine so only the legal LOCKED -> RESOLVED edge can settle
+            // the round; anything else throws instead of corrupting state.
             const resolvedAt = new Date();
-            const updatedRound = await tx.round.update({
-               where: { id: roundId },
-               data: {
-                  status: 'RESOLVED',
-                  endPrice: toNumber(finalPriceDec),
-                  resolvedAt,
+            const lifecycleRound = await roundLifecycleService.transitionRound(
+               roundId,
+               'RESOLVED',
+               {
+                  tx,
+                  data: {
+                     endPrice: toNumber(finalPriceDec),
+                     resolvedAt,
+                  },
                },
-               include: {
-                  predictions: true,
-               },
-            });
+               false, // do not websocket-emit here (done below after commit)
+            );
+            const updatedRound = {
+               ...lifecycleRound,
+               predictions: txRound.predictions,
+            } as any;
 
             logger.info(
                `Round resolved: ${roundId}, finalPrice=${finalPriceDec.toFixed(8)}`
