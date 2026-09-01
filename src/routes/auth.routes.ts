@@ -4,6 +4,9 @@ import {
   generateChallenge,
   getChallengeExpiry,
   isChallengeExpired,
+  getAuthDomain,
+  getHomeDomain,
+  parseChallenge,
 } from "../utils/challenge.util";
 import { generateToken, verifyToken } from "../utils/jwt.util";
 import { verifySignature } from "../services/stellar.service";
@@ -36,8 +39,15 @@ const router = Router();
  *   post:
  *     summary: Request a wallet authentication challenge
  *     description: |
- *       Step 1 of wallet authentication. Returns a one-time challenge string for the wallet to sign.\n
+ *       Step 1 of wallet authentication. Returns a SEP-10-style one-time challenge string for the wallet to sign.
+ *       The challenge is a human-readable message that **includes `Domain` and `Home Domain` fields** (SEP-10 `web_auth_domain` / `home_domain` style) so wallets can display the requesting origin and users can spot phishing.
+ *       Sign the *exact* `challenge` string (UTF-8 bytes) with the Stellar account's ed25519 key; the server verifies the signature and the embedded domain binding. Legacy `xelma_auth_*` challenges are still accepted on `/connect`/`/verify` for backward compatibility — see migration notes below.\n
  *       Rate limit: **10 requests per 15 minutes per IP**. On limit, responds with **429**.
+ *
+ *       **Migration / backward compatibility:**
+ *       - New clients: treat `challenge` as an opaque UTF-8 string (may contain newlines) and sign `Buffer.from(challenge,'utf8')`.
+ *       - Old clients that expected `challenge` to match `/^xelma_auth_/` will need to update — they should not parse or trim the challenge, just sign it verbatim. Stored legacy challenges continue to verify.
+ *       - `domain` and `homeDomain` are also returned as top-level fields for clients that want to show the origin without parsing the message.
  *     tags: [auth]
  *     requestBody:
  *       required: true
@@ -55,7 +65,9 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/AuthChallengeResponse'
  *             example:
- *               challenge: random-challenge-string
+ *               challenge: "Xelma Authentication\nDomain: xelma.io\nHome Domain: xelma.io\nAddress: GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\nNonce: ab12... \nIssued At: 2026-09-01T00:00:00.000Z\nVersion: 1\nTimestamp: 1725148800000"
+ *               domain: xelma.io
+ *               homeDomain: xelma.io
  *               expiresAt: 2026-01-29T00:00:00.000Z
  *       400:
  *         description: Validation error
@@ -127,8 +139,8 @@ router.post(
         });
       }
 
-      // Generate new challenge
-      const challenge = generateChallenge();
+      // Generate new SEP-10-style challenge bound to the requesting wallet and domain
+      const challenge = generateChallenge(walletAddress);
       const expiresAt = getChallengeExpiry();
 
       // Store challenge in database
@@ -151,8 +163,11 @@ router.post(
         userAgent,
       });
 
+      const parsed = parseChallenge(challenge);
       const response: ChallengeResponse = {
         challenge,
+        domain: parsed?.domain ?? getAuthDomain(),
+        homeDomain: parsed?.homeDomain ?? getHomeDomain(),
         expiresAt: expiresAt.toISOString(),
       };
 
@@ -169,7 +184,8 @@ router.post(
  *   post:
  *     summary: Verify signature and authenticate wallet
  *     description: |
- *       Step 2 of wallet authentication. Verifies the signature for the challenge and returns a JWT.\n
+ *       Step 2 of wallet authentication. Verifies the signature for the challenge and returns a JWT.
+ *       The `challenge` must be the exact UTF-8 string returned from `/challenge` (including any `Domain`/`Home Domain` lines). The server checks the ed25519 signature **and** that the challenge's embedded `Domain`/`Home Domain` match the server's `AUTH_DOMAIN`/`HOME_DOMAIN` (anti-phishing). Legacy `xelma_auth_*` challenges skip the domain check for backward compatibility.\n
  *       Rate limit: **5 requests per 15 minutes per IP**. On limit, responds with **429**.
  *     tags: [auth]
  *     requestBody:
@@ -180,7 +196,7 @@ router.post(
  *             $ref: '#/components/schemas/AuthConnectRequest'
  *           example:
  *             walletAddress: GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX
- *             challenge: random-challenge-string
+ *             challenge: "Xelma Authentication\nDomain: xelma.io\nHome Domain: xelma.io\n..."
  *             signature: base64-or-hex-signature
  *     responses:
  *       200:
@@ -205,6 +221,8 @@ router.post(
  *                 value: { error: "Authentication Error", message: "Invalid signature" }
  *               expiredChallenge:
  *                 value: { error: "Authentication Error", message: "Challenge has expired. Please request a new one." }
+ *               domainMismatch:
+ *                 value: { error: "Authentication Error", message: "Invalid signature" }
  *       429:
  *         description: Too many requests
  *         content:
@@ -226,7 +244,7 @@ router.post(
  *         source: |
  *           curl -X POST "$API_BASE_URL/api/auth/connect" \\
  *             -H "Content-Type: application/json" \\
- *             -d '{"walletAddress":"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX","challenge":"random-challenge-string","signature":"base64-or-hex-signature"}'
+ *             -d '{"walletAddress":"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX","challenge":"Xelma Authentication\nDomain: xelma.io\n...","signature":"base64-or-hex-signature"}'
  */
 const connectHandler = async (
   req: Request,
