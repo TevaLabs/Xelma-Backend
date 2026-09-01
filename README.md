@@ -934,6 +934,28 @@ The backend provides auto-generated **OpenAPI/Swagger** documentation.
 - **Swagger UI**: [http://localhost:3000/api-docs](http://localhost:3000/api-docs)
 - **OpenAPI JSON**: [http://localhost:3000/api-docs.json](http://localhost:3000/api-docs.json)
 
+#### Keeping the Postman collection in sync
+
+The committed `docs/postman-collection.json` is a generated artifact derived from
+the OpenAPI spec. To keep it from silently drifting out of step with the API you
+actually ship, the collection is regenerated and drift-checked from npm scripts:
+
+```bash
+npm run build          # compile TS (the OpenAPI generator lives in dist/)
+npm run docs:generate  # regenerates docs/openapi.json + docs/postman-collection.json
+```
+
+After any route/JSDoc change, run `npm run docs:generate` and commit the refreshed
+collection. CI runs `npm run docs:verify`, which fails if the committed collection
+no longer matches the current spec (a folder, request, HTTP method, or URL was
+added, removed, or changed). `npm run check:postman` runs only that drift check.
+
+> **Why this exists:** Postman collections are large, mostly-boilerplate JSON, so
+drift is easy to miss by eye. A regenerated-and-committed artifact means consumers
+of `docs/postman-collection.json` always see the same request/response contracts
+the OpenAPI spec declares, and any change to the API surface fails the CI gate
+until the collection is refreshed.
+
 ### Monetary field contract (breaking)
 
 Balances, stakes, payouts, pools, and tournament fees/prizes are **decimal
@@ -1454,7 +1476,10 @@ At minimum, migration PRs should include:
 | `npm run db:migrate`            | Apply all committed Prisma migrations                                                                                                                                                                                  |
 | `npm run db:prepare`            | Generate the Prisma client, then run `db:migrate` (the one-command DB setup used by CI and deploys)                                                                                                                   |
 | `npm run docs:openapi`          | Generate OpenAPI JSON spec to `docs/openapi.json`                                                                                                                                                                     |
-| `npm run docs:verify`           | Regenerate OpenAPI and verify required paths are documented (CI gate)                                                                                                                                                 |
+| `npm run docs:postman`          | Regenerate the Postman collection (`docs/postman-collection.json`) from `docs/openapi.json` (no server or DB needed)                                                                                                  |
+| `npm run docs:generate`         | Regenerate both `docs/openapi.json` and `docs/postman-collection.json` from the current source                                                                                                                        |
+| `npm run docs:verify`           | Regenerate OpenAPI, verify required paths are documented, and check the Postman collection for drift (CI gate)                                                                                                       |
+| `npm run check:postman`         | Run only the Postman ↔ OpenAPI drift check                                                                                                                                                                            |
 | `npm run scorecard`             | Run the production-readiness scorecard                                                                                                                                                                                |
 | `npm run pr:publish`            | Push the fork branch and open/update a PR as **your** git/GitHub user, stripping Cursor co-author trailers                                                                                                            |
 
