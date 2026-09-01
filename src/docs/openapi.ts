@@ -1,5 +1,9 @@
 import swaggerJSDoc from 'swagger-jsdoc';
 import { sharedComponents } from './shared-components';
+import {
+  CHALLENGE_EXAMPLE_PUBLIC_KEY,
+  CONNECT_EXAMPLE_PUBLIC_KEY,
+} from './strkey-fixtures';
 
 const PORT = process.env.PORT || 3000;
 const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${PORT}`;
@@ -67,8 +71,12 @@ export const swaggerSpec = swaggerJSDoc({
           properties: {
             walletAddress: {
               type: 'string',
-              description: 'Stellar wallet public key (G...)',
-              example: 'GBRPYHIL2C2V3F5YQZ4H6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B',
+              description:
+                'Stellar wallet public key (G...). Must decode as a valid Ed25519 StrKey.',
+              // This example is a cryptographically valid G... public key (see
+              // src/docs/strkey-fixtures.ts) so consumers can paste it into a
+              // request without tripping the StrKey validation middleware.
+              example: CHALLENGE_EXAMPLE_PUBLIC_KEY,
             },
           },
           required: ['walletAddress'],
@@ -94,7 +102,9 @@ export const swaggerSpec = swaggerJSDoc({
         AuthConnectRequest: {
           type: 'object',
           properties: {
-            walletAddress: { type: 'string', description: 'Stellar wallet public key (G...)' },
+            // A different valid StrKey than the challenge example so the two
+            // endpoints' docs read as independent, copy-pasteable fixtures.
+            walletAddress: { type: 'string', description: 'Stellar wallet public key (G...)', example: CONNECT_EXAMPLE_PUBLIC_KEY },
             challenge: { type: 'string', description: 'Challenge previously returned from /challenge' },
             signature: { type: 'string', description: 'Signature over the challenge' },
           },

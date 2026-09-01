@@ -1,6 +1,10 @@
 import path from 'path';
 import swaggerJSDoc from 'swagger-jsdoc';
 import { sharedComponents } from './shared-components';
+import {
+  CHALLENGE_EXAMPLE_PUBLIC_KEY,
+  CONNECT_EXAMPLE_PUBLIC_KEY,
+} from './strkey-fixtures';
 
 const PORT = process.env.PORT || 3001;
 const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${PORT}`;
@@ -30,8 +34,10 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
           properties: {
             walletAddress: {
               type: 'string',
-              description: 'Stellar wallet public key (G...)',
-              example: 'GBRPYHIL2C2V3F5YQZ4H6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B',
+              description:
+                'Stellar wallet public key (G...). Must decode as a valid Ed25519 StrKey.',
+              // Cryptographically valid fixture (see src/docs/strkey-fixtures.ts).
+              example: CHALLENGE_EXAMPLE_PUBLIC_KEY,
             },
           },
           required: ['walletAddress'],
@@ -57,7 +63,13 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
         AuthConnectRequest: {
           type: 'object',
           properties: {
-            walletAddress: { type: 'string', description: 'Stellar wallet public key (G...)' },
+            // Independent valid StrKey from the challenge example (see
+            // src/docs/strkey-fixtures.ts).
+            walletAddress: {
+              type: 'string',
+              description: 'Stellar wallet public key (G...)',
+              example: CONNECT_EXAMPLE_PUBLIC_KEY,
+            },
             challenge: { type: 'string', description: 'Challenge previously returned from /challenge' },
             signature: { type: 'string', description: 'Signature over the challenge' },
           },

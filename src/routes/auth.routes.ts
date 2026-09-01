@@ -56,7 +56,9 @@ const router = Router();
  *           schema:
  *             $ref: '#/components/schemas/AuthChallengeRequest'
  *           example:
- *             walletAddress: GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX
+ *             # Cryptographically valid G... StrKey (see src/docs/strkey-fixtures.ts) so
+ *             # consumers can paste it without tripping the wallet-format middleware.
+ *             walletAddress: GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN
  *     responses:
  *       200:
  *         description: Challenge created
@@ -99,7 +101,7 @@ const router = Router();
  *         source: |
  *           curl -X POST "$API_BASE_URL/api/auth/challenge" \\
  *             -H "Content-Type: application/json" \\
- *             -d '{"walletAddress":"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX"}'
+ *             -d '{"walletAddress":"GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN"}'
  */
 router.post(
   "/challenge",
