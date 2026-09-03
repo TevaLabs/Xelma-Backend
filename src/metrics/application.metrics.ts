@@ -156,6 +156,47 @@ export function recordOracleHealth(snapshot: OracleHealthSnapshot): void {
    );
 }
 
+/**
+ * Payout reconciliation worker (Issue #492).
+ *
+ * These make stuck-payout sweeps observable: how many claim txs the worker
+ * submits, how claims resolve, and how many are flagged for operator review.
+ * `payoutClaimsInFlight` is refreshed by the worker after every run.
+ *
+ * Alert-worthy:
+ * - `payout_claims_flagged_total{reason="chain_reverted"}` > 0 — the contract
+ *   rejected a claim; an operator must investigate before any further retry.
+ * - `payout_claims_in_flight{status="NEEDS_MANUAL_REVIEW"}` sustained — the
+ *   sweeper is stuck and needs human action.
+ */
+export const payoutClaimsSubmittedTotal = new Counter({
+   name: 'payout_claims_submitted_total',
+   help: 'Payout claim transactions submitted, by source (user endpoint or worker)',
+   labelNames: ['source'] as const,
+   registers: [metricsRegistry],
+});
+
+export const payoutClaimsResolvedTotal = new Counter({
+   name: 'payout_claims_resolved_total',
+   help: 'Payout claims resolved to a terminal state by the reconciliation worker',
+   labelNames: ['outcome'] as const,
+   registers: [metricsRegistry],
+});
+
+export const payoutClaimsFlaggedTotal = new Counter({
+   name: 'payout_claims_flagged_total',
+   help: 'Payout claims flagged NEEDS_MANUAL_REVIEW (max_attempts, chain_reverted)',
+   labelNames: ['reason'] as const,
+   registers: [metricsRegistry],
+});
+
+export const payoutClaimsInFlight = new Gauge({
+   name: 'payout_claims_in_flight',
+   help: 'Open payout claims by status (PENDING, SUBMITTED, FAILED, NEEDS_MANUAL_REVIEW, ...)',
+   labelNames: ['status'] as const,
+   registers: [metricsRegistry],
+});
+
 export const schedulerRunsTotal = new Counter({
    name: 'scheduler_runs_total',
    help: 'Total scheduler job executions by fixed job name and outcome',
@@ -381,6 +422,20 @@ export const distributedLockHeldSeconds = new Histogram({
 export const tournamentTransitionFailuresTotal = new Counter({
    name: 'tournament_transition_failures_total',
    help: 'Total tournament lifecycle transitions rejected as out-of-order',
+   labelNames: ['from', 'to'] as const,
+   registers: [metricsRegistry],
+});
+
+/**
+ * Round state-machine violations (round lifecycle engine).
+ *
+ * Incremented whenever a round lifecycle transition (PENDING -> ACTIVE ->
+ * LOCKED -> RESOLVED, plus cancel) is rejected as out-of-order or loses a
+ * compare-and-set race. `from`/`to` are low-cardinality status labels.
+ */
+export const roundTransitionFailuresTotal = new Counter({
+   name: 'round_transition_failures_total',
+   help: 'Total round lifecycle transitions rejected as out-of-order',
    labelNames: ['from', 'to'] as const,
    registers: [metricsRegistry],
 });

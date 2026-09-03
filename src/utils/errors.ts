@@ -113,6 +113,26 @@ export class TournamentInvalidStateError extends ConflictError {
   }
 }
 
+/**
+ * 409 – a round lifecycle transition was attempted out of order (e.g.
+ * resolving a round that is not LOCKED). Distinct from a generic
+ * ConflictError so the round state machine's rejections are
+ * machine-recognisable and can increment the transition-failure metric.
+ */
+export class IllegalRoundTransitionError extends ConflictError {
+  readonly from: string;
+  readonly to: string;
+
+  constructor(from: string, to: string, message?: string) {
+    super(
+      message ?? `Illegal round transition: cannot transition a ${from} round to ${to}.`,
+    );
+    this.name = "IllegalRoundTransitionError";
+    this.from = from;
+    this.to = to;
+  }
+}
+
 /** 422 – business-rule violation (request was well-formed but semantically invalid) */
 export class BusinessRuleError extends AppError {
   constructor(message: string, code: ErrorCode | string = ErrorCode.BUSINESS_RULE_VIOLATION) {

@@ -14,6 +14,7 @@ import { RoundLifecycleOutcome } from '../types/round.types';
 import websocketService from './websocket.service';
 import outboxService, { OutboxDispatchHandlers, getOutboxPollIntervalSeconds } from './outbox.service';
 import reconciliationService from './reconciliation.service';
+import payoutReconciliationService from './payout-reconciliation.service';
 import {
    schedulerItemsProcessedTotal,
    schedulerRunsTotal,
@@ -95,6 +96,22 @@ class SchedulerService {
          );
       } else {
          logger.info('Bet reconciliation scheduler disabled (Soroban keys not configured)');
+      }
+
+      // Payout reconciliation (#492) — sweeps stuck pending winnings and
+      // flags claims needing manual review. Every 5 minutes by default,
+      // overridable via PAYOUT_RECONCILIATION_CRON. Only runs when Soroban is
+      // configured, since it reads/submits on-chain claim transactions.
+      if (process.env.SOROBAN_ADMIN_SECRET && process.env.SOROBAN_ORACLE_SECRET) {
+         const payoutCron = process.env.PAYOUT_RECONCILIATION_CRON || '*/5 * * * *';
+         logger.info(`Starting payout reconciliation scheduler (cron: "${payoutCron}")`);
+         this.cronTasks.push(
+            cron.schedule(payoutCron, async () => {
+               await this.reconcilePendingPayouts();
+            })
+         );
+      } else {
+         logger.info('Payout reconciliation scheduler disabled (Soroban keys not configured)');
       }
 
       if (process.env.AUTO_RESOLVE_ENABLED !== 'true') {
@@ -567,6 +584,59 @@ private async cleanupOutboxInternal(lock: LockHandle): Promise<void> {
           logger.error('Error in bet reconciliation scheduler:', error);
           schedulerRunsTotal.inc({
              job: 'bet_reconciliation',
+             outcome: 'failure',
+          });
+       }
+    }
+
+    /**
+     * Sweep stuck pending winnings and reconcile claim rows (Issue #492).
+     * Protected by a distributed lock so only one instance runs per interval.
+     * @visibleForTesting
+     */
+    async reconcilePendingPayouts(): Promise<void> {
+       await withDistributedLock(
+          'payout-reconciliation',
+          lock => this.reconcilePendingPayoutsInternal(lock),
+          { ttlSeconds: 120, maxHoldSeconds: 900 }
+       );
+    }
+
+    private async reconcilePendingPayoutsInternal(lock: LockHandle): Promise<void> {
+       try {
+          lock.assertHeld();
+          const result = await payoutReconciliationService.run();
+          if (result.checked > 0 || result.swept > 0) {
+             logger.info('Payout reconciliation completed', result);
+          }
+          schedulerItemsProcessedTotal.inc(
+             { job: 'payout_reconciliation', outcome: 'success' },
+             result.checked
+          );
+          schedulerRunsTotal.inc({
+             job: 'payout_reconciliation',
+             outcome:
+                result.flagged > 0
+                   ? 'flagged'
+                   : result.errors > 0
+                     ? 'failure'
+                     : 'success',
+          });
+       } catch (error) {
+          if (isLockLostError(error)) {
+             logger.warn('Aborted payout reconciliation: distributed lock lost', {
+                reason: error.reason,
+             });
+             schedulerRunsTotal.inc({
+                job: 'payout_reconciliation',
+                outcome: 'aborted',
+             });
+             return;
+          }
+
+          logger.error('Error in payout reconciliation scheduler:', error);
+          schedulerRunsTotal.inc({
+             job: 'payout_reconciliation',
              outcome: 'failure',
           });
        }
