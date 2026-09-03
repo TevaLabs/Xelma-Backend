@@ -223,6 +223,13 @@ export const rateLimitHitsTotal = new Counter({
    registers: [metricsRegistry],
 });
 
+export const rateLimitStoreFallbacksTotal = new Counter({
+   name: 'rate_limit_store_fallbacks_total',
+   help: 'Requests counted by the per-process fallback window because the Redis-backed rate-limit store was unreachable (Issue #520)',
+   labelNames: ['limiter'] as const,
+   registers: [metricsRegistry],
+});
+
 export const dbPoolSettingsInfo = new Gauge({
    name: 'db_pool_settings_info',
    help: 'Effective DB pool/timeout settings (labels), value is always 1',

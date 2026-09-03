@@ -274,6 +274,54 @@ Real-time fanout across replicas requires the same `REDIS_URL`.
 
 - **Monitoring:** `GET /metrics` exposes `websocket_connection_events_total` and `socket:io` metrics. After scale-up, `isUsingRedisAdapter(io)` should be `true` on every replica; otherwise broadcasts are instance-local.
 
+### Redis-backed rate limiting (Issue #520)
+
+Rate limits are enforced from the **same shared Redis** so throttles hold across
+replicas. Without this, each replica runs its own in-process counter and an
+attacker can simply rotate across instances to bypass a limit.
+
+- **Module:** `src/middleware/rateLimiter.middleware.ts` builds one
+  `RedisRateLimitStore` (`src/lib/redis.ts`) per limiter with a unique prefix
+  (`xelma:rl:<limiter-name>:`), all over the app's single shared Redis client.
+  Each counter is a fixed window stored in a Redis hash, incremented atomically
+  with Lua so concurrent replicas can never double-count or race a window
+  reset.
+- **No Redis configured?** When `REDIS_URL` is unset every limiter keeps
+  express-rate-limit's default in-process `MemoryStore`, so local single-node
+development is completely unchanged.
+- **Availability policy:** when Redis is configured but **unreachable**:
+
+  | Situation | Behaviour | Rationale |
+  |---|---|---|
+  | `REDIS_URL` unset | In-process `MemoryStore` (per instance) | Single-node dev/demo; nothing to share |
+  | `REDIS_URL` set, Redis reachable | Shared Redis counters | Throttles hold across replicas |
+  | `REDIS_URL` set, Redis **unreachable**, `RATE_LIMIT_REDIS_FAIL_OPEN=true` (default) | **Fail open** — per-process fallback window, warning + metric per request | The API stays up; throttling briefly degrades to per-instance until Redis recovers |
+  | `REDIS_URL` set, Redis **unreachable**, `RATE_LIMIT_REDIS_FAIL_OPEN=false` | **Fail closed** — request rejected (HTTP 500) | Shared throttling treated as a hard requirement; the outage is loud |
+
+- **Required config:**
+
+  | Variable | Default | Purpose |
+  |---|---|---|
+  | `REDIS_URL` | unset | **Required for shared rate limits.** Same Redis as locks and WebSocket. |
+  | `RATE_LIMIT_REDIS_PREFIX` | `xelma:rl` | Redis key namespace (each limiter appends its name). |
+  | `RATE_LIMIT_REDIS_FAIL_OPEN` | `true` | Outage policy — see the table above. |
+
+- **Verify multi-process throttling:**
+
+  ```bash
+  # Terminal 1 and 2: two replicas, same Redis
+  REDIS_URL=redis://localhost:6379 PORT=3000 npm run dev
+  REDIS_URL=redis://localhost:6379 PORT=3001 npm run dev
+  # Hammer one endpoint from a single IP; both replicas must observe the same
+  # counter and start answering 429 at the same request count.
+  for i in $(seq 1 15); do curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/api/rounds/active; done
+  # Then check the shared keyspace: redis-cli keys 'xelma:rl:*'
+  ```
+
+- **Monitoring:** `rate_limit_store_fallbacks_total{limiter}` counts requests
+  served from the per-process fallback because Redis was unreachable — alert on
+  it to catch a Redis outage that has silently degraded shared throttling.
+
 ---
 
 ## Testing
@@ -286,6 +334,9 @@ Real-time fanout across replicas requires the same `REDIS_URL`.
   replica, and the only thing workers share is the Redis keyspace. Covers
   non-overlap under contention, heartbeat renewal past the TTL, abort on a
   stolen or expired key, the watchdog, and Redis-outage behaviour.
+- [`src/tests/rate-limit-redis-store.integration.spec.ts`](../src/tests/rate-limit-redis-store.integration.spec.ts)
+  — shared counters across store instances, per-prefix independence, and window
+  expiry against a real Redis.
 
 ```bash
 npx jest --selectProjects unit --testPathPattern="distributed-lock"

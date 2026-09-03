@@ -498,6 +498,7 @@ TOURNAMENT_INVALID_STATE` rather than mutating state.
 - Authenticated bets (`POST /api/bets/up-down`, `POST /api/bets/precision`): **5 requests/minute per IP**
 - Auth, chat, admin round creation, and oracle resolve endpoints have tailored policies
 - Rate-limit hits are recorded for the admin metrics dashboard (`GET /api/admin/metrics/rate-limits`)
+- **Multi-instance:** when `REDIS_URL` is set, every limiter stores its counters in a shared Redis store so throttles hold across replicas (Issue #520). Each limiter gets its own key prefix (`xelma:rl:<limiter>:`); when Redis is unreachable the default policy falls back to a per-process window (see `RATE_LIMIT_REDIS_FAIL_OPEN`). With no `REDIS_URL` configured the limiters use express-rate-limit's in-process store, so local single-node development is unchanged. See [docs/multi-instance-deployment.md](docs/multi-instance-deployment.md).
 
 #### **Route Authorization Registry (`src/security/route-auth.registry.ts`)**
 
@@ -772,6 +773,7 @@ Core application metrics include:
 | `socket_connections_active`            | none                             | Current Socket.IO connections                                                     |
 | `websocket_emits_total`                | `event`, `outcome`               | WebSocket dispatch attempts                                                       |
 | `websocket_connection_events_total`    | `event`, `authenticated`         | Socket connect/disconnect events                                                  |
+| `rate_limit_store_fallbacks_total`     | `limiter`                        | Requests counted by the per-process fallback because the Redis rate-limit store was unreachable (Issue #520) |
 
 ### 3. Set Up Database
 
