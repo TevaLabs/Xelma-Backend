@@ -1,6 +1,7 @@
 import { createClient, type RedisClientType } from "redis";
 import { withTimeout } from "../utils/timeout-wrapper";
 import logger from "../utils/logger";
+import type { Options, Store, IncrementResponse } from "express-rate-limit";
 
 type CacheMetrics = {
   enabled: boolean;
@@ -510,5 +511,262 @@ export async function checkRedisHealth(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Redis-backed express-rate-limit store (Issue #520)
+//
+// Backs every rate limiter with Redis so throttles hold across replicas:
+// each limiter writes its counter to a shared key (`<prefix>:<hashed key>`)
+// using a fixed window anchored at the first request of the window, so all
+// instances see the same counts.
+//
+// Each limiter MUST get its own RedisRateLimitStore instance with a distinct
+// `prefix` (the middleware does this) — two limiters sharing a prefix would
+// share counters and double-throttle a single request that passes through
+// both.
+//
+// Outage policy (when Redis is configured but unreachable):
+//   - failOpen = true  (default): requests fall back to a per-process
+//     in-memory window. The API stays up and requests are still throttled per
+//     instance, but a multi-replica deployment briefly degrades to per-node
+//     counting until Redis recovers. A warning is logged (throttled) and the
+//     onOutage metric callback fires on every fallback hit.
+//   - failOpen = false: increments throw and express-rate-limit rejects the
+//     request (HTTP 500), making a Redis outage loud. Choose this only when
+//     shared throttling is a hard security requirement.
+//
+// When REDIS_URL is not configured at all the middleware never constructs
+// this store and express-rate-limit keeps its in-process MemoryStore, so
+// single-node deployments are unchanged (see isRedisRateLimitConfigured).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Lua script used by {@link RedisRateLimitStore.increment}.
+ *
+ * KEYS[1] = full counter key
+ * ARGV[1] = current unix time (ms)
+ * ARGV[2] = window length (ms)
+ *
+ * Stores `count` and `reset` (absolute unix ms when the window ends) in a
+ * hash so the increment and the window reset are atomic. Returns
+ * `[hits, reset]`. The TTL is refreshed on every hit so an active client's
+ * counter survives to the end of its window.
+ */
+const RATE_LIMIT_INCREMENT_SCRIPT = `
+local reset = redis.call('HGET', KEYS[1], 'reset')
+if reset == false or tonumber(reset) <= tonumber(ARGV[1]) then
+  redis.call('HSET', KEYS[1], 'count', 0)
+  redis.call('HSET', KEYS[1], 'reset', tonumber(ARGV[1]) + tonumber(ARGV[2]))
+end
+local hits = redis.call('HINCRBY', KEYS[1], 'count', 1)
+redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2]))
+return { hits, redis.call('HGET', KEYS[1], 'reset') }
+`;
+
+/** Lua script that decrements a counter without going below zero. */
+const RATE_LIMIT_DECREMENT_SCRIPT = `
+local hits = redis.call('HINCRBY', KEYS[1], 'count', -1)
+if hits < 0 then
+  redis.call('HSET', KEYS[1], 'count', 0)
+  return 0
+end
+return hits
+`;
+
+export type RedisRateLimitStoreOptions = {
+  /**
+   * Redis key prefix for this limiter. MUST be unique per limiter instance so
+   * stacked limiters (e.g. api + write + bet) never share counters.
+   */
+  prefix: string;
+  /**
+   * Outage policy — see the module docs above. Defaults to `true` (fall back
+   * to an in-process window instead of failing the request).
+   */
+  failOpen?: boolean;
+  /**
+   * Resolves the shared Redis client. Defaults to {@link getConnectedRedisClient}
+   * so the limiter reuses the app's single connection; tests inject stubs or
+   * a provider that always resolves `null` to simulate an outage.
+   */
+  getClient?: () => Promise<RedisClientType | null>;
+  /** Called once per request that had to use the in-process fallback. */
+  onOutage?: () => void;
+};
+
+/**
+ * express-rate-limit `Store` backed by the shared Redis client (Issue #520).
+ * See the module-level comment for the outage policy.
+ */
+export class RedisRateLimitStore implements Store {
+  /** Counts live in Redis, shared by every replica — never instance-local. */
+  readonly localKeys = false;
+
+  prefix: string;
+
+  private readonly failOpen: boolean;
+  private readonly getClient: () => Promise<RedisClientType | null>;
+  private readonly onOutage: (() => void) | undefined;
+
+  /** Fixed-window length captured from express-rate-limit's options.init(). */
+  private windowMs = 60_000;
+
+  /** Per-process fallback windows used while Redis is unreachable. */
+  private readonly localWindows = new Map<string, { count: number; resetAtMs: number }>();
+
+  /** Guards the throttled outage warning (at most one per 30 s per limiter). */
+  private lastOutageWarnAtMs = 0;
+
+  constructor(options: RedisRateLimitStoreOptions) {
+    this.prefix = options.prefix;
+    this.failOpen = options.failOpen ?? true;
+    this.getClient = options.getClient ?? (() => getConnectedRedisClient());
+    this.onOutage = options.onOutage;
+  }
+
+  /** express-rate-limit calls this once at limiter creation. */
+  init(options: Options): void {
+    this.windowMs = options.windowMs;
+  }
+
+  async increment(key: string): Promise<IncrementResponse> {
+    const storeKey = this.keyFor(key);
+    const client = await this.getClient();
+    if (client) {
+      try {
+        const now = Date.now();
+        const reply = (await client.sendCommand([
+          "EVAL",
+          RATE_LIMIT_INCREMENT_SCRIPT,
+          "1",
+          storeKey,
+          String(now),
+          String(this.windowMs),
+        ])) as [number | string, number | string];
+        const totalHits = Number(reply[0]);
+        const resetAtMs = Number(reply[1]);
+        if (!Number.isFinite(totalHits) || !Number.isFinite(resetAtMs)) {
+          throw new Error("Rate-limit store returned an unexpected reply from Redis");
+        }
+        return { totalHits, resetTime: new Date(resetAtMs) };
+      } catch (error) {
+        return this.handleOutage(storeKey, error);
+      }
+    }
+    return this.handleOutage(storeKey, new Error("Redis is not configured or unreachable"));
+  }
+
+  async decrement(key: string): Promise<void> {
+    const storeKey = this.keyFor(key);
+    const client = await this.getClient();
+    if (client) {
+      try {
+        await client.sendCommand(["EVAL", RATE_LIMIT_DECREMENT_SCRIPT, "1", storeKey]);
+        return;
+      } catch (error) {
+        this.noteOutage(error);
+        if (!this.failOpen) throw error;
+        this.decrementLocal(storeKey);
+        return;
+      }
+    }
+    this.noteOutage(new Error("Redis is not configured or unreachable"));
+    if (!this.failOpen) {
+      throw new Error("Redis is not configured or unreachable");
+    }
+    this.decrementLocal(storeKey);
+  }
+
+  async resetKey(key: string): Promise<void> {
+    const storeKey = this.keyFor(key);
+    const client = await this.getClient();
+    if (client) {
+      try {
+        await client.del(storeKey);
+        return;
+      } catch (error) {
+        this.noteOutage(error);
+        if (!this.failOpen) throw error;
+        this.resetLocal(storeKey);
+        return;
+      }
+    }
+    this.noteOutage(new Error("Redis is not configured or unreachable"));
+    if (!this.failOpen) {
+      throw new Error("Redis is not configured or unreachable");
+    }
+    this.resetLocal(storeKey);
+  }
+
+  private keyFor(key: string): string {
+    return `${this.prefix}${key}`;
+  }
+
+  /**
+   * Routes an increment through the outage policy: log (throttled) + metric,
+   * then either serve from the in-process fallback window (fail-open) or
+   * rethrow so express-rate-limit rejects the request (fail-closed).
+   */
+  private handleOutage(storeKey: string, cause: unknown): IncrementResponse {
+    this.noteOutage(cause);
+    if (!this.failOpen) {
+      throw cause instanceof Error ? cause : new Error(String(cause));
+    }
+    return this.incrementLocal(storeKey);
+  }
+
+  private noteOutage(error: unknown): void {
+    const now = Date.now();
+    if (now - this.lastOutageWarnAtMs > 30_000) {
+      this.lastOutageWarnAtMs = now;
+      logger.warn(
+        this.failOpen
+          ? "Rate-limit store unavailable; serving from per-process window until Redis recovers"
+          : "Rate-limit store unavailable; rejecting request (fail-closed policy)",
+        {
+          prefix: this.prefix,
+          failOpen: this.failOpen,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+    this.onOutage?.();
+  }
+
+  private incrementLocal(storeKey: string): IncrementResponse {
+    const now = Date.now();
+    const entry = this.localWindows.get(storeKey);
+    if (!entry || now >= entry.resetAtMs) {
+      this.localWindows.set(storeKey, { count: 1, resetAtMs: now + this.windowMs });
+      return { totalHits: 1, resetTime: new Date(now + this.windowMs) };
+    }
+    entry.count += 1;
+    return { totalHits: entry.count, resetTime: new Date(entry.resetAtMs) };
+  }
+
+  private decrementLocal(storeKey: string): void {
+    const entry = this.localWindows.get(storeKey);
+    if (entry && entry.count > 0) {
+      entry.count -= 1;
+    }
+  }
+
+  private resetLocal(storeKey: string): void {
+    this.localWindows.delete(storeKey);
+  }
+}
+
+/**
+ * Whether rate limiters should use the shared Redis store.
+ *
+ * True whenever `REDIS_URL` is configured — independent of
+ * `REDIS_CACHE_ENABLED`, because throttles are a security control and must
+ * not silently degrade to per-instance counting just because the JSON cache
+ * was switched off. Callers (the rate limiter middleware) keep the default
+ * in-process MemoryStore when this is false.
+ */
+export function isRedisRateLimitConfigured(): boolean {
+  return Boolean(getRedisUrl());
 }
 
