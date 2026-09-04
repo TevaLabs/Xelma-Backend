@@ -1,11 +1,11 @@
-import { BetStatus, BetMode, PredictionSide, OutboxEventType, Prisma } from '@prisma/client';
+import { BetStatus, BetMode, PredictionSide, OutboxEventType, ClaimStatus, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
 import sorobanService from './soroban.service';
 import betAuditService from './bet-audit.service';
 import outboxService, { BetAcceptedOutboxPayload, BetConfirmedOutboxPayload, BetResolvedOutboxPayload, BetFailedOutboxPayload } from './outbox.service';
-import { serializeMoney } from '../utils/decimal.util';
-import { toDecimal, toNumber } from '../utils/decimal.util';
+import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
+import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
 
@@ -697,7 +697,41 @@ export class BetService {
       result = { state: 'stub', amount: 0 };
     } else {
       logger.info('Claiming winnings on-chain', { address, idempotencyKey, requestId });
-      result = await sorobanService.claimWinnings(address);
+
+      // Track every claim in the Claim ledger (Issue #492) so the payout
+      // reconciliation worker can detect and sweep stuck submissions. An
+      // open SUBMITTED row means a claim tx is already in flight for this
+      // wallet — return it instead of double-submitting on-chain.
+      const openClaim = await prisma.claim.findFirst({
+        where: {
+          walletAddress: address,
+          status: { in: [ClaimStatus.PENDING, ClaimStatus.SUBMITTED, ClaimStatus.FAILED] },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      if (openClaim?.status === ClaimStatus.SUBMITTED) {
+        logger.info('Claim already in flight; returning existing submission', {
+          address,
+          claimId: openClaim.id,
+          txHash: openClaim.txHash,
+          requestId,
+        });
+        result = {
+          state: 'already-submitted',
+          amount: toNumber(openClaim.amount),
+          txHash: openClaim.txHash ?? undefined,
+        };
+      } else {
+        try {
+          result = await sorobanService.claimWinnings(address);
+          await this.recordClaimSubmission(address, result, openClaim?.id ?? null);
+          payoutClaimsSubmittedTotal.inc({ source: 'user' });
+        } catch (error) {
+          await this.recordClaimFailure(address, error, openClaim?.id ?? null);
+          throw error;
+        }
+      }
     }
 
     const correlationId = requestId && result.txHash ? `${requestId}:${result.txHash}` : requestId ?? result.txHash;
@@ -713,6 +747,77 @@ export class BetService {
     });
 
     return result;
+  }
+
+  /**
+   * Records a successful on-chain claim submission in the Claim ledger
+   * (status SUBMITTED — confirmation happens via the reconciliation worker).
+   */
+  private async recordClaimSubmission(
+    address: string,
+    result: { state: string; amount: number; txHash?: string },
+    existingClaimId: string | null
+  ): Promise<void> {
+    const txHash = result.txHash ?? undefined;
+
+    if (existingClaimId) {
+      await prisma.claim.updateMany({
+        where: {
+          id: existingClaimId,
+          status: { in: [ClaimStatus.PENDING, ClaimStatus.FAILED] },
+        },
+        data: {
+          status: ClaimStatus.SUBMITTED,
+          txHash,
+          amount: result.amount,
+          lastError: null,
+        },
+      });
+    } else {
+      await prisma.claim.create({
+        data: {
+          walletAddress: address,
+          status: ClaimStatus.SUBMITTED,
+          txHash,
+          amount: result.amount,
+        },
+      });
+    }
+  }
+
+  /**
+   * Records a failed claim attempt in the Claim ledger (status FAILED,
+   * retryable by the payout reconciliation worker).
+   */
+  private async recordClaimFailure(
+    address: string,
+    error: unknown,
+    existingClaimId: string | null
+  ): Promise<void> {
+    const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+
+    if (existingClaimId) {
+      await prisma.claim.updateMany({
+        where: {
+          id: existingClaimId,
+          status: { in: [ClaimStatus.PENDING, ClaimStatus.FAILED] },
+        },
+        data: {
+          status: ClaimStatus.FAILED,
+          attempts: { increment: 1 },
+          lastError: message,
+        },
+      });
+    } else {
+      await prisma.claim.create({
+        data: {
+          walletAddress: address,
+          status: ClaimStatus.FAILED,
+          attempts: 1,
+          lastError: message,
+        },
+      });
+    }
   }
 }
 

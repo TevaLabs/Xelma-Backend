@@ -93,6 +93,21 @@ enum TournamentStatus {
   CANCELLED
 }
 
+/// Lifecycle of a payout claim (Issue #492).
+///
+///   PENDING   -> discovered by the sweeper (or a user claim); waiting to be worked
+///   SUBMITTED -> claim_winnings tx sent; awaiting on-chain confirmation
+///   CONFIRMED -> terminal: paid on-chain, or closed with 0 owed
+///   FAILED    -> last attempt failed; eligible for automatic retry
+///   NEEDS_MANUAL_REVIEW -> automatic retry exhausted/unsafe; operator action required
+enum ClaimStatus {
+  PENDING
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  NEEDS_MANUAL_REVIEW
+}
+
 // =======================
 // Models
 // =======================
@@ -124,6 +139,7 @@ model User {
   multiplayerSessions MultiplayerSession[]
   tournamentParticipants TournamentParticipant[]
   bets                Bet[]
+  claims              Claim[]
 }
 
 model Tournament {
@@ -276,6 +292,32 @@ model Bet {
   @@index([status])
   @@index([txHash])
   @@index([createdAt])
+}
+
+/// Ledger of payout claim attempts, one row per (wallet, claim episode).
+///
+/// Written on the user claim path (`bet.service.claimWinnings`) and driven by
+/// the payout reconciliation worker (Issue #492). The worker re-checks
+/// on-chain state, retries safe cases, and flags `NEEDS_MANUAL_REVIEW` when
+/// automatic retry is exhausted or unsafe. `txHash` is unique so a given
+/// claim transaction can never be recorded twice (no double-payout bookkeeping).
+model Claim {
+  id            String      @id @default(uuid())
+  userId        String?
+  user          User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  walletAddress String
+  amount        Decimal?    @db.Decimal(20, 8)
+  status        ClaimStatus @default(PENDING)
+  txHash        String?     @unique
+  attempts      Int         @default(0)
+  lastError     String?     @db.VarChar(1000)
+  claimedAt     DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([walletAddress])
+  @@index([status, createdAt])
+  @@index([userId])
 }
 
 model Notification {
