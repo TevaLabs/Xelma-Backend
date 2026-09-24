@@ -200,6 +200,20 @@ export class HackathonService {
     return defaultUser;
   }
 
+  /**
+   * Hackathon bet write path — **Prisma only**.
+   *
+   * `MockRound` / `MockLeaderboard` / `MockBet` (the `hackathon_rounds`,
+   * `hackathon_users` and `hackathon_bets` tables) are the single documented
+   * store for hackathon bets — see `docs/runtime-modes.md` → "Hackathon bet
+   * store (Prisma-only)".
+   *
+   * The balance debit, the round pool increment and the bet insert all run
+   * inside this one `$transaction`, so a failure at any step rolls the whole
+   * bet back and the balance/pool/bet rows can never disagree. Do not add a
+   * second (e.g. Drizzle) write here: that is exactly the dual-write split this
+   * path was cut over away from (issue #620).
+   */
   private async placeMockBet(
     roundId: string,
     address: string,
@@ -207,10 +221,20 @@ export class HackathonService {
     side?: 'UP' | 'DOWN',
     predictedPrice?: number,
   ): Promise<void> {
+    const decimalAmount = toDecimal(amount);
+
     await prisma.$transaction(async (tx) => {
-      const existing = await tx.mockLeaderboard.findUnique({ where: { address } });
-      if (!existing) {
-        await tx.mockLeaderboard.create({
+      // Reject an unknown round before touching any ledger.
+      const round = await tx.mockRound.findUnique({ where: { id: roundId } });
+      if (!round) {
+        throw new BusinessRuleError('Round not found', ErrorCode.NOT_FOUND);
+      }
+
+      // Materialise the wallet on its first bet so the `hackathon_bets`
+      // address FK (-> `hackathon_users`) is satisfied.
+      let user = await tx.mockLeaderboard.findUnique({ where: { address } });
+      if (!user) {
+        user = await tx.mockLeaderboard.create({
           data: {
             address,
             rank: 0,
@@ -225,6 +249,16 @@ export class HackathonService {
         });
       }
 
+      // Overdraft guard. Throwing here — before any write — rolls the
+      // transaction back with nothing to undo: no debit, no pool move, no bet.
+      if (toDecimal(user.balance).lt(decimalAmount)) {
+        throw new BusinessRuleError(
+          'Insufficient balance',
+          ErrorCode.INSUFFICIENT_FUNDS,
+        );
+      }
+
+      // Debit + pool increment + bet insert, atomically.
       await tx.mockBet.create({
         data: {
           roundId,
@@ -240,25 +274,22 @@ export class HackathonService {
         data: { balance: { decrement: amount } },
       });
 
-      const round = await tx.mockRound.findUnique({ where: { id: roundId } });
-      if (round) {
-        if (round.mode === 'updown' && side) {
-          await tx.mockRound.update({
-            where: { id: roundId },
-            data:
-              side === 'UP'
-                ? { poolUp: { increment: amount } }
-                : { poolDown: { increment: amount } },
-          });
-        } else if (round.mode === 'precision') {
-          await tx.mockRound.update({
-            where: { id: roundId },
-            data: {
-              totalPool: { increment: amount },
-              predictionCount: { increment: 1 },
-            },
-          });
-        }
+      if (round.mode === 'updown' && side) {
+        await tx.mockRound.update({
+          where: { id: roundId },
+          data:
+            side === 'UP'
+              ? { poolUp: { increment: amount } }
+              : { poolDown: { increment: amount } },
+        });
+      } else if (round.mode === 'precision') {
+        await tx.mockRound.update({
+          where: { id: roundId },
+          data: {
+            totalPool: { increment: amount },
+            predictionCount: { increment: 1 },
+          },
+        });
       }
     });
   }
