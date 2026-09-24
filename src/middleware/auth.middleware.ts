@@ -5,6 +5,11 @@ import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
 import { AuthRequest, AuthenticatedRequest, JwtPayload } from "../types/auth.types";
 import { ORACLE_ALLOWED_ROLES } from "../security/route-auth.registry";
+import {
+  AdminPermission,
+  roleHasAdminPermission,
+} from "../security/admin-permissions";
+import { auditLogger } from "../utils/audit-logger";
 import config from "../config";
 
 // Re-export UserRole for backwards compatibility
@@ -176,6 +181,86 @@ export const optionalAuthentication = async (
 export const requireAdmin = requireRole([UserRole.ADMIN], {
   forbiddenMessage: "Admin access required",
 });
+
+/**
+ * Middleware factory that enforces the admin RBAC matrix (Issue #497).
+ *
+ * Behaves like `requireAdmin` (401 without a valid token, 403 for a role that
+ * lacks the permission) but is scoped to a single {@link AdminPermission} and
+ * writes an append-only audit record for every privileged call:
+ *
+ *  - denied attempts are recorded immediately (`admin.access.denied`);
+ *  - allowed calls are recorded on response finish (`admin.action`) so the
+ *    audit trail captures the handler's status code and latency.
+ *
+ * Roles with no admin permissions fail closed, so an unrecognised role in a
+ * JWT can never reach an admin route.
+ */
+export function requireAdminPermission(
+  permission: AdminPermission,
+  options?: { forbiddenMessage?: string },
+): (req: Request, res: Response, next: NextFunction) => Promise<void> {
+  const forbiddenMessage =
+    options?.forbiddenMessage ?? "Admin access required";
+
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const requestId = (req as any).requestId;
+    const endpoint = (req.originalUrl || req.path).split("?")[0];
+    const userAgent = req.headers["user-agent"] as string | undefined;
+
+    try {
+      const user = await loadUserFromBearerToken(req.headers.authorization);
+
+      if (!user) {
+        const hasHeader = Boolean(req.headers.authorization?.startsWith("Bearer "));
+        res.status(401).json({
+          error: hasHeader ? "Invalid or expired token" : "No token provided",
+        });
+        return;
+      }
+
+      attachUser(req, user);
+
+      if (!roleHasAdminPermission(user.role, permission)) {
+        auditLogger.logAdminAccessDenied({
+          userId: user.id,
+          walletAddress: user.walletAddress,
+          role: user.role,
+          permission,
+          endpoint,
+          method: req.method,
+          requestId,
+          ipAddress: req.ip,
+          userAgent,
+        });
+        res.status(403).json({ error: forbiddenMessage });
+        return;
+      }
+
+      const startedAt = Date.now();
+      res.once("finish", () => {
+        auditLogger.logAdminAction({
+          userId: user.id,
+          walletAddress: user.walletAddress,
+          role: user.role,
+          permission,
+          endpoint,
+          method: req.method,
+          statusCode: res.statusCode,
+          requestId,
+          ipAddress: req.ip,
+          userAgent,
+          durationMs: Date.now() - startedAt,
+        });
+      });
+
+      next();
+    } catch (error) {
+      logger.error("Admin permission check error:", { error, requestId });
+      res.status(401).json({ error: "Authentication failed" });
+    }
+  };
+}
 
 /**
  * Middleware to authenticate Prometheus metrics scrape.

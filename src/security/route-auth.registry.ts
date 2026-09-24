@@ -1,4 +1,5 @@
 import { UserRole } from "@prisma/client";
+import { AdminPermission } from "./admin-permissions";
 
 /**
  * Minimum authorization required to call a route.
@@ -21,6 +22,12 @@ export interface RouteAuthEntry {
   /** Full mounted path (e.g. /api/predictions/submit) */
   path: string;
   auth: RouteAuthLevel;
+  /**
+   * For `auth: ADMIN` entries: the specific admin permission the route
+   * requires (Issue #497). Enforced by `requireAdminPermission` and documented
+   * in docs/rbac.md — keep this in sync when adding an admin route.
+   */
+  permission?: AdminPermission;
   /** Human-readable note for contributors */
   notes?: string;
 }
@@ -86,14 +93,17 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   { method: "DELETE", path: "/api/notifications/:id", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "DELETE", path: "/api/notifications", auth: RouteAuthLevel.AUTHENTICATED },
 
-  // Admin
-  { method: "GET", path: "/api/admin/metrics/rate-limits", auth: RouteAuthLevel.ADMIN },
-  { method: "POST", path: "/api/admin/metrics/rate-limits/clear", auth: RouteAuthLevel.ADMIN },
-  { method: "GET", path: "/api/admin/cors-diagnostics", auth: RouteAuthLevel.ADMIN },
-   { method: "GET", path: "/api/admin/dead-letter", auth: RouteAuthLevel.ADMIN },
-   { method: "POST", path: "/api/admin/dead-letter/retry-all", auth: RouteAuthLevel.ADMIN },
-   { method: "POST", path: "/api/admin/dead-letter/:id/retry", auth: RouteAuthLevel.ADMIN },
-   { method: "GET", path: "/api/admin/bet-audit", auth: RouteAuthLevel.ADMIN },
+  // Admin — each route carries the specific permission from the RBAC matrix.
+  { method: "GET", path: "/api/admin/metrics/rate-limits", auth: RouteAuthLevel.ADMIN, permission: AdminPermission.METRICS_READ },
+  { method: "POST", path: "/api/admin/metrics/rate-limits/clear", auth: RouteAuthLevel.ADMIN, permission: AdminPermission.METRICS_WRITE },
+  { method: "GET", path: "/api/admin/metrics/rate-limit-summary", auth: RouteAuthLevel.ADMIN, permission: AdminPermission.METRICS_READ },
+  { method: "GET", path: "/api/admin/metrics/payout-reconciliation", auth: RouteAuthLevel.ADMIN, permission: AdminPermission.PAYOUT_RECONCILIATION_READ },
+  { method: "GET", path: "/api/admin/metrics/metrics", auth: RouteAuthLevel.ADMIN, permission: AdminPermission.METRICS_READ, notes: "Prometheus scrape; also accepts METRICS_SCRAPE_TOKEN" },
+  { method: "GET", path: "/api/admin/cors-diagnostics", auth: RouteAuthLevel.ADMIN, permission: AdminPermission.CORS_DIAGNOSTICS_READ },
+  { method: "GET", path: "/api/admin/dead-letter", auth: RouteAuthLevel.ADMIN, permission: AdminPermission.DLQ_READ },
+  { method: "POST", path: "/api/admin/dead-letter/retry-all", auth: RouteAuthLevel.ADMIN, permission: AdminPermission.DLQ_REPLAY },
+  { method: "POST", path: "/api/admin/dead-letter/:id/retry", auth: RouteAuthLevel.ADMIN, permission: AdminPermission.DLQ_REPLAY },
+  { method: "GET", path: "/api/admin/bet-audit", auth: RouteAuthLevel.ADMIN, permission: AdminPermission.BET_AUDIT_READ },
 
   // System / misc API
   { method: "GET", path: "/api/prices", auth: RouteAuthLevel.PUBLIC, notes: "Multi-asset BTC/ETH/XLM ticker (not an alias of /api/price)" },
@@ -129,6 +139,20 @@ export function getProtectedRoutes(): RouteAuthEntry[] {
 
 export function getAdminRoutes(): RouteAuthEntry[] {
   return ROUTE_AUTH_REGISTRY.filter((e) => e.auth === RouteAuthLevel.ADMIN);
+}
+
+/**
+ * Admin entries that declare a matrix permission. Every `/api/admin/*` route
+ * must appear here; the RBAC test asserts that no admin route is left without
+ * an explicit permission (Issue #497).
+ */
+export function getAdminRoutesWithPermissions(): (RouteAuthEntry & {
+  permission: AdminPermission;
+})[] {
+  return getAdminRoutes().filter(
+    (e): e is RouteAuthEntry & { permission: AdminPermission } =>
+      e.permission !== undefined,
+  );
 }
 
 export function getOracleRoutes(): RouteAuthEntry[] {

@@ -6,6 +6,13 @@
  *
  * Audit events are logged to Winston logger and optionally persisted to the database
  * via the AuditLog model (controlled by AUDIT_LOG_DATABASE_ENABLED environment variable).
+ *
+ * Immutability (Issue #497): audit records are append-only. This module only
+ * ever issues `auditLog.create` — there is deliberately no update or delete
+ * path for privileged-action events, so an operator cannot rewrite history
+ * from the application layer. The only code allowed to remove rows is the
+ * scheduled retention job (`retention.service.ts`), which prunes by age under
+ * an explicit, auditable policy.
  */
 
 import logger from './logger';
@@ -31,6 +38,10 @@ export enum AuditEventType {
   // User events
   USER_CREATED = 'auth.user.created',
   USER_LOGIN = 'auth.user.login',
+
+  // Admin / privileged operator actions (append-only audit trail)
+  ADMIN_ACTION = 'admin.action',
+  ADMIN_ACCESS_DENIED = 'admin.access.denied',
 }
 
 /**
@@ -69,7 +80,7 @@ export interface AuditContext {
  * Resource information (what was affected)
  */
 export interface AuditResource {
-  type: 'challenge' | 'user' | 'session';
+  type: 'challenge' | 'user' | 'session' | 'admin_route';
   id?: string;
   walletAddress?: string;
 }
@@ -627,6 +638,103 @@ class AuditLogger {
       },
       metadata: {
         failureReason: params.reason,
+      },
+    });
+  }
+
+  /**
+   * Log a privileged admin action/read. Called from the RBAC middleware on
+   * response finish so the persisted record carries the handler's HTTP status.
+   * Append-only: never updated or deleted from application code.
+   */
+  logAdminAction(params: {
+    userId: string;
+    walletAddress: string;
+    role: string;
+    permission: string;
+    endpoint: string;
+    method: string;
+    statusCode: number;
+    requestId?: string;
+    ipAddress?: string;
+    userAgent?: string;
+    durationMs?: number;
+  }): void {
+    const succeeded = params.statusCode < 400;
+
+    this.log({
+      eventType: AuditEventType.ADMIN_ACTION,
+      severity: succeeded ? AuditSeverity.INFO : AuditSeverity.WARNING,
+      message: `Admin action ${params.permission} (${params.method} ${params.endpoint})`,
+      outcome: succeeded ? 'success' : 'failure',
+      actor: {
+        type: 'user',
+        userId: params.userId,
+        walletAddress: params.walletAddress,
+        ipAddress: params.ipAddress,
+        userAgent: params.userAgent,
+      },
+      context: {
+        requestId: params.requestId,
+        endpoint: params.endpoint,
+        method: params.method,
+        timestamp: new Date().toISOString(),
+      },
+      resource: {
+        type: 'admin_route',
+        id: params.permission,
+      },
+      metadata: {
+        permission: params.permission,
+        role: params.role,
+        statusCode: params.statusCode,
+        durationMs: params.durationMs,
+      },
+    });
+  }
+
+  /**
+   * Log a denied attempt to reach a privileged admin route. Recorded for every
+   * denial so brute-force probing of the admin surface is visible in the audit
+   * trail, not just in an HTTP 403 counter.
+   */
+  logAdminAccessDenied(params: {
+    userId: string;
+    walletAddress: string;
+    role: string;
+    permission: string;
+    endpoint: string;
+    method: string;
+    requestId?: string;
+    ipAddress?: string;
+    userAgent?: string;
+  }): void {
+    this.log({
+      eventType: AuditEventType.ADMIN_ACCESS_DENIED,
+      severity: AuditSeverity.WARNING,
+      message: `Admin access denied for ${params.permission} (role=${params.role})`,
+      outcome: 'failure',
+      actor: {
+        type: 'user',
+        userId: params.userId,
+        walletAddress: params.walletAddress,
+        ipAddress: params.ipAddress,
+        userAgent: params.userAgent,
+      },
+      context: {
+        requestId: params.requestId,
+        endpoint: params.endpoint,
+        method: params.method,
+        timestamp: new Date().toISOString(),
+      },
+      resource: {
+        type: 'admin_route',
+        id: params.permission,
+      },
+      metadata: {
+        permission: params.permission,
+        role: params.role,
+        statusCode: 403,
       },
     });
   }
