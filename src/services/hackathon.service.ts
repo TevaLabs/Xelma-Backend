@@ -188,8 +188,8 @@ export class HackathonService {
       data: {
         address: defaultUser.address,
         rank: 0,
-        balance: defaultUser.balance,
-        pendingWinnings: defaultUser.pendingWinnings,
+        balance: toDecimal(defaultUser.balance),
+        pendingWinnings: toDecimal(defaultUser.pendingWinnings),
         totalWins: defaultUser.totalWins,
         totalLosses: defaultUser.totalLosses,
         winStreak: defaultUser.currentStreak,
@@ -222,6 +222,10 @@ export class HackathonService {
     predictedPrice?: number,
   ): Promise<void> {
     const decimalAmount = toDecimal(amount);
+    // Prices are stored as Decimal(20, 8) too, so a predicted price entered as
+    // a JSON number is normalised at the boundary rather than stored verbatim.
+    const decimalPredictedPrice =
+      predictedPrice === undefined ? undefined : toDecimal(predictedPrice);
 
     await prisma.$transaction(async (tx) => {
       // Reject an unknown round before touching any ledger.
@@ -238,8 +242,8 @@ export class HackathonService {
           data: {
             address,
             rank: 0,
-            balance: 1000,
-            pendingWinnings: 0,
+            balance: toDecimal(1000),
+            pendingWinnings: toDecimal(0),
             totalWins: 3,
             totalLosses: 1,
             winStreak: 3,
@@ -263,15 +267,15 @@ export class HackathonService {
         data: {
           roundId,
           address,
-          amount,
+          amount: decimalAmount,
           side,
-          predictedPrice,
+          predictedPrice: decimalPredictedPrice,
         },
       });
 
       await tx.mockLeaderboard.update({
         where: { address },
-        data: { balance: { decrement: amount } },
+        data: { balance: { decrement: decimalAmount } },
       });
 
       if (round.mode === 'updown' && side) {
@@ -279,14 +283,14 @@ export class HackathonService {
           where: { id: roundId },
           data:
             side === 'UP'
-              ? { poolUp: { increment: amount } }
-              : { poolDown: { increment: amount } },
+              ? { poolUp: { increment: decimalAmount } }
+              : { poolDown: { increment: decimalAmount } },
         });
       } else if (round.mode === 'precision') {
         await tx.mockRound.update({
           where: { id: roundId },
           data: {
-            totalPool: { increment: amount },
+            totalPool: { increment: decimalAmount },
             predictionCount: { increment: 1 },
           },
         });

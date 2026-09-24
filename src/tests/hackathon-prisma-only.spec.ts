@@ -13,6 +13,8 @@
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 
 jest.mock('../lib/prisma', () => {
+  const { toDecimal, toNumber } = require('../utils/decimal.util');
+
   interface RoundRow {
     id: string;
     mode: string;
@@ -64,13 +66,18 @@ jest.mock('../lib/prisma', () => {
     state.bets = snap.bets;
   };
 
-  /** Apply a Prisma update payload the way the database would. */
+  /**
+   * Apply a Prisma update payload the way a `Decimal(20, 8)` column would:
+   * `{ increment }` / `{ decrement }` are evaluated with Decimal arithmetic
+   * (so they never drift), then stored as a plain number like the fake's
+   * other rows.
+   */
   const applyUpdate = (row: Record<string, any>, data: Record<string, any>) => {
     for (const [field, value] of Object.entries(data)) {
       if (value && typeof value === 'object' && 'increment' in value) {
-        row[field] = (row[field] ?? 0) + (value as any).increment;
+        row[field] = toNumber(toDecimal(row[field] ?? 0).plus(toDecimal((value as any).increment)));
       } else if (value && typeof value === 'object' && 'decrement' in value) {
-        row[field] = (row[field] ?? 0) - (value as any).decrement;
+        row[field] = toNumber(toDecimal(row[field] ?? 0).minus(toDecimal((value as any).decrement)));
       } else {
         row[field] = value;
       }
@@ -129,6 +136,7 @@ jest.mock('../lib/prisma', () => {
 
 import hackathonService from '../services/hackathon.service';
 import { prisma } from '../lib/prisma';
+import { toNumber } from '../utils/decimal.util';
 
 const state = (prisma as any).__state as {
   rounds: Map<string, any>;
@@ -179,9 +187,10 @@ describe('HackathonService.placeBet — Prisma-only store', () => {
       expect(state.bets[0]).toMatchObject({
         roundId: ROUND_ID,
         address: ADDRESS,
-        amount: 120,
         side: 'UP',
       });
+      // The stake reaches the store as a Decimal(20, 8) value, not a raw float.
+      expect(toNumber(state.bets[0].amount)).toBe(120);
       expect(balanceBefore - balanceAfter).toBe(120);
       expect(poolUpAfter - poolUpBefore).toBe(120);
       expect(balanceBefore - balanceAfter).toBe(poolUpAfter - poolUpBefore);
@@ -202,7 +211,7 @@ describe('HackathonService.placeBet — Prisma-only store', () => {
       const round = state.rounds.get('eth-precision-live')!;
       expect(round.totalPool).toBe(50);
       expect(round.predictionCount).toBe(1);
-      expect(state.bets[0].predictedPrice).toBe(3250);
+      expect(toNumber(state.bets[0].predictedPrice)).toBe(3250);
     });
   });
 
