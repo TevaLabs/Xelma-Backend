@@ -80,7 +80,7 @@ describe("PredictionService (Issue #78)", () => {
           mode: "UP_DOWN",
           status: "ACTIVE",
         });
-        mockPredictionFindUnique.mockResolvedValue({ id: "existing-pred" });
+        mockPredictionFindUnique.mockResolvedValue({ id: "existing-pred", chainStatus: "CONFIRMED" });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, "UP")
@@ -216,6 +216,7 @@ describe("PredictionService (Issue #78)", () => {
             userId,
             amount: 100,
             side: "UP",
+            chainStatus: "PENDING",
           },
         });
         // Service uses an atomic WHERE+DECREMENT pattern to prevent race conditions
@@ -291,6 +292,7 @@ describe("PredictionService (Issue #78)", () => {
             amount: 50,
             side: undefined,
             priceRange: { min: 1, max: 2 },
+            chainStatus: "NOT_REQUIRED",
           },
         });
         expect(mockRoundUpdate).toHaveBeenCalledWith({

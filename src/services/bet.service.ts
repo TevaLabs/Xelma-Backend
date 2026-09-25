@@ -6,7 +6,7 @@ import betAuditService from './bet-audit.service';
 import outboxService, { BetAcceptedOutboxPayload, BetConfirmedOutboxPayload, BetResolvedOutboxPayload, BetFailedOutboxPayload } from './outbox.service';
 import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
-import { NotFoundError, ValidationError } from '../utils/errors';
+import { NotFoundError, ValidationError, BusinessRuleError, ErrorCode } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
 
 export interface UpDownBetInput {
@@ -694,7 +694,92 @@ export class BetService {
 
     if (process.env.BET_STUB_MODE === 'true') {
       logger.info('Claim winnings stub recorded', { address, idempotencyKey, requestId });
-      result = { state: 'stub', amount: 0 };
+
+      // Stub mode claim ledger/balance effects (Issue #543)
+      result = await prisma.$transaction(async (tx) => {
+        let totalWinnings = 0;
+
+        // Check mockLeaderboard store first
+        const mockLeaderboardUser = await tx.mockLeaderboard.findUnique({ where: { address } });
+        if (mockLeaderboardUser && mockLeaderboardUser.pendingWinnings > 0) {
+          totalWinnings += mockLeaderboardUser.pendingWinnings;
+        }
+
+        // Check Prisma User and resolved winning predictions/bets
+        const user = await tx.user.findUnique({ where: { walletAddress: address } });
+        if (user) {
+          const latestClaim = await tx.claim.findFirst({
+            where: {
+              walletAddress: address,
+              status: ClaimStatus.CONFIRMED,
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+
+          const predWhere: Prisma.PredictionWhereInput = {
+            userId: user.id,
+            won: true,
+            payout: { gt: 0 },
+            ...(latestClaim?.claimedAt ? { createdAt: { gt: latestClaim.claimedAt } } : {}),
+          };
+
+          const winningPredictions = await tx.prediction.findMany({ where: predWhere });
+          for (const pred of winningPredictions) {
+            if (pred.payout) {
+              const amountNum = toNumber(pred.payout);
+              if (!mockLeaderboardUser) {
+                totalWinnings += amountNum;
+              }
+            }
+          }
+        }
+
+        if (totalWinnings <= 0) {
+          throw new BusinessRuleError(
+            'No claimable winnings available.',
+            ErrorCode.CONTRACT_INVALID_STATE
+          );
+        }
+
+        // Apply ledger/balance updates
+        if (mockLeaderboardUser) {
+          await tx.mockLeaderboard.update({
+            where: { address },
+            data: {
+              balance: { increment: Math.round(totalWinnings) },
+              pendingWinnings: 0,
+            },
+          });
+        }
+
+        if (user) {
+          await tx.user.update({
+            where: { id: user.id },
+            data: {
+              virtualBalance: { increment: toDecimal(totalWinnings) },
+            },
+          });
+        }
+
+        const stubTxHash = `0xstub_claim_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
+        await tx.claim.create({
+          data: {
+            userId: user?.id ?? null,
+            walletAddress: address,
+            amount: toDecimal(totalWinnings),
+            status: ClaimStatus.CONFIRMED,
+            txHash: stubTxHash,
+            claimedAt: new Date(),
+          },
+        });
+
+        return {
+          state: 'stub',
+          amount: totalWinnings,
+          txHash: stubTxHash,
+        };
+      });
     } else {
       logger.info('Claiming winnings on-chain', { address, idempotencyKey, requestId });
 

@@ -186,6 +186,9 @@ export function resolveFeatures(
 }
 
 function mountBaseMiddleware(app: Application, mode: AppMode): void {
+  // Correlation ID first, so everything downstream can log it.
+  app.use(requestIdMiddleware);
+
   // One helmet configuration for both modes — the shared middleware pins the
   // explicit CSP, frameguard, Referrer-Policy, legacy X-XSS-Protection and
   // Permissions-Policy that helmet's defaults do not set (Issue #414/#480).
@@ -205,8 +208,6 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
     }),
   );
 
-  // Correlation ID first, so everything downstream can log it.
-  app.use(requestIdMiddleware);
   app.use(metricsMiddleware);
   // Both modes log the same shape (method, path, status, durationMs,
   // requestId) on response finish — see src/middleware/httpLogger.middleware.ts
@@ -372,18 +373,13 @@ export function createApp(options: CreateAppOptions = {}): Application {
   }
 
   if (includeErrorHandlers) {
-    if (mode === 'full') {
-      // Forward unmatched routes into the error handler so 404s use the same
-      // response envelope as every other error.
-      app.use((req: Request, _res: Response, next: NextFunction) => {
-        const { NotFoundError } = require('./utils/errors');
-        next(new NotFoundError(`Route ${req.method} ${req.path} not found`));
-      });
-      app.use(fullErrorHandler);
-    } else {
-      app.use(notFoundHandler);
-      app.use(hackathonErrorHandler);
-    }
+    // Forward unmatched routes into the error handler so 404s use the same
+    // response envelope as every other error.
+    app.use((req: Request, _res: Response, next: NextFunction) => {
+      const { NotFoundError } = require('./utils/errors');
+      next(new NotFoundError(`Route ${req.method} ${req.path} not found`));
+    });
+    app.use(fullErrorHandler);
   }
 
   return app;
