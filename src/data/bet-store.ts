@@ -1,11 +1,12 @@
-import { decAdd, toDecimal, toNumber } from '../utils/decimal.util';
+import { decAdd, decFixed, toDecimal, MONEY_SCALE } from '../utils/decimal.util';
 
 export type BetStatus = 'STUB' | 'SUBMITTED' | 'CONFIRMED' | 'FAILED';
 
 export interface StoredBet {
   id: string;
   address: string;
-  amount: number;
+  /** Canonical 8-decimal string (Decimal-safe). */
+  amount: string;
   side?: 'UP' | 'DOWN';
   predictedPrice?: number;
   mode: 'updown' | 'precision';
@@ -36,9 +37,10 @@ export interface StoredRound {
   mode: 'updown' | 'precision';
   status: 'live' | 'new';
   startPrice: number;
-  poolUp: number;
-  poolDown: number;
-  totalPool: number;
+  /** Pools are canonical 8-decimal strings (Decimal-safe). */
+  poolUp: string;
+  poolDown: string;
+  totalPool: string;
   predictionCount: number;
   closesAt: string;
 }
@@ -53,9 +55,9 @@ const SEED_ROUNDS: StoredRound[] = [
     mode: 'updown',
     status: 'live',
     startPrice: 67420,
-    poolUp: 2800,
-    poolDown: 1400,
-    totalPool: 4200,
+    poolUp: '2800.00000000',
+    poolDown: '1400.00000000',
+    totalPool: '4200.00000000',
     predictionCount: 0,
     closesAt: MINUTES_FROM_NOW(3),
   },
@@ -65,9 +67,9 @@ const SEED_ROUNDS: StoredRound[] = [
     mode: 'precision',
     status: 'live',
     startPrice: 3241,
-    poolUp: 0,
-    poolDown: 0,
-    totalPool: 1800,
+    poolUp: '0.00000000',
+    poolDown: '0.00000000',
+    totalPool: '1800.00000000',
     predictionCount: 22,
     closesAt: MINUTES_FROM_NOW(12),
   },
@@ -77,9 +79,9 @@ const SEED_ROUNDS: StoredRound[] = [
     mode: 'updown',
     status: 'new',
     startPrice: 0.2891,
-    poolUp: 200,
-    poolDown: 0,
-    totalPool: 200,
+    poolUp: '200.00000000',
+    poolDown: '0.00000000',
+    totalPool: '200.00000000',
     predictionCount: 0,
     closesAt: MINUTES_FROM_NOW(20),
   },
@@ -116,22 +118,22 @@ class BetStore {
     side: 'UP' | 'DOWN',
     status: BetStatus = 'STUB',
   ): StoredBet {
-    const numAmount = toNumber(toDecimal(amount));
+    const strAmount = decFixed(toDecimal(amount), MONEY_SCALE);
     const round = this.rounds.get(roundId);
 
     if (round && round.mode === 'updown') {
       if (side === 'UP') {
-        round.poolUp = toNumber(decAdd(round.poolUp, numAmount));
+        round.poolUp = decFixed(decAdd(toDecimal(round.poolUp), toDecimal(strAmount)), MONEY_SCALE);
       } else {
-        round.poolDown = toNumber(decAdd(round.poolDown, numAmount));
+        round.poolDown = decFixed(decAdd(toDecimal(round.poolDown), toDecimal(strAmount)), MONEY_SCALE);
       }
-      round.totalPool = toNumber(decAdd(round.poolUp, round.poolDown));
+      round.totalPool = decFixed(decAdd(toDecimal(round.poolUp), toDecimal(round.poolDown)), MONEY_SCALE);
     }
 
     return this.recordBet({
       roundId: round && round.mode === 'updown' ? roundId : undefined,
       address,
-      amount: numAmount,
+      amount: strAmount,
       side,
       mode: 'updown',
       status,
@@ -146,18 +148,18 @@ class BetStore {
     predictedPrice: number,
     status: BetStatus = 'STUB',
   ): StoredBet {
-    const numAmount = toNumber(toDecimal(amount));
+    const strAmount = decFixed(toDecimal(amount), MONEY_SCALE);
     const round = this.rounds.get(roundId);
 
     if (round && round.mode === 'precision') {
-      round.totalPool = toNumber(decAdd(round.totalPool, numAmount));
+      round.totalPool = decFixed(decAdd(toDecimal(round.totalPool), toDecimal(strAmount)), MONEY_SCALE);
       round.predictionCount++;
     }
 
     return this.recordBet({
       roundId: round && round.mode === 'precision' ? roundId : undefined,
       address,
-      amount: numAmount,
+      amount: strAmount,
       predictedPrice,
       mode: 'precision',
       status,
