@@ -486,21 +486,20 @@ export async function getConnectedRedisClient(): Promise<RedisClientType | null>
 export async function checkRedisHealth(
   timeoutMs: number,
 ): Promise<{ status: string; durationMs: number; error?: string }> {
-  if (!isRedisCacheEnabled()) {
+  if (!isRedisConfigured()) {
     return { status: "bypassed", durationMs: 0 };
   }
 
   const start = Date.now();
   try {
-    const redisClient = await ensureClient();
-    if (!redisClient) {
-      return { status: "unavailable", durationMs: Date.now() - start };
-    }
-
     const result = await withTimeout(
-      () => redisClient.ping(),
+      async () => {
+        const redisClient = await ensureClient(false);
+        if (!redisClient) throw new Error("Redis unavailable");
+        return redisClient.ping();
+      },
       {
-        timeoutMs: Math.min(timeoutMs, 1000),
+        timeoutMs: Math.min(timeoutMs, 1500),
         operationName: "health-redis-ping",
         retries: 1,
       },
