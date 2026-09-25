@@ -541,6 +541,20 @@ const outboxEvents = new MemoryCollection("id", () => ({
   lastError: null,
   processedAt: null,
 }));
+// #624: durable backing for the demo bet audit trail (src/data/bet-store.ts).
+// Registered here so a `BET_STORE=postgres` + `DATA_STORE=memory` boot still
+// resolves `prisma.betRecord` instead of throwing.
+const betRecords = new MemoryCollection("id", () => ({
+  side: null,
+  predictedPrice: null,
+  roundId: null,
+  status: "STUB",
+  txHash: null,
+  submittedAt: null,
+  confirmedAt: null,
+  failedAt: null,
+  failureReason: null,
+}));
 
 // ---------------------------------------------------------------------------
 // Hackathon mock-data fixtures (mockRound / mockLeaderboard / mockBet /
@@ -684,6 +698,7 @@ const modelClients = {
   round: rounds,
   prediction: predictionModel(),
   bet: bets,
+  betRecord: betRecords,
   notification: notifications,
   userStats,
   message: messageModel(),

@@ -398,7 +398,7 @@ describe("Load Test Harness — Duplicate idempotency (#500)", () => {
     const { concurrency, iterations, maxP95LatencyMs, maxErrorRate } =
       LOAD_CONFIG.idempotency;
     const idempotencyKey = `load-idempotency-${Date.now()}`;
-    const beforeCount = betStore.getBets({ address: BET_WALLET }).length;
+    const beforeCount = (await betStore.getBets({ address: BET_WALLET })).length;
 
     const result = await runConcurrentLoad({
       concurrency,
@@ -425,7 +425,7 @@ describe("Load Test Harness — Duplicate idempotency (#500)", () => {
 
     console.log(formatLoadTestReport("duplicate idempotency", result));
 
-    const created = betStore.getBets({ address: BET_WALLET }).length - beforeCount;
+    const created = (await betStore.getBets({ address: BET_WALLET })).length - beforeCount;
     expect(created).toBe(1);
     expect(result.errorRate).toBeLessThanOrEqual(maxErrorRate);
     expect(result.latencyMs.p95).toBeLessThanOrEqual(maxP95LatencyMs);

@@ -24,6 +24,7 @@ behavior, or choosing the right flags for a deployment profile.
 |---|---|---|---|---|
 | `DATA_MODE` | `config.app.dataMode` | `live`, `mock` | `live` | `src/config/index.ts` |
 | `DATA_STORE` | `config.app.dataStore` | `postgres`, `memory` | auto (see below) | `src/config/index.ts` |
+| `BET_STORE` | `config.app.betStore` | `postgres`, `memory` (`prisma` accepted as an alias) | follows `DATA_STORE` | `src/config/index.ts` |
 | `BET_STUB_MODE` | `process.env.BET_STUB_MODE` | `true`, `false` | `true` | `src/services/bet.service.ts` |
 | `ROUNDS_MOCK_MODE` | `config.app.roundsMockMode` | `true`, `false` | `false` | `src/config/index.ts` |
 | `API_ONLY` | `process.env.API_ONLY` | `true`, `false` | `false` | `src/index.ts` |
@@ -34,6 +35,9 @@ behavior, or choosing the right flags for a deployment profile.
 When `DATA_MODE=mock`, the config defaults `DATA_STORE` to `memory`.
 You can override it explicitly: `DATA_MODE=mock DATA_STORE=postgres` is valid.
 When `DATA_MODE=live`, `DATA_STORE` defaults to `postgres`.
+
+`BET_STORE` follows the same derivation and can be overridden independently
+(see below).
 
 ---
 
@@ -55,6 +59,33 @@ or from in-memory mock data. This is the highest-level mode switch.
 **Implementation:** `src/services/priceService.ts` reads `config.app.dataMode`;
 `src/services/stats.service.ts` falls back to `MOCK_PLATFORM_STATS` when the DB
 is empty or unreachable.
+
+### BET_STORE
+
+Controls where the **demo bet audit trail** lives (`src/data/bet-store.ts`,
+issue #624). Historically that store was a process-local `Map`, so a deploy, a
+crash, or a second replica silently dropped every demo bet.
+
+| `BET_STORE` | Behavior | Use case |
+|---|---|---|
+| `postgres` (default when `DATA_MODE=live`) | Every bet is written to the `BetRecord` table; bets survive a restart and are visible to every replica. | Demos and multi-instance deploys that must show “my last bet”. |
+| `memory` (default when `DATA_MODE=mock`) | The original in-process `Map` backend. Needs no database at all; state is lost on restart. | Local dev, CI, DB-less hackathon boots. |
+
+**Selection order:** explicit `BET_STORE` → `DATA_STORE` → `DATA_MODE=mock`
+(implies `memory`) → `postgres`. The backend is resolved **per call**, so
+toggling the flag inside a running process (as the test suite does) takes
+effect immediately.
+
+**Reading bets back:** the store exposes the same API either way —
+`recordBet` / `addUpDownBet` / `addPrecisionBet` / `markSubmitted` /
+`markConfirmed` / `markFailed` / `getBet` / `getBets` /
+`getReconciliationSummary` / `getTotalBetsCount` — and all methods are `await`ed,
+so callers such as `BetService` and the in-memory repositories do not branch on
+the backend.
+
+> `BetService` mirrors every accepted bet into the store, reusing the primary
+> `Bet` id. The mirror is best-effort: a failure is logged, never propagated,
+> because the canonical `Bet` row is already committed.
 
 ### BET_STUB_MODE
 
@@ -213,6 +244,8 @@ The three flags are **independent** — you can mix and match them:
 - `DATA_MODE=live` + `BET_STUB_MODE=true` = real prices, stub bets
 - `DATA_MODE=mock` + `BET_STUB_MODE=false` = mock prices, on-chain bets
 - `ROUNDS_MOCK_MODE=true` + `DATA_MODE=live` = mock rounds, real prices/stats
+- `DATA_MODE=mock` + `BET_STORE=postgres` = mock prices/rounds, but the demo bet
+  audit trail is durable (requires `DATABASE_URL`)
 - etc.
 
 This independence lets you isolate exactly which external services are needed
@@ -226,6 +259,7 @@ for your current workflow.
 |---|---|
 | `DATA_MODE` | `src/config/index.ts`, `src/services/priceService.ts`, `src/services/stats.service.ts` |
 | `DATA_STORE` | `src/config/index.ts`, `src/repositories/` |
+| `BET_STORE` | `src/config/index.ts`, `src/data/bet-store.ts` |
 | `BET_STUB_MODE` | `src/services/bet.service.ts` |
 | `ROUNDS_MOCK_MODE` | `src/config/index.ts`, `src/services/round.service.ts` |
 | `SOROBAN_FAIL_CLOSED` | `src/config/index.ts`, `src/services/soroban.service.ts` |

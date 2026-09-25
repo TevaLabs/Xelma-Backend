@@ -165,11 +165,19 @@ The hackathon app and the production app share the same services, but the data b
 | --------------------- | ------------------------------ | ------------------------------------------------------------------- |
 | `DATA_MODE`           | `live` (default), `mock`       | Switches price source and stats fallback                            |
 | `DATA_STORE`          | `postgres` (default), `memory` | Switches repository adapter for rounds, leaderboard, bets           |
+| `BET_STORE`           | follows `DATA_STORE`           | Backing store for the demo bet audit trail: `postgres` (durable, default in live mode) or `memory` (in-process, default in mock mode) |
 | `SOROBAN_CONTRACT_ID` | contract address or unset      | When unset, Soroban service disables and health shows `unavailable` |
 
 See [src/data/mockData.ts](src/data/mockData.ts) for the full in-memory seed data and fallback constants.
 
-> **Runtime modes reference:** For the complete flag matrix (DATA_MODE, BET_STUB_MODE, ROUNDS_MOCK_MODE), recommended combinations, and interaction diagrams, see **[docs/runtime-modes.md](docs/runtime-modes.md)**.
+> **Runtime modes reference:** For the complete flag matrix (DATA_MODE, DATA_STORE, BET_STORE, BET_STUB_MODE, ROUNDS_MOCK_MODE), recommended combinations, and interaction diagrams, see **[docs/runtime-modes.md](docs/runtime-modes.md)**.
+
+> **Demo bets and restarts:** the demo/hackathon bet audit trail
+> ([src/data/bet-store.ts](src/data/bet-store.ts)) keeps bets in process memory
+> while `DATA_MODE=mock` / `DATA_STORE=memory`, so a restart clears them. Set
+> `BET_STORE=postgres` (with a `DATABASE_URL`) to persist every bet to the
+> `BetRecord` table instead — bets then survive a deploy, a crash, and are
+> visible to every replica (issue #624).
 
 ---
 
@@ -1916,6 +1924,10 @@ Minimal env vars needed (all others use sensible defaults):
 | `SOROBAN_CONTRACT_ID`       | _(sync on Render)_                    | Soroban contract address (optional for demo; alias: `CONTRACT_ID`) |
 | `SOROBAN_RPC_URL`           | `https://soroban-testnet.stellar.org` | Soroban RPC (alias: `STELLAR_RPC_URL`)                             |
 
+> **Durable demo bets (optional):** the minimal profile keeps the demo bet
+> audit trail in process memory. To make “my last bet” survive a restart, add
+> `DATABASE_URL` and `BET_STORE=postgres` (see [docs/runtime-modes.md](docs/runtime-modes.md)).
+
 ### Profile 2: Production Full Backend (`xelma-backend`)
 
 | Setting           | Value                                                               |
@@ -1987,13 +1999,13 @@ The server starts on `http://localhost:3001` (or the `PORT` in `.env`). See the 
 | `PORT`                      | `3001`                                                                        | Server listen port                                                         |
 | `DATABASE_URL`              | `postgresql://xelma:xelma@localhost:5432/xelma`                               | PostgreSQL connection                                                      |
 | `JWT_SECRET`                | `my-secret-key`                                                               | Signs JWT tokens (app refuses to start without it)                         |
-| `DATA_MODE`                 | `mock`                                                                        | Hackathon service data mode (set to `mock` to query Drizzle schema tables) |
+| `DATA_MODE`                 | `mock`                                                                        | Hackathon service data mode (`mock` backs Prisma with the in-memory store; no DB required) |
 | `ENABLE_MULTIPLAYER_SOCIAL` | `true`                                                                        | Feature flag to enable/disable chat and notifications routes               |
 | `COINGECKO_API_URL`         | `https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd` | Price oracle source                                                        |
 | `SOROBAN_RPC_URL`           | `https://soroban-testnet.stellar.org`                                         | Soroban RPC (alias: `STELLAR_RPC_URL`)                                     |
 | `SOROBAN_CONTRACT_ID`       | _(your deployed contract)_                                                    | Soroban prediction market contract (alias: `CONTRACT_ID`)                  |
 
-> **Note**: For the Hackathon MVP, the backend is fully migrated from in-memory arrays to PostgreSQL via Drizzle ORM for durable persistence of users, rounds, and bets. No in-memory stores are used.
+> **Note**: For the Hackathon MVP, durable persistence of users, rounds, and bets is handled by Prisma against PostgreSQL. Setting `DATA_MODE=mock` (or `DATA_STORE=memory`) backs the same Prisma client with an in-memory store for DB-less demos.
 
 ### 3. Hackathon Endpoint Curl Examples
 

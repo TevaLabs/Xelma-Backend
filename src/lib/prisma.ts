@@ -123,6 +123,57 @@ export const prisma = (() => {
         findUnique: async () => null,
         groupBy: async () => [],
       },
+      // #624: the demo bet audit trail (src/data/bet-store.ts) mirrors each
+      // accepted bet into `betRecord`. Unit tests mock Prisma, so keep a
+      // functional in-memory model here instead of a no-op jest.fn so those
+      // mirror writes behave like the real client.
+      betRecord: (() => {
+        const store = new Map<string, any>();
+        let sequence = 0;
+        const matches = (row: any, where: any = {}) =>
+          Object.entries(where).every(
+            ([key, value]) => value === undefined || row[key] === value,
+          );
+        return {
+          create: async ({ data }: any) => {
+            const row = {
+              id: data.id ?? `bet-record-${++sequence}`,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              ...data,
+            };
+            store.set(row.id, row);
+            return row;
+          },
+          findUnique: async ({ where }: any) => store.get(where.id) ?? null,
+          findMany: async ({ where }: any = {}) =>
+            Array.from(store.values()).filter((row) => matches(row, where)),
+          update: async ({ where, data }: any) => {
+            const existing = store.get(where.id);
+            if (!existing) return null;
+            const updated = { ...existing, ...data, updatedAt: new Date() };
+            store.set(where.id, updated);
+            return updated;
+          },
+          count: async () => store.size,
+          groupBy: async ({ by }: any) => {
+            const groups = new Map<string, number>();
+            for (const row of store.values()) {
+              const key = row[by[0]];
+              groups.set(key, (groups.get(key) ?? 0) + 1);
+            }
+            return Array.from(groups.entries()).map(([status, count]) => ({
+              status,
+              _count: { status: count },
+            }));
+          },
+          deleteMany: async () => {
+            const count = store.size;
+            store.clear();
+            return { count };
+          },
+        };
+      })(),
       user: {
         findUnique: async () => null,
         findFirst: async () => null,

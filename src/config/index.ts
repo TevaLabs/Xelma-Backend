@@ -20,6 +20,13 @@ export interface AppConfig {
   roundsMockMode: boolean;
   dataMode: "mock" | "live";
   dataStore: "memory" | "postgres";
+  /**
+   * Backing store for the demo/hackathon bet audit trail
+   * (src/data/bet-store.ts). Defaults to `DATA_STORE` so it follows
+   * `DATA_MODE=mock` → memory; override with `BET_STORE` to run the demo
+   * audit trail against Postgres without changing the repository adapter.
+   */
+  betStore: "memory" | "postgres";
   enableSimulation: boolean;
   enableMultiplayerSocial: boolean;
   metricsScrapeToken: string;
@@ -140,6 +147,15 @@ function buildConfig(): Config {
       "DATA_STORE",
       ["memory", "postgres"] as const,
       "postgres",
+    ),
+    betStore: v.oneOf<"memory" | "postgres">(
+      env.BET_STORE === "prisma" ? "postgres" : env.BET_STORE,
+      "BET_STORE",
+      ["memory", "postgres"] as const,
+      env.DATA_STORE === "memory" ||
+        (env.DATA_STORE === undefined && env.DATA_MODE === "mock")
+        ? "memory"
+        : "postgres",
     ),
     enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
     enableMultiplayerSocial: v.boolean(env.ENABLE_MULTIPLAYER_SOCIAL, true),
