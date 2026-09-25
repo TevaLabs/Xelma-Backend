@@ -1,29 +1,4 @@
-/**
- * Demo/hackathon bet audit trail.
- *
- * Historically this store kept every bet in a process-local `Map`, so a deploy,
- * a crash, or a second replica silently dropped the whole demo audit trail
- * (issue #624, previously #519/#577). The store now has two backends behind one
- * API:
- *
- *   - `memory`   — the original in-process `Map`/`Decimal` backend. Used for
- *                  `DATA_MODE=mock` / `DATA_STORE=memory` boots that have no
- *                  database at all.
- *   - `postgres` — persists every bet to the `BetRecord` table, so demo bets
- *                  survive a process restart and are visible to every replica.
- *
- * The backend is resolved from `BET_STORE` when set, otherwise it follows
- * `DATA_STORE` (which itself defaults to `memory` for `DATA_MODE=mock`). See
- * docs/runtime-modes.md.
- *
- * The backend is resolved per call rather than once at import time: tests (and
- * `DATA_STORE=memory` demo boots) flip the flag inside a running process, and
- * the memory backend has to keep behaving exactly as it did before.
- */
-import config from '../config';
-import { prisma } from '../lib/prisma';
-import logger from '../utils/logger';
-import { decAdd, toDecimal, toNumber } from '../utils/decimal.util';
+import { decAdd, decFixed, toDecimal, MONEY_SCALE } from '../utils/decimal.util';
 
 export type BetStatus = 'STUB' | 'SUBMITTED' | 'CONFIRMED' | 'FAILED';
 
@@ -32,7 +7,8 @@ export type StoredBetMode = 'updown' | 'precision';
 export interface StoredBet {
   id: string;
   address: string;
-  amount: number;
+  /** Canonical 8-decimal string (Decimal-safe). */
+  amount: string;
   side?: 'UP' | 'DOWN';
   predictedPrice?: number;
   mode: StoredBetMode;
@@ -63,9 +39,10 @@ export interface StoredRound {
   mode: 'updown' | 'precision';
   status: 'live' | 'new';
   startPrice: number;
-  poolUp: number;
-  poolDown: number;
-  totalPool: number;
+  /** Pools are canonical 8-decimal strings (Decimal-safe). */
+  poolUp: string;
+  poolDown: string;
+  totalPool: string;
   predictionCount: number;
   closesAt: string;
 }
@@ -147,9 +124,9 @@ const SEED_ROUNDS: StoredRound[] = [
     mode: 'updown',
     status: 'live',
     startPrice: 67420,
-    poolUp: 2800,
-    poolDown: 1400,
-    totalPool: 4200,
+    poolUp: '2800.00000000',
+    poolDown: '1400.00000000',
+    totalPool: '4200.00000000',
     predictionCount: 0,
     closesAt: MINUTES_FROM_NOW(3),
   },
@@ -159,9 +136,9 @@ const SEED_ROUNDS: StoredRound[] = [
     mode: 'precision',
     status: 'live',
     startPrice: 3241,
-    poolUp: 0,
-    poolDown: 0,
-    totalPool: 1800,
+    poolUp: '0.00000000',
+    poolDown: '0.00000000',
+    totalPool: '1800.00000000',
     predictionCount: 22,
     closesAt: MINUTES_FROM_NOW(12),
   },
@@ -171,9 +148,9 @@ const SEED_ROUNDS: StoredRound[] = [
     mode: 'updown',
     status: 'new',
     startPrice: 0.2891,
-    poolUp: 200,
-    poolDown: 0,
-    totalPool: 200,
+    poolUp: '200.00000000',
+    poolDown: '0.00000000',
+    totalPool: '200.00000000',
     predictionCount: 0,
     closesAt: MINUTES_FROM_NOW(20),
   },
@@ -288,14 +265,23 @@ export class MemoryBetStore implements BetStore {
     amount: number | string,
     side: 'UP' | 'DOWN',
     status: BetStatus = 'STUB',
-  ): Promise<StoredBet> {
-    const numAmount = toNumber(toDecimal(amount));
-    roundRegistry.trackUpDown(roundId, numAmount, side);
+  ): StoredBet {
+    const strAmount = decFixed(toDecimal(amount), MONEY_SCALE);
+    const round = this.rounds.get(roundId);
+
+    if (round && round.mode === 'updown') {
+      if (side === 'UP') {
+        round.poolUp = decFixed(decAdd(toDecimal(round.poolUp), toDecimal(strAmount)), MONEY_SCALE);
+      } else {
+        round.poolDown = decFixed(decAdd(toDecimal(round.poolDown), toDecimal(strAmount)), MONEY_SCALE);
+      }
+      round.totalPool = decFixed(decAdd(toDecimal(round.poolUp), toDecimal(round.poolDown)), MONEY_SCALE);
+    }
 
     return this.recordBet({
       roundId,
       address,
-      amount: numAmount,
+      amount: strAmount,
       side,
       mode: 'updown',
       status,
@@ -308,14 +294,19 @@ export class MemoryBetStore implements BetStore {
     amount: number | string,
     predictedPrice: number,
     status: BetStatus = 'STUB',
-  ): Promise<StoredBet> {
-    const numAmount = toNumber(toDecimal(amount));
-    roundRegistry.trackPrecision(roundId, numAmount);
+  ): StoredBet {
+    const strAmount = decFixed(toDecimal(amount), MONEY_SCALE);
+    const round = this.rounds.get(roundId);
+
+    if (round && round.mode === 'precision') {
+      round.totalPool = decFixed(decAdd(toDecimal(round.totalPool), toDecimal(strAmount)), MONEY_SCALE);
+      round.predictionCount++;
+    }
 
     return this.recordBet({
       roundId,
       address,
-      amount: numAmount,
+      amount: strAmount,
       predictedPrice,
       mode: 'precision',
       status,
