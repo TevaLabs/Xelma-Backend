@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import sorobanService from '../services/soroban.service';
 import priceOracle from '../services/oracle';
-import { checkRedisHealth, isRedisCacheEnabled } from '../lib/redis';
+import { checkRedisHealth, isRedisConfigured as hasRedisUrl } from '../lib/redis';
 import { withTimeout } from '../utils/timeout-wrapper';
 import logger from '../utils/logger';
 import { asyncHandler } from '../middleware/errorHandler.middleware';
@@ -167,10 +167,9 @@ function isDatabaseConfigured(): boolean {
 }
 
 function isRedisConfigured(): boolean {
-  // Redis is configured when REDIS_URL is present and cache is not explicitly
-  // disabled.  isRedisCacheEnabled() returns false both when REDIS_URL is
-  // absent and when REDIS_CACHE_ENABLED=false.
-  return isRedisCacheEnabled();
+  // Other features (for example distributed rate limits) can still depend on
+  // Redis when the optional JSON cache is disabled.
+  return hasRedisUrl();
 }
 
 /**

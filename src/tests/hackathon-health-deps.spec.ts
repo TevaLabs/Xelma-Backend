@@ -31,10 +31,11 @@ jest.mock('../services/oracle', () => ({
 
 const mockCheckRedisHealth = jest.fn<() => Promise<{ status: string; durationMs: number; error?: string }>>();
 const mockIsRedisCacheEnabled = jest.fn<boolean>();
+const mockIsRedisConfigured = jest.fn<boolean>();
 
 jest.mock('../lib/redis', () => ({
   checkRedisHealth: (...args: unknown[]) => mockCheckRedisHealth(...args),
-  isRedisCacheEnabled: (...args: unknown[]) => mockIsRedisCacheEnabled(...args),
+  isRedisConfigured: (...args: unknown[]) => mockIsRedisConfigured(...args),
 }));
 
 // Mock config — provide all properties that downstream modules may access
@@ -100,6 +101,7 @@ describe('Hackathon health – optional dependency probes', () => {
     jest.clearAllMocks();
     mockIsReady.mockReturnValue(true);
     mockIsRedisCacheEnabled.mockReturnValue(false);
+    mockIsRedisConfigured.mockReturnValue(false);
     mockDataStore = 'memory';
     mockQueryRaw.mockResolvedValue([{ '?column?': 1 }]);
 
@@ -111,6 +113,7 @@ describe('Hackathon health – optional dependency probes', () => {
     it('omits database and redis from services', async () => {
       mockDataStore = 'memory';
       mockIsRedisCacheEnabled.mockReturnValue(false);
+      mockIsRedisConfigured.mockReturnValue(false);
       app = createApp({ mode: 'hackathon', features: { apiDocs: false } });
 
       const res = await request(app).get('/api/health');
@@ -158,6 +161,7 @@ describe('Hackathon health – optional dependency probes', () => {
   describe('when redis is configured', () => {
     it('includes redis probe with healthy status', async () => {
       mockIsRedisCacheEnabled.mockReturnValue(true);
+      mockIsRedisConfigured.mockReturnValue(true);
       mockCheckRedisHealth.mockResolvedValue({ status: 'healthy', durationMs: 5 });
       app = createApp({ mode: 'hackathon', features: { apiDocs: false } });
 
@@ -170,6 +174,7 @@ describe('Hackathon health – optional dependency probes', () => {
 
     it('returns degraded when redis probe is unavailable', async () => {
       mockIsRedisCacheEnabled.mockReturnValue(true);
+      mockIsRedisConfigured.mockReturnValue(true);
       mockCheckRedisHealth.mockResolvedValue({ status: 'unavailable', durationMs: 12 });
       app = createApp({ mode: 'hackathon', features: { apiDocs: false } });
 
@@ -181,6 +186,7 @@ describe('Hackathon health – optional dependency probes', () => {
 
     it('returns degraded when redis probe is degraded', async () => {
       mockIsRedisCacheEnabled.mockReturnValue(true);
+      mockIsRedisConfigured.mockReturnValue(true);
       mockCheckRedisHealth.mockResolvedValue({ status: 'degraded', durationMs: 18, error: 'timeout' });
       app = createApp({ mode: 'hackathon', features: { apiDocs: false } });
 
@@ -193,6 +199,7 @@ describe('Hackathon health – optional dependency probes', () => {
 
     it('keeps ok status when redis returns bypassed', async () => {
       mockIsRedisCacheEnabled.mockReturnValue(true);
+      mockIsRedisConfigured.mockReturnValue(true);
       mockCheckRedisHealth.mockResolvedValue({ status: 'bypassed', durationMs: 0 });
       app = createApp({ mode: 'hackathon', features: { apiDocs: false } });
 
@@ -200,6 +207,18 @@ describe('Hackathon health – optional dependency probes', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe('ok');
       expect(res.body.data.services.redis.status).toBe('bypassed');
+    });
+
+    it('probes Redis when configured even if the cache is disabled', async () => {
+      mockIsRedisCacheEnabled.mockReturnValue(false);
+      mockIsRedisConfigured.mockReturnValue(true);
+      mockCheckRedisHealth.mockResolvedValue({ status: 'unavailable', durationMs: 12 });
+      app = createApp({ mode: 'hackathon', features: { apiDocs: false } });
+
+      const res = await request(app).get('/api/health');
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe('degraded');
+      expect(res.body.data.services.redis.status).toBe('unavailable');
     });
   });
 
@@ -209,6 +228,7 @@ describe('Hackathon health – optional dependency probes', () => {
       mockDataStore = 'postgres';
       mockQueryRaw.mockResolvedValue([{ '?column?': 1 }]);
       mockIsRedisCacheEnabled.mockReturnValue(true);
+      mockIsRedisConfigured.mockReturnValue(true);
       mockCheckRedisHealth.mockResolvedValue({ status: 'healthy', durationMs: 3 });
       app = createApp({ mode: 'hackathon', features: { apiDocs: false } });
 
@@ -223,6 +243,7 @@ describe('Hackathon health – optional dependency probes', () => {
       mockDataStore = 'postgres';
       mockQueryRaw.mockResolvedValue([{ '?column?': 1 }]);
       mockIsRedisCacheEnabled.mockReturnValue(true);
+      mockIsRedisConfigured.mockReturnValue(true);
       mockCheckRedisHealth.mockResolvedValue({ status: 'unavailable', durationMs: 8 });
       app = createApp({ mode: 'hackathon', features: { apiDocs: false } });
 
