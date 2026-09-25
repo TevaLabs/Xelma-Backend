@@ -144,7 +144,7 @@ function buildConfig(): Config {
     ),
     enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
     enableMultiplayerSocial: v.boolean(env.ENABLE_MULTIPLAYER_SOCIAL, true),
-    enableEducation: v.boolean(env.ENABLE_EDUCATION, false),
+    enableEducation: v.boolean(env.ENABLE_EDUCATION, true),
     metricsScrapeToken: v.optional(env.METRICS_SCRAPE_TOKEN, ""),
     socketDemoMode: v.boolean(
       env.SOCKET_DEMO_MODE ??
