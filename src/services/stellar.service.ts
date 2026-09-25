@@ -1,7 +1,8 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
 import logger from '../utils/logger';
 import { CircuitBreaker, CircuitBreakerOpenError, CircuitBreakerSnapshot } from '../utils/circuit-breaker';
-import { timeoutPromise } from '../utils/timeout-wrapper';
+import { AppError } from '../utils/errors';
+import { horizonRequestsTotal } from '../metrics/application.metrics';
 import {
   isValidChallengeDomain,
   isChallengeWalletBindingValid,
@@ -51,46 +52,70 @@ export interface StellarAccountInfo {
   data: Record<string, string>;
 }
 
+/** The subset of Horizon's account JSON used by this service. */
+export interface HorizonAccount {
+  id?: string;
+  account_id?: string;
+  sequence?: string;
+  subentry_count?: number;
+  thresholds?: Partial<StellarThresholds>;
+  flags?: Partial<StellarFlags>;
+  balances?: Array<{
+    asset_type: string;
+    asset_code?: string;
+    asset_issuer?: string;
+    balance: string;
+    limit?: string;
+    buying_liabilities?: string;
+    selling_liabilities?: string;
+    last_modified_ledger?: number;
+    is_authorized?: boolean;
+  }>;
+  signers?: Array<{ key: string; weight: number; type?: string }>;
+  data?: Record<string, string>;
+  data_attr?: Record<string, string>;
+}
+
 export interface GetAccountInfoOptions {
   timeoutMs?: number;
   serverUrl?: string;
 }
 
-export class StellarHorizonError extends Error {
+export class StellarHorizonError extends AppError {
   constructor(
     message: string,
     public readonly code: string,
     public readonly cause?: unknown,
+    statusCode = 503,
   ) {
-    super(message);
-    this.name = 'StellarHorizonError';
+    super(message, statusCode, code);
   }
 }
 
 export class StellarInvalidAddressError extends StellarHorizonError {
   constructor(public readonly address: string) {
-    super(`Invalid Stellar wallet address: ${address}`, 'INVALID_ADDRESS');
+    super('Invalid Stellar wallet address.', 'INVALID_ADDRESS', undefined, 400);
     this.name = 'StellarInvalidAddressError';
   }
 }
 
 export class StellarAccountNotFoundError extends StellarHorizonError {
   constructor(public readonly address: string) {
-    super(`Stellar account not found: ${address}`, 'ACCOUNT_NOT_FOUND');
+    super('Stellar account not found.', 'ACCOUNT_NOT_FOUND', undefined, 404);
     this.name = 'StellarAccountNotFoundError';
   }
 }
 
 export class StellarHorizonTimeoutError extends StellarHorizonError {
   constructor(public readonly timeoutMs: number, cause?: unknown) {
-    super(`Stellar Horizon lookup timed out after ${timeoutMs}ms`, 'HORIZON_TIMEOUT', cause);
+    super(`Stellar Horizon lookup timed out after ${timeoutMs}ms`, 'HORIZON_TIMEOUT', cause, 504);
     this.name = 'StellarHorizonTimeoutError';
   }
 }
 
 export class StellarHorizonUnavailableError extends StellarHorizonError {
   constructor(message: string, cause?: unknown) {
-    super(message, 'HORIZON_UNAVAILABLE', cause);
+    super(message, 'HORIZON_UNAVAILABLE', cause, 502);
     this.name = 'StellarHorizonUnavailableError';
   }
 }
@@ -197,10 +222,10 @@ export async function verifySignature(
 /**
  * Map raw Horizon account response to typed StellarAccountInfo model.
  */
-export function mapHorizonAccountResponse(raw: any): StellarAccountInfo {
+export function mapHorizonAccountResponse(raw: HorizonAccount): StellarAccountInfo {
   return {
-    id: raw.id || raw.account_id,
-    account_id: raw.account_id || raw.id,
+    id: raw.id || raw.account_id || '',
+    account_id: raw.account_id || raw.id || '',
     sequence: String(raw.sequence || '0'),
     subentry_count: Number(raw.subentry_count || 0),
     thresholds: {
@@ -215,7 +240,7 @@ export function mapHorizonAccountResponse(raw: any): StellarAccountInfo {
       auth_clawback_enabled: Boolean(raw.flags?.auth_clawback_enabled),
     },
     balances: Array.isArray(raw.balances)
-      ? raw.balances.map((b: any) => ({
+      ? raw.balances.map((b) => ({
           asset_type: b.asset_type,
           asset_code: b.asset_code,
           asset_issuer: b.asset_issuer,
@@ -228,7 +253,7 @@ export function mapHorizonAccountResponse(raw: any): StellarAccountInfo {
         }))
       : [],
     signers: Array.isArray(raw.signers)
-      ? raw.signers.map((s: any) => ({
+      ? raw.signers.map((s) => ({
           key: s.key,
           weight: Number(s.weight ?? 0),
           type: String(s.type || 'ed25519_public_key'),
@@ -248,10 +273,10 @@ export function mapHorizonAccountResponse(raw: any): StellarAccountInfo {
 export async function getAccountInfo(
   publicKey: string,
   options?: GetAccountInfoOptions
-): Promise<StellarAccountInfo | null> {
+): Promise<StellarAccountInfo> {
   if (!isValidStellarAddress(publicKey)) {
     logger.warn('getAccountInfo called with invalid Stellar address format', { publicKey });
-    return null;
+    throw new StellarInvalidAddressError(publicKey);
   }
 
   const timeoutMs = options?.timeoutMs ?? DEFAULT_HORIZON_TIMEOUT_MS;
@@ -261,53 +286,77 @@ export async function getAccountInfo(
       ? 'https://horizon.stellar.org'
       : 'https://horizon-testnet.stellar.org');
 
+  let outcome: 'success' | 'not_found' | 'timeout' | 'failure' | 'breaker_open' = 'failure';
   try {
-    return await horizonCircuitBreaker.execute(async () => {
+    const account = await horizonCircuitBreaker.execute(async () => {
       const server = new StellarSdk.Horizon.Server(serverUrl);
-
-      const loadAccountPromise = server.loadAccount(publicKey);
-      const rawAccount = await timeoutPromise(loadAccountPromise, timeoutMs);
-
-      return mapHorizonAccountResponse(rawAccount);
+      const loadAccountPromise = server.loadAccount(publicKey) as Promise<unknown>;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const rawAccount = await Promise.race([
+          loadAccountPromise,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new StellarHorizonTimeoutError(timeoutMs)), timeoutMs);
+          }),
+        ]);
+        return mapHorizonAccountResponse(rawAccount as HorizonAccount);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
     });
-  } catch (error: any) {
+    outcome = 'success';
+    return account;
+  } catch (error: unknown) {
     if (error instanceof CircuitBreakerOpenError) {
+      outcome = 'breaker_open';
       logger.warn('Horizon circuit breaker is open, skipping account lookup', {
         publicKey,
         error: error.message,
       });
-      return null;
+      throw new StellarHorizonError('Stellar Horizon is temporarily unavailable.', 'HORIZON_BREAKER_OPEN');
     }
 
-    const isNotFound =
-      error?.response?.status === 404 ||
-      error?.name === 'NotFoundError' ||
-      error?.message?.toLowerCase().includes('not found') ||
-      error?.response?.data?.status === 404;
+    const details = getHorizonErrorDetails(error);
+    const isNotFound = details.status === 404 || details.name === 'NotFoundError';
 
     if (isNotFound) {
+      outcome = 'not_found';
       logger.info('Stellar account not found on Horizon network', { publicKey });
-      return null;
+      throw new StellarAccountNotFoundError(publicKey);
     }
 
-    const isTimeout =
-      error?.message?.includes('Operation timeout') ||
-      error?.code === 'ECONNABORTED' ||
-      error?.name === 'TimeoutError';
+    const isTimeout = error instanceof StellarHorizonTimeoutError || details.code === 'ECONNABORTED' || details.name === 'TimeoutError';
 
     if (isTimeout) {
+      outcome = 'timeout';
       logger.error('Stellar Horizon account lookup timed out', {
         publicKey,
         timeoutMs,
-        error: error.message,
+        error: details.message,
       });
-      return null;
+      throw error instanceof StellarHorizonTimeoutError
+        ? error
+        : new StellarHorizonTimeoutError(timeoutMs, error);
     }
 
     logger.error('Error fetching Stellar account info from Horizon:', {
       publicKey,
-      error: error.message || error,
+      error: details.message,
     });
-    return null;
+    throw new StellarHorizonUnavailableError('Stellar Horizon is unavailable.', error);
+  } finally {
+    horizonRequestsTotal.inc({ outcome });
   }
+}
+
+function getHorizonErrorDetails(error: unknown): { status?: number; code?: string; name?: string; message: string } {
+  if (!(error instanceof Error)) return { message: String(error) };
+  const value = error as Error & { code?: unknown; response?: { status?: unknown; data?: { status?: unknown } } };
+  const statusValue = value.response?.status ?? value.response?.data?.status;
+  return {
+    status: typeof statusValue === 'number' ? statusValue : undefined,
+    code: typeof value.code === 'string' ? value.code : undefined,
+    name: value.name,
+    message: value.message,
+  };
 }
