@@ -21,6 +21,7 @@ const PRODUCTION_ENV: NodeJS.ProcessEnv = {
   ...FULL_ENV,
   SAFETY_PROFILE: 'production',
   SOROBAN_FAIL_CLOSED: 'true',
+  SOROBAN_CONTRACT_ID: 'CCJZ5DGZBW5JRZYPZ6J6V3JZ5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z',
   SOROBAN_ADMIN_SECRET: 'SABCDEF...test',
   SOROBAN_ORACLE_SECRET: 'SABCDEF...test',
 };
@@ -226,18 +227,51 @@ describe('runPreflightChecks — production safety profile', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('rejects missing SOROBAN_CONTRACT_ID under production profile', () => {
+    const env = { ...PRODUCTION_ENV, SOROBAN_CONTRACT_ID: undefined };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.includes('SOROBAN_CONTRACT_ID'))).toBe(true);
+  });
+
+  it('refuses to boot under NODE_ENV=production without Soroban config', () => {
+    const env = { ...FULL_ENV, NODE_ENV: 'production' };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.includes('SOROBAN_CONTRACT_ID'))).toBe(true);
+    expect(result.errors.some(e => e.includes('SOROBAN_ADMIN_SECRET'))).toBe(true);
+    expect(result.errors.some(e => e.includes('SOROBAN_ORACLE_SECRET'))).toBe(true);
+  });
+
+  it('does not require Soroban secrets in production when BET_STUB_MODE=true is explicit', () => {
+    const env = {
+      ...FULL_ENV,
+      NODE_ENV: 'production',
+      BET_STUB_MODE: 'true',
+      SOROBAN_ADMIN_SECRET: undefined,
+      SOROBAN_ORACLE_SECRET: undefined,
+      SOROBAN_CONTRACT_ID: undefined,
+    };
+    const result = runPreflightChecks(env);
+    // Explicit stub under SAFETY_PROFILE=demo is an operator choice; secrets are
+    // only needed when money paths actually run on-chain.
+    expect(result.ok).toBe(true);
+  });
+
   it('reports ALL production failures at once', () => {
     const env = {
       ...FULL_ENV,
       SAFETY_PROFILE: 'production',
-      BET_STUB_MODE: 'true',
+      BET_STUB_MODE: 'false',
       SOROBAN_FAIL_CLOSED: 'false',
+      SOROBAN_CONTRACT_ID: undefined,
       SOROBAN_ADMIN_SECRET: undefined,
       SOROBAN_ORACLE_SECRET: undefined,
     };
     const result = runPreflightChecks(env);
     expect(result.ok).toBe(false);
-    // Should have errors for BET_STUB_MODE, SOROBAN_FAIL_CLOSED, SOROBAN_ADMIN_SECRET, SOROBAN_ORACLE_SECRET
+    // Should have errors for SOROBAN_FAIL_CLOSED, SOROBAN_CONTRACT_ID,
+    // SOROBAN_ADMIN_SECRET, and SOROBAN_ORACLE_SECRET.
     expect(result.errors.length).toBeGreaterThanOrEqual(4);
   });
 });

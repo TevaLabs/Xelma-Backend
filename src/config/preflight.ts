@@ -22,6 +22,7 @@
 
 import { execSync } from 'child_process';
 import logger from '../utils/logger';
+import { isExplicitStubMode, isProductionProfile } from './bet-mode';
 export type RuntimeMode = 'hackathon' | 'full';
 export type SafetyProfile = 'production' | 'demo';
 
@@ -47,8 +48,14 @@ const FULL_REQUIRED_VARS: Record<string, string> = {
     'Expected format: postgresql://user:pass@host:5432/database',
 };
 
-/** Variables required when SAFETY_PROFILE=production. */
+/**
+ * Variables required in production-like environments (NODE_ENV=production or
+ * SAFETY_PROFILE=production) unless BET_STUB_MODE=true is set explicitly. A
+ * production box must never silently stub, so missing keys are a hard failure.
+ */
 const PRODUCTION_REQUIRED_VARS: Record<string, string> = {
+  SOROBAN_CONTRACT_ID:
+    'Production requires SOROBAN_CONTRACT_ID (or alias CONTRACT_ID) for on-chain operations.',
   SOROBAN_ADMIN_SECRET:
     'Production requires SOROBAN_ADMIN_SECRET for on-chain bet placement.',
   SOROBAN_ORACLE_SECRET:
@@ -84,21 +91,35 @@ function envTemplateForMode(mode: RuntimeMode): string {
   return mode === 'hackathon' ? '.env.hackathon.example' : '.env.example';
 }
 
+/**
+ * Alias-aware presence check. `SOROBAN_CONTRACT_ID` accepts the legacy
+ * `CONTRACT_ID` alias, mirroring `resolveSorobanEnvVars`. Empty/whitespace is
+ * treated as unset.
+ */
+function isEnvVarPresent(env: NodeJS.ProcessEnv, name: string): boolean {
+  if (name === 'SOROBAN_CONTRACT_ID') {
+    return Boolean(env.SOROBAN_CONTRACT_ID?.trim() || env.CONTRACT_ID?.trim());
+  }
+  return Boolean(env[name]?.trim());
+}
+
 function checkRequiredEnvVars(
   env: NodeJS.ProcessEnv,
   mode: RuntimeMode,
-  safetyProfile: SafetyProfile,
 ): string[] {
   const required = { ...BASE_REQUIRED_VARS };
   if (mode === 'full') {
     Object.assign(required, FULL_REQUIRED_VARS);
   }
-  if (safetyProfile === 'production') {
+  // Production-like environments may only stub when the operator opts in
+  // explicitly; otherwise the contracts/secrets are required so startup fails
+  // rather than silently falling back to stub mode.
+  if (isProductionProfile(env) && !isExplicitStubMode(env)) {
     Object.assign(required, PRODUCTION_REQUIRED_VARS);
   }
 
   return Object.entries(required)
-    .filter(([name]) => !env[name] || env[name]!.trim().length === 0)
+    .filter(([name]) => !isEnvVarPresent(env, name))
     .map(([name, guidance]) => {
       const template = envTemplateForMode(mode);
       if (mode === 'hackathon' && name === 'JWT_SECRET') {
@@ -232,7 +253,7 @@ export function runPreflightChecks(
   const safetyProfile: SafetyProfile = detectSafetyProfile(env);
 
   const errors: string[] = [
-    ...checkRequiredEnvVars(env, mode, safetyProfile),
+    ...checkRequiredEnvVars(env, mode),
     ...checkDataMode(env, mode),
     ...checkNodeVersion(),
     ...checkDatabaseUrl(env, mode),

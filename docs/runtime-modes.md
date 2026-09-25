@@ -24,7 +24,7 @@ behavior, or choosing the right flags for a deployment profile.
 |---|---|---|---|---|
 | `DATA_MODE` | `config.app.dataMode` | `live`, `mock` | `live` | `src/config/index.ts` |
 | `DATA_STORE` | `config.app.dataStore` | `postgres`, `memory` | auto (see below) | `src/config/index.ts` |
-| `BET_STUB_MODE` | `process.env.BET_STUB_MODE` | `true`, `false` | `true` | `src/services/bet.service.ts` |
+| `BET_STUB_MODE` | `process.env.BET_STUB_MODE` | `true`, `false` | `true` | `src/config/bet-mode.ts` |
 | `ROUNDS_MOCK_MODE` | `config.app.roundsMockMode` | `true`, `false` | `false` | `src/config/index.ts` |
 | `API_ONLY` | `process.env.API_ONLY` | `true`, `false` | `false` | `src/index.ts` |
 | `SOROBAN_FAIL_CLOSED` | `config.soroban.failClosed` | `true`, `false` | `false` | `src/config/index.ts` |
@@ -63,15 +63,35 @@ Soroban or just record the intent **locally**.
 
 | `BET_STUB_MODE` | Behavior | Use case |
 |---|---|---|
-| `true` (default) | Bets recorded locally; no on-chain calls. Returns `{ state: "stub" }`. | Local dev, demos, hackathon — no Soroban keypairs needed |
+| `true` | Bets recorded locally; no on-chain calls. Returns `{ state: "stub" }`. | Local dev, demos, hackathon — no Soroban keypairs needed |
 | `false` | Bets submitted to Soroban smart contract via `sorobanService.placeBet` / `placePrecisionBet`. | Production or Stellar testnet with deployed contract |
 
 **Affected endpoints:** `POST /api/bets/up-down`, `POST /api/bets/precision`
 
-**Implementation:** `src/services/bet.service.ts` (`recordUpDownBet`, `recordPrecisionBet`)
+**Implementation:** `src/config/bet-mode.ts` (`resolveBetMode` / `isBetStubMode`),
+consumed by `src/services/bet.service.ts` (`recordUpDownBet`, `recordPrecisionBet`).
+
+#### Automatic stub fallback (incomplete local env)
+
+The effective mode is resolved from `BET_STUB_MODE` **and** whether the required
+Soroban config (`SOROBAN_CONTRACT_ID`, `SOROBAN_ADMIN_SECRET`,
+`SOROBAN_ORACLE_SECRET`) is present:
+
+| `BET_STUB_MODE` | Soroban config | Non-production | Production-like |
+|---|---|---|---|
+| `true` | any | `stub` | `stub` (rejected by preflight under `SAFETY_PROFILE=production`) |
+| `false` / unset | present | `on-chain` | `on-chain` |
+| `false` / unset | missing | **`stub`** (with startup warning) | **refuses to boot** (preflight error) |
+
+"Production-like" means `NODE_ENV=production` or `SAFETY_PROFILE=production`.
+This means an incomplete local clone boots and records stub bets instead of
+throwing opaque Soroban RPC errors, while a production box can never silently
+fall back to stub mode.
 
 > The active mode is logged at startup:
-> `Bet mode: STUB (no on-chain calls)` or `Bet mode: ON-CHAIN (Soroban)`.
+> `Bet mode: STUB (no on-chain calls)` or `Bet mode: ON-CHAIN (Soroban)`,
+> together with the `source` and any missing config. An automatic fallback also
+> emits a `logger.warn` once at boot.
 
 ### SOROBAN_FAIL_CLOSED
 
@@ -226,7 +246,7 @@ for your current workflow.
 |---|---|
 | `DATA_MODE` | `src/config/index.ts`, `src/services/priceService.ts`, `src/services/stats.service.ts` |
 | `DATA_STORE` | `src/config/index.ts`, `src/repositories/` |
-| `BET_STUB_MODE` | `src/services/bet.service.ts` |
+| `BET_STUB_MODE` | `src/config/bet-mode.ts`, `src/services/bet.service.ts`, `src/config/preflight.ts` |
 | `ROUNDS_MOCK_MODE` | `src/config/index.ts`, `src/services/round.service.ts` |
 | `SOROBAN_FAIL_CLOSED` | `src/config/index.ts`, `src/services/soroban.service.ts` |
 | Mock data | `src/data/mockData.ts` |
