@@ -22,6 +22,7 @@ export interface AppConfig {
   dataStore: "memory" | "postgres";
   enableSimulation: boolean;
   enableMultiplayerSocial: boolean;
+  enableEducation: boolean;
   metricsScrapeToken: string;
   /** Lightweight Socket.IO without Prisma chat/session (hackathon demos). */
   socketDemoMode: boolean;
@@ -143,6 +144,7 @@ function buildConfig(): Config {
     ),
     enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
     enableMultiplayerSocial: v.boolean(env.ENABLE_MULTIPLAYER_SOCIAL, true),
+    enableEducation: v.boolean(env.ENABLE_EDUCATION, false),
     metricsScrapeToken: v.optional(env.METRICS_SCRAPE_TOKEN, ""),
     socketDemoMode: v.boolean(
       env.SOCKET_DEMO_MODE ??

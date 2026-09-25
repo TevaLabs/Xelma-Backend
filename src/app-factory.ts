@@ -182,6 +182,12 @@ export function resolveFeatures(
       resolved.multiplayerSocial && config.app.enableMultiplayerSocial;
   }
 
+  // ENABLE_EDUCATION can switch education surface on in hackathon mode;
+  // full mode defaults to on. An explicit override still wins.
+  if (overrides.education === undefined) {
+    resolved.education = resolved.education && config.app.enableEducation;
+  }
+
   return resolved;
 }
 

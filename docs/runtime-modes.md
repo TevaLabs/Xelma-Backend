@@ -28,6 +28,7 @@ behavior, or choosing the right flags for a deployment profile.
 | `ROUNDS_MOCK_MODE` | `config.app.roundsMockMode` | `true`, `false` | `false` | `src/config/index.ts` |
 | `API_ONLY` | `process.env.API_ONLY` | `true`, `false` | `false` | `src/index.ts` |
 | `SOROBAN_FAIL_CLOSED` | `config.soroban.failClosed` | `true`, `false` | `false` | `src/config/index.ts` |
+| `ENABLE_EDUCATION` | `config.app.enableEducation` | `true`, `false` | `false` | `src/config/index.ts` |
 
 ### DATA_STORE auto-derivation
 
@@ -93,6 +94,22 @@ in `round.service`, `round.routes`, and `resolution.service`. Policy helper:
 
 > The active mode is logged at startup:
 > `Soroban money-path policy: FAIL-CLOSED ...` or `FAIL-OPEN ...`.
+
+### ENABLE_EDUCATION
+
+Controls whether the **education** endpoints (`/api/education/guides`, `/api/education/tip`)
+are mounted. In the full app this defaults to `true`; in hackathon mode it defaults
+to `false` so the demo surface stays minimal unless explicitly opted in.
+
+| `ENABLE_EDUCATION` | Behavior | Use case |
+|---|---|---|
+| `false` (default) | Education routes not mounted in hackathon; full app still serves them | Hackathon/demo, minimal surface |
+| `true` | Education routes mounted in both modes | Hackathon with education, or overriding full app |
+
+**Affected endpoints:** `GET /api/education/guides`, `GET /api/education/tip`
+
+**Implementation:** `src/config/index.ts` (`enableEducation`), `src/app-factory.ts` (`resolveFeatures`),
+`src/security/route-parity.registry.ts` (parity allowlist).
 
 ### ROUNDS_MOCK_MODE
 
@@ -229,6 +246,7 @@ for your current workflow.
 | `BET_STUB_MODE` | `src/services/bet.service.ts` |
 | `ROUNDS_MOCK_MODE` | `src/config/index.ts`, `src/services/round.service.ts` |
 | `SOROBAN_FAIL_CLOSED` | `src/config/index.ts`, `src/services/soroban.service.ts` |
+| `ENABLE_EDUCATION` | `src/config/index.ts`, `src/app-factory.ts`, `src/security/route-parity.registry.ts` |
 | Mock data | `src/data/mockData.ts` |
 
 ---
@@ -257,4 +275,3 @@ The multi-stage `Dockerfile` packages both full production (with live Soroban co
 | **Full Production (Live)** | `DATA_MODE=live`, `BET_STUB_MODE=false`, `API_MODE=full` | Verifies Soroban bindings, applies Prisma migrations, and boots full app `dist/index.js`. |
 | **Demo / Hackathon** | `DATA_MODE=mock`, `API_MODE=hackathon`, `RUN_MIGRATIONS=false` | Boots lightweight mock demo server `dist/server.js` without requiring external database or Soroban keys. |
 | **API Only** | `API_ONLY=true`, `BET_STUB_MODE=true` | Boots standard API server without running background schedulers or oracle loops. |
-
