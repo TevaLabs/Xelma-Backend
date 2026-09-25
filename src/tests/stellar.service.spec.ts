@@ -226,10 +226,11 @@ describe('StellarService — getAccountInfo with timeout and breaker', () => {
     resetHorizonBreaker();
   });
 
-  it('returns null early if address is invalid', async () => {
+  it('maps invalid addresses to a typed client error', async () => {
     mockIsValidEd25519PublicKey.mockReturnValue(false);
-    const result = await getAccountInfo('GINVALID');
-    expect(result).toBeNull();
+    await expect(getAccountInfo('GINVALID')).rejects.toMatchObject({
+      name: 'StellarInvalidAddressError', statusCode: 400, code: 'INVALID_ADDRESS',
+    });
     expect(mockLoadAccount).not.toHaveBeenCalled();
   });
 
@@ -253,14 +254,15 @@ describe('StellarService — getAccountInfo with timeout and breaker', () => {
     expect(getHorizonBreakerSnapshot().state).toBe('closed');
   });
 
-  it('returns null when account is not found (404)', async () => {
-    const notFoundError: any = new Error('Not Found');
-    notFoundError.response = { status: 404 };
-    notFoundError.name = 'NotFoundError';
+  it('maps a missing Horizon account to a typed 404', async () => {
+    const notFoundError = Object.assign(new Error('Not Found'), {
+      response: { status: 404 }, name: 'NotFoundError',
+    });
     mockLoadAccount.mockRejectedValue(notFoundError);
 
-    const result = await getAccountInfo(VALID_ADDRESS);
-    expect(result).toBeNull();
+    await expect(getAccountInfo(VALID_ADDRESS)).rejects.toMatchObject({
+      name: 'StellarAccountNotFoundError', statusCode: 404, code: 'ACCOUNT_NOT_FOUND',
+    });
   });
 
   it('handles timeout when Horizon response is delayed', async () => {
@@ -268,17 +270,26 @@ describe('StellarService — getAccountInfo with timeout and breaker', () => {
       () => new Promise((resolve) => setTimeout(resolve, 200)),
     );
 
-    const result = await getAccountInfo(VALID_ADDRESS, { timeoutMs: 50 });
-    expect(result).toBeNull();
+    await expect(getAccountInfo(VALID_ADDRESS, { timeoutMs: 50 })).rejects.toMatchObject({
+      name: 'StellarHorizonTimeoutError', statusCode: 504, code: 'HORIZON_TIMEOUT',
+    });
+  });
+
+  it('maps Horizon failures to a safe typed upstream error', async () => {
+    mockLoadAccount.mockRejectedValue(new Error('raw axios response body'));
+    await expect(getAccountInfo(VALID_ADDRESS)).rejects.toMatchObject({
+      name: 'StellarHorizonUnavailableError', statusCode: 502, code: 'HORIZON_UNAVAILABLE',
+      message: 'Stellar Horizon is unavailable.',
+    });
   });
 
   it('trips circuit breaker after consecutive failures', async () => {
     mockLoadAccount.mockRejectedValue(new Error('Horizon server 500 error'));
 
     // 3 failures to reach threshold
-    await getAccountInfo(VALID_ADDRESS);
-    await getAccountInfo(VALID_ADDRESS);
-    await getAccountInfo(VALID_ADDRESS);
+    await expect(getAccountInfo(VALID_ADDRESS)).rejects.toMatchObject({ code: 'HORIZON_UNAVAILABLE' });
+    await expect(getAccountInfo(VALID_ADDRESS)).rejects.toMatchObject({ code: 'HORIZON_UNAVAILABLE' });
+    await expect(getAccountInfo(VALID_ADDRESS)).rejects.toMatchObject({ code: 'HORIZON_UNAVAILABLE' });
 
     const snapshot = getHorizonBreakerSnapshot();
     expect(snapshot.state).toBe('open');
@@ -286,8 +297,7 @@ describe('StellarService — getAccountInfo with timeout and breaker', () => {
 
     // Subsequent call fails fast without calling loadAccount
     mockLoadAccount.mockClear();
-    const fastFailResult = await getAccountInfo(VALID_ADDRESS);
-    expect(fastFailResult).toBeNull();
+    await expect(getAccountInfo(VALID_ADDRESS)).rejects.toMatchObject({ code: 'HORIZON_BREAKER_OPEN' });
     expect(mockLoadAccount).not.toHaveBeenCalled();
   });
 

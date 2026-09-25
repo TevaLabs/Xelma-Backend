@@ -257,6 +257,13 @@ export const sorobanRpcCallsTotal = new Counter({
    registers: [metricsRegistry],
 });
 
+export const horizonRequestsTotal = new Counter({
+   name: 'horizon_requests_total',
+   help: 'Total Stellar Horizon account lookups by outcome',
+   labelNames: ['outcome'] as const,
+   registers: [metricsRegistry],
+});
+
 export const rateLimitHitsTotal = new Counter({
    name: 'rate_limit_hits_total',
    help: 'Total HTTP 429 responses from express-rate-limit handlers',
