@@ -38,7 +38,7 @@ const router = Router();
  * @swagger
  * /api/bets/up-down:
  *   post:
- *     summary: Submit an UP/DOWN bet (stub)
+ *     summary: Submit an UP/DOWN bet
  *     tags: [bets]
  *     security:
  *       - bearerAuth: []
@@ -55,7 +55,16 @@ const router = Router();
  *               side: { type: string, enum: [UP, DOWN] }
  *     responses:
  *       200:
- *         description: Bet recorded (stub)
+ *         description: Bet recorded through BetService
+ *         content:
+ *           application/json:
+ *             examples:
+ *               stub:
+ *                 summary: Bet recorded in stub mode
+ *                 value: { success: true, data: { message: "Bet recorded (stub)", state: "stub", betId: "bet-123", status: "ACCEPTED" } }
+ *               onChain:
+ *                 summary: Bet submitted on-chain
+ *                 value: { success: true, data: { message: "Bet placed on-chain", state: "submitted", betId: "bet-123", status: "SUBMITTED", txHash: "abc123" } }
  *       401:
  *         description: Missing or invalid JWT
  *       400:
@@ -79,7 +88,7 @@ router.post(
  * @swagger
  * /api/bets/precision:
  *   post:
- *     summary: Submit a Precision bet (stub)
+ *     summary: Submit a Precision bet
  *     tags: [bets]
  *     security:
  *       - bearerAuth: []
@@ -96,7 +105,16 @@ router.post(
  *               predictedPrice: { type: number }
  *     responses:
  *       200:
- *         description: Bet recorded (stub)
+ *         description: Bet recorded through BetService
+ *         content:
+ *           application/json:
+ *             examples:
+ *               stub:
+ *                 summary: Bet recorded in stub mode
+ *                 value: { success: true, data: { message: "Precision bet recorded (stub)", state: "stub", betId: "bet-123", status: "ACCEPTED" } }
+ *               onChain:
+ *                 summary: Bet submitted on-chain
+ *                 value: { success: true, data: { message: "Precision bet placed on-chain", state: "submitted", betId: "bet-123", status: "SUBMITTED", txHash: "abc123" } }
  *       401:
  *         description: Missing or invalid JWT
  *       400:
