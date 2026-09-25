@@ -60,7 +60,7 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
       100,
     );
 
-    const events = betAuditService.queryEvents({ address, limit, redact: true });
+    const events = await betAuditService.queryStoredEvents({ address, limit, redact: true });
 
     res.json({
       total: events.length,
