@@ -56,10 +56,23 @@ const PRODUCTION_REQUIRED_VARS: Record<string, string> = {
 };
 
 /** Minimum Node.js major version required (mirrors package.json engines). */
-const MIN_NODE_MAJOR = 22;
+export const MIN_NODE_MAJOR = 22;
 
 /** JWT_SECRET must be at least this long to prevent trivially-weak secrets. */
 const MIN_JWT_SECRET_LENGTH = 16;
+
+export function getNodeVersionError(
+  nodeVersion: string = process.versions.node ?? process.version,
+): string | null {
+  const raw = nodeVersion || process.version;
+  const major = parseInt(raw.replace(/^v/, '').split('.')[0], 10);
+
+  if (Number.isNaN(major) || major < MIN_NODE_MAJOR) {
+    return `Node.js v${MIN_NODE_MAJOR}.x or higher is required (found ${raw}). Upgrade Node.js before starting the server.`;
+  }
+
+  return null;
+}
 
 /**
  * Detect runtime mode from environment.
@@ -125,17 +138,9 @@ function checkDataMode(env: NodeJS.ProcessEnv, mode: RuntimeMode): string[] {
   return [];
 }
 
-function checkNodeVersion(): string[] {
-  if (process.env.NODE_ENV === 'test') return [];
-  const raw = process.version; // e.g. "v22.3.0"
-  const major = parseInt(raw.replace('v', '').split('.')[0], 10);
-  if (isNaN(major) || major < MIN_NODE_MAJOR) {
-    return [
-      `Node.js version ${raw} is below the minimum required v${MIN_NODE_MAJOR}.x. ` +
-        `Upgrade Node.js before starting the server.`,
-    ];
-  }
-  return [];
+function checkNodeVersion(nodeVersion: string = process.versions.node ?? process.version): string[] {
+  const error = getNodeVersionError(nodeVersion);
+  return error ? [error] : [];
 }
 
 function checkDatabaseUrl(
@@ -227,6 +232,7 @@ function checkProductionSafetyProfile(
  */
 export function runPreflightChecks(
   env: NodeJS.ProcessEnv = process.env,
+  nodeVersion: string = process.versions.node ?? process.version,
 ): PreflightResult {
   const mode: RuntimeMode = detectMode(env);
   const safetyProfile: SafetyProfile = detectSafetyProfile(env);
@@ -234,7 +240,7 @@ export function runPreflightChecks(
   const errors: string[] = [
     ...checkRequiredEnvVars(env, mode, safetyProfile),
     ...checkDataMode(env, mode),
-    ...checkNodeVersion(),
+    ...checkNodeVersion(nodeVersion),
     ...checkDatabaseUrl(env, mode),
     ...checkJwtSecretStrength(env, mode),
     ...checkProductionSafetyProfile(env, safetyProfile),
@@ -246,7 +252,7 @@ export function runPreflightChecks(
     ok: errors.length === 0,
     errors,
     warnings,
-    nodeVersion: process.version,
+    nodeVersion: nodeVersion || process.version,
     environment: env.NODE_ENV ?? 'development',
     mode,
     safetyProfile,
@@ -306,8 +312,9 @@ function setupGuide(mode: RuntimeMode, safetyProfile: SafetyProfile): string[] {
  */
 export function assertPreflightOrExit(
   env: NodeJS.ProcessEnv = process.env,
+  nodeVersion: string = process.versions.node ?? process.version,
 ): void {
-  const result = runPreflightChecks(env);
+  const result = runPreflightChecks(env, nodeVersion);
 
   if (result.warnings.length > 0) {
     for (const w of result.warnings) {

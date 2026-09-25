@@ -43,6 +43,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "@prisma/client": "^5.8.0",
     "@socket.io/redis-adapter": "^8.3.0",
