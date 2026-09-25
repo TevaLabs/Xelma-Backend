@@ -341,3 +341,18 @@ development is completely unchanged.
 ```bash
 npx jest --selectProjects unit --testPathPattern="distributed-lock"
 ```
+
+---
+
+## Database Connection Pool Sizing (Prisma & Render Postgres)
+
+When scaling multiple Render instances (`API_ONLY=false` web nodes + background workers), Prisma's default connection pool sizing (`num_cpus * 2 + 1` per instance) can quickly exhaust PostgreSQL's `max_connections` (typically 50–100 slots on managed starter tiers), leading to `FATAL: remaining connection slots are reserved for non-replication superuser connections` or `too many connections` errors.
+
+### Recommended Configuration
+1. **Per-instance pool limit:** Set `DB_CONNECTION_LIMIT=5` in your environment or append `?connection_limit=5` to `DATABASE_URL`.
+2. **Formula:**
+   $$\text{Total Connections} = (\text{Web Replicas} + \text{Worker Replicas}) \times \text{connection\_limit} + \text{Prisma Studio/Admin Buffer}$$
+   With 4 replicas and `connection_limit=5`, peak usage is 20 connections, safely within database limits.
+3. **Preflight enforcement:** 
+   - Preflight checks in `src/config/preflight.ts` validate that `connection_limit` is a positive non-zero integer if specified, failing fast if set to `<= 0`.
+   - In production environments (`SAFETY_PROFILE=production` or `NODE_ENV=production`), preflight issues a warning if neither `?connection_limit` nor `DB_CONNECTION_LIMIT` is configured.

@@ -71,6 +71,9 @@ services:
         value: "3000"
       - key: DATABASE_URL
         sync: false
+      # Recommended connection pool limit per instance to prevent PostgreSQL connection exhaustion across web & workers
+      - key: DB_CONNECTION_LIMIT
+        value: "5"
       - key: JWT_SECRET
         sync: false
       - key: JWT_EXPIRY
