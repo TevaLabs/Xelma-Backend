@@ -1987,13 +1987,13 @@ The server starts on `http://localhost:3001` (or the `PORT` in `.env`). See the 
 | `PORT`                      | `3001`                                                                        | Server listen port                                                         |
 | `DATABASE_URL`              | `postgresql://xelma:xelma@localhost:5432/xelma`                               | PostgreSQL connection                                                      |
 | `JWT_SECRET`                | `my-secret-key`                                                               | Signs JWT tokens (app refuses to start without it)                         |
-| `DATA_MODE`                 | `mock`                                                                        | Hackathon service data mode (set to `mock` to query Drizzle schema tables) |
+| `DATA_MODE`                 | `mock`                                                                        | Hackathon service data mode (`mock` backs Prisma with the in-memory store; no DB required) |
 | `ENABLE_MULTIPLAYER_SOCIAL` | `true`                                                                        | Feature flag to enable/disable chat and notifications routes               |
 | `COINGECKO_API_URL`         | `https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd` | Price oracle source                                                        |
 | `SOROBAN_RPC_URL`           | `https://soroban-testnet.stellar.org`                                         | Soroban RPC (alias: `STELLAR_RPC_URL`)                                     |
 | `SOROBAN_CONTRACT_ID`       | _(your deployed contract)_                                                    | Soroban prediction market contract (alias: `CONTRACT_ID`)                  |
 
-> **Note**: For the Hackathon MVP, the backend is fully migrated from in-memory arrays to PostgreSQL via Drizzle ORM for durable persistence of users, rounds, and bets. No in-memory stores are used.
+> **Note**: For the Hackathon MVP, durable persistence of users, rounds, and bets is handled by Prisma against PostgreSQL. Setting `DATA_MODE=mock` (or `DATA_STORE=memory`) backs the same Prisma client with an in-memory store for DB-less demos.
 
 ### 3. Hackathon Endpoint Curl Examples
 
