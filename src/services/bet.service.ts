@@ -8,6 +8,7 @@ import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
+import { betStore, BetStatus as BetStoreStatus } from '../data/bet-store';
 
 export interface UpDownBetInput {
   address: string;
@@ -230,6 +231,19 @@ export class BetService {
       return { bet: finalBet!, betStatus, txHash, chainResult };
     });
 
+    // Mirror into the demo audit trail so demo bets survive a process restart
+    // and are visible to every replica (issue #624).
+    await this.mirrorBetIntoStore({
+      id: result.bet.id,
+      address: input.address,
+      amount: input.amount,
+      side: input.side,
+      mode: 'updown',
+      roundId: result.bet.roundId,
+      status: this.toStoreStatus(result.bet.status),
+      txHash: result.txHash,
+    });
+
     // Audit event (outside transaction, fire-and-forget) - includes requestId via context or explicit
     betAuditService.emitBetAccepted({
       betId: result.bet.id,
@@ -367,6 +381,17 @@ export class BetService {
       return { bet: finalBet!, betStatus, txHash, chainResult };
     });
 
+    await this.mirrorBetIntoStore({
+      id: result.bet.id,
+      address: input.address,
+      amount: input.amount,
+      mode: 'precision',
+      predictedPrice: input.predictedPrice,
+      roundId: result.bet.roundId,
+      status: this.toStoreStatus(result.bet.status),
+      txHash: result.txHash,
+    });
+
     betAuditService.emitBetAccepted({
       betId: result.bet.id,
       address: input.address,
@@ -468,6 +493,8 @@ export class BetService {
         requestId,
         correlationId: requestId ? `${requestId}:${txHash}` : txHash,
       });
+
+      await this.syncBetStoreStatus(bet.id, 'CONFIRMED', { txHash });
     }
 
     return bet;
@@ -648,9 +675,93 @@ export class BetService {
         requestId,
         correlationId: requestId ? `${requestId}:${bet.id}` : undefined,
       });
+
+      await this.syncBetStoreStatus(bet.id, 'FAILED', { failureReason: reason });
     }
 
     return bet ? this.mapBet(bet) : null;
+  }
+
+  /** Map the primary `Bet` ledger vocabulary onto the bet-store vocabulary. */
+  private toStoreStatus(status: BetStatus): BetStoreStatus {
+    switch (status) {
+      case BetStatus.SUBMITTED:
+        return 'SUBMITTED';
+      case BetStatus.CONFIRMED:
+      case BetStatus.RESOLVED:
+        return 'CONFIRMED';
+      case BetStatus.FAILED:
+        return 'FAILED';
+      default:
+        return 'STUB';
+    }
+  }
+
+  /**
+   * Mirror a freshly accepted bet into the demo audit trail
+   * (src/data/bet-store.ts), reusing the primary ledger id so both records stay
+   * linked. The `Bet` row is already committed at this point, so a mirroring
+   * failure is logged rather than propagated — the audit trail must never fail
+   * an accepted bet.
+   */
+  private async mirrorBetIntoStore(input: {
+    id: string;
+    address: string;
+    amount: number;
+    mode: 'updown' | 'precision';
+    side?: 'UP' | 'DOWN';
+    predictedPrice?: number;
+    roundId?: string | null;
+    status: BetStoreStatus;
+    txHash?: string;
+  }): Promise<void> {
+    try {
+      await betStore.recordBet({
+        id: input.id,
+        address: input.address,
+        amount: input.amount,
+        mode: input.mode,
+        side: input.side,
+        predictedPrice: input.predictedPrice,
+        roundId: input.roundId ?? undefined,
+        status: input.status,
+        txHash: input.txHash,
+      });
+    } catch (error) {
+      logger.warn('Failed to mirror bet into the bet store', {
+        betId: input.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Keep the mirrored audit-trail row in step with a later status transition
+   * (reconcile/fail). No-op when the store has no row for the bet.
+   */
+  private async syncBetStoreStatus(
+    betId: string,
+    status: BetStoreStatus,
+    options: { txHash?: string; failureReason?: string } = {},
+  ): Promise<void> {
+    try {
+      const existing = await betStore.getBet(betId);
+      if (!existing || existing.status === status) return;
+
+      if (status === 'CONFIRMED' && options.txHash) {
+        await betStore.markConfirmed(betId, options.txHash);
+      } else if (status === 'FAILED') {
+        await betStore.markFailed(betId, options.failureReason ?? 'unknown');
+      } else if (status === 'SUBMITTED') {
+        await betStore.markSubmitted(betId);
+      }
+    } catch (error) {
+      logger.warn('Failed to sync bet store status', {
+        betId,
+        status,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async getOrCreateUserId(tx: Prisma.TransactionClient, address: string): Promise<string> {

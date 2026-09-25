@@ -316,6 +316,40 @@ model Bet {
   @@index([createdAt])
 }
 
+/// Durable backing store for the demo/hackathon bet audit trail
+/// ([src/data/bet-store.ts](../src/data/bet-store.ts), issue #624).
+///
+/// `src/data/bet-store.ts` used to keep its bets in a process-local `Map`, so
+/// a deploy, crash, or second replica lost the whole demo audit trail. Rows
+/// here are written by the Prisma-backed store; the in-memory `Map` is still
+/// used for `DATA_MODE=mock` / `DATA_STORE=memory` boots that have no database.
+///
+/// Deliberately denormalized (a wallet address and a round id as plain
+/// strings) so the demo store can record a bet before either the `User` or the
+/// `Round` row exists, and so it never blocks the money path on a relation.
+/// Money columns use `Decimal(20, 8)` like every other balance/amount field.
+model BetRecord {
+  id             String    @id @default(uuid())
+  address        String
+  amount         Decimal   @db.Decimal(20, 8)
+  mode           String
+  side           String?
+  predictedPrice Decimal?  @db.Decimal(20, 8)
+  roundId        String?
+  status         String    @default("STUB")
+  txHash         String?
+  submittedAt    DateTime?
+  confirmedAt    DateTime?
+  failedAt       DateTime?
+  failureReason  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([address, createdAt])
+  @@index([roundId])
+  @@index([status])
+}
+
 /// Ledger of payout claim attempts, one row per (wallet, claim episode).
 ///
 /// Written on the user claim path (`bet.service.claimWinnings`) and driven by

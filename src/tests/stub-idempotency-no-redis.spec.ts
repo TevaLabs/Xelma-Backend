@@ -125,7 +125,7 @@ describe("Stub-mode idempotency without Redis (#374)", () => {
 
     // Import betStore to count bets before/after.
     const { betStore } = await import("../data/bet-store");
-    const before = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const before = (await betStore.getBets({ address: VALID_ADDRESS })).length;
 
     const results = await Promise.all(
       Array.from({ length: 5 }, () =>
@@ -142,7 +142,7 @@ describe("Stub-mode idempotency without Redis (#374)", () => {
     expect(statuses.every((s) => s === 200)).toBe(true);
 
     // The underlying bet should have been placed exactly once.
-    const after = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const after = (await betStore.getBets({ address: VALID_ADDRESS })).length;
     expect(after - before).toBe(1);
   });
 });

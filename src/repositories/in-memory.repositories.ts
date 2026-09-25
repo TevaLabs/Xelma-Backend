@@ -17,9 +17,9 @@ export class InMemoryRoundRepository implements RoundRepository {
     predictedPrice?: number,
   ): Promise<void> {
     if (side) {
-      betStore.addUpDownBet(roundId, _address, amount, side);
+      await betStore.addUpDownBet(roundId, _address, amount, side);
     } else if (predictedPrice !== undefined) {
-      betStore.addPrecisionBet(roundId, _address, amount, predictedPrice);
+      await betStore.addPrecisionBet(roundId, _address, amount, predictedPrice);
     }
   }
 }
@@ -37,7 +37,7 @@ export class InMemoryStatsRepository implements StatsRepository {
     if (!this.cachedStats) {
       this.cachedStats = {
         ...MOCK_PLATFORM_STATS,
-        totalBets: betStore.getTotalBetsCount(),
+        totalBets: await betStore.getTotalBetsCount(),
         isFallback: true,
         cachedAt: new Date().toISOString(),
       };

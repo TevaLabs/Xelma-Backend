@@ -83,7 +83,7 @@ describe("Bet idempotency fail-closed on Redis outage (#493)", () => {
   });
 
   it("rejects the bet with 503 when Redis is unreachable and records nothing", async () => {
-    const betsBefore = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const betsBefore = (await betStore.getBets({ address: VALID_ADDRESS })).length;
 
     const res = await request(app)
       .post(ENDPOINT)
@@ -98,7 +98,7 @@ describe("Bet idempotency fail-closed on Redis outage (#493)", () => {
     expect(res.body.message).toMatch(/lock/i);
 
     // Proof nothing happened: no bet, no chain call, no idempotency row.
-    expect(betStore.getBets({ address: VALID_ADDRESS }).length - betsBefore).toBe(0);
+    expect((await betStore.getBets({ address: VALID_ADDRESS })).length - betsBefore).toBe(0);
     expect(sorobanService.placeBet).not.toHaveBeenCalled();
 
     const stored = await prisma.idempotencyKey.findUnique({
@@ -114,7 +114,7 @@ describe("Bet idempotency fail-closed on Redis outage (#493)", () => {
   });
 
   it("keeps failing closed on repeated attempts while Redis is down", async () => {
-    const betsBefore = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const betsBefore = (await betStore.getBets({ address: VALID_ADDRESS })).length;
 
     const responses = await Promise.all(
       Array.from({ length: 3 }, () =>
@@ -129,7 +129,7 @@ describe("Bet idempotency fail-closed on Redis outage (#493)", () => {
     for (const res of responses) {
       expect(res.status).toBe(503);
     }
-    expect(betStore.getBets({ address: VALID_ADDRESS }).length - betsBefore).toBe(0);
+    expect((await betStore.getBets({ address: VALID_ADDRESS })).length - betsBefore).toBe(0);
     expect(sorobanService.placeBet).not.toHaveBeenCalled();
   });
 });

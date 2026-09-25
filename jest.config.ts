@@ -8,6 +8,7 @@ const integrationTestFiles = [
   "batch-routes.spec.ts",
   "bets-idempotency-concurrency.spec.ts",
   "bets-idempotency-redis-outage.spec.ts",
+  "bet-store-persistence.spec.ts",
   "bets.routes.spec.ts",
   "concurrent-rounds.spec.ts",
   "db-pool-config.spec.ts",

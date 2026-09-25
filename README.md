@@ -165,11 +165,19 @@ The hackathon app and the production app share the same services, but the data b
 | --------------------- | ------------------------------ | ------------------------------------------------------------------- |
 | `DATA_MODE`           | `live` (default), `mock`       | Switches price source and stats fallback                            |
 | `DATA_STORE`          | `postgres` (default), `memory` | Switches repository adapter for rounds, leaderboard, bets           |
+| `BET_STORE`           | follows `DATA_STORE`           | Backing store for the demo bet audit trail: `postgres` (durable, default in live mode) or `memory` (in-process, default in mock mode) |
 | `SOROBAN_CONTRACT_ID` | contract address or unset      | When unset, Soroban service disables and health shows `unavailable` |
 
 See [src/data/mockData.ts](src/data/mockData.ts) for the full in-memory seed data and fallback constants.
 
-> **Runtime modes reference:** For the complete flag matrix (DATA_MODE, BET_STUB_MODE, ROUNDS_MOCK_MODE), recommended combinations, and interaction diagrams, see **[docs/runtime-modes.md](docs/runtime-modes.md)**.
+> **Runtime modes reference:** For the complete flag matrix (DATA_MODE, DATA_STORE, BET_STORE, BET_STUB_MODE, ROUNDS_MOCK_MODE), recommended combinations, and interaction diagrams, see **[docs/runtime-modes.md](docs/runtime-modes.md)**.
+
+> **Demo bets and restarts:** the demo/hackathon bet audit trail
+> ([src/data/bet-store.ts](src/data/bet-store.ts)) keeps bets in process memory
+> while `DATA_MODE=mock` / `DATA_STORE=memory`, so a restart clears them. Set
+> `BET_STORE=postgres` (with a `DATABASE_URL`) to persist every bet to the
+> `BetRecord` table instead — bets then survive a deploy, a crash, and are
+> visible to every replica (issue #624).
 
 ---
 
@@ -1915,6 +1923,10 @@ Minimal env vars needed (all others use sensible defaults):
 | `CLIENT_URL`                | `https://your-app.onrender.com`       | CORS origin                                                        |
 | `SOROBAN_CONTRACT_ID`       | _(sync on Render)_                    | Soroban contract address (optional for demo; alias: `CONTRACT_ID`) |
 | `SOROBAN_RPC_URL`           | `https://soroban-testnet.stellar.org` | Soroban RPC (alias: `STELLAR_RPC_URL`)                             |
+
+> **Durable demo bets (optional):** the minimal profile keeps the demo bet
+> audit trail in process memory. To make “my last bet” survive a restart, add
+> `DATABASE_URL` and `BET_STORE=postgres` (see [docs/runtime-modes.md](docs/runtime-modes.md)).
 
 ### Profile 2: Production Full Backend (`xelma-backend`)
 

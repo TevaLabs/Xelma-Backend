@@ -109,7 +109,7 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     });
 
     const payload = { address: VALID_ADDRESS, amount: 10, side: "UP" };
-    const betsBefore = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const betsBefore = (await betStore.getBets({ address: VALID_ADDRESS })).length;
 
     const responses = await Promise.all(
       Array.from({ length: 12 }, () => placeUpDownBet(payload)),
@@ -124,7 +124,7 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     }
 
     // Exactly one bet was accepted, and the chain service ran exactly once.
-    expect(betStore.getBets({ address: VALID_ADDRESS }).length - betsBefore).toBe(1);
+    expect((await betStore.getBets({ address: VALID_ADDRESS })).length - betsBefore).toBe(1);
     expect(sorobanService.placeBet).toHaveBeenCalledTimes(1);
 
     // The final response is persisted in the DB so legitimate retries replay.
@@ -148,7 +148,7 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
       txHash: "0xreplay-493",
     });
     const payload = { address: VALID_ADDRESS, amount: 10, side: "UP" };
-    const betsBefore = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const betsBefore = (await betStore.getBets({ address: VALID_ADDRESS })).length;
 
     const first = await placeUpDownBet(payload);
     expect(first.status).toBe(200);
@@ -158,7 +158,7 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     expect(second.body).toEqual(first.body);
 
     // No duplicate bet, no second chain submission.
-    expect(betStore.getBets({ address: VALID_ADDRESS }).length - betsBefore).toBe(1);
+    expect((await betStore.getBets({ address: VALID_ADDRESS })).length - betsBefore).toBe(1);
     expect(sorobanService.placeBet).toHaveBeenCalledTimes(1);
   });
 
