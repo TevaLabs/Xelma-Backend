@@ -204,7 +204,16 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
  *         required: false
  *     responses:
  *       200:
- *         description: Bet recorded (stub) or placed on-chain
+ *         description: Bet recorded through BetService
+ *         content:
+ *           application/json:
+ *             examples:
+ *               stub:
+ *                 summary: Bet recorded in stub mode
+ *                 value: { success: true, data: { message: "Bet recorded (stub)", state: "stub", betId: "bet-123", status: "ACCEPTED" } }
+ *               onChain:
+ *                 summary: Bet submitted on-chain
+ *                 value: { success: true, data: { message: "Bet placed on-chain", state: "submitted", betId: "bet-123", status: "SUBMITTED", txHash: "abc123" } }
  *       400:
  *         description: Validation error, or round mode does not match the bet kind
  *       401:
