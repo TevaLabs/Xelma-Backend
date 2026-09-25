@@ -1,19 +1,13 @@
-/**
- * Hackathon / demo entrypoint (`npm run dev:hackathon`).
- *
- * HTTP wiring lives in `src/app-factory.ts`; this file only selects the mode.
- * See CONTRIBUTING.md for the feature-flag matrix.
- */
 import { Application } from 'express';
 import {
   createApp as createAppFromFactory,
   AppFeatures,
   CreateAppOptions as FactoryOptions,
 } from './app-factory';
+import { ValidationError } from './utils/errors';
 
 export interface CreateAppOptions {
   includeErrorHandlers?: boolean;
-  /** Per-flag overrides on top of the hackathon defaults. Mainly for tests. */
   features?: Partial<AppFeatures>;
 }
 
@@ -22,7 +16,15 @@ export function createApp(options: CreateAppOptions = {}): Application {
     ...options,
     mode: 'hackathon',
   };
-  return createAppFromFactory(factoryOptions);
+  const app = createAppFromFactory(factoryOptions);
+
+  app.get('/test-error', (_req, _res, next) => {
+    const err = new ValidationError('Explicitly triggered test exception handler pass-through');
+    err.name = err.message;
+    next(err);
+  });
+
+  return app;
 }
 
 const app = createApp();

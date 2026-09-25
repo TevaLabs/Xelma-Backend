@@ -150,7 +150,7 @@ router.get(
       overallStatus = 'healthy';
     }
 
-    sendSuccess(res, {
+    res.json({
       status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),

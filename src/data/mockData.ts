@@ -38,11 +38,6 @@ export type MockLeaderboardUser = {
 };
 
 /**
- * Seed leaderboard snippet shown in the source file's docs; the actual
- * in-memory list (with full Stellar addresses) is below.
- */
-
-/**
  * Fetches active rounds from the Prisma-backed mock data repository.
  * Active in both DATA_MODE=mock and DATA_MODE=live.
  */

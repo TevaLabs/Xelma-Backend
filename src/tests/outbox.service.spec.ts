@@ -70,7 +70,11 @@ jest.mock('@prisma/client', () => ({
   },
 }));
 
-import outboxService from '../services/outbox.service';
+import outboxService, {
+  OUTBOX_EVENT_CATALOG,
+  isKnownOutboxEventType,
+  getOutboxCatalogEntry,
+} from '../services/outbox.service';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,6 +111,22 @@ describe('OutboxService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockDlqRecord.mockResolvedValue({ id: 'dlq-1' });
+  });
+
+  describe('Event Catalog (Issue #554)', () => {
+    it('recognizes valid event types in OUTBOX_EVENT_CATALOG', () => {
+      expect(isKnownOutboxEventType('NOTIFICATION_CREATE')).toBe(true);
+      expect(isKnownOutboxEventType('WEBSOCKET_EMIT')).toBe(true);
+      expect(isKnownOutboxEventType('UNKNOWN_CUSTOM_EVENT')).toBe(false);
+    });
+
+    it('returns catalog entry for known event types and null for unknown', () => {
+      const entry = getOutboxCatalogEntry('NOTIFICATION_CREATE');
+      expect(entry).toBeDefined();
+      expect(entry?.channel).toBe('NOTIFICATION_CREATE');
+
+      expect(getOutboxCatalogEntry('INVALID_TYPE')).toBeNull();
+    });
   });
 
   describe('processOutbox', () => {
@@ -165,6 +185,47 @@ describe('OutboxService', () => {
       expect(result.processed).toBe(1);
       expect(handlers.websocketEmit).toHaveBeenCalledWith(row.payload);
       expect(handlers.notificationCreate).not.toHaveBeenCalled();
+    });
+
+    it('routes unknown event types to DLQ and continues processing remaining events (Issue #554)', async () => {
+      const rows = [
+        makeRow({ id: 'evt-unknown', eventType: 'UNKNOWN_FUTURE_EVENT', payload: { userId: 'user-99' } }),
+        makeRow({ id: 'evt-valid', eventType: 'NOTIFICATION_CREATE' }),
+      ];
+      mockFindMany.mockResolvedValue(rows);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+      mockUpdate
+        .mockResolvedValueOnce({ id: 'evt-unknown', status: 'FAILED' })
+        .mockResolvedValueOnce({ id: 'evt-valid', status: 'PROCESSED' });
+
+      const handlers = makeHandlers();
+      const result = await outboxService.processOutbox(handlers, 50, 3);
+
+      expect(result).toEqual({ processed: 1, failed: 1, escalated: 1 });
+
+      // Unknown event marked FAILED immediately
+      expect(mockUpdate).toHaveBeenNthCalledWith(1, {
+        where: { id: 'evt-unknown' },
+        data: expect.objectContaining({
+          status: 'FAILED',
+          lastError: expect.stringContaining('Unknown outbox event type: UNKNOWN_FUTURE_EVENT'),
+        }),
+      });
+
+      // Unknown event escalated to DLQ
+      expect(mockDlqRecord).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventName: 'UNKNOWN_EVENT:UNKNOWN_FUTURE_EVENT',
+          userId: 'user-99',
+          payload: expect.objectContaining({
+            eventType: 'UNKNOWN_FUTURE_EVENT',
+            reason: 'UNKNOWN_OUTBOX_EVENT_TYPE',
+          }),
+        })
+      );
+
+      // Valid event processed without being blocked by unknown event
+      expect(handlers.notificationCreate).toHaveBeenCalledWith(rows[1].payload);
     });
 
     it('skips a row when the claim races (updateMany returns count=0)', async () => {

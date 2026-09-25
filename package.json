@@ -48,13 +48,21 @@
     "@socket.io/redis-adapter": "^8.3.0",
     "@stellar/stellar-sdk": "^16.0.1",
     "@tevalabs/xelma-bindings": "file:vendor/xelma-bindings",
+    "asynckit": "^0.5.0",
     "axios": "^1.16.1",
+    "call-bind-apply-helpers": "^1.0.2",
+    "combined-stream": "^1.0.8",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
+    "drizzle-orm": "^0.45.2",
+    "es-define-property": "^1.0.1",
     "express": "^4.18.2",
     "express-rate-limit": "^8.5.2",
+    "form-data": "^4.0.6",
     "helmet": "^7.1.0",
+    "is-core-module": "^2.17.0",
     "jsonwebtoken": "^9.0.3",
+    "mime-types": "^3.0.2",
     "morgan": "^1.10.0",
     "node-cron": "^4.5.0",
     "pg": "^8.22.0",
@@ -63,6 +71,7 @@
     "socket.io": "^4.8.3",
     "swagger-jsdoc": "^6.2.8",
     "winston": "^3.19.0",
+    "yocto-queue": "^0.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -83,7 +92,7 @@
     "socket.io-client": "^4.8.3",
     "supertest": "^7.2.2",
     "swagger-ui-express": "^5.0.1",
-    "ts-jest": "^29.4.11",
+    "ts-jest": "^29.4.14",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.3.3"
   }

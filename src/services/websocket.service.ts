@@ -11,7 +11,7 @@ import type {
 } from '../types/socket-events';
 import { serializeRoundUpdatePayload } from '../serializers/monetary.serializer';
 
-export type { BetAcceptedPayload };
+export type { BetAcceptedPayload } from '../types/socket-events';
 
 /**
  * Centralized event names so DLQ replay can map a stored `eventName` back
@@ -39,11 +39,10 @@ type EventPayloadMap = {
 
 type WebSocketEventName = keyof EventPayloadMap;
 
-/** Payload for live bet acceptance broadcasts (Issue #376). */
 interface SafeEmitInput<E extends WebSocketEventName> {
   room: string;
   event: E;
-  payload: EventPayloadMap[E];
+  payload: E extends keyof EventPayloadMap ? EventPayloadMap[E] : any;
   userId?: string | null;
 }
 

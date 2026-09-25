@@ -112,10 +112,10 @@ export function errorHandler(
   });
 
   const body: ErrorResponse & { stack?: string } = {
-    error: appError.message || appError.name, // Ensure textual summary error field is clear
+    error: appError.name || appError.message,
     message: appError.message,
     code: appError.code,
-    path: req.originalUrl, // <-- Explicitly mapped parameter requirement
+    path: req.originalUrl,
     requestId,
     timestamp,
     ...(retryAfterSeconds !== undefined && { retryAfter: retryAfterSeconds }),

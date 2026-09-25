@@ -1,4 +1,5 @@
 import type { Config } from "@jest/types";
+
 type JestConfig = Config.InitialOptions;
 
 const integrationTestFiles = [
