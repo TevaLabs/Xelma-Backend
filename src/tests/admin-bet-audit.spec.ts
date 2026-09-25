@@ -10,7 +10,7 @@ import { createApp } from "../index";
 jest.mock("../lib/prisma", () => ({
   prisma: {
     user: { findUnique: jest.fn() },
-    auditLog: { create: jest.fn() },
+    auditLog: { create: jest.fn(), findMany: jest.fn() },
   },
 }));
 
@@ -37,6 +37,7 @@ describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
 
   beforeEach(() => {
     betAuditService.clear();
+    jest.restoreAllMocks();
     jest.clearAllMocks();
     betAuditService.emitBetAccepted({
       address: USER_ADDRESS,
@@ -156,7 +157,7 @@ describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
   });
 
   it("returns 500 when service throws", async () => {
-    jest.spyOn(betAuditService, "queryEvents").mockImplementation(() => {
+    jest.spyOn(betAuditService, "queryStoredEvents").mockImplementation(async () => {
       throw new Error("Simulated failure");
     });
 
@@ -167,4 +168,125 @@ describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
     expect(res.status).toBe(500);
     expect(res.body).toHaveProperty("error");
   });
+
+describe.each(["memory", "database"] as const)(
+  "Bet-audit storage contract (%s mode)",
+  (storageMode) => {
+    let originalStorage: string | undefined;
+
+    beforeEach(() => {
+      originalStorage = process.env.BET_AUDIT_STORAGE;
+      process.env.BET_AUDIT_STORAGE = storageMode;
+      betAuditService.clear();
+      app = createApp();
+    });
+
+    afterEach(() => {
+      if (originalStorage === undefined) {
+        delete process.env.BET_AUDIT_STORAGE;
+      } else {
+        process.env.BET_AUDIT_STORAGE = originalStorage;
+      }
+      betAuditService.clear();
+    });
+
+    it("returns the exact structured audit payload through the tracking route", async () => {
+      const createdAt = "2026-09-25T12:00:00.000Z";
+      const payload = {
+        betId: "bet-contract-529",
+        address: USER_ADDRESS,
+        amount: 123.45,
+        side: "DOWN" as const,
+        mode: "UP_DOWN" as const,
+        result: "on-chain-success",
+        status: "CONFIRMED" as const,
+        txHash: "0x1234567890abcdef",
+        requestId: "request-529",
+        correlationId: "request-529:0x1234567890abcdef",
+      };
+
+      if (storageMode === "database") {
+        mockPrisma.auditLog.findMany.mockResolvedValue([
+          {
+            eventType: "BET_ACCEPTED",
+            outcome: "success",
+            walletAddress: USER_ADDRESS,
+            requestId: payload.requestId,
+            timestamp: createdAt,
+            metadata: payload,
+          },
+        ]);
+      }
+
+      const emitted = betAuditService.emitBetAccepted(payload);
+      if (storageMode === "database") {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+
+      const res = await request(app)
+        .get(`/api/admin/bet-audit?address=${encodeURIComponent(USER_ADDRESS)}`)
+        .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(1);
+      expect(res.body.events[0]).toMatchObject({
+        event: "BET_ACCEPTED",
+        betId: payload.betId,
+        address: payload.address,
+        amount: payload.amount,
+        side: payload.side,
+        mode: payload.mode,
+        result: payload.result,
+        status: payload.status,
+        requestId: payload.requestId,
+        correlationId: payload.correlationId,
+        txHash: "0x123456...",
+        createdAt: storageMode === "database" ? createdAt : emitted.createdAt,
+      });
+
+      if (storageMode === "memory") {
+        expect(mockPrisma.auditLog.findMany).not.toHaveBeenCalled();
+      } else {
+        expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith({
+          where: {
+            eventType: {
+              in: ["BET_ACCEPTED", "BET_FAILED", "BET_RECONCILED", "CLAIM_ACCEPTED"],
+            },
+            walletAddress: USER_ADDRESS,
+          },
+          orderBy: { timestamp: "desc" },
+          take: 50,
+        });
+        expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              walletAddress: USER_ADDRESS,
+              metadata: expect.objectContaining({
+                amount: payload.amount,
+                side: payload.side,
+                mode: payload.mode,
+                txHash: payload.txHash,
+              }),
+            }),
+          }),
+        );
+      }
+    });
+
+    it.each([
+      ["without a token", undefined, 401],
+      ["with a non-admin token", USER_TOKEN, 403],
+    ])("rejects %s", async (_description, token, expectedStatus) => {
+      const req = request(app).get("/api/admin/bet-audit");
+      if (token) {
+        req.set("Authorization", `Bearer ${token}`);
+      }
+
+      const res = await req;
+
+      expect(res.status).toBe(expectedStatus);
+      expect(mockPrisma.auditLog.findMany).not.toHaveBeenCalled();
+    });
+  },
+);
 });
