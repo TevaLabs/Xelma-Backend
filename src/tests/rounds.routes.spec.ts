@@ -9,6 +9,7 @@ const ADMIN_ID = 'rounds-admin-id';
 const mockUserFindUnique = jest.fn();
 const mockStartRound = jest.fn();
 const mockResolveRound = jest.fn();
+const mockGetRound = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -23,6 +24,7 @@ jest.mock('../services/round.service', () => ({
   __esModule: true,
   default: {
     startRound: (...args: any[]) => mockStartRound(...args),
+    getRound: (...args: any[]) => mockGetRound(...args),
   },
 }));
 
@@ -285,6 +287,38 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(mockResolveRound).toHaveBeenCalledWith('round-resolve-id', expect.anything());
+    });
+  });
+  describe('GET /api/rounds/:id', () => {
+    it('returns 404 with standard envelope for missing id', async () => {
+      mockGetRound.mockResolvedValue(null);
+
+      const res = await request(app).get('/api/rounds/invalid-id');
+
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it('returns the found round with detail fields', async () => {
+      mockGetRound.mockResolvedValue({
+        id: 'test-round',
+        mode: 'UP_DOWN',
+        status: 'ACTIVE',
+        startPrice: 0.1,
+        source: 'database',
+        predictions: [],
+      });
+
+      const res = await request(app).get('/api/rounds/test-round');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.round).toBeDefined();
+      expect(res.body.round.id).toBe('test-round');
+      expect(res.body.round.source).toBe('database');
+      // startPrice should be mapped to string by serializeRound
+      expect(typeof res.body.round.startPrice).toBe('string');
     });
   });
 });

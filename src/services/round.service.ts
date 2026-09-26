@@ -148,11 +148,29 @@ export class RoundService {
     }
   }
 
-  /**
-   * Gets a round by ID
-   */
   async getRound(roundId: string): Promise<any> {
     try {
+      if (config.app.roundsMockMode) {
+        const mockRounds = await this.getMockRoundsForApi();
+        const mockRound = mockRounds.find((r) => r.id === roundId);
+        if (mockRound) return mockRound;
+        return null;
+      }
+
+      try {
+        const onChainRound = await sorobanService.getActiveRound();
+        if (onChainRound) {
+          const mapped = mapSorobanActiveRound(onChainRound);
+          if (mapped.id === roundId || mapped.sorobanRoundId === roundId) {
+            return mapped;
+          }
+        }
+      } catch (error) {
+        logger.warn("Soroban fetch failed in getRound", {
+          error: (error as Error).message,
+        });
+      }
+
       const round = await prisma.round.findUnique({
         where: { id: roundId },
         include: {
@@ -169,7 +187,15 @@ export class RoundService {
         },
       });
 
-      return round;
+      if (round) {
+        return mapDatabaseActiveRound(round as any);
+      }
+
+      const mockRounds = await this.getMockRoundsForApi();
+      const mockRound = mockRounds.find((r) => r.id === roundId);
+      if (mockRound) return mockRound;
+
+      return null;
     } catch (error) {
       logger.error("Failed to get round:", error);
       throw error;

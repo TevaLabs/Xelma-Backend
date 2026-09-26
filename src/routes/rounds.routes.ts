@@ -143,10 +143,14 @@ router.post(
 // Kept here as a comment for discoverability; see issue #370.
 
 /**
- * @swagger
+ * @openapi
  * /api/rounds/{id}:
  *   get:
  *     summary: Get a round by ID
+ *     description: >
+ *       Returns a single round matching the shape of items in the list route.
+ *       Includes core fields (pools, status, source, timestamps) plus detail-only
+ *       fields like `predictions` (if present in the database backend).
  *     tags: [rounds]
  *     parameters:
  *       - in: path
@@ -155,9 +159,9 @@ router.post(
  *         schema: { type: string }
  *     responses:
  *       200:
- *         description: Round found
+ *         description: Round found with detail fields
  *       404:
- *         description: Round not found
+ *         description: Round not found (standard JSON 404 envelope)
  */
 router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
