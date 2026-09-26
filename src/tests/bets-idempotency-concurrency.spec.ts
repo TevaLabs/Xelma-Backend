@@ -2,9 +2,13 @@
  * Real concurrency tests for the Redis-backed distributed idempotency lock
  * (Issue #493).
  *
- * These tests require a real PostgreSQL (Prisma store) and a real Redis:
+ * These tests require a real PostgreSQL (Prisma store) AND a real Redis:
  *   - locally: `docker compose up -d postgres redis` (see docker-compose.yml)
- *   - CI: the `test-integration` job spins up both services (ci.yml)
+ *     and export `REDIS_URL=redis://localhost:6379`
+ *   - CI: the `test-integration` job only provisions PostgreSQL, so this suite
+ *     skips cleanly when `REDIS_URL` is not provided by the environment — the
+ *     same convention used by redis-adapter.spec.ts and
+ *     rate-limit-redis-store.integration.spec.ts.
  *
  * They simulate multiple API replicas by racing many concurrent HTTP requests
  * carrying the SAME `Idempotency-Key` against the same app, which is exactly
@@ -28,8 +32,20 @@ import { createApp } from "../index";
 import sorobanService from "../services/soroban.service";
 import { generateToken } from "../utils/jwt.util";
 import { prisma } from "../lib/prisma";
-import { betStore } from "../data/bet-store";
 import { closeRedisClient } from "../lib/redis";
+
+// Only run when Redis is provided by the environment (matches other
+// Redis-dependent integration suites, which skip when REDIS_URL is absent).
+const REDIS_URL = process.env.REDIS_URL;
+const maybeDescribe = REDIS_URL ? describe : describe.skip;
+
+if (!REDIS_URL) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[bets-idempotency-concurrency.spec.ts] REDIS_URL not set - skipping distributed idempotency lock concurrency test. " +
+      "Run `docker compose up -d redis` and set REDIS_URL to enable it.",
+  );
+}
 
 jest.mock("../services/soroban.service", () => ({
   __esModule: true,
@@ -55,18 +71,12 @@ jest.mock("../middleware/rateLimiter.middleware", () => ({
   betRateLimiter: (_req: any, _res: any, next: any) => next(),
 }));
 
-// Integration tests talk to a real Redis (localhost by default; overridden by
-// the CI job env). The distributed lock must never silently fall back.
-if (!process.env.REDIS_URL) {
-  process.env.REDIS_URL = "redis://localhost:6379";
-}
-
 const VALID_ADDRESS = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const USER_ID = "concurrency-user-493";
 const ENDPOINT = "/api/bets/up-down";
 const IDEMPOTENCY_KEY = "conc-493-updown-0001";
 
-describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
+maybeDescribe("Bet idempotency under concurrent multi-replica load (#493)", () => {
   let app: Express;
   let token: string;
 
@@ -76,6 +86,7 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     // Force the production-equivalent path: Prisma store + on-chain service.
     process.env.DATA_STORE = "postgres";
     process.env.BET_STUB_MODE = "false";
+    process.env.REDIS_URL = REDIS_URL;
     app = createApp();
     token = generateToken(USER_ID, VALID_ADDRESS, UserRole.USER);
 
@@ -93,6 +104,16 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     process.env = originalEnv;
   });
 
+  // Bet.txHash is unique in the schema, so mocked chain submissions use
+  // distinct, run-scoped hashes to avoid colliding with previous runs.
+  const uniqueTxHash = (prefix: string) =>
+    `0x${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const countBets = () =>
+    prisma.bet.count({
+      where: { user: { walletAddress: VALID_ADDRESS } },
+    });
+
   const placeUpDownBet = (payload: Record<string, unknown>) =>
     request(app)
       .post(ENDPOINT)
@@ -105,11 +126,11 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
       // Widen the processing window so all 12 requests genuinely contend on
       // the Redis lock instead of finishing before the losers start.
       await new Promise((resolve) => setTimeout(resolve, 300));
-      return { state: "on-chain-success", txHash: "0xconcurrent-lock-493" };
+      return { state: "on-chain-success", txHash: uniqueTxHash("concurrent-lock-493") };
     });
 
     const payload = { address: VALID_ADDRESS, amount: 10, side: "UP" };
-    const betsBefore = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const betsBefore = await countBets();
 
     const responses = await Promise.all(
       Array.from({ length: 12 }, () => placeUpDownBet(payload)),
@@ -124,7 +145,7 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     }
 
     // Exactly one bet was accepted, and the chain service ran exactly once.
-    expect(betStore.getBets({ address: VALID_ADDRESS }).length - betsBefore).toBe(1);
+    expect((await countBets()) - betsBefore).toBe(1);
     expect(sorobanService.placeBet).toHaveBeenCalledTimes(1);
 
     // The final response is persisted in the DB so legitimate retries replay.
@@ -145,10 +166,10 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
   it("replays the stored DB response on a sequential retry without re-executing", async () => {
     (sorobanService.placeBet as jest.Mock).mockResolvedValue({
       state: "on-chain-success",
-      txHash: "0xreplay-493",
+      txHash: uniqueTxHash("replay-493"),
     });
     const payload = { address: VALID_ADDRESS, amount: 10, side: "UP" };
-    const betsBefore = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const betsBefore = await countBets();
 
     const first = await placeUpDownBet(payload);
     expect(first.status).toBe(200);
@@ -158,14 +179,14 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     expect(second.body).toEqual(first.body);
 
     // No duplicate bet, no second chain submission.
-    expect(betStore.getBets({ address: VALID_ADDRESS }).length - betsBefore).toBe(1);
+    expect((await countBets()) - betsBefore).toBe(1);
     expect(sorobanService.placeBet).toHaveBeenCalledTimes(1);
   });
 
   it("still rejects a mutated payload reusing the same Idempotency-Key", async () => {
     (sorobanService.placeBet as jest.Mock).mockResolvedValue({
       state: "on-chain-success",
-      txHash: "0xmutated-493",
+      txHash: uniqueTxHash("mutated-493"),
     });
 
     const first = await placeUpDownBet({

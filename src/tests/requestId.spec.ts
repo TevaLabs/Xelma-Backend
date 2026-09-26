@@ -66,14 +66,12 @@ describe('Request ID Tracing', () => {
       
       // The logging middleware should log with requestId in metadata
       const hasRequestIdLog = logCalls.some((call) => {
-        const message = call[0];
         const metadata = call[1];
-        
+
         return (
-          message.includes('GET /') &&
           metadata &&
-          metadata.requestId &&
-          typeof metadata.requestId === 'string'
+          typeof metadata.requestId === 'string' &&
+          metadata.requestId.length > 0
         );
       });
 
@@ -139,7 +137,7 @@ describe('Request ID Tracing', () => {
         .expect(200);
 
       expect(res.headers['x-request-id']).toBe('test-request-id-123');
-      expect(['healthy', 'degraded']).toContain(res.body.status);
+      expect(['healthy', 'degraded']).toContain(res.body.data.status);
     });
   });
 

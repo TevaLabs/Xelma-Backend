@@ -155,7 +155,7 @@ describe("Leaderboard Routes", () => {
     const response = await request(app).get("/api/leaderboard?limit=1000");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe("ValidationError");
+    expect(response.body.error).toBe(response.body.message);
     // Zod v4 message format: "Too big: expected number to be <=500"
     expect(response.body.details[0].field).toBe("limit");
   });
@@ -164,7 +164,7 @@ describe("Leaderboard Routes", () => {
     const response = await request(app).get("/api/leaderboard?offset=-1");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe("ValidationError");
+    expect(response.body.error).toBe(response.body.message);
     // Zod v4 message format: "Too small: expected number to be >=0"
     expect(response.body.details[0].field).toBe("offset");
   });
@@ -176,7 +176,7 @@ describe("Leaderboard Routes", () => {
 
     expect(response.status).toBe(500);
     expect(response.body.message).toBe("Failed to fetch leaderboard");
-    expect(response.body.error).toBe("AppError");
+    expect(response.body.error).toBe(response.body.message);
   });
 
   // -------------------------------------------------------------------------

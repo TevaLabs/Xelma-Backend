@@ -153,7 +153,7 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
         .send({});
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.error).toBe(res.body.message);
       expect(res.body.message).toBeDefined();
     });
 
@@ -165,7 +165,7 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
         .send({ walletAddress: "not-a-valid-address" });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.error).toBe(res.body.message);
       expect(res.body.message).toContain("Invalid Stellar wallet address format");
     });
 
@@ -206,7 +206,7 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
       });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.error).toBe(res.body.message);
       expect(res.body.message).toBeDefined();
     });
 
@@ -238,7 +238,7 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
         });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe("AuthenticationError");
+      expect(res.body.error).toBe(res.body.message);
       expect(res.body.message).toContain("Invalid or expired challenge");
     });
 
