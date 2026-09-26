@@ -34,7 +34,9 @@
     "db:seed:mock": "ts-node scripts/seed-mock-data.ts",
     "db:seed:tournaments": "ts-node scripts/seed-tournaments.ts",
     "dev:hackathon": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "smoke-test": "node scripts/smoke-test.js",
+    "smoke-test": "node scripts/smoke-test.js --mode=full",
+    "smoke-test:full": "node scripts/smoke-test.js --mode=full",
+    "smoke-test:hackathon": "node scripts/smoke-test.js --mode=hackathon",
     "pr:publish": "node scripts/publish-pr.js"
   },
   "keywords": [],
