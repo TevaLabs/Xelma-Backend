@@ -32,6 +32,7 @@ import {
   ExternalServiceError,
 } from "../utils/errors";
 import { sendSuccess } from "../utils/response";
+import { invalidateNamespace } from "../lib/redis";
 
 const IDEMPOTENCY_TTL_HOURS = 24;
 
@@ -158,6 +159,11 @@ export async function executeBet(
     const requestId = (req as any).requestId as string | undefined;
     const result = await placeBet(kind, req.body, roundId, idempotencyKey, requestId);
     operationCompleted = true;
+
+    void invalidateNamespace("bets").catch(() => {});
+    void invalidateNamespace("rounds").catch(() => {});
+    void invalidateNamespace("leaderboard").catch(() => {});
+    void invalidateNamespace("stats").catch(() => {});
 
     const data = toBetResponseData(kind, result);
     const responseBody = { success: true as const, data };

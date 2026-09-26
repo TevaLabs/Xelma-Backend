@@ -191,9 +191,10 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
   // Permissions-Policy that helmet's defaults do not set (Issue #414/#480).
   app.use(securityHeadersMiddleware);
 
-  app.use(express.json());
+  const jsonLimit = process.env.JSON_BODY_LIMIT || '16kb';
+  app.use(express.json({ limit: jsonLimit }));
   if (mode === 'full') {
-    app.use(express.urlencoded({ extended: true }));
+    app.use(express.urlencoded({ extended: true, limit: jsonLimit }));
   }
 
   app.use(

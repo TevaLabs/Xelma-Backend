@@ -4,7 +4,8 @@ import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middl
 import { validate } from "../middleware/validate.middleware";
 import { updateProfileSchema } from "../schemas/user.schema";
 import { unifiedPaginationSchema, UnifiedPaginationParams, encodeCursor } from "../schemas/pagination.schema";
-import { NotFoundError } from "../utils/errors";
+import { NotFoundError, ConflictError } from "../utils/errors";
+import { invalidateNamespace } from "../lib/redis";
 import { validateStellarAddressParam } from "../utils/stellar-address.util";
 import sorobanService from "../services/soroban.service";
 import { serializeMoney } from "../utils/decimal.util";
@@ -213,6 +214,27 @@ router.patch(
 
       const { nickname, avatarUrl, preferences } = req.body;
 
+      if (nickname !== undefined && nickname !== null && typeof nickname === "string" && nickname.trim() !== "") {
+        const trimmedNickname = nickname.trim();
+        if (typeof prisma.user.findFirst === "function") {
+          const existing = await prisma.user.findFirst({
+            where: {
+              nickname: {
+                equals: trimmedNickname,
+                mode: "insensitive",
+              },
+              NOT: {
+                id: userId,
+              },
+            },
+          });
+
+          if (existing) {
+            return next(new ConflictError("Nickname is already taken"));
+          }
+        }
+      }
+
       const updatedUser = await prisma.user.update({
         where: { id: userId },
         data: {
@@ -227,8 +249,14 @@ router.patch(
         },
       });
 
+      void invalidateNamespace("profile").catch(() => {});
+      void invalidateNamespace("leaderboard").catch(() => {});
+
       return sendSuccess(res, { profile: updatedUser });
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.code === "P2002") {
+        return next(new ConflictError("Nickname is already taken"));
+      }
       next(error);
     }
   }) as any,
