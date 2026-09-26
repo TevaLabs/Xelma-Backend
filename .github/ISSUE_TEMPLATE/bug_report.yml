@@ -1,0 +1,82 @@
+name: Bug report
+description: Report a problem with the Xelma backend (default `npm run dev` path or the hackathon demo entrypoint).
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Please fill out every required field —
+        incomplete reports slow reviews down.
+
+        **Never paste secrets, private keys, or JWTs in this issue.**
+        Redact tokens from logs before including them.
+
+  - type: dropdown
+    id: entrypoint
+    attributes:
+      label: Entrypoint
+      description: Which of the two Express apps does the bug affect? See `docs/architecture.md`.
+      options:
+        - dev (default — src/index.ts)
+        - dev:hackathon (mock/demo — src/app.ts)
+        - Both entrypoints
+    validations:
+      required: true
+
+  - type: dropdown
+    id: env-mode
+    attributes:
+      label: Environment mode
+      description: Which data/backend mode were you running? Leave unknown if unsure.
+      options:
+        - DATA_MODE=postgres
+        - DATA_MODE=memory
+        - BET_STUB_MODE enabled
+        - Not sure / not relevant
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected to happen.
+      placeholder: Tell us what you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, numbered steps starting from a clean checkout.
+      placeholder: |
+        1. `npm run dev`
+        2. `curl -X POST http://localhost:3000/api/auth/challenge ...`
+        3. Observe the error
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or output
+      description: Redact any tokens, keys, or credentials first.
+      render: shell
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or version
+      description: Branch/commit you observed the bug on.
+      placeholder: e.g. main @ 4840257
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and found no duplicate.
+          required: true
+        - label: I redacted all secrets from logs and screenshots.
+          required: true

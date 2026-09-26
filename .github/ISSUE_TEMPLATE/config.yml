@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/TevaLabs/Xelma-Backend#readme
+    about: Start here for setup instructions and the dual-entrypoint architecture map (docs/architecture.md).
