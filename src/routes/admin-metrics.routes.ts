@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { rateLimitMetricsService } from '../services/rate-limit-metrics.service';
 import payoutReconciliationService from '../services/payout-reconciliation.service';
-import { requireAdmin } from '../middleware/auth.middleware';
+import { requireAdmin, requireMetricsAuth } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 import { register } from 'prom-client';
 
@@ -169,9 +169,14 @@ router.post('/rate-limits/clear', requireAdmin, async (req: Request, res: Respon
  * /api/admin/metrics/metrics:
  *   get:
  *     summary: Scrape Prometheus metrics
- *     description: Returns standard flat text representations of all registered metrics.
+ *     description: |
+ *       Returns standard flat text representations of all registered metrics.
+ *       Requires an admin JWT or a valid METRICS_SCRAPE_TOKEN, matching the
+ *       public /metrics scrape endpoint.
  *     tags:
  *       - Admin
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: Prometheus text exposition format
@@ -179,10 +184,16 @@ router.post('/rate-limits/clear', requireAdmin, async (req: Request, res: Respon
  *           text/plain:
  *             schema:
  *               type: string
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 // Path is relative to the /api/admin/metrics mount point. Listing the full
 // path here as well produced /api/admin/metrics/admin/metrics/metrics.
-router.get('/metrics', async (req: Request, res: Response) => {
+// Auth is required so this duplicate scrape surface cannot expose
+// limiter/user-activity numbers on the unauthenticated hackathon app.
+router.get('/metrics', requireMetricsAuth, async (req: Request, res: Response) => {
   try {
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
