@@ -98,13 +98,16 @@ in `round.service`, `round.routes`, and `resolution.service`. Policy helper:
 ### ENABLE_EDUCATION
 
 Controls whether the **education** endpoints (`/api/education/guides`, `/api/education/tip`)
-are mounted. In the full app this defaults to `true`; in hackathon mode it defaults
-to `false` so the demo surface stays minimal unless explicitly opted in.
+are mounted. This flag is an **opt-in for hackathon mode** (whose education surface is
+off by default) and a **kill switch for the full app** (which serves education by
+default). Full-app behavior is unchanged when the variable is unset.
 
-| `ENABLE_EDUCATION` | Behavior | Use case |
+| `ENABLE_EDUCATION` | Hackathon app | Full app |
 |---|---|---|
-| `false` (default) | Education routes not mounted in hackathon; full app still serves them | Hackathon/demo, minimal surface |
-| `true` | Education routes mounted in both modes | Hackathon with education, or overriding full app |
+| unset / `false` (default) | Education routes **not** mounted | Education routes mounted (normal full-app behavior) |
+| `true` | Education routes mounted (opt-in for demos) | Education routes mounted (unchanged) |
+
+> To turn education **off** in the full app, set `ENABLE_EDUCATION=false` explicitly.
 
 **Affected endpoints:** `GET /api/education/guides`, `GET /api/education/tip`
 

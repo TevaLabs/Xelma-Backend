@@ -22,6 +22,12 @@ export interface AppConfig {
   dataStore: "memory" | "postgres";
   enableSimulation: boolean;
   enableMultiplayerSocial: boolean;
+  /**
+   * ENABLE_EDUCATION — hackathon opt-in for `/api/education/*`.
+   * `resolveFeatures` in `src/app-factory.ts` reads the raw env var as a
+   * tri-state so "unset" keeps the per-mode default: hackathon off,
+   * full app on. An explicit `false` also disables it in the full app.
+   */
   enableEducation: boolean;
   metricsScrapeToken: string;
   /** Lightweight Socket.IO without Prisma chat/session (hackathon demos). */
@@ -144,7 +150,7 @@ function buildConfig(): Config {
     ),
     enableSimulation: v.boolean(env.ENABLE_SIMULATION, false),
     enableMultiplayerSocial: v.boolean(env.ENABLE_MULTIPLAYER_SOCIAL, true),
-    enableEducation: v.boolean(env.ENABLE_EDUCATION, true),
+    enableEducation: v.boolean(env.ENABLE_EDUCATION, false),
     metricsScrapeToken: v.optional(env.METRICS_SCRAPE_TOKEN, ""),
     socketDemoMode: v.boolean(
       env.SOCKET_DEMO_MODE ??

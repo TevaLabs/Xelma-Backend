@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import request from 'supertest';
-import { createApp as createMainApp } from '../index';
-import { createApp as createHackathonApp } from '../app';
+import type { Application } from 'express';
 
 // Mock Stellar and Soroban services to prevent loading @stellar/stellar-sdk (which contains ESM files that Jest fails to parse)
 jest.mock('../services/stellar.service', () => ({
@@ -16,6 +15,7 @@ jest.mock('../services/soroban.service', () => ({
     getUserStats: jest.fn(),
     getPendingWinnings: jest.fn(),
     getHealth: jest.fn(),
+    init: jest.fn(),
   },
   isReady: jest.fn().mockReturnValue(true),
   getUserStats: jest.fn(),
@@ -39,11 +39,28 @@ jest.mock('../config/preflight', () => ({
   assertPreflightOrExit: jest.fn(),
 }));
 
+// src/index.ts runs checkVendoredBindings() at import time, which resolves the
+// bindings policy first; the mock must expose every export it touches.
 jest.mock('../utils/bindings-validator', () => ({
+  resolveBindingsPolicy: jest.fn(() => 'warn'),
+  formatBindingsReport: jest.fn(() => 'mock'),
   validateVendoredBindings: jest.fn(() => ({
     ok: true,
-    info: { vendorPath: 'mock', packageName: 'mock' },
+    errors: [],
+    warnings: [],
+    remediation: [],
+    info: { vendorPath: 'mock', packageName: 'mock', specMethods: [] },
   })),
+}));
+
+// Education tips read rounds through Prisma; unit tests must not need a
+// database, so the service is mocked and the route-level error mapping
+// (service message -> typed HTTP error) is still exercised.
+jest.mock('../services/education-tip.service', () => ({
+  __esModule: true,
+  default: {
+    generateTip: jest.fn(),
+  },
 }));
 
 jest.mock('../services/oracle', () => ({
@@ -107,33 +124,42 @@ jest.mock('../routes/bets.routes', () => {
   return { __esModule: true, default: router };
 });
 
-describe('Education Flag HTTP Endpoints', () => {
-  const testRoundId = '00000000-0000-0000-0000-000000000001';
+const UNKNOWN_ROUND_ID = '00000000-0000-0000-0000-000000000000';
 
-  afterAll(async () => {
-    const { pool } = require('../db/db');
-    await pool.end();
+function stubTipNotFound(): void {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const educationTipService =
+    require('../services/education-tip.service').default;
+  (educationTipService.generateTip as jest.Mock).mockRejectedValue(
+    new Error('Round not found'),
+  );
+}
+
+describe('Education Flag HTTP Endpoints', () => {
+  const originalEnv = process.env.ENABLE_EDUCATION;
+
+  afterAll(() => {
+    if (originalEnv === undefined) {
+      delete process.env.ENABLE_EDUCATION;
+    } else {
+      process.env.ENABLE_EDUCATION = originalEnv;
+    }
+    jest.resetModules();
   });
 
   describe('Hackathon mode with ENABLE_EDUCATION=false (default)', () => {
-    const originalEnv = process.env.ENABLE_EDUCATION;
-    let hackathonApp: ReturnType<typeof createHackathonApp>;
+    let hackathonApp: Application;
 
     beforeAll(() => {
       process.env.ENABLE_EDUCATION = 'false';
-      // Re-require config to pick up the new env var
+      // Re-require config + app-factory so the flag is picked up fresh.
       jest.resetModules();
-      // We need to re-import after resetModules
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { createApp } = require('../app');
       hackathonApp = createApp();
     });
 
     afterAll(() => {
-      if (originalEnv === undefined) {
-        delete process.env.ENABLE_EDUCATION;
-      } else {
-        process.env.ENABLE_EDUCATION = originalEnv;
-      }
       jest.resetModules();
     });
 
@@ -143,28 +169,26 @@ describe('Education Flag HTTP Endpoints', () => {
     });
 
     it('GET /api/education/tip returns 404', async () => {
-      const res = await request(hackathonApp).get('/api/education/tip').query({ roundId: testRoundId });
+      const res = await request(hackathonApp)
+        .get('/api/education/tip')
+        .query({ roundId: UNKNOWN_ROUND_ID });
       expect(res.status).toBe(404);
     });
   });
 
-  describe('Hackathon mode with ENABLE_EDUCATION=true', () => {
-    const originalEnv = process.env.ENABLE_EDUCATION;
-    let hackathonApp: ReturnType<typeof createHackathonApp>;
+  describe('Hackathon mode with ENABLE_EDUCATION=true (opt-in)', () => {
+    let hackathonApp: Application;
 
     beforeAll(() => {
       process.env.ENABLE_EDUCATION = 'true';
       jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { createApp } = require('../app');
       hackathonApp = createApp();
+      stubTipNotFound();
     });
 
     afterAll(() => {
-      if (originalEnv === undefined) {
-        delete process.env.ENABLE_EDUCATION;
-      } else {
-        process.env.ENABLE_EDUCATION = originalEnv;
-      }
       jest.resetModules();
     });
 
@@ -192,21 +216,24 @@ describe('Education Flag HTTP Endpoints', () => {
     });
 
     it('GET /api/education/tip returns 404 for non-existent round', async () => {
-      const res = await request(hackathonApp).get('/api/education/tip').query({ roundId: '00000000-0000-0000-0000-000000000000' });
+      const res = await request(hackathonApp)
+        .get('/api/education/tip')
+        .query({ roundId: UNKNOWN_ROUND_ID });
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('NotFoundError');
     });
   });
 
-  describe('Full app mode (education always enabled)', () => {
-    let mainApp: ReturnType<typeof createMainApp>;
+  describe('Full app mode (education on by default, opt-out via flag)', () => {
+    let mainApp: Application;
 
     beforeAll(() => {
-      // Ensure ENABLE_EDUCATION is not set to false
       process.env.ENABLE_EDUCATION = 'true';
       jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { createApp } = require('../index');
       mainApp = createApp();
+      stubTipNotFound();
     });
 
     afterAll(() => {
@@ -233,13 +260,16 @@ describe('Education Flag HTTP Endpoints', () => {
     it('GET /api/education/tip returns 400 for missing roundId', async () => {
       const res = await request(mainApp).get('/api/education/tip');
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('ValidationError');
+      // Full-app error handler exposes the machine code in `code`.
+      expect(res.body.code).toBe('VALIDATION_ERROR');
     });
 
     it('GET /api/education/tip returns 404 for non-existent round', async () => {
-      const res = await request(mainApp).get('/api/education/tip').query({ roundId: '00000000-0000-0000-0000-000000000000' });
+      const res = await request(mainApp)
+        .get('/api/education/tip')
+        .query({ roundId: UNKNOWN_ROUND_ID });
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe('NotFoundError');
+      expect(res.body.code).toBe('NOT_FOUND');
     });
   });
 });
