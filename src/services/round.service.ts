@@ -153,21 +153,43 @@ export class RoundService {
    */
   async getRound(roundId: string): Promise<any> {
     try {
-      const round = await prisma.round.findUnique({
-        where: { id: roundId },
-        include: {
-          predictions: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  walletAddress: true,
+      if (config.app.roundsMockMode) {
+        const mockRounds = await getMockRounds();
+        const found = mockRounds.find((r: any) => r.id === roundId || r.sorobanRoundId === roundId);
+        return found || null;
+      }
+
+      let round = null;
+      try {
+        round = await prisma.round.findUnique({
+          where: { id: roundId },
+          include: {
+            predictions: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    walletAddress: true,
+                  },
                 },
               },
             },
           },
-        },
-      });
+        });
+      } catch (err: any) {
+        // If Prisma throws invalid UUID string or record query error, fall through to mock check
+        round = null;
+      }
+
+      if (!round) {
+        try {
+          const mockRounds = await getMockRounds();
+          const found = mockRounds.find((r: any) => r.id === roundId || r.sorobanRoundId === roundId);
+          return found || null;
+        } catch (_) {
+          return null;
+        }
+      }
 
       return round;
     } catch (error) {

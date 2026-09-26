@@ -19,6 +19,7 @@ const mockRoundFindUnique = jest.fn();
 const mockRoundUpdate = jest.fn();
 const mockPredictionFindUnique = jest.fn();
 const mockPredictionCreate = jest.fn();
+const mockPredictionUpdate = jest.fn();
 const mockUserFindUnique = jest.fn();
 const mockUserUpdate = jest.fn();
 const mockOutboxCreate = jest.fn((args: any) => {
@@ -28,7 +29,7 @@ const mockOutboxCreate = jest.fn((args: any) => {
 
 const txProxy = {
   round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
-  prediction: { findUnique: mockPredictionFindUnique, create: mockPredictionCreate },
+  prediction: { findUnique: mockPredictionFindUnique, create: mockPredictionCreate, update: mockPredictionUpdate },
   user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
   outboxEvent: { create: mockOutboxCreate },
 };
@@ -69,6 +70,7 @@ jest.mock('@prisma/client', () => ({
 }));
 
 import { PredictionService } from '../services/prediction.service';
+import sorobanService from '../services/soroban.service';
 
 const predictionService = new PredictionService();
 
@@ -88,7 +90,10 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
         mode: 'UP_DOWN',
         status: 'ACTIVE',
       });
-      mockPredictionFindUnique.mockResolvedValue(null);
+      mockPredictionFindUnique.mockImplementation(async (args: any) => {
+        if (args?.where?.roundId_userId) return null;
+        return { id: 'pred-1', chainStatus: 'PENDING', round: { id: roundId, mode: 'UP_DOWN' } };
+      });
       mockUserFindUnique.mockResolvedValue({ id: userId, walletAddress: 'GXXX', virtualBalance: 1000 });
       mockUserUpdate.mockResolvedValue({ id: userId, walletAddress: 'GXXX', virtualBalance: 900 });
 
@@ -136,17 +141,23 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
         mode: 'UP_DOWN',
         status: 'ACTIVE',
       });
-      mockPredictionFindUnique.mockResolvedValue(null);
+      mockPredictionFindUnique.mockImplementation(async (args: any) => {
+        if (args?.where?.roundId_userId) return null;
+        return { id: 'pred-1', chainStatus: 'PENDING', round: { id: roundId, mode: 'UP_DOWN' } };
+      });
       mockUserFindUnique.mockResolvedValue({ id: userId, walletAddress: 'GXXX', virtualBalance: 1000 });
       mockUserUpdate.mockResolvedValue({ id: userId, walletAddress: 'GXXX', virtualBalance: 900 });
       mockPredictionCreate.mockResolvedValue({
         id: 'pred-1', roundId, userId, amount: 100, side: 'UP', priceRange: null, createdAt: new Date(),
       });
-      mockRoundUpdate.mockResolvedValue({});
+      mockRoundUpdate.mockResolvedValue({
+        id: roundId,
+        mode: 'UP_DOWN',
+        status: 'ACTIVE',
+      });
 
       // Soroban fails → transaction rolls back → outboxCreate never called
-      const sorobanService = require('../services/soroban.service').default;
-      sorobanService.placeBet.mockRejectedValueOnce(new Error('Soroban down'));
+      (sorobanService.placeBet as jest.Mock).mockRejectedValueOnce(new Error('Soroban down'));
 
       // The $transaction mock re-runs the fn; if placeBet throws, the fn throws
       // and the transaction mock propagates the error.

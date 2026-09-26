@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
 import {
   PrismaClientKnownRequestError,
   PrismaClientValidationError,
@@ -28,7 +29,8 @@ export interface ErrorResponse {
 function fromPrismaError(err: PrismaClientKnownRequestError): AppError {
   switch (err.code) {
     case 'P2025':
-      // Record not found
+    case 'P2023':
+      // Record not found or malformed UUID param
       return new AppError(
         (err.meta?.cause as string | undefined) ?? 'Record not found',
         404,
@@ -45,6 +47,31 @@ function fromPrismaError(err: PrismaClientKnownRequestError): AppError {
     default:
       return new AppError('Database error', 500, ErrorCode.INTERNAL_SERVER_ERROR);
   }
+}
+
+/**
+ * Helper to format standard error responses across all entrypoints.
+ */
+export function formatErrorResponse(
+  appError: AppError,
+  req: Request,
+  requestId?: string,
+  retryAfterSeconds?: number,
+  err?: unknown,
+): ErrorResponse & { stack?: string } {
+  const isDev = process.env.NODE_ENV === 'development';
+  const timestamp = new Date().toISOString();
+  return {
+    error: appError.name || 'InternalServerError',
+    message: appError.message,
+    code: String(appError.code),
+    path: req.originalUrl || req.path,
+    requestId,
+    timestamp,
+    ...(retryAfterSeconds !== undefined && { retryAfter: retryAfterSeconds }),
+    ...(appError.details && { details: appError.details }),
+    ...(isDev && err instanceof Error && { stack: err.stack }),
+  };
 }
 
 /**
@@ -97,31 +124,28 @@ export function errorHandler(
   }
 
   const isDev = process.env.NODE_ENV === 'development';
-  const requestId = (req as any).requestId;
-  const timestamp = new Date().toISOString();
+  const requestId =
+    (req as any).requestId ||
+    (res.getHeader('x-request-id') as string | undefined) ||
+    (req.headers['x-request-id'] as string | undefined) ||
+    randomUUID();
+
+  if (!res.getHeader('x-request-id')) {
+    res.setHeader('X-Request-ID', requestId);
+  }
+
+  const body = formatErrorResponse(appError, req, requestId, retryAfterSeconds, err);
 
   logger.error(`[${appError.code}] ${req.method} ${req.path} → ${appError.statusCode}`, {
     code: appError.code,
     statusCode: appError.statusCode,
     message: appError.message,
     requestId,
-    timestamp,
-    path: req.originalUrl,
+    timestamp: body.timestamp,
+    path: body.path,
     ...(appError.details && { details: appError.details }),
     ...(isDev && err instanceof Error && { stack: err.stack }),
   });
-
-  const body: ErrorResponse & { stack?: string } = {
-    error: appError.message || appError.name, // Ensure textual summary error field is clear
-    message: appError.message,
-    code: appError.code,
-    path: req.originalUrl, // <-- Explicitly mapped parameter requirement
-    requestId,
-    timestamp,
-    ...(retryAfterSeconds !== undefined && { retryAfter: retryAfterSeconds }),
-    ...(appError.details && { details: appError.details }),
-    ...(isDev && err instanceof Error && { stack: err.stack }),
-  };
 
   if (retryAfterSeconds !== undefined) {
     res.setHeader('Retry-After', String(retryAfterSeconds));
