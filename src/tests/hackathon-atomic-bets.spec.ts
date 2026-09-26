@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
 import hackathonService from '../services/hackathon.service';
 import { prisma } from '../lib/prisma';
+import { toNumber } from '../utils/decimal.util';
 
 jest.mock('../services/stellar.service', () => ({
   isValidStellarAddress: () => true,
@@ -57,10 +58,16 @@ describe('Hackathon Atomic Bets', () => {
 
       const freshBet = bets.find(b => b.roundId === 'btc-updown-live');
       expect(freshBet).toBeDefined();
-      expect(freshBet!.amount).toBe(200);
+      // Mock money columns are Decimal(20, 8), so compare numerically.
+      expect(toNumber(freshBet!.amount)).toBe(200);
       expect(freshBet!.side).toBe('UP');
-      expect(userAfter!.balance).toBe(userBefore!.balance - 200);
-      expect(roundAfter!.poolUp).toBe(roundBefore!.poolUp! + 200);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance) - 200);
+      expect(toNumber(roundAfter!.poolUp)).toBe(toNumber(roundBefore!.poolUp) + 200);
+
+      // Single-store consistency: the debit, the pool move and the recorded
+      // bet are the same number — no ledger is left behind.
+      expect(toNumber(userBefore!.balance) - toNumber(userAfter!.balance)).toBe(toNumber(freshBet!.amount));
+      expect(toNumber(roundAfter!.poolUp) - toNumber(roundBefore!.poolUp)).toBe(toNumber(freshBet!.amount));
     });
 
     it('atomically inserts bet and updates totalPool for Precision mode', async () => {
@@ -75,22 +82,39 @@ describe('Hackathon Atomic Bets', () => {
 
       const freshBet = bets.find(b => b.roundId === 'eth-precision-live');
       expect(freshBet).toBeDefined();
-      expect(freshBet!.amount).toBe(150);
-      expect(freshBet!.predictedPrice).toBe(3250);
-      expect(userAfter!.balance).toBe(userBefore!.balance - 150);
-      expect(roundAfter!.totalPool).toBe(roundBefore!.totalPool! + 150);
+      expect(toNumber(freshBet!.amount)).toBe(150);
+      expect(toNumber(freshBet!.predictedPrice)).toBe(3250);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance) - 150);
+      expect(toNumber(roundAfter!.totalPool)).toBe(toNumber(roundBefore!.totalPool) + 150);
       expect(roundAfter!.predictionCount).toBe(roundBefore!.predictionCount! + 1);
+    });
+
+    it('stores fractional stakes without float drift (0.1 + 0.2 is exactly 0.3)', async () => {
+      const roundId = 'btc-updown-live';
+      const roundBefore = await prisma.mockRound.findUnique({ where: { id: roundId } });
+      const userBefore = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
+
+      await hackathonService.placeBet(roundId, TEST_ADDRESS, 0.1, 'UP');
+      await hackathonService.placeBet(roundId, TEST_ADDRESS, 0.2, 'UP');
+
+      const roundAfter = await prisma.mockRound.findUnique({ where: { id: roundId } });
+      const userAfter = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
+
+      // The real Decimal(20, 8) column adds exactly — native floats would give
+      // 0.30000000000000004 here.
+      expect(roundAfter!.poolUp!.minus(roundBefore!.poolUp!).toFixed(8)).toBe('0.30000000');
+      expect(userAfter!.balance.minus(userBefore!.balance).toFixed(8)).toBe('-0.30000000');
     });
   });
 
   describe('rollback on failure', () => {
-    it('rolls back all changes when FK constraint is violated (non-existent round)', async () => {
+    it('rolls back all changes when the round does not exist', async () => {
       const userBefore = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
       const roundsBefore = await prisma.mockRound.findMany();
 
       await expect(
         hackathonService.placeBet('nonexistent-round-id', TEST_ADDRESS, 100, 'UP')
-      ).rejects.toThrow();
+      ).rejects.toThrow('Round not found');
 
       const userAfter = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
       const roundsAfter = await prisma.mockRound.findMany();
@@ -99,7 +123,7 @@ describe('Hackathon Atomic Bets', () => {
       });
 
       expect(bets.length).toBe(0);
-      expect(userAfter!.balance).toBe(userBefore!.balance);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance));
       expect(roundsAfter).toEqual(roundsBefore);
     });
 
@@ -120,10 +144,29 @@ describe('Hackathon Atomic Bets', () => {
       });
 
       expect(bets.length).toBe(0);
-      expect(userAfter!.balance).toBe(userBefore!.balance);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance));
       expect(roundsAfter).toEqual(roundsBefore);
 
       txSpy.mockRestore();
+    });
+
+    it('does not debit the balance or move the pool on an overdraft', async () => {
+      const roundBefore = await prisma.mockRound.findUnique({ where: { id: 'btc-updown-live' } });
+      const userBefore = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
+
+      await expect(
+        hackathonService.placeBet('btc-updown-live', TEST_ADDRESS, toNumber(userBefore!.balance) + 1, 'UP')
+      ).rejects.toThrow('Insufficient balance');
+
+      const roundAfter = await prisma.mockRound.findUnique({ where: { id: 'btc-updown-live' } });
+      const userAfter = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
+      const bets = await prisma.mockBet.findMany({
+        where: { address: TEST_ADDRESS, roundId: 'btc-updown-live' },
+      });
+
+      expect(bets.length).toBe(0);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance));
+      expect(toNumber(roundAfter!.poolUp)).toBe(toNumber(roundBefore!.poolUp));
     });
   });
 
@@ -148,10 +191,10 @@ describe('Hackathon Atomic Bets', () => {
       const roundBets = bets.filter(b => b.roundId === roundId);
       expect(roundBets.length).toBe(3);
 
-      const totalBetAmount = roundBets.reduce((sum, b) => sum + b.amount, 0);
-      expect(userAfter!.balance).toBe(userBefore!.balance - totalBetAmount);
-      expect(roundAfter!.poolUp).toBe(roundBefore!.poolUp! + 100 + 50);
-      expect(roundAfter!.poolDown).toBe(roundBefore!.poolDown! + 200);
+      const totalBetAmount = roundBets.reduce((sum, b) => sum + toNumber(b.amount), 0);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance) - totalBetAmount);
+      expect(toNumber(roundAfter!.poolUp)).toBe(toNumber(roundBefore!.poolUp) + 100 + 50);
+      expect(toNumber(roundAfter!.poolDown)).toBe(toNumber(roundBefore!.poolDown) + 200);
     });
   });
 });

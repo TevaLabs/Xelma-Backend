@@ -8,6 +8,7 @@
  * still pin the end state and catch float drift creeping back in.
  */
 import { describe, it, expect, beforeEach } from '@jest/globals';
+import { Decimal } from '@prisma/client/runtime/library';
 
 interface FakeUser {
   address: string;
@@ -31,6 +32,7 @@ interface FakeRound {
 
 let mockUsers: FakeUser[];
 let mockRounds: FakeRound[];
+let createdBets: Array<Record<string, unknown>>;
 
 jest.mock('../lib/prisma', () => {
   const { toDecimal, toNumber } = require('../utils/decimal.util');
@@ -73,7 +75,10 @@ jest.mock('../lib/prisma', () => {
       },
     },
     mockBet: {
-      create: async () => undefined,
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        createdBets.push(data);
+        return undefined;
+      },
     },
     mockRound: {
       findUnique: async ({ where }: { where: { id: string } }) =>
@@ -118,6 +123,7 @@ describe('hackathon.service Decimal-safe balance/pool math', () => {
     mockRounds = [
       { id: 'r1', mode: 'updown', poolUp: 0.1, poolDown: 0, totalPool: 0.1, predictionCount: 0 },
     ];
+    createdBets = [];
   });
 
   it('deducts a fractional bet amount from balance without float drift', async () => {
@@ -146,6 +152,18 @@ describe('hackathon.service Decimal-safe balance/pool math', () => {
 
     expect(mockRounds[0].totalPool).toBe(0.3);
     expect(mockRounds[0].predictionCount).toBe(1);
+  });
+
+  it('writes the bet stake as a Decimal, never a native float', async () => {
+    const hackathonService = (await import('../services/hackathon.service')).default;
+
+    await hackathonService.placeBet('r1', 'GADDR', 0.2, 'UP');
+
+    expect(createdBets).toHaveLength(1);
+    // The `Decimal(20, 8)` column receives a Decimal, so `0.1 + 0.2`-style
+    // amounts are stored exactly instead of being re-parsed from a float.
+    expect(createdBets[0].amount).toBeInstanceOf(Decimal);
+    expect((createdBets[0].amount as Decimal).toFixed(8)).toBe('0.20000000');
   });
 
   it('debits the balance atomically rather than writing a computed value', async () => {

@@ -104,19 +104,20 @@ test('getMockRounds returns exactly 3 rounds with correct assets and dynamical f
   assert.strictEqual(rounds[0].asset, 'BTC');
   assert.strictEqual(rounds[0].mode, 'updown');
   assert.strictEqual(rounds[0].status, 'live');
-  assert.strictEqual(rounds[0].startPrice, 67420);
+  // Mock money columns are Decimal(20, 8) and serialize as 8-dp strings.
+  assert.strictEqual(rounds[0].startPrice, '67420.00000000');
   
   assert.strictEqual(rounds[1].id, 'eth-precision-live');
   assert.strictEqual(rounds[1].asset, 'ETH');
   assert.strictEqual(rounds[1].mode, 'precision');
   assert.strictEqual(rounds[1].status, 'live');
-  assert.strictEqual(rounds[1].startPrice, 3241);
+  assert.strictEqual(rounds[1].startPrice, '3241.00000000');
   
   assert.strictEqual(rounds[2].id, 'xlm-updown-new');
   assert.strictEqual(rounds[2].asset, 'XLM');
   assert.strictEqual(rounds[2].mode, 'updown');
   assert.strictEqual(rounds[2].status, 'new');
-  assert.strictEqual(rounds[2].startPrice, 0.2891);
+  assert.strictEqual(rounds[2].startPrice, '0.28910000');
 
   // Verify dynamic future timestamps
   const now = Date.now();

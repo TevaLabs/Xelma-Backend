@@ -230,6 +230,32 @@ for your current workflow.
 | `ROUNDS_MOCK_MODE` | `src/config/index.ts`, `src/services/round.service.ts` |
 | `SOROBAN_FAIL_CLOSED` | `src/config/index.ts`, `src/services/soroban.service.ts` |
 | Mock data | `src/data/mockData.ts` |
+| Hackathon bet store | `src/services/hackathon.service.ts` |
+
+---
+
+## Hackathon bet store (Prisma-only)
+
+Hackathon bets are persisted through **Prisma only**. `HackathonService.placeBet`
+(the round-id / wallet-address signature used by the hackathon bet routes) writes
+the `MockRound`, `MockLeaderboard` and `MockBet` models — i.e. the
+`hackathon_rounds`, `hackathon_users` and `hackathon_bets` tables — as a **single
+store**:
+
+- The user balance debit, the round pool increment and the bet insert all run
+  inside one `prisma.$transaction`. A failure at any step (unknown round,
+  insufficient balance, pool update error) rolls the whole bet back, so balance,
+  pool and bet rows can never disagree.
+- There is **no second store** on this path. The legacy Drizzle writers for
+  `hackathon_*` were removed (issue #620); do not reintroduce a dual-write here.
+- This store is **not switchable by a flag**. `DATA_MODE` / `DATA_STORE` select
+  where prices, stats and leaderboard reads come from — they never redirect a
+  hackathon bet to a different ledger.
+
+> The `/api/rounds/hackathon/*` and `/api/bets/*` endpoints are unchanged: they
+> still place the demo bet through `HackathonService.placeBet` and then record the
+> canonical `Bet` row via `BetService`. Both writes are Prisma; only the former
+> owns the hackathon balance/pool ledger.
 
 ---
 

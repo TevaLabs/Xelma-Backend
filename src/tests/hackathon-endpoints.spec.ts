@@ -19,6 +19,7 @@ jest.mock('../services/soroban.service', () => ({
 
 import { createApp } from '../app';
 import hackathonService from '../services/hackathon.service';
+import { toNumber } from '../utils/decimal.util';
 
 describe('Hackathon Endpoints & Middleware', () => {
   const app = createApp();
@@ -132,7 +133,8 @@ describe('Hackathon Endpoints & Middleware', () => {
 
       // Verify DB update
       const roundAfter = await prisma.mockRound.findUnique({ where: { id: 'btc-updown-live' } });
-      expect(roundAfter!.poolUp).toBe(initialPoolUp + 200);
+      // Mock pool columns are Decimal(20, 8) — compare numerically.
+      expect(toNumber(roundAfter!.poolUp)).toBe(toNumber(initialPoolUp) + 200);
     });
   });
 
@@ -161,7 +163,7 @@ describe('Hackathon Endpoints & Middleware', () => {
 
       // Verify DB update
       const roundAfter = await prisma.mockRound.findUnique({ where: { id: 'eth-precision-live' } });
-      expect(roundAfter!.totalPool).toBe(initialPool + 150);
+      expect(toNumber(roundAfter!.totalPool)).toBe(toNumber(initialPool) + 150);
       expect(roundAfter!.predictionCount).toBe(initialCount + 1);
     });
   });
