@@ -10,7 +10,8 @@ export interface RouteRecord {
 export interface ParityAllowlistEntry {
   method: string;
   path: string;
-  only: AppEntrypoint;  reason: string;
+  only: AppEntrypoint;
+  reason: string;
   /**
    * The `AppFeatures` flag (or mode-specific router choice) in
    * `src/app-factory.ts` that causes this route to exist in only one app.
@@ -53,8 +54,8 @@ export const PARITY_ALLOWLIST: ParityAllowlistEntry[] = [
   { method: "GET", path: "/api/predictions/round/:roundId", only: "main", reason: "Per-round predictions require a database.", flag: "predictions" },
 
   // --- education ---
-  { method: "GET", path: "/api/education/guides", only: "main", reason: "Education content is production-only.", flag: "education" },
-  { method: "GET", path: "/api/education/tip", only: "main", reason: "Education content is production-only.", flag: "education" },
+  { method: "GET", path: "/api/education/guides", only: "main", reason: "Education content is production-only by default; hackathon can opt in via ENABLE_EDUCATION.", flag: "education (config: enableEducation)" },
+  { method: "GET", path: "/api/education/tip", only: "main", reason: "Education content is production-only by default; hackathon can opt in via ENABLE_EDUCATION.", flag: "education (config: enableEducation)" },
 
   // --- errorCatalog ---
   { method: "GET", path: "/api/errors", only: "main", reason: "Production error catalog is not part of the mock demo.", flag: "errorCatalog" },

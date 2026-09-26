@@ -28,6 +28,7 @@ behavior, or choosing the right flags for a deployment profile.
 | `ROUNDS_MOCK_MODE` | `config.app.roundsMockMode` | `true`, `false` | `false` | `src/config/index.ts` |
 | `API_ONLY` | `process.env.API_ONLY` | `true`, `false` | `false` | `src/index.ts` |
 | `SOROBAN_FAIL_CLOSED` | `config.soroban.failClosed` | `true`, `false` | `false` | `src/config/index.ts` |
+| `ENABLE_EDUCATION` | `config.app.enableEducation` | `true`, `false` | `false` | `src/config/index.ts` |
 
 ### DATA_STORE auto-derivation
 
@@ -93,6 +94,25 @@ in `round.service`, `round.routes`, and `resolution.service`. Policy helper:
 
 > The active mode is logged at startup:
 > `Soroban money-path policy: FAIL-CLOSED ...` or `FAIL-OPEN ...`.
+
+### ENABLE_EDUCATION
+
+Controls whether the **education** endpoints (`/api/education/guides`, `/api/education/tip`)
+are mounted. This flag is an **opt-in for hackathon mode** (whose education surface is
+off by default) and a **kill switch for the full app** (which serves education by
+default). Full-app behavior is unchanged when the variable is unset.
+
+| `ENABLE_EDUCATION` | Hackathon app | Full app |
+|---|---|---|
+| unset / `false` (default) | Education routes **not** mounted | Education routes mounted (normal full-app behavior) |
+| `true` | Education routes mounted (opt-in for demos) | Education routes mounted (unchanged) |
+
+> To turn education **off** in the full app, set `ENABLE_EDUCATION=false` explicitly.
+
+**Affected endpoints:** `GET /api/education/guides`, `GET /api/education/tip`
+
+**Implementation:** `src/config/index.ts` (`enableEducation`), `src/app-factory.ts` (`resolveFeatures`),
+`src/security/route-parity.registry.ts` (parity allowlist).
 
 ### ROUNDS_MOCK_MODE
 
@@ -229,6 +249,7 @@ for your current workflow.
 | `BET_STUB_MODE` | `src/services/bet.service.ts` |
 | `ROUNDS_MOCK_MODE` | `src/config/index.ts`, `src/services/round.service.ts` |
 | `SOROBAN_FAIL_CLOSED` | `src/config/index.ts`, `src/services/soroban.service.ts` |
+| `ENABLE_EDUCATION` | `src/config/index.ts`, `src/app-factory.ts`, `src/security/route-parity.registry.ts` |
 | Mock data | `src/data/mockData.ts` |
 
 ---
@@ -257,4 +278,3 @@ The multi-stage `Dockerfile` packages both full production (with live Soroban co
 | **Full Production (Live)** | `DATA_MODE=live`, `BET_STUB_MODE=false`, `API_MODE=full` | Verifies Soroban bindings, applies Prisma migrations, and boots full app `dist/index.js`. |
 | **Demo / Hackathon** | `DATA_MODE=mock`, `API_MODE=hackathon`, `RUN_MIGRATIONS=false` | Boots lightweight mock demo server `dist/server.js` without requiring external database or Soroban keys. |
 | **API Only** | `API_ONLY=true`, `BET_STUB_MODE=true` | Boots standard API server without running background schedulers or oracle loops. |
-

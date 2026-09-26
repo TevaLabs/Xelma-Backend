@@ -168,6 +168,21 @@ const HACKATHON_FEATURES: AppFeatures = {
   apiDocs: true,
 };
 
+/**
+ * ENABLE_EDUCATION is a tri-state at the routing layer: unset keeps the
+ * per-mode default (hackathon off, full app on), while any explicit value
+ * applies to both modes — `true` opts the hackathon app into education and
+ * `false` is a kill switch for the full app. Mirrors the boolean parsing in
+ * `src/config/validation.ts` (unknown values fall back to `false`).
+ */
+function parseEducationFlag(raw: string | undefined): 'true' | 'false' | null {
+  if (raw === undefined) return null;
+  const value = raw.trim().toLowerCase();
+  if (!value) return null;
+  if (value === 'true' || value === '1') return 'true';
+  return 'false';
+}
+
 export function resolveFeatures(
   mode: AppMode,
   overrides: Partial<AppFeatures> = {},
@@ -180,6 +195,16 @@ export function resolveFeatures(
   if (overrides.multiplayerSocial === undefined) {
     resolved.multiplayerSocial =
       resolved.multiplayerSocial && config.app.enableMultiplayerSocial;
+  }
+
+  // ENABLE_EDUCATION: explicit values apply to both modes (hackathon opt-in
+  // / full-app kill switch); unset keeps the per-mode defaults. An explicit
+  // override still wins so tests can force the surface on or off.
+  if (overrides.education === undefined) {
+    const educationFlag = parseEducationFlag(process.env.ENABLE_EDUCATION);
+    if (educationFlag !== null) {
+      resolved.education = educationFlag === 'true';
+    }
   }
 
   return resolved;
