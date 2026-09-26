@@ -48,7 +48,8 @@ export function resetInMemoryIdempotencyStore(): void {
    inMemoryIdempotencyStore.clear();
 }
 
-function usesInMemoryStore(): boolean {
+
+export function usesInMemoryStore(): boolean {
    return (
       process.env.DATA_STORE === 'memory' ||
       (process.env.DATA_STORE === undefined && process.env.DATA_MODE === 'mock') ||

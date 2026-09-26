@@ -498,6 +498,7 @@ TOURNAMENT_INVALID_STATE` rather than mutating state.
 - Authenticated bets (`POST /api/bets/up-down`, `POST /api/bets/precision`): **5 requests/minute per IP**
 - Auth, chat, admin round creation, and oracle resolve endpoints have tailored policies
 - Rate-limit hits are recorded for the admin metrics dashboard (`GET /api/admin/metrics/rate-limits`)
+- **Multi-instance:** when `REDIS_URL` is set, every limiter stores its counters in a shared Redis store so throttles hold across replicas (Issue #520). Each limiter gets its own key prefix (`xelma:rl:<limiter>:`); when Redis is unreachable the default policy falls back to a per-process window (see `RATE_LIMIT_REDIS_FAIL_OPEN`). With no `REDIS_URL` configured the limiters use express-rate-limit's in-process store, so local single-node development is unchanged. See [docs/multi-instance-deployment.md](docs/multi-instance-deployment.md).
 
 #### **Route Authorization Registry (`src/security/route-auth.registry.ts`)**
 
@@ -591,13 +592,23 @@ This installs all dependencies including `@tevalabs/xelma-bindings`.
 
 ### 3. One-Command Local Infra (Docker Compose)
 
-For contributors running **full backend mode** with PostgreSQL and Redis, use Docker Compose:
+For contributors running the **full backend stack** with PostgreSQL and Redis, use either command:
 
 ```bash
 cp .env.docker.example .env
 # Edit .env and set JWT_SECRET at minimum
 
+# Standard full stack startup:
 docker compose up --build
+
+# Or explicitly specifying the full profile (starts the identical stack):
+docker compose --profile full up --build
+```
+
+Both commands start the unprofiled core stack:
+
+```text
+API + PostgreSQL + Redis
 ```
 
 | Service          | Port   | Health check                                  | Mode            |
@@ -607,9 +618,29 @@ docker compose up --build
 | Redis            | `6379` | `redis-cli ping`                               | —               |
 
 The API container runs `prisma migrate deploy` on startup before booting the server.
-Redis is part of the default stack (used by the Socket.IO adapter and the
-distributed idempotency locks described below); the API service waits for it
-to be healthy before starting.
+**Redis is required** for the normal full stack: it backs the distributed idempotency locks (`withDistributedIdempotencyLock`) and multi-instance Socket.IO adapter.
+
+#### Overriding `DATABASE_URL` (External / Host PostgreSQL)
+
+By default, the API container connects to the bundled `postgres` service via:
+
+```text
+DATABASE_URL=postgresql://xelma:xelma@postgres:5432/xelma
+```
+
+You can point the API container to an external database by setting `DATABASE_URL` in your `.env` file or environment:
+
+```bash
+DATABASE_URL=postgresql://user:pass@host.docker.internal:5432/my_db docker compose up --build
+```
+
+> [!NOTE]
+> `docker-compose.yml` configures `extra_hosts: ["host.docker.internal:host-gateway"]` so Linux containers can reach the host.
+> Setting `DATABASE_URL` does **not** stop Compose from starting the bundled `postgres` container because the `api` service still declares `depends_on: postgres`. If you want to run purely against an external database without starting the bundled Postgres, start Redis and API independently:
+> ```bash
+> docker compose up -d redis
+> DATABASE_URL=postgresql://user:pass@host.docker.internal:5432/my_db docker compose up --no-deps api
+> ```
 
 #### Docker entrypoint modes
 
@@ -633,7 +664,7 @@ docker run -p 3000:3000 --env-file .env xelma-api
 docker run -p 3001:3001 -e API_MODE=hackathon xelma-api
 ```
 
-To run the **hackathon mode** via Docker Compose (no database required, mock data only):
+To run the **hackathon mode** via Docker Compose (no database required, in-memory store + mock data):
 
 ```bash
 docker compose --profile hackathon up
@@ -651,6 +682,97 @@ The hackathon service maps port `3001` and sets `API_MODE=hackathon` + `HEALTHCH
 | Migrations fail on first boot | Run `docker compose logs api`; verify Postgres is healthy with `docker compose ps`                         |
 | Redis connection warnings     | Confirm Redis is healthy (`docker compose ps`) and `REDIS_URL` points at `redis://redis:6379` inside Compose |
 | Container reports unhealthy   | Verify `HEALTHCHECK_PATH` matches the mode (`/health` for full, `/api/health` for hackathon); check `docker inspect <container>` |
+
+---
+
+## Prediction Cross-System Safety Architecture
+
+### The Problem
+
+In previous versions, `sorobanService.placeBet()` was executed **inside** a `prisma.$transaction()`. When wrapped with retry logic, a retryable database failure (such as a serialization conflict `P2034`) after a successful on-chain transaction would cause the entire transaction to retry, invoking `placeBet` a second time and **double-staking the user on chain**.
+
+### The 3-Phase State Machine
+
+To eliminate cross-system divergence, UP_DOWN prediction placement is split into 3 phases:
+
+```text
+[ Phase 1: DB Reservation ]
+  - Deduct virtual balance atomically
+  - Create Prediction row (chainStatus: PENDING)
+  - Increment poolUp / poolDown
+  - Commit short Prisma transaction (NO Soroban call)
+            │
+            ▼
+[ Phase 2: Soroban Submission ]
+  - placeBet(walletAddress, amount, side) outside DB transaction
+  - Exactly ONE chain attempt (no automatic timeout resend)
+            │
+      ┌─────┴─────────────────┐
+      │ Success               │ Timeout / Failure
+      ▼                       ▼
+[ Phase 3A: Finalize ]    [ Phase 3B: Handle Failure ]
+  - chainStatus: CONFIRMED  - Definite rejection:
+  - Store txHash              atomic compensation -> chainStatus: FAILED
+  - Emit outbox events      - Ambiguous timeout:
+  - Invalidate caches         chainStatus: SUBMITTED -> left for reconciler
+```
+
+### Chain Status Lifecycle
+
+| Status | Meaning | Can Participate in Settlement? |
+| --- | --- | --- |
+| `NOT_REQUIRED` | LEGENDS mode (DB-only, no on-chain contract) | **Yes** |
+| `PENDING` | Balance reserved, chain submission in progress | **No** |
+| `SUBMITTED` | Chain call sent; awaiting confirmation or ambiguous timeout | **No** |
+| `CONFIRMED` | Verified on-chain via txHash or `getUserPosition` | **Yes** |
+| `FAILED` | Definitively rejected and refunded via compensation | **No** |
+| `NEEDS_MANUAL_REVIEW` | Ambiguous beyond max age; requires operator intervention | **No** |
+
+### Key Safety Guarantees
+
+1. **No double-staking on DB retry**: `placeBet` is executed outside the Prisma transaction. A DB finalization failure retries only the DB update, never the chain call.
+2. **No automatic resend after timeout**: Mutating `placeBet` uses `retries: 1`. An ambiguous timeout is never automatically resent because the first attempt may have reached the network.
+3. **No premature refunds**: An ambiguous timeout leaves the prediction in `SUBMITTED`/`PENDING`. It is never immediately refunded because doing so would create an unbacked chain-only stake if the transaction succeeds.
+4. **Idempotent compensation**: `compensatePrediction` checks `compensatedAt === null` atomically, guaranteeing that balance refunds and pool decrements execute exactly once.
+5. **Settlement isolation**: All downstream consumers (`resolution.service`, `round.service`, `stats.service`, `leaderboard.service`) filter by `chainStatus: { in: ['CONFIRMED', 'NOT_REQUIRED'] }`. Unconfirmed, pending, or failed rows never receive payouts, alter pools, or affect user stats.
+6. **Unique constraint row reuse**: Because `@@unique([roundId, userId])` prevents inserting multiple rows per round, a refunded `FAILED` prediction row is reused if the user retries.
+
+### Operator Runbook & Troubleshooting
+
+#### Finding Stuck Predictions
+
+```sql
+-- List predictions needing manual review:
+SELECT id, "roundId", "userId", "chainStatus", "chainFailureReason", "createdAt"
+FROM "Prediction"
+WHERE "chainStatus" = 'NEEDS_MANUAL_REVIEW';
+
+-- List predictions stuck in PENDING or SUBMITTED for over 10 minutes:
+SELECT id, "roundId", "userId", "chainStatus", "txHash", "createdAt"
+FROM "Prediction"
+WHERE "chainStatus" IN ('PENDING', 'SUBMITTED')
+  AND "createdAt" < NOW() - INTERVAL '10 minutes';
+```
+
+#### Manually Resolving a Stuck Prediction
+
+If on-chain verification confirms the transaction never reached the chain:
+
+```sql
+-- Safely compensate and mark failed (reversing balance):
+-- Use the compensation API or call predictionService.compensatePrediction(id)
+```
+
+If on-chain verification confirms the transaction succeeded:
+
+```sql
+-- Confirm the prediction:
+UPDATE "Prediction"
+SET "chainStatus" = 'CONFIRMED', "chainConfirmedAt" = NOW()
+WHERE id = '<prediction-id>' AND "chainStatus" = 'NEEDS_MANUAL_REVIEW';
+```
+
+---
 
 ---
 
@@ -772,6 +894,7 @@ Core application metrics include:
 | `socket_connections_active`            | none                             | Current Socket.IO connections                                                     |
 | `websocket_emits_total`                | `event`, `outcome`               | WebSocket dispatch attempts                                                       |
 | `websocket_connection_events_total`    | `event`, `authenticated`         | Socket connect/disconnect events                                                  |
+| `rate_limit_store_fallbacks_total`     | `limiter`                        | Requests counted by the per-process fallback because the Redis rate-limit store was unreachable (Issue #520) |
 
 ### 3. Set Up Database
 
@@ -933,6 +1056,28 @@ The backend provides auto-generated **OpenAPI/Swagger** documentation.
 
 - **Swagger UI**: [http://localhost:3000/api-docs](http://localhost:3000/api-docs)
 - **OpenAPI JSON**: [http://localhost:3000/api-docs.json](http://localhost:3000/api-docs.json)
+
+#### Keeping the Postman collection in sync
+
+The committed `docs/postman-collection.json` is a generated artifact derived from
+the OpenAPI spec. To keep it from silently drifting out of step with the API you
+actually ship, the collection is regenerated and drift-checked from npm scripts:
+
+```bash
+npm run build          # compile TS (the OpenAPI generator lives in dist/)
+npm run docs:generate  # regenerates docs/openapi.json + docs/postman-collection.json
+```
+
+After any route/JSDoc change, run `npm run docs:generate` and commit the refreshed
+collection. CI runs `npm run docs:verify`, which fails if the committed collection
+no longer matches the current spec (a folder, request, HTTP method, or URL was
+added, removed, or changed). `npm run check:postman` runs only that drift check.
+
+> **Why this exists:** Postman collections are large, mostly-boilerplate JSON, so
+drift is easy to miss by eye. A regenerated-and-committed artifact means consumers
+of `docs/postman-collection.json` always see the same request/response contracts
+the OpenAPI spec declares, and any change to the API surface fails the CI gate
+until the collection is refreshed.
 
 ### Monetary field contract (breaking)
 
@@ -1324,43 +1469,6 @@ npm run test:hackathon
 npm run test:load
 ```
 
-### Post-deploy smoke tests (both runtime modes)
-
-`scripts/smoke-test.js` checks the public endpoints a frontend actually calls,
-one mode at a time. It fails on the first unexpected HTTP status and prints the
-URL and status, so a broken `/api/health` or `/api/prices` on either entrypoint
-is caught by a single command.
-
-The full app is the default. Both modes default to `http://localhost:3001`
-(overridable), so `npm run smoke-test` works against a locally running server
-without extra flags.
-
-```bash
-# ── Full app (npm run dev / src/index.ts, production) ──
-npm run smoke-test                        # defaults to http://localhost:3001
-npm run smoke-test -- http://localhost:3001
-# or directly:
-node scripts/smoke-test.js --mode=full https://staging.example.com
-
-# ── Hackathon app (npm run dev:hackathon / src/server.ts) ──
-npm run smoke-test:hackathon              # defaults to http://localhost:3001
-npm run smoke-test:hackathon -- http://localhost:3001
-# or directly:
-MODE=hackathon SMOKE_BASE_URL=http://localhost:3001 node scripts/smoke-test.js
-```
-
-| Mode        | Endpoints checked                                                                                                        |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `full`      | `GET /health`, `GET /api/rounds`, `GET /api/price`, `GET /api/prices`, `GET /api/leaderboard`                            |
-| `hackathon` | `GET /api/health`, `GET /api/rounds`, `GET /api/prices`, `GET /api/stats`, `GET /api/leaderboard`                        |
-
-`GET /api/price` (single-asset XLM oracle) is production-only and intentionally
-not checked in hackathon mode; the hackathon app serves `GET /api/prices`
-instead.
-
-Useful env vars: `MODE`, `SMOKE_BASE_URL`, `SMOKE_PORT`, `SMOKE_TIMEOUT_MS`,
-`SMOKE_RETRIES`, `SMOKE_RETRY_DELAY`, `SMOKE_SOCKET=false` (skip WebSocket).
-
 ### Redis Socket.IO adapter integration test
 
 src/tests/redis-adapter.spec.ts proves that Socket.IO room broadcasts fan out across two independent server instances via the Redis adapter (simulating a multi-instance deployment). It is skipped automatically when REDIS_URL is not set, so it never blocks the default unit test run.
@@ -1482,8 +1590,6 @@ At minimum, migration PRs should include:
 | `npm run test:watch`            | Run tests in watch mode                                                                                                                                                                                               |
 | `npm run test:load`             | Run load baselines plus overload 429/503 backpressure checks                                                                                                                                                          |
 | `npm run ci`                    | Run lint, build, unit coverage, and integration tests                                                                                                                                                                 |
-| `npm run smoke-test`            | Smoke test the **full** app (`--mode=full`); defaults to `http://localhost:3001`, non-zero exit on first unexpected status                                                                                            |
-| `npm run smoke-test:hackathon`  | Smoke test the **hackathon** app (`--mode=hackathon`); checks `/api/health`, `/api/rounds`, `/api/prices`, `/api/stats`                                                                                              |
 | `npm run prisma:generate`       | Generate Prisma client                                                                                                                                                                                                |
 | `npm run prisma:migrate`        | Run database migrations                                                                                                                                                                                               |
 | `npm run db:seed:mock`          | Seed database with mock data                                                                                                                                                                                          |
@@ -1493,7 +1599,10 @@ At minimum, migration PRs should include:
 | `npm run db:migrate`            | Apply all committed Prisma migrations                                                                                                                                                                                  |
 | `npm run db:prepare`            | Generate the Prisma client, then run `db:migrate` (the one-command DB setup used by CI and deploys)                                                                                                                   |
 | `npm run docs:openapi`          | Generate OpenAPI JSON spec to `docs/openapi.json`                                                                                                                                                                     |
-| `npm run docs:verify`           | Regenerate OpenAPI and verify required paths are documented (CI gate)                                                                                                                                                 |
+| `npm run docs:postman`          | Regenerate the Postman collection (`docs/postman-collection.json`) from `docs/openapi.json` (no server or DB needed)                                                                                                  |
+| `npm run docs:generate`         | Regenerate both `docs/openapi.json` and `docs/postman-collection.json` from the current source                                                                                                                        |
+| `npm run docs:verify`           | Regenerate OpenAPI, verify required paths are documented, and check the Postman collection for drift (CI gate)                                                                                                       |
+| `npm run check:postman`         | Run only the Postman ↔ OpenAPI drift check                                                                                                                                                                            |
 | `npm run scorecard`             | Run the production-readiness scorecard                                                                                                                                                                                |
 | `npm run pr:publish`            | Push the fork branch and open/update a PR as **your** git/GitHub user, stripping Cursor co-author trailers                                                                                                            |
 

@@ -18,6 +18,7 @@ import {
 import app from './app';
 import logger from './utils/logger';
 import { initWebSocket, closeWebSocket } from './socket';
+import memoryHousekeepingService from './services/memory-housekeeping.service';
 
 assertPreflightOrExit();
 logger.info(
@@ -42,12 +43,17 @@ initWebSocket(httpServer).catch(error => {
   process.exit(1);
 });
 
+// Start lightweight in-memory retention loop to prune expired auth challenges
+// and idempotency keys without running the full production scheduler.
+memoryHousekeepingService.start();
+
 httpServer.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
 const shutdown = () => {
   console.log('Shutting down gracefully...');
+  memoryHousekeepingService.stop();
   closeWebSocket();
   // Ensure we don't hang on HTTP keep-alive connections
   httpServer.closeAllConnections();

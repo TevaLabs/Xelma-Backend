@@ -412,6 +412,9 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
     where: { id: roundId },
     include: {
       predictions: {
+        where: {
+          chainStatus: { in: ['CONFIRMED', 'NOT_REQUIRED'] },
+        },
         include: { user: true },
       },
     },

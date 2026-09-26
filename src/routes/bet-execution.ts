@@ -54,6 +54,7 @@ async function placeBet(
   body: Record<string, any>,
   roundId: string | undefined,
   idempotencyKey: string | undefined,
+  requestId?: string,
 ): Promise<BetResult> {
   if (kind === "up-down") {
     const input: UpDownBetInput = {
@@ -62,7 +63,7 @@ async function placeBet(
       side: body.side,
       ...(roundId ? { roundId } : {}),
     };
-    return betService.recordUpDownBet(input, idempotencyKey);
+    return betService.recordUpDownBet(input, idempotencyKey, requestId);
   }
 
   const input: PrecisionBetInput = {
@@ -71,7 +72,7 @@ async function placeBet(
     predictedPrice: body.predictedPrice,
     ...(roundId ? { roundId } : {}),
   };
-  return betService.recordPrecisionBet(input, idempotencyKey);
+  return betService.recordPrecisionBet(input, idempotencyKey, requestId);
 }
 
 export function toBetResponseData(
@@ -154,7 +155,8 @@ export async function executeBet(
       lockAcquired = !!lockResult.lockAcquired;
     }
 
-    const result = await placeBet(kind, req.body, roundId, idempotencyKey);
+    const requestId = (req as any).requestId as string | undefined;
+    const result = await placeBet(kind, req.body, roundId, idempotencyKey, requestId);
     operationCompleted = true;
 
     const data = toBetResponseData(kind, result);

@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
 import { AuthRequest, AuthenticatedRequest, JwtPayload } from "../types/auth.types";
 import { ORACLE_ALLOWED_ROLES } from "../security/route-auth.registry";
+import config from "../config";
 
 // Re-export UserRole for backwards compatibility
 export { UserRole };
@@ -175,6 +176,29 @@ export const optionalAuthentication = async (
 export const requireAdmin = requireRole([UserRole.ADMIN], {
   forbiddenMessage: "Admin access required",
 });
+
+/**
+ * Middleware to authenticate Prometheus metrics scrape.
+ * Allows access if a valid Bearer token matching METRICS_SCRAPE_TOKEN is provided,
+ * otherwise falls back to requiring an Admin JWT.
+ */
+export const requireMetricsAuth = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authHeader = req.headers.authorization;
+
+  if (
+    config.app.metricsScrapeToken &&
+    authHeader === `Bearer ${config.app.metricsScrapeToken}`
+  ) {
+    next();
+    return;
+  }
+
+  return requireAdmin(req, res, next);
+};
 
 /**
  * Middleware to require oracle role (oracle or admin)

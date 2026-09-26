@@ -363,6 +363,7 @@ router.get(
         const predictions = await prisma.prediction.findMany({
           where: {
             userId: user.id,
+            chainStatus: { in: ['CONFIRMED', 'NOT_REQUIRED'] },
             createdAt: { lt: cursorDate },
           },
           orderBy: { createdAt: "desc" },
@@ -384,13 +385,21 @@ router.get(
       // ── Offset-based path (backward-compatible) ───────────────────────────
       const [predictions, total] = await prisma.$transaction([
         prisma.prediction.findMany({
-          where: { userId: user.id },
+          where: {
+            userId: user.id,
+            chainStatus: { in: ['CONFIRMED', 'NOT_REQUIRED'] },
+          },
           orderBy: { createdAt: "desc" },
           take: limit,
           skip: offset,
           include: { round: roundSelect },
         }),
-        prisma.prediction.count({ where: { userId: user.id } }),
+        prisma.prediction.count({
+          where: {
+            userId: user.id,
+            chainStatus: { in: ['CONFIRMED', 'NOT_REQUIRED'] },
+          },
+        }),
       ]);
 
       return sendSuccess(res, predictions.map(mapPrediction), {
@@ -409,6 +418,17 @@ router.get(
 
 /** Maps a raw Prisma prediction + round to the public API shape. */
 function mapPrediction(p: any) {
+  let result: string;
+  if (p.chainStatus === 'FAILED') {
+    result = 'FAILED';
+  } else if (p.won === null) {
+    result = 'PENDING';
+  } else if (p.won) {
+    result = 'WIN';
+  } else {
+    result = 'LOSS';
+  }
+
   return serializePrediction({
     roundId: p.roundId,
     asset: "XLM",
@@ -416,7 +436,7 @@ function mapPrediction(p: any) {
     amount: p.amount,
     side: p.side,
     predictedPrice: p.priceRange,
-    result: p.won === null ? "PENDING" : p.won ? "WIN" : "LOSS",
+    result,
     payout: p.payout,
     timestamp: p.createdAt,
     roundStatus: p.round.status,

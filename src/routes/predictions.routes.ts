@@ -17,7 +17,8 @@ import predictionService, {
    type PredictionRow,
 } from '../services/prediction.service';
 import {
-   checkIdempotency,
+   acquireIdempotencyLock,
+   releaseIdempotencyLock,
    IDEMPOTENCY_STORE_UNAVAILABLE,
    IdempotencyStoreUnavailableError,
    isValidIdempotencyKey,
@@ -107,13 +108,13 @@ router.post(
    predictionRateLimiter,
    validate(submitPredictionSchema),
    asyncHandler(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-      try {
-         const { roundId, amount, side, priceRange } = req.body;
-         const userId = req.user.userId;
-         const idempotencyKey = req.headers['idempotency-key'] as
-            | string
-            | undefined;
+      const { roundId, amount, side, priceRange } = req.body;
+      const userId = req.user.userId;
+      const idempotencyKey = req.headers['idempotency-key'] as string | undefined;
+      let lockAcquired = false;
+      let operationCompleted = false;
 
+      try {
          // Validate idempotency key if provided
          if (idempotencyKey && !isValidIdempotencyKey(idempotencyKey)) {
             throw new ValidationError(
@@ -121,38 +122,36 @@ router.post(
             );
          }
 
-         // Check for cached response from previous identical request
+         // Acquire in-process/DB idempotency lock (mutex + replay cache)
          if (idempotencyKey) {
-            const idempotencyCheck = await checkIdempotency(
+            const lockResult = await acquireIdempotencyLock(
                userId,
                SUBMIT_PREDICTION_ENDPOINT,
                idempotencyKey,
-               { roundId, amount, side, priceRange }
+               { roundId, amount, side, priceRange },
             );
 
-            if (
-               idempotencyCheck.isIdempotent &&
-               idempotencyCheck.cachedResponse
-            ) {
-               // Return cached response
+            if (lockResult.isIdempotent && lockResult.cachedResponse) {
                return res
-                  .status(idempotencyCheck.cachedResponse.status)
-                  .json(idempotencyCheck.cachedResponse.body);
+                  .status(lockResult.cachedResponse.status)
+                  .json(lockResult.cachedResponse.body);
             }
 
-            if (idempotencyCheck.error === IDEMPOTENCY_STORE_UNAVAILABLE) {
+            if (lockResult.error === IDEMPOTENCY_STORE_UNAVAILABLE) {
                throw new ExternalServiceError(
                   'Idempotency store unavailable. Please try again.',
                   ErrorCode.EXTERNAL_SERVICE_ERROR
                );
             }
 
-            if (idempotencyCheck.error) {
+            if (lockResult.error) {
                throw new ConflictError(
-                  idempotencyCheck.error,
+                  lockResult.error,
                   ErrorCode.IDEMPOTENCY_KEY_CONFLICT
                );
             }
+
+            lockAcquired = !!lockResult.lockAcquired;
          }
 
          const prediction = await predictionService.submitPrediction(
@@ -162,10 +161,11 @@ router.post(
             side,
             priceRange
          );
+         operationCompleted = true;
 
          const responseBody = buildSubmitPredictionResponse(prediction);
 
-         if (idempotencyKey) {
+         if (idempotencyKey && lockAcquired) {
             await storeIdempotencyResult(
                userId,
                SUBMIT_PREDICTION_ENDPOINT,
@@ -178,6 +178,10 @@ router.post(
 
          res.json(responseBody);
       } catch (error) {
+         if (idempotencyKey && lockAcquired && !operationCompleted) {
+            await releaseIdempotencyLock(userId, SUBMIT_PREDICTION_ENDPOINT, idempotencyKey);
+         }
+
          if (error instanceof IdempotencyStoreUnavailableError) {
             return next(
                new ExternalServiceError(

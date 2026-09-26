@@ -32,6 +32,11 @@ import {
   StellarInvalidAddressError,
   horizonCircuitBreaker,
 } from '../services/stellar.service';
+import {
+  generateChallenge,
+  generateLegacyChallenge,
+  buildChallengeMessage,
+} from '../utils/challenge.util';
 
 const VALID_ADDRESS = 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H';
 
@@ -75,17 +80,27 @@ describe('StellarService — verifySignature', () => {
     expect(mockFromPublicKey).not.toHaveBeenCalled();
   });
 
-  it('verifies valid signature successfully', async () => {
+  it('verifies valid signature successfully (SEP-10-style challenge)', async () => {
     mockVerify.mockReturnValue(true);
-    const result = await verifySignature(VALID_ADDRESS, 'test-challenge', 'c2lnbmF0dXJl');
+    const challenge = generateChallenge(VALID_ADDRESS);
+    const result = await verifySignature(VALID_ADDRESS, challenge, 'c2lnbmF0dXJl');
     expect(result).toBe(true);
     expect(mockFromPublicKey).toHaveBeenCalledWith(VALID_ADDRESS);
     expect(mockVerify).toHaveBeenCalled();
   });
 
+  it('verifies valid signature for legacy challenge (backward compat)', async () => {
+    mockVerify.mockReturnValue(true);
+    const legacy = generateLegacyChallenge();
+    const result = await verifySignature(VALID_ADDRESS, legacy, 'c2lnbmF0dXJl');
+    expect(result).toBe(true);
+    expect(mockVerify).toHaveBeenCalled();
+  });
+
   it('returns false when signature is invalid', async () => {
     mockVerify.mockReturnValue(false);
-    const result = await verifySignature(VALID_ADDRESS, 'test-challenge', 'c2lnbmF0dXJl');
+    const challenge = generateChallenge(VALID_ADDRESS);
+    const result = await verifySignature(VALID_ADDRESS, challenge, 'c2lnbmF0dXJl');
     expect(result).toBe(false);
   });
 
@@ -93,8 +108,26 @@ describe('StellarService — verifySignature', () => {
     mockFromPublicKey.mockImplementation(() => {
       throw new Error('corrupt key');
     });
-    const result = await verifySignature(VALID_ADDRESS, 'test-challenge', 'c2lnbmF0dXJl');
+    const challenge = generateChallenge(VALID_ADDRESS);
+    const result = await verifySignature(VALID_ADDRESS, challenge, 'c2lnbmF0dXJl');
     expect(result).toBe(false);
+  });
+
+  it('returns false when challenge domain is tampered (anti-phishing)', async () => {
+    mockVerify.mockReturnValue(true);
+    const evil = buildChallengeMessage({ domain: 'evil.com', homeDomain: 'evil.com', nonce: 'ab'.repeat(32) });
+    const result = await verifySignature(VALID_ADDRESS, evil, 'c2lnbmF0dXJl');
+    expect(result).toBe(false);
+    expect(mockVerify).not.toHaveBeenCalled();
+  });
+
+  it('returns false when wallet binding mismatches', async () => {
+    mockVerify.mockReturnValue(true);
+    const challenge = generateChallenge(VALID_ADDRESS);
+    const other = 'GA3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX';
+    const result = await verifySignature(other, challenge, 'c2lnbmF0dXJl');
+    expect(result).toBe(false);
+    expect(mockVerify).not.toHaveBeenCalled();
   });
 });
 

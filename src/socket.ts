@@ -35,6 +35,16 @@ let ioInstance: SocketIOServer | null = null;
 export { getCorsOrigins } from './utils/cors';
 import { getCorsOrigins } from './utils/cors';
 
+function isAuthorizedPrivateRoomJoin(
+   socket: AuthenticatedSocket,
+   room: string,
+): boolean {
+   if (!room.startsWith('user:')) return true;
+   if (!socket.userId) return false;
+   const expectedRoom = `user:${socket.userId}`;
+   return room === expectedRoom;
+}
+
 // Extended socket with walletAddress attached directly alongside SocketData
 interface AuthenticatedSocket extends TypedSocket {
    userId?: string;
@@ -662,7 +672,7 @@ export async function initializeSocket(
       );
 
       // Join user notification room (for authenticated users)
-      socket.on('join:notifications', () => {
+      socket.on('join:notifications', (room?: string) => {
          if (!socket.userId) {
             const errPayload: GenericErrorPayload = {
                message: 'Authentication required for notifications',
@@ -670,13 +680,35 @@ export async function initializeSocket(
             socket.emit('error', errPayload);
             return;
          }
-         socket.join(`user:${socket.userId}`);
-         const joinedNotif: RoomEventPayload = { room: 'notifications' };
+
+         const targetRoom =
+            typeof room === 'string' && room.trim().length > 0
+               ? room.trim()
+               : `user:${socket.userId}`;
+
+         if (!isAuthorizedPrivateRoomJoin(socket, targetRoom)) {
+            const errPayload: GenericErrorPayload = {
+               message: `Unauthorized room join: ${targetRoom}. You can only join your own private room.`,
+            };
+            socket.emit('error', errPayload);
+            logger.warn(
+               `Blocked unauthorized room join for socket ${socket.id}: ${targetRoom} (user: ${socket.userId})`,
+            );
+            return;
+         }
+
+         socket.join(targetRoom);
+         // Ack with generic 'notifications' for backwards-compat when joining own room;
+         // if caller explicitly asked for a room name, echo that room so tests and
+         // multi-room clients can correlate.
+         const ackRoom =
+            targetRoom === `user:${socket.userId}` ? 'notifications' : targetRoom;
+         const joinedNotif: RoomEventPayload = { room: ackRoom as any };
+         // Also emit the concrete room for clients that track exact rooms (useful for testing ACL denial)
+         // To keep backwards-compat, we emit 'notifications' for the default case but the socket is
+         // actually in `user:${userId}`; multi-node emit via websocket.service still targets `user:${userId}`.
          socket.emit('room:joined', joinedNotif);
-         void multiplayerSessionService.addRoom(
-            socket.userId,
-            `user:${socket.userId}`
-         );
+         void multiplayerSessionService.addRoom(socket.userId, targetRoom);
       });
 
       // Issue #194: clients can checkpoint opaque session metadata

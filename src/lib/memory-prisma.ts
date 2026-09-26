@@ -484,6 +484,15 @@ const predictions = new MemoryCollection("id", () => ({
   priceRange: null,
   won: null,
   payout: null,
+  chainStatus: "PENDING",
+  txHash: null,
+  chainAttemptCount: 0,
+  chainFailureReason: null,
+  chainSubmittedAt: null,
+  chainConfirmedAt: null,
+  chainFailedAt: null,
+  compensatedAt: null,
+  updatedAt: new Date(),
 }));
 const bets = new MemoryCollection("id", () => ({
   roundId: null,

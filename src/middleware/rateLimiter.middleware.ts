@@ -2,8 +2,28 @@ import rateLimit from 'express-rate-limit';
 import { Request } from 'express';
 import { rateLimitMetricsService, RateLimitMetricsService } from '../services/rate-limit-metrics.service';
 import { getRateLimitCategory } from '../security/rate-limit-endpoints';
-import { rateLimitHitsTotal } from './metrics.middleware';
+import { rateLimitHitsTotal, rateLimitStoreFallbacksTotal } from './metrics.middleware';
+import { RedisRateLimitStore, isRedisRateLimitConfigured } from '../lib/redis';
 import logger from '../utils/logger';
+
+function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+  if (!value) return fallback;
+  return value.toLowerCase() !== 'false';
+}
+
+// Shared (multi-instance) rate limiting — Issue #520. When REDIS_URL is set,
+// every limiter below writes its counter to Redis so throttles hold across
+// replicas. Each limiter gets its own store instance with a unique prefix so
+// stacked limiters (api + write + bet on one request) never share counters.
+const REDIS_RATE_LIMIT_PREFIX =
+  process.env.RATE_LIMIT_REDIS_PREFIX?.trim() || 'xelma:rl';
+// Redis unreachable → fall back to a per-process window (default true) so the
+// API stays up with per-instance throttling. Set RATE_LIMIT_REDIS_FAIL_OPEN=false
+// to reject requests (HTTP 500) instead. See src/lib/redis.ts RedisRateLimitStore.
+const REDIS_RATE_LIMIT_FAIL_OPEN = parseBooleanEnv(
+  process.env.RATE_LIMIT_REDIS_FAIL_OPEN,
+  true,
+);
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -55,6 +75,22 @@ export const RATE_LIMIT_POLICIES = {
 } as const;
 
 /**
+ * Redis-backed store for one limiter, or undefined when REDIS_URL is unset so
+ * express-rate-limit keeps its default in-process MemoryStore (single-node /
+ * local dev — Issue #520 acceptance: local still works without Redis).
+ */
+function redisStoreFor(name: string) {
+  if (!isRedisRateLimitConfigured()) return undefined;
+  return new RedisRateLimitStore({
+    prefix: `${REDIS_RATE_LIMIT_PREFIX}:${name}:`,
+    failOpen: REDIS_RATE_LIMIT_FAIL_OPEN,
+    onOutage: () => {
+      rateLimitStoreFallbacksTotal.inc({ limiter: name });
+    },
+  });
+}
+
+/**
  * Factory function to create rate limiters with consistent 429 shape.
  */
 function createRateLimiter(opts: {
@@ -65,6 +101,7 @@ function createRateLimiter(opts: {
   keyGenerator?: (req: any) => string;
   skip?: (req: Request) => boolean;
 }) {
+  const store = redisStoreFor(opts.name);
   return rateLimit({
     windowMs: opts.windowMs,
     max: opts.max,
@@ -77,6 +114,7 @@ function createRateLimiter(opts: {
     standardHeaders: true,
     legacyHeaders: false,
     skip: opts.skip,
+    ...(store ? { store } : {}),
     validate: { keyGeneratorIpFallback: false },
     handler: (req, res) => {
       const key = opts.keyGenerator ? opts.keyGenerator(req) : (req.ip || 'unknown');

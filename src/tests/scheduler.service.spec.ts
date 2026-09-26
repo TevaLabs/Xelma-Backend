@@ -30,6 +30,13 @@ jest.mock("../services/notification.service", () => ({
   },
 }));
 
+jest.mock("../services/payout-reconciliation.service", () => ({
+  __esModule: true,
+  default: {
+    run: jest.fn(),
+  },
+}));
+
 import {
   describe,
   it,
@@ -99,6 +106,7 @@ import schedulerService from "../services/scheduler.service";
 import resolutionService from "../services/resolution.service";
 import priceOracle from "../services/oracle";
 import notificationService from "../services/notification.service";
+import payoutReconciliationService from "../services/payout-reconciliation.service";
 import cron from "node-cron";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -164,7 +172,7 @@ describeDb("SchedulerService", () => {
     it("does not schedule tasks when AUTO_RESOLVE_ENABLED is not set", () => {
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(5);
+      expect(cron.schedule).toHaveBeenCalledTimes(6);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),
@@ -183,6 +191,10 @@ describeDb("SchedulerService", () => {
       );
       expect(cron.schedule).toHaveBeenCalledWith(
         "* * * * *",
+        expect.any(Function),
+      );
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "*/5 * * * *",
         expect.any(Function),
       );
     });
@@ -192,7 +204,7 @@ describeDb("SchedulerService", () => {
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(5);
+      expect(cron.schedule).toHaveBeenCalledTimes(6);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),
@@ -213,14 +225,61 @@ describeDb("SchedulerService", () => {
         "* * * * *",
         expect.any(Function),
       );
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "*/5 * * * *",
+        expect.any(Function),
+      );
     });
 
-    it('schedules exactly three tasks when AUTO_RESOLVE_ENABLED is "true"', () => {
+    it('schedules exactly seven tasks when AUTO_RESOLVE_ENABLED is "true"', () => {
       process.env.AUTO_RESOLVE_ENABLED = "true";
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(6);
+      expect(cron.schedule).toHaveBeenCalledTimes(7);
+    });
+
+    it("schedules the payout reconciliation job at the default 5-minute cadence", () => {
+      process.env.AUTO_RESOLVE_ENABLED = "true";
+
+      schedulerService.start();
+
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "*/5 * * * *",
+        expect.any(Function),
+      );
+    });
+
+    it("honours PAYOUT_RECONCILIATION_CRON for the payout reconciliation job", () => {
+      process.env.PAYOUT_RECONCILIATION_CRON = "*/10 * * * * *";
+
+      schedulerService.start();
+
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "*/10 * * * * *",
+        expect.any(Function),
+      );
+      delete process.env.PAYOUT_RECONCILIATION_CRON;
+    });
+
+    it("skips the payout reconciliation job when Soroban keys are missing", () => {
+      const adminSecret = process.env.SOROBAN_ADMIN_SECRET;
+      const oracleSecret = process.env.SOROBAN_ORACLE_SECRET;
+      delete process.env.SOROBAN_ADMIN_SECRET;
+      delete process.env.SOROBAN_ORACLE_SECRET;
+
+      schedulerService.start();
+
+      // 5 base jobs (cleanup, retention, outbox poll, outbox cleanup, bet
+      // reconciliation is also gated -> skipped) minus auto-resolve.
+      expect(cron.schedule).toHaveBeenCalledTimes(4);
+      expect(cron.schedule).not.toHaveBeenCalledWith(
+        "*/5 * * * *",
+        expect.any(Function),
+      );
+
+      process.env.SOROBAN_ADMIN_SECRET = adminSecret;
+      process.env.SOROBAN_ORACLE_SECRET = oracleSecret;
     });
 
     it("uses the default 30-second interval in the auto-resolve cron expression", () => {
@@ -591,6 +650,39 @@ describeDb("SchedulerService", () => {
       schedulerService.start();
 
       expect(cron.schedule).toHaveBeenCalledWith("0 3 * * *", expect.any(Function));
+    });
+  });
+
+  // ── reconcilePendingPayouts() (#492) ────────────────────────────────────────
+
+  describe("reconcilePendingPayouts()", () => {
+    beforeEach(() => {
+      (payoutReconciliationService.run as any).mockResolvedValue({
+        checked: 2,
+        submitted: 1,
+        confirmed: 1,
+        noPending: 0,
+        failed: 0,
+        flagged: 0,
+        errors: 0,
+        swept: 1,
+        noop: 0,
+      });
+    });
+
+    it("runs the payout reconciliation service under the distributed lock", async () => {
+      await expect(schedulerService.reconcilePendingPayouts()).resolves.not.toThrow();
+      expect(payoutReconciliationService.run).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not throw when the payout reconciliation service fails", async () => {
+      (payoutReconciliationService.run as any).mockRejectedValue(
+        new Error("chain unreachable")
+      );
+
+      await expect(
+        schedulerService.reconcilePendingPayouts()
+      ).resolves.not.toThrow();
     });
   });
 });

@@ -163,6 +163,26 @@ const txProxy = {
          roundStore.set(where.id, updated);
          return updated;
       }),
+      // The lifecycle state machine settles rounds via updateMany (Issue #490):
+      // it atomically matches on the allowed source states and updates the
+      // status in one statement.
+      updateMany: jest.fn(async ({ where, data }: any) => {
+         const existing = roundStore.get(where.id);
+         if (!existing) return { count: 0 };
+         if (where.status && !(where.status as any).in?.includes(existing.status)) {
+            return { count: 0 };
+         }
+         const updated = { ...existing };
+         for (const [k, v] of Object.entries(data)) {
+            if (v && typeof v === 'object' && 'increment' in (v as any)) {
+               updated[k] = Number(existing[k] ?? 0) + (v as any).increment;
+            } else if (k !== 'predictions') {
+               updated[k] = v;
+            }
+         }
+         roundStore.set(where.id, updated);
+         return { count: 1 };
+      }),
    },
    prediction: {
       update: jest.fn(async ({ where, data }: any) => {

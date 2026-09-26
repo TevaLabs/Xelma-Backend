@@ -87,6 +87,8 @@ export interface BetAcceptedOutboxPayload {
   predictedPrice?: number;
   state: 'accepted' | 'stub';
   txHash?: string;
+  requestId?: string;
+  correlationId?: string;
 }
 
 export interface BetConfirmedOutboxPayload {
@@ -95,6 +97,8 @@ export interface BetConfirmedOutboxPayload {
   roundId: string | null;
   mode: 'UP_DOWN' | 'PRECISION';
   txHash: string;
+  requestId?: string;
+  correlationId?: string;
 }
 
 export interface BetResolvedOutboxPayload {
@@ -104,6 +108,8 @@ export interface BetResolvedOutboxPayload {
   mode: 'UP_DOWN' | 'PRECISION';
   won: boolean;
   payout: number;
+  requestId?: string;
+  correlationId?: string;
 }
 
 export interface BetFailedOutboxPayload {
@@ -112,6 +118,8 @@ export interface BetFailedOutboxPayload {
   roundId: string | null;
   mode: 'UP_DOWN' | 'PRECISION';
   failureReason: string;
+  requestId?: string;
+  correlationId?: string;
 }
 
 // ─── dispatch handlers (injected so the service stays testable) ───────────────

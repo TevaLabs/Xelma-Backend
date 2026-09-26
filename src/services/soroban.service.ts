@@ -14,6 +14,7 @@ import {
   sorobanRpcCallsTotal,
   sorobanRpcDurationSeconds,
 } from "../metrics/application.metrics";
+import { getRequestId } from "../utils/requestContext";
 
 export interface SorobanHealth {
   initialized: boolean;
@@ -354,12 +355,19 @@ export class SorobanService {
     side: "UP" | "DOWN",
   ): Promise<{ state: string; txHash?: string }> {
     await this.ensureInitialized();
+    const requestId = getRequestId();
     
+    // SAFETY: placeBet is a mutating chain operation.  A timed-out mutation
+    // cannot safely be resent because the first attempt may have reached the
+    // network and succeeded.  Use retries: 1 (single attempt, no automatic
+    // resend).  The prediction reconciliation service handles ambiguous
+    // timeout recovery via on-chain state inspection.
     const result = await this.callWithBreaker("sorobanPlaceBet", () =>
       withTimeout(
         async () => {
         logger.debug(
           `Initiating Soroban placeBet: user=${userAddress}, amount=${amount}, side=${side}`,
+          { requestId, userAddress, amount, side },
         );
 
         // Amount in stroops (1 XLM = 10^7 stroops)
@@ -382,16 +390,18 @@ export class SorobanService {
       {
         timeoutMs: this.CALL_TIMEOUT_MS,
         operationName: 'sorobanPlaceBet',
-        retries: this.MAX_RETRIES,
+        retries: 1,
       }
       )
     );
 
     if (!result.success) {
-      logger.error("Failed to place bet on Soroban after retries", {
+      logger.error("Soroban placeBet failed (single attempt, no auto-retry for mutations)", {
         error: result.error?.message,
         timedOut: result.timedOut,
         durationMs: result.durationMs,
+        requestId,
+        userAddress,
       });
       throw mapSorobanError(result.error?.message);
     }
@@ -399,6 +409,10 @@ export class SorobanService {
     logger.info("Bet placed successfully on Soroban", {
       durationMs: result.durationMs,
       retriesUsed: result.retriesUsed,
+      requestId,
+      txHash: result.data?.txHash,
+      userAddress,
+      correlationId: requestId && result.data?.txHash ? `${requestId}:${result.data.txHash}` : undefined,
     });
 
     return result.data!;
@@ -415,12 +429,14 @@ export class SorobanService {
     predictedPrice: number | string,
   ): Promise<{ state: string; txHash?: string }> {
     await this.ensureInitialized();
+    const requestId = getRequestId();
     
     const result = await this.callWithBreaker("sorobanPlacePrecisionBet", () =>
       withTimeout(
         async () => {
         logger.debug(
           `Initiating Soroban placePrecisionBet: user=${userAddress}, amount=${amount}, predictedPrice=${predictedPrice}`,
+          { requestId, userAddress, amount, predictedPrice },
         );
 
         // Amount in stroops (1 XLM = 10^7 stroops)
@@ -450,6 +466,8 @@ export class SorobanService {
         error: result.error?.message,
         timedOut: result.timedOut,
         durationMs: result.durationMs,
+        requestId,
+        userAddress,
       });
       throw mapSorobanError(result.error?.message);
     }
@@ -457,6 +475,10 @@ export class SorobanService {
     logger.info("Precision bet placed successfully on Soroban", {
       durationMs: result.durationMs,
       retriesUsed: result.retriesUsed,
+      requestId,
+      txHash: result.data?.txHash,
+      userAddress,
+      correlationId: requestId && result.data?.txHash ? `${requestId}:${result.data.txHash}` : undefined,
     });
 
     return result.data!;
@@ -703,6 +725,60 @@ export class SorobanService {
   }
 
   /**
+   * Gets a user's on-chain bet position for a round (read-only query).
+   * Used by the prediction reconciliation service to resolve ambiguous timeouts
+   * where the client doesn't know whether a placeBet call reached the chain.
+   *
+   * Returns null if the user has no position or the contract call fails.
+   */
+  async getUserPosition(
+    userAddress: string,
+    roundId?: string,
+  ): Promise<{ side: 'UP' | 'DOWN'; amount: number } | null> {
+    await this.ready;
+    if (!this.initialized) return null;
+
+    const result = await this.callWithBreaker("sorobanGetUserPosition", () =>
+      withTimeout(
+        async () => {
+          // If the bindings client exposes get_user_position or get_bet, call it.
+          // Fall back to checking contract storage or stats if not directly available.
+          const client = this.client as any;
+          if (typeof client?.get_user_position === 'function') {
+            const pos = await client.get_user_position({
+              user: userAddress,
+              ...(roundId ? { round_id: roundId } : {}),
+            });
+            if (!pos || !pos.result) return null;
+            const res = pos.result;
+            const side: 'UP' | 'DOWN' = res.side?.tag === 'Up' ? 'UP' : 'DOWN';
+            const amount = Number(res.amount) / 10_000_000;
+            return { side, amount };
+          }
+          return null;
+        },
+        {
+          timeoutMs: 10000,
+          operationName: 'sorobanGetUserPosition',
+          retries: 1,
+        }
+      ),
+      null,
+    );
+
+    if (!result.success) {
+      logger.warn("Failed to get user position from Soroban", {
+        userAddress,
+        roundId,
+        error: result.error?.message,
+      });
+      return null;
+    }
+
+    return result.data ?? null;
+  }
+
+  /**
    * Claims pending winnings on the Soroban contract and credits the user's balance.
    * Returns the claimed amount in XLM (converted from stroops) plus optional tx hash.
    *
@@ -710,11 +786,12 @@ export class SorobanService {
    */
   async claimWinnings(userAddress: string): Promise<ClaimResult> {
     await this.ensureInitialized();
+    const requestId = getRequestId();
 
     const result = await this.callWithBreaker("sorobanClaimWinnings", () =>
       withTimeout(
         async () => {
-          logger.debug(`Initiating Soroban claimWinnings: user=${userAddress}`);
+          logger.debug(`Initiating Soroban claimWinnings: user=${userAddress}`, { requestId, userAddress });
 
           const tx = await this.client!.claim_winnings({ user: userAddress });
           const res = await tx.signAndSend({
@@ -736,6 +813,8 @@ export class SorobanService {
         error: result.error?.message,
         timedOut: result.timedOut,
         durationMs: result.durationMs,
+        requestId,
+        userAddress,
       });
       throw mapSorobanError(result.error?.message);
     }
@@ -744,6 +823,10 @@ export class SorobanService {
       amount: result.data?.amount,
       durationMs: result.durationMs,
       retriesUsed: result.retriesUsed,
+      requestId,
+      txHash: result.data?.txHash,
+      userAddress,
+      correlationId: requestId && result.data?.txHash ? `${requestId}:${result.data.txHash}` : undefined,
     });
 
     return result.data!;

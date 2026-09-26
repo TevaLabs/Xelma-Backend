@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import logger from "./logger";
-import { getConnectedRedisClient } from "../lib/redis";
+import { getConnectedRedisClient, isRedisConfigured } from "../lib/redis";
 import { ConflictError, ErrorCode } from "./errors";
+import config from "../config";
 
 /**
  * Fail-closed Redis distributed lock for bet-route idempotency (Issue #493).
@@ -187,19 +188,44 @@ export async function acquireDistributedIdempotencyLock(
  * The lock is held for the entire Prisma lock + bet processing + response
  * storage window, so a concurrent replica with the same key either replays
  * the stored DB response or is rejected — it never re-executes the bet.
+ *
+ * **Memory-mode bypass:** When `config.app.dataStore === 'memory'` or Redis
+ * has not been configured at all (`REDIS_URL` unset), the distributed lock is
+ * skipped and `fn` is executed directly.  The in-process idempotency lock
+ * provided by `acquireIdempotencyLock()` still prevents concurrent duplicate
+ * processing within a single node.
+ *
+ * When `REDIS_URL` IS configured but Redis is unreachable, the request is
+ * rejected (fail-closed) — even if `BET_STUB_MODE=true` — because that
+ * combination indicates a production-like deployment where skipping the
+ * distributed lock would reintroduce the duplicate-bet race.
  */
 export async function withDistributedIdempotencyLock<T>(
   userId: string,
   endpoint: string,
   idempotencyKey: string,
   fn: () => Promise<T>,
-  config: DistributedIdempotencyLockConfig = {},
+  lockConfig: DistributedIdempotencyLockConfig = {},
 ): Promise<T> {
+  // DATA_STORE=postgres explicitly requires the distributed lock when Redis is configured.
+  // We check both the resolved config and process.env.DATA_STORE so test suites that toggle
+  // modes are accurately reflected even if the config module was cached.
+  const isPostgres = process.env.DATA_STORE === 'postgres' || config.app.dataStore === 'postgres';
+  const isMemory = !isPostgres && (config.app.dataStore === 'memory' || process.env.DATA_STORE === 'memory');
+
+  if (isMemory || !isRedisConfigured()) {
+    logger.debug(
+      "[distributed-idempotency-lock] skipping Redis lock (memory mode or no REDIS_URL)",
+      { userId, endpoint, idempotencyKey, dataStore: config.app.dataStore },
+    );
+    return fn();
+  }
+
   const handle = await acquireDistributedIdempotencyLock(
     userId,
     endpoint,
     idempotencyKey,
-    config,
+    lockConfig,
   );
   try {
     return await fn();

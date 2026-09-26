@@ -108,6 +108,25 @@ export const prisma = (() => {
         update: async ({ data }: any) => data,
         count: async () => 0,
       },
+      claim: {
+        findMany: async () => [],
+        findFirst: async () => null,
+        create: async ({ data }: any) => ({ id: "claim-1", ...data }),
+        update: async ({ data }: any) => data,
+        updateMany: async () => ({ count: 1 }),
+        groupBy: async () => [],
+        count: async () => 0,
+      },
+      bet: {
+        findMany: async () => [],
+        findFirst: async () => null,
+        findUnique: async () => null,
+        groupBy: async () => [],
+      },
+      user: {
+        findUnique: async () => null,
+        findFirst: async () => null,
+      },
       // Add a generic $queryRaw mock for connectivity checks.
       $queryRaw: async () => null,
     } as any;

@@ -79,7 +79,11 @@ export async function getPlatformStats(): Promise<PlatformStats> {
         [totalRounds, totalUsers, totalBets] = await Promise.all([
             prisma.round.count(),
             prisma.user.count(),
-            prisma.prediction.count(),
+            prisma.prediction.count({
+                where: {
+                    chainStatus: { in: ['CONFIRMED', 'NOT_REQUIRED'] },
+                },
+            }),
         ]);
     } catch (err) {
         dbAvailable = false;

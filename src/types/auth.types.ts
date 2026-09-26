@@ -7,6 +7,10 @@ export interface ChallengeRequestBody {
 
 export interface ChallengeResponse {
   challenge: string;
+  /** SEP-10-style domain that requested the signature (wallet UX / anti-phishing) */
+  domain: string;
+  /** Home domain of the Xelma deployment */
+  homeDomain: string;
   expiresAt: string;
 }
 

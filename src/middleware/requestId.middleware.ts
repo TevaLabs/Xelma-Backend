@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
+import { getRequestContextStorage } from '../utils/requestContext';
 
 /**
  * Middleware to generate or extract a unique request ID for tracing.
@@ -8,6 +9,8 @@ import { randomUUID } from 'crypto';
  * - If not present, generates a new UUID
  * - Adds it to req.requestId
  * - Attaches it to response headers for client consumption
+ * - Propagates requestId via AsyncLocalStorage so downstream services
+ *   (Soroban, audit, outbox) can log it without explicit param threading
  */
 export function requestIdMiddleware(
   req: Request,
@@ -26,5 +29,7 @@ export function requestIdMiddleware(
   // Set response header so client can correlate
   res.set('X-Request-ID', requestId);
   
+  // Propagate via AsyncLocalStorage for distributed tracing
+  getRequestContextStorage().enterWith({ requestId });
   next();
 }

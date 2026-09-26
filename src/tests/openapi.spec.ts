@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 import { swaggerSpec } from "../docs/openapi";
+import { isValidStellarAddress } from "../utils/stellar-address.util";
 
 interface RequiredOperation {
   path: string;
@@ -106,5 +107,23 @@ describe("OpenAPI spec", () => {
   it("documents 429 response on batch prediction submit", () => {
     const batchOp = paths["/api/predictions/batch-submit"]?.post;
     expect(batchOp?.responses?.["429"]).toBeDefined();
+  });
+
+  it("auth examples use valid Stellar StrKey fixtures (not placeholder strings)", () => {
+    // WHY: a documented example that only *resembles* a Stellar address (a
+    // string that fails StrKey checksum validation) cannot be copy-pasted by
+    // consumers without hitting a 400. Every walletAddress shown in the auth
+    // docs must decode as a genuine Ed25519 G... public key.
+    const schemas = (swaggerSpec as { components?: { schemas?: Record<string, any> } })
+      .components?.schemas ?? {};
+
+    const challengeExample = schemas.AuthChallengeRequest?.properties?.walletAddress?.example;
+    const connectExample = schemas.AuthConnectRequest?.properties?.walletAddress?.example;
+    const jwtExample = (swaggerSpec as Record<string, any>).paths?.["/api/auth/challenge"]?.post
+      ?.requestBody?.content?.["application/json"]?.example?.walletAddress;
+
+    expect(isValidStellarAddress(challengeExample)).toBe(true);
+    expect(isValidStellarAddress(connectExample)).toBe(true);
+    expect(isValidStellarAddress(jwtExample)).toBe(true);
   });
 });

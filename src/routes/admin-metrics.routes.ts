@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { rateLimitMetricsService } from '../services/rate-limit-metrics.service';
+import payoutReconciliationService from '../services/payout-reconciliation.service';
 import { requireAdmin } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 import { register } from 'prom-client';
@@ -188,6 +189,47 @@ router.get('/metrics', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Error rendering Prometheus metrics:', error);
     res.status(500).send('Internal Server Error');
+  }
+});
+
+/**
+ * @openapi
+ * /api/admin/metrics/payout-reconciliation:
+ *   get:
+ *     summary: Payout claim ledger summary
+ *     description: |
+ *       Returns current payout-claim counts by status so operators can see
+ *       stuck pending winnings (PENDING/SUBMITTED/FAILED) and claims flagged
+ *       NEEDS_MANUAL_REVIEW by the payout reconciliation worker (Issue #492).
+ *       Admin only. Prometheus counters are scraped from /api/admin/metrics/metrics.
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Payout claim counts by status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 summary:
+ *                   type: object
+ *                   additionalProperties:
+ *                     type: integer
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ */
+router.get('/payout-reconciliation', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const summary = await payoutReconciliationService.getReconciliationSummary();
+    res.json({ success: true, summary });
+  } catch (error) {
+    logger.error('Error fetching payout reconciliation summary:', error);
+    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch payout reconciliation summary' });
   }
 });
 

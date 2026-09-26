@@ -39,6 +39,7 @@ const mockUserFindUnique = jest.fn();
 const mockUserCreate = jest.fn();
 const mockUserUpdate = jest.fn();
 const mockAuthChallengeFindUnique = jest.fn();
+const mockAuthChallengeFindMany = jest.fn().mockResolvedValue([]);
 const mockAuthChallengeCreate = jest.fn();
 const mockAuthChallengeUpdate = jest.fn();
 const mockAuthChallengeUpdateMany = jest.fn();
@@ -59,6 +60,7 @@ jest.mock("../lib/prisma", () => ({
     },
     authChallenge: {
       findUnique: (...args: any[]) => mockAuthChallengeFindUnique(...args),
+      findMany: (...args: any[]) => mockAuthChallengeFindMany(...args),
       create: (...args: any[]) => mockAuthChallengeCreate(...args),
       update: (...args: any[]) => mockAuthChallengeUpdate(...args),
       updateMany: (...args: any[]) => mockAuthChallengeUpdateMany(...args),
@@ -94,13 +96,15 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
     testUser = { id: TEST_USER_ID, walletAddress: TEST_WALLET };
     validToken = generateToken(testUser.id, testUser.walletAddress, UserRole.USER);
 
+    const now = new Date();
     mockUserFindUnique.mockImplementation((args: any) => {
       const id = args?.where?.id;
       if (id === testUser.id)
-        return Promise.resolve({ id: testUser.id, walletAddress: testUser.walletAddress, role: "USER" });
+        return Promise.resolve({ id: testUser.id, walletAddress: testUser.walletAddress, role: "USER", createdAt: now, lastLoginAt: now });
       return Promise.resolve(null);
     });
     mockAuthChallengeDeleteMany.mockResolvedValue({ count: 0 });
+    mockAuthChallengeFindMany.mockResolvedValue([]);
     mockAuthChallengeUpdateMany.mockResolvedValue({ count: 0 });
     mockAuthChallengeCreate.mockImplementation((args: any) =>
       Promise.resolve({
@@ -117,12 +121,14 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
     jest.clearAllMocks();
     mockIsValidStellarAddress.mockReturnValue(true);
     mockVerifySignature.mockResolvedValue(true);
+    const now2 = new Date();
     mockUserFindUnique.mockImplementation((args: any) => {
       const id = args?.where?.id;
       if (id === testUser.id)
-        return Promise.resolve({ id: testUser.id, walletAddress: testUser.walletAddress, role: "USER" });
+        return Promise.resolve({ id: testUser.id, walletAddress: testUser.walletAddress, role: "USER", createdAt: now2, lastLoginAt: now2 });
       return Promise.resolve(null);
     });
+    mockAuthChallengeFindMany.mockResolvedValue([]);
     mockAuthChallengeDeleteMany.mockResolvedValue({ count: 0 });
     mockAuthChallengeUpdateMany.mockResolvedValue({ count: 1 });
     mockAuthChallengeCreate.mockImplementation((args: any) =>
@@ -170,7 +176,11 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.challenge).toBeDefined();
-      expect(res.body.challenge).toMatch(/^xelma_auth_/);
+      // New SEP-10-style challenge must contain Domain / Home Domain lines
+      expect(res.body.challenge).toContain('Domain:');
+      expect(res.body.challenge).toContain('Home Domain:');
+      expect(res.body.domain).toBeDefined();
+      expect(res.body.homeDomain).toBeDefined();
       expect(res.body.expiresAt).toBeDefined();
       expect(new Date(res.body.expiresAt).getTime()).toBeGreaterThan(Date.now());
     });

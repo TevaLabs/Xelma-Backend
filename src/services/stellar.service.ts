@@ -2,6 +2,11 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import logger from '../utils/logger';
 import { CircuitBreaker, CircuitBreakerOpenError, CircuitBreakerSnapshot } from '../utils/circuit-breaker';
 import { timeoutPromise } from '../utils/timeout-wrapper';
+import {
+  isValidChallengeDomain,
+  isChallengeWalletBindingValid,
+  parseChallenge,
+} from '../utils/challenge.util';
 
 export interface StellarBalanceLine {
   asset_type: string;
@@ -125,13 +130,18 @@ export function isValidStellarAddress(address: string): boolean {
 }
 
 /**
- * Verify a signature against a challenge using Stellar wallet verification
- * This implements the SEP-style challenge-response pattern
+ * Verify a signature against a challenge using Stellar wallet verification.
+ * This implements the SEP-10-style challenge-response pattern with domain
+ * binding (anti-phishing): the challenge string must contain the server's
+ * expected `Domain`/`Home Domain` and — when bound — the wallet address.
+ *
+ * Legacy `xelma_auth_*` challenges bypass domain checks for backward
+ * compatibility with stored challenges and hackathon demos.
  *
  * @param walletAddress The Stellar wallet address (public key)
- * @param challenge The challenge string that was signed
+ * @param challenge The challenge string that was signed (new or legacy)
  * @param signature The signature in base64 format
- * @returns True if signature is valid, false otherwise
+ * @returns True if signature is valid and domain binding passes
  */
 export async function verifySignature(
   walletAddress: string,
@@ -145,13 +155,33 @@ export async function verifySignature(
       return false;
     }
 
+    // SEP-10-style domain binding check (legacy challenges skip this)
+    if (!isValidChallengeDomain(challenge)) {
+      const parsed = parseChallenge(challenge);
+      logger.warn('Challenge domain mismatch - possible phishing replay', {
+        challengeDomain: parsed?.domain,
+        expectedDomain: parsed ? undefined : 'unknown',
+        walletAddress,
+      });
+      return false;
+    }
+
+    if (!isChallengeWalletBindingValid(challenge, walletAddress)) {
+      const parsed = parseChallenge(challenge);
+      logger.warn('Challenge wallet binding mismatch', {
+        challengeAddress: parsed?.walletAddress,
+        walletAddress,
+      });
+      return false;
+    }
+
     // Create a keypair from the public key
     const keypair = StellarSdk.Keypair.fromPublicKey(walletAddress);
 
     // Convert signature from base64 to Buffer
     const signatureBuffer = Buffer.from(signature, 'base64');
 
-    // Convert challenge to buffer
+    // Convert challenge to buffer (new multi-line SEP-10-style or legacy)
     const challengeBuffer = Buffer.from(challenge, 'utf8');
 
     // Verify the signature
