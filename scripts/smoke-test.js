@@ -55,7 +55,8 @@
  *
  * Options (env vars):
  *   MODE                Runtime mode: "full" | "hackathon"    (default: full)
- *   SMOKE_BASE_URL      Base URL (overridden by argv if provided)
+ *   BASE_URL            Base URL (also read from SMOKE_BASE_URL)
+ *   SMOKE_BASE_URL      Base URL (takes precedence over BASE_URL)
  *   SMOKE_PORT          Port used for the default localhost URL (default: 3001)
  *   SMOKE_TIMEOUT_MS    Per-request timeout in ms            (default: 10000)
  *   SMOKE_RETRIES       Retry count for transient failures   (default: 3)
@@ -83,14 +84,16 @@ function printHelp() {
   console.log('');
   console.log('  --mode=full        Smoke the full production app (default)');
   console.log('  --mode=hackathon   Smoke the hackathon/demo app');
+  console.log('                     (--mode <value> is accepted too)');
   console.log('');
-  console.log('  base-url           Overrides SMOKE_BASE_URL / the default');
+  console.log('  base-url           Overrides BASE_URL / SMOKE_BASE_URL / the default');
   console.log('                     http://localhost:3001');
   console.log('');
   console.log('Examples:');
   console.log('  npm run smoke-test');
   console.log('  npm run smoke-test:hackathon');
   console.log('  node scripts/smoke-test.js --mode=hackathon http://localhost:3001');
+  console.log('  BASE_URL=http://localhost:3001 MODE=hackathon node scripts/smoke-test.js');
   console.log('');
 }
 
@@ -98,14 +101,21 @@ const argv = process.argv.slice(2);
 let cliMode = null;
 let cliUrl  = null;
 
-for (const token of argv) {
+for (let i = 0; i < argv.length; i += 1) {
+  const token = argv[i];
   if (token === '--help' || token === '-h') {
     printHelp();
     process.exit(0);
+  } else if (token === '--mode') {
+    cliMode = argv[++i];
   } else if (token.startsWith('--mode=')) {
     cliMode = token.slice('--mode='.length);
+  } else if (token === '--url' || token === '--base-url') {
+    cliUrl = argv[++i];
   } else if (token.startsWith('--url=')) {
     cliUrl = token.slice('--url='.length);
+  } else if (token.startsWith('--base-url=')) {
+    cliUrl = token.slice('--base-url='.length);
   } else if (token.startsWith('-')) {
     console.error(`Unknown option: ${token}`);
     printHelp();
@@ -128,7 +138,9 @@ if (MODE !== 'full' && MODE !== 'hackathon') {
 
 const DEFAULT_PORT = Number(process.env.SMOKE_PORT ?? 3001);
 const DEFAULT_URL  = `http://localhost:${DEFAULT_PORT}`;
-const BASE_URL     = (cliUrl || process.env.SMOKE_BASE_URL || DEFAULT_URL).replace(/\/$/, '');
+const BASE_URL     = (
+  cliUrl || process.env.SMOKE_BASE_URL || process.env.BASE_URL || DEFAULT_URL
+).replace(/\/$/, '');
 const TIMEOUT_MS   = Number(process.env.SMOKE_TIMEOUT_MS  ?? 10_000);
 const RETRIES      = Number(process.env.SMOKE_RETRIES     ?? 3);
 const RETRY_DELAY  = Number(process.env.SMOKE_RETRY_DELAY ?? 3_000);

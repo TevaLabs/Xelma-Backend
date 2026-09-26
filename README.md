@@ -1469,6 +1469,45 @@ npm run test:hackathon
 npm run test:load
 ```
 
+### Post-deploy smoke tests (both runtime modes)
+
+`scripts/smoke-test.js` checks the public endpoints a frontend actually calls,
+one mode at a time. It fails on the first unexpected HTTP status and prints the
+URL and status, so a broken `/api/health` or `/api/prices` on either entrypoint
+is caught by a single command.
+
+The full app is the default. Both modes default to `http://localhost:3001`
+(overridable), so `npm run smoke-test` works against a locally running server
+without extra flags.
+
+```bash
+# ── Full app (npm run dev / src/index.ts, production) ──
+npm run smoke-test                        # defaults to http://localhost:3001
+npm run smoke-test -- http://localhost:3001
+# or directly:
+node scripts/smoke-test.js --mode=full https://staging.example.com
+
+# ── Hackathon app (npm run dev:hackathon / src/server.ts) ──
+npm run smoke-test:hackathon              # defaults to http://localhost:3001
+npm run smoke-test:hackathon -- http://localhost:3001
+# or directly:
+BASE_URL=http://localhost:3001 MODE=hackathon node scripts/smoke-test.js
+```
+
+| Mode        | Endpoints checked                                                                                                        |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `full`      | `GET /health`, `GET /api/rounds`, `GET /api/price`, `GET /api/prices`, `GET /api/leaderboard`                            |
+| `hackathon` | `GET /api/health`, `GET /api/rounds`, `GET /api/prices`, `GET /api/stats`, `GET /api/leaderboard`                        |
+
+`GET /api/price` (single-asset XLM oracle) is production-only and intentionally
+not checked in hackathon mode; the hackathon app serves `GET /api/prices`
+instead.
+
+Useful env vars: `MODE`, `BASE_URL` (or `SMOKE_BASE_URL`), `SMOKE_PORT`,
+`SMOKE_TIMEOUT_MS`, `SMOKE_RETRIES`, `SMOKE_RETRY_DELAY`, `SMOKE_SOCKET=false`
+(skip WebSocket). `--mode <value>` and `--url <value>` are accepted alongside
+the `--mode=<value>` / positional-URL forms.
+
 ### Redis Socket.IO adapter integration test
 
 src/tests/redis-adapter.spec.ts proves that Socket.IO room broadcasts fan out across two independent server instances via the Redis adapter (simulating a multi-instance deployment). It is skipped automatically when REDIS_URL is not set, so it never blocks the default unit test run.
@@ -1590,6 +1629,8 @@ At minimum, migration PRs should include:
 | `npm run test:watch`            | Run tests in watch mode                                                                                                                                                                                               |
 | `npm run test:load`             | Run load baselines plus overload 429/503 backpressure checks                                                                                                                                                          |
 | `npm run ci`                    | Run lint, build, unit coverage, and integration tests                                                                                                                                                                 |
+| `npm run smoke-test`            | Smoke test the **full** app (`--mode=full`); defaults to `http://localhost:3001`, non-zero exit on first unexpected status                                                                                            |
+| `npm run smoke-test:hackathon`  | Smoke test the **hackathon** app (`--mode=hackathon`); checks `/api/health`, `/api/rounds`, `/api/prices`, `/api/stats`                                                                                              |
 | `npm run prisma:generate`       | Generate Prisma client                                                                                                                                                                                                |
 | `npm run prisma:migrate`        | Run database migrations                                                                                                                                                                                               |
 | `npm run db:seed:mock`          | Seed database with mock data                                                                                                                                                                                          |
