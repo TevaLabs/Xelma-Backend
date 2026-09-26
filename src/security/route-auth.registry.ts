@@ -89,6 +89,9 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   // Admin
   { method: "GET", path: "/api/admin/metrics/rate-limits", auth: RouteAuthLevel.ADMIN },
   { method: "POST", path: "/api/admin/metrics/rate-limits/clear", auth: RouteAuthLevel.ADMIN },
+  { method: "GET", path: "/api/admin/metrics/metrics", auth: RouteAuthLevel.ADMIN, notes: "Prometheus scrape; admin JWT or METRICS_SCRAPE_TOKEN" },
+  { method: "GET", path: "/api/admin/metrics/payout-reconciliation", auth: RouteAuthLevel.ADMIN },
+  { method: "GET", path: "/api/admin/metrics/rate-limit-summary", auth: RouteAuthLevel.ADMIN },
   { method: "GET", path: "/api/admin/cors-diagnostics", auth: RouteAuthLevel.ADMIN },
    { method: "GET", path: "/api/admin/dead-letter", auth: RouteAuthLevel.ADMIN },
    { method: "POST", path: "/api/admin/dead-letter/retry-all", auth: RouteAuthLevel.ADMIN },
