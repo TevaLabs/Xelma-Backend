@@ -596,16 +596,15 @@ For contributors running the **full backend stack** with PostgreSQL and Redis, u
 
 ```bash
 cp .env.docker.example .env
-# Edit .env and set JWT_SECRET at minimum
+# Edit .env and set JWT_SECRET at minimum.
+# To enable chat/notifications, set ENABLE_MULTIPLAYER_SOCIAL=true
+# (REDIS_URL is already preconfigured to redis://redis:6379)
 
-# Standard full stack startup:
+# Standard full stack startup (starts API + PostgreSQL + Redis):
 docker compose up --build
-
-# Or explicitly specifying the full profile (starts the identical stack):
-docker compose --profile full up --build
 ```
 
-Both commands start the unprofiled core stack:
+This command starts the unprofiled core stack:
 
 ```text
 API + PostgreSQL + Redis
