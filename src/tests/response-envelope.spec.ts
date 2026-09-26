@@ -12,6 +12,9 @@ jest.mock('../lib/prisma', () => ({
     round: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     prediction: { findMany: jest.fn(), update: jest.fn() },
     outboxEvent: { create: jest.fn() },
+    // Health route pings the DB with `$queryRaw`; without it the probe throws
+    // and the hackathon /api/health handler returns 500.
+    $queryRaw: jest.fn().mockResolvedValue([{ ok: 1 }]),
     $disconnect: jest.fn(),
   },
 }));
@@ -30,6 +33,9 @@ jest.mock('@prisma/client', () => ({
 jest.mock('../lib/redis', () => ({
   invalidateNamespace: jest.fn(),
   invalidateLeaderboardSortedSet: jest.fn(),
+  // Health route calls isRedisCacheEnabled() to decide whether to probe
+  // Redis; without it the lightweight /api/health handler throws.
+  isRedisCacheEnabled: jest.fn().mockReturnValue(false),
   checkRedisHealth: jest.fn().mockResolvedValue(true),
   getCache: jest.fn(),
   setCache: jest.fn(),
@@ -233,6 +239,8 @@ jest.mock('../metrics/application.metrics', () => {
 jest.mock('../middleware/auth.middleware', () => ({
   authenticateUser: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireAdminPermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireMetricsAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireOracle: (_req: unknown, _res: unknown, next: () => void) => next(),
   verifyStellarAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   bindAuthenticatedWallet: (_req: unknown, _res: unknown, next: () => void) => next(),

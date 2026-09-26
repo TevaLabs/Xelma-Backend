@@ -145,6 +145,20 @@ const FULL_FEATURES: AppFeatures = {
 };
 
 /**
+ * Whether the hackathon/demo app may mount the CORS-diagnostics admin route.
+ *
+ * Strict `=== 'true'` on purpose: the previous truthy check treated the
+ * literal string "false" as enabled, which exposed an admin route in demo
+ * deployments that explicitly opted out (Issue #497). Only an explicit opt-in
+ * mounts it, and the route still enforces the admin RBAC matrix.
+ */
+export function isCorsDiagnosticsEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.ENABLE_CORS_DIAGNOSTICS === 'true';
+}
+
+/**
  * Hackathon mock/demo app (`npm run dev:hackathon`, `src/app.ts`).
  *
  * Wallet auth is shared with the full app so clients can obtain JWTs without
@@ -156,8 +170,13 @@ const HACKATHON_FEATURES: AppFeatures = {
   predictions: false,
   education: false,
   errorCatalog: false,
+  // Admin surface stays off by default in the demo app (Issue #497). The only
+  // admin route the hackathon app may mount is CORS diagnostics, and only when
+  // ENABLE_CORS_DIAGNOSTICS is *explicitly* "true" — the previous truthy check
+  // treated ENABLE_CORS_DIAGNOSTICS="false" as enabled, which leaked the
+  // privileged route (it still required admin auth, but the surface existed).
   adminRoutes: false,
-  corsDiagnostics: Boolean(process.env.ENABLE_CORS_DIAGNOSTICS),
+  corsDiagnostics: isCorsDiagnosticsEnabled(),
   versionedAlias: false,
   deprecationHeaders: false,
   globalApiRateLimit: true,
@@ -272,8 +291,9 @@ function mountApiRoutes(
     target.use('/admin/bet-audit', betAuditRoutes);
   } else if (features.corsDiagnostics) {
     // In hackathon mode, mount CORS diagnostics independently when
-    // ENABLE_CORS_DIAGNOSTICS is set. Auth/admin checks are still enforced
-    // by the route's own requireAdmin middleware.
+    // ENABLE_CORS_DIAGNOSTICS === 'true'. The route still enforces the admin
+    // RBAC matrix (`CORS_DIAGNOSTICS_READ`), so a non-admin gets 403 and no
+    // other admin surface is reachable.
     target.use('/admin/cors-diagnostics', corsDiagnosticsRoutes);
   }
 

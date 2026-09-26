@@ -3,12 +3,15 @@
  * inspect and replay notification/websocket dispatches that failed at
  * runtime, without needing shell or DB access.
  *
- * Gated by `requireAdmin`. All write actions return a structured summary so
- * a CI smoke test or an on-call runbook can assert against it.
+ * Gated by the admin RBAC matrix (`requireAdminPermission`): listing needs
+ * `DLQ_READ`, replaying needs `DLQ_REPLAY`. Every call is written to the
+ * append-only admin audit trail. All write actions return a structured
+ * summary so a CI smoke test or an on-call runbook can assert against it.
  */
 import { Router, Request, Response } from 'express';
 import { DispatchChannel, DispatchStatus } from '@prisma/client';
-import { requireAdmin } from '../middleware/auth.middleware';
+import { requireAdminPermission } from '../middleware/auth.middleware';
+import { AdminPermission } from '../security/admin-permissions';
 import deadLetterQueueService, {
   RetryHandlers,
 } from '../services/dead-letter-queue.service';
@@ -75,20 +78,24 @@ function parseDryRun(req: Request): boolean {
  *     security:
  *       - bearerAuth: []
  */
-router.get('/', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const { entries, total, limit, offset } = await deadLetterQueueService.list({
-      status: parseStatus(req.query.status),
-      channel: parseChannel(req.query.channel),
-      limit: parseInt32(req.query.limit, 50),
-      offset: parseInt32(req.query.offset, 0),
-    });
-    res.json({ entries, total, limit, offset });
-  } catch (err) {
-    logger.error('DLQ list failed', { error: err });
-    res.status(500).json({ error: 'Failed to list dead-letter entries' });
-  }
-});
+router.get(
+  '/',
+  requireAdminPermission(AdminPermission.DLQ_READ),
+  async (req: Request, res: Response) => {
+    try {
+      const { entries, total, limit, offset } = await deadLetterQueueService.list({
+        status: parseStatus(req.query.status),
+        channel: parseChannel(req.query.channel),
+        limit: parseInt32(req.query.limit, 50),
+        offset: parseInt32(req.query.offset, 0),
+      });
+      res.json({ entries, total, limit, offset });
+    } catch (err) {
+      logger.error('DLQ list failed', { error: err });
+      res.status(500).json({ error: 'Failed to list dead-letter entries' });
+    }
+  },
+);
 
 /**
  * @openapi
@@ -101,22 +108,26 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
  *     security:
  *       - bearerAuth: []
  */
-router.post('/retry-all', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const limit = parseInt32(req.body?.limit ?? req.query?.limit, 50);
-    const dryRun = parseDryRun(req);
-    const result = await deadLetterQueueService.retryAll(
-      buildRetryHandlers(),
-      limit,
-      undefined,
-      { dryRun },
-    );
-    res.json(result);
-  } catch (err) {
-    logger.error('DLQ retry-all failed', { error: err });
-    res.status(500).json({ error: 'Failed to replay dead-letter entries' });
-  }
-});
+router.post(
+  '/retry-all',
+  requireAdminPermission(AdminPermission.DLQ_REPLAY),
+  async (req: Request, res: Response) => {
+    try {
+      const limit = parseInt32(req.body?.limit ?? req.query?.limit, 50);
+      const dryRun = parseDryRun(req);
+      const result = await deadLetterQueueService.retryAll(
+        buildRetryHandlers(),
+        limit,
+        undefined,
+        { dryRun },
+      );
+      res.json(result);
+    } catch (err) {
+      logger.error('DLQ retry-all failed', { error: err });
+      res.status(500).json({ error: 'Failed to replay dead-letter entries' });
+    }
+  },
+);
 
 /**
  * @openapi
@@ -128,24 +139,28 @@ router.post('/retry-all', requireAdmin, async (req: Request, res: Response) => {
  *     security:
  *       - bearerAuth: []
  */
-router.post('/:id/retry', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const dryRun = parseDryRun(req);
-    const result = await deadLetterQueueService.retry(
-      req.params.id,
-      buildRetryHandlers(),
-      undefined,
-      { dryRun },
-    );
-    if (!result) {
-      res.status(404).json({ error: 'Dead-letter entry not found' });
-      return;
+router.post(
+  '/:id/retry',
+  requireAdminPermission(AdminPermission.DLQ_REPLAY),
+  async (req: Request, res: Response) => {
+    try {
+      const dryRun = parseDryRun(req);
+      const result = await deadLetterQueueService.retry(
+        req.params.id,
+        buildRetryHandlers(),
+        undefined,
+        { dryRun },
+      );
+      if (!result) {
+        res.status(404).json({ error: 'Dead-letter entry not found' });
+        return;
+      }
+      res.json(result);
+    } catch (err) {
+      logger.error('DLQ retry failed', { error: err, id: req.params.id });
+      res.status(500).json({ error: 'Failed to replay dead-letter entry' });
     }
-    res.json(result);
-  } catch (err) {
-    logger.error('DLQ retry failed', { error: err, id: req.params.id });
-    res.status(500).json({ error: 'Failed to replay dead-letter entry' });
-  }
-});
+  },
+);
 
 export default router;

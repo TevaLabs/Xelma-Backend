@@ -248,6 +248,8 @@ jest.mock('../metrics/application.metrics', () => {
 jest.mock('../middleware/auth.middleware', () => ({
   authenticateUser: (_req: any, _res: any, next: any) => next(),
   requireAdmin: (_req: any, _res: any, next: any) => next(),
+  requireAdminPermission: () => (_req: any, _res: any, next: any) => next(),
+  requireMetricsAuth: (_req: any, _res: any, next: any) => next(),
   requireOracle: (_req: any, _res: any, next: any) => next(),
   verifyStellarAuth: (_req: any, _res: any, next: any) => next(),
   bindAuthenticatedWallet: (_req: any, _res: any, next: any) => next(),

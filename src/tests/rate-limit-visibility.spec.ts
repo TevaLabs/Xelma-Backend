@@ -120,13 +120,24 @@ describe('Rate Limit Visibility', () => {
     expect(match.value).toBeGreaterThanOrEqual(1);
   });
 
-  it('should expose Prometheus metrics via scraping endpoint', async () => {
+  it('should expose Prometheus metrics via scraping endpoint to admins', async () => {
+    // Issue #497: the admin metrics scrape is admin-gated (admin JWT or
+    // METRICS_SCRAPE_TOKEN) just like every other /api/admin route.
     const response = await request(app)
-      .get('/api/admin/metrics/metrics');
+      .get('/api/admin/metrics/metrics')
+      .set('Authorization', `Bearer ${adminToken}`);
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('text/plain');
     expect(response.text).toContain('http_rate_limit_hits_total');
+  });
+
+  it('should deny the metrics scrape to regular users', async () => {
+    const response = await request(app)
+      .get('/api/admin/metrics/metrics')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(response.status).toBe(403);
   });
 
   it('should expose rate-limit-summary JSON to admins', async () => {
