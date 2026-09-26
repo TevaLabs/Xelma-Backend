@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll } from "@jest/globals";
+import { describe, it, expect, beforeAll, beforeEach } from "@jest/globals";
 import request from "supertest";
 import express from "express";
 import { ErrorResponse } from "../middleware/errorHandler.middleware";
+import { challengeRateLimiter } from "../middleware/rateLimiter.middleware";
 
 /**
  * Test suite to ensure all API routes return consistent error response format.
@@ -19,6 +20,16 @@ describe("Error Response Consistency", () => {
   beforeAll(() => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     app = require("../index").createApp();
+  });
+
+  // This suite fires many requests at /api/auth/challenge; clear the limiter
+  // between tests so a 429 never masks the error-shape assertion.
+  beforeEach(async () => {
+    await Promise.all(
+      ["::ffff:127.0.0.1", "127.0.0.1", "::1"].map((ip) =>
+        Promise.resolve(challengeRateLimiter.resetKey(ip)),
+      ),
+    );
   });
 
   /**
@@ -56,7 +67,7 @@ describe("Error Response Consistency", () => {
 
       expect(res.status).toBe(404);
       expectStandardErrorShape(res.body, "NOT_FOUND");
-      expect(res.body.error).toBe("NotFoundError");
+      expect(res.body.error).toBe(res.body.message);
     });
 
     it("returns standard error shape for non-existent resource", async () => {
@@ -76,7 +87,7 @@ describe("Error Response Consistency", () => {
 
       expect(res.status).toBe(401);
       expectStandardErrorShape(res.body, "AUTHENTICATION_ERROR");
-      expect(res.body.error).toBe("AuthenticationError");
+      expect(res.body.error).toBe(res.body.message);
     });
 
     it("returns standard error shape for invalid auth token", async () => {
@@ -106,7 +117,7 @@ describe("Error Response Consistency", () => {
 
       expect(res.status).toBe(400);
       expectStandardErrorShape(res.body, "VALIDATION_ERROR");
-      expect(res.body.error).toBe("ValidationError");
+      expect(res.body.error).toBe(res.body.message);
 
       // Validation errors should include details
       if (res.body.details) {

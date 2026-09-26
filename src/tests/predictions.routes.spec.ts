@@ -12,6 +12,7 @@ const ROUND_ID = 'pred-test-round-id';
 
 const mockUserFindUnique = jest.fn();
 const mockIdempotencyFindUnique = jest.fn();
+const mockIdempotencyCreate = jest.fn();
 const mockIdempotencyUpsert = jest.fn();
 const mockSubmitPrediction = jest.fn();
 
@@ -22,6 +23,8 @@ jest.mock('../lib/prisma', () => ({
     },
     idempotencyKey: {
       findUnique: (...args: any[]) => mockIdempotencyFindUnique(...args),
+      // `acquireIdempotencyLock` inserts a placeholder row before the handler runs.
+      create: (...args: any[]) => mockIdempotencyCreate(...args),
       upsert: (...args: any[]) => mockIdempotencyUpsert(...args),
     },
     $disconnect: jest.fn().mockResolvedValue(undefined),
@@ -92,6 +95,7 @@ describe('Predictions Routes - Auth Identity Binding (Issue #64)', () => {
       return Promise.resolve(null);
     });
     mockIdempotencyFindUnique.mockResolvedValue(null);
+    mockIdempotencyCreate.mockResolvedValue({ id: 'idem-lock-1' });
     mockIdempotencyUpsert.mockResolvedValue({});
     testRound = { id: ROUND_ID + '-' + Date.now() };
     mockSubmitPrediction.mockResolvedValue({

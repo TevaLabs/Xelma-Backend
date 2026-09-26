@@ -197,7 +197,7 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
         .send({ address: hackerWallet, amount: 100, side: 'UP' });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe('No token provided');
+      expect(res.body.message).toBe('No token provided');
     });
 
     it('records an up-down bet and matches success schema', async () => {
@@ -230,7 +230,7 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
         .send({ address: hackerWallet, amount: 50, predictedPrice: 65000.5 });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe('No token provided');
+      expect(res.body.message).toBe('No token provided');
     });
 
     it('records a precision bet and matches success schema', async () => {

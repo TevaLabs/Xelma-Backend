@@ -32,10 +32,16 @@ jest.mock('../services/oracle', () => ({
 const mockCheckRedisHealth = jest.fn<() => Promise<{ status: string; durationMs: number; error?: string }>>();
 const mockIsRedisCacheEnabled = jest.fn<boolean>();
 
-jest.mock('../lib/redis', () => ({
-  checkRedisHealth: (...args: unknown[]) => mockCheckRedisHealth(...args),
-  isRedisCacheEnabled: (...args: unknown[]) => mockIsRedisCacheEnabled(...args),
-}));
+jest.mock('../lib/redis', () => {
+  const actual = jest.requireActual('../lib/redis');
+  return {
+    ...actual,
+    checkRedisHealth: (...args: unknown[]) => mockCheckRedisHealth(...args),
+    isRedisCacheEnabled: (...args: unknown[]) => mockIsRedisCacheEnabled(...args),
+    isRedisConfigured: () => false,
+    isRedisRateLimitConfigured: () => false,
+  };
+});
 
 // Mock config — provide all properties that downstream modules may access
 let mockDataStore: 'memory' | 'postgres' = 'memory';

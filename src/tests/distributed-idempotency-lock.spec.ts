@@ -9,6 +9,9 @@ import { ErrorCode } from "../utils/errors";
 
 jest.mock("../lib/redis", () => ({
   getConnectedRedisClient: jest.fn(),
+  // The lock helper short-circuits when Redis is not configured. These tests
+  // exercise the fail-closed Redis path, so report it as configured.
+  isRedisConfigured: () => true,
 }));
 
 const mockGetConnectedRedisClient = getConnectedRedisClient as jest.Mock;

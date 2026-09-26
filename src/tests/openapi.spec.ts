@@ -23,7 +23,7 @@ const REQUIRED_OPERATIONS: RequiredOperation[] = [
 
   // Predictions — placement and reads (src/routes/predictions.routes.ts)
   { path: "/api/predictions/submit", method: "post", statuses: ["200", "409"] },
-  { path: "/api/predictions/batch-submit", method: "post", statuses: ["200", "429"] },
+  { path: "/api/predictions/batch-submit", method: "post", statuses: ["200", "400", "401", "429"] },
   { path: "/api/predictions/user", method: "get", statuses: ["200"] },
   { path: "/api/predictions/round/{roundId}", method: "get", statuses: ["200"] },
 
@@ -107,6 +107,18 @@ describe("OpenAPI spec", () => {
   it("documents 429 response on batch prediction submit", () => {
     const batchOp = paths["/api/predictions/batch-submit"]?.post;
     expect(batchOp?.responses?.["429"]).toBeDefined();
+  });
+
+  it("documents the batch prediction size limit (max 50) in the request body", () => {
+    // The schema (`batchSubmitPredictionsSchema`) rejects 51+ items with a 400;
+    // the spec must advertise the same ceiling so docs cannot drift from code.
+    const batchOp = paths["/api/predictions/batch-submit"]?.post;
+    const predictions =
+      batchOp?.requestBody?.content?.["application/json"]?.schema?.properties?.predictions;
+
+    expect(predictions?.type).toBe("array");
+    expect(predictions?.maxItems).toBe(50);
+    expect(predictions?.minItems).toBe(1);
   });
 
   it("auth examples use valid Stellar StrKey fixtures (not placeholder strings)", () => {

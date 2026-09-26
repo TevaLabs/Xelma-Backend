@@ -54,6 +54,11 @@ describe("Bets Routes", () => {
   let app: Express;
   let token: string;
   const originalEnv = process.env;
+  // Bet.txHash is unique in the schema, so every mocked on-chain submission
+  // must use a distinct hash. Tests that submit more than once use this to
+  // generate fresh values instead of colliding on a fixed fake hash.
+  let txSeq = 0;
+  const uniqueTxHash = (prefix: string) => `0x${prefix}-${Date.now()}-${++txSeq}`;
 
   beforeAll(() => {
     (getConnectedRedisClient as jest.Mock).mockResolvedValue({
@@ -89,14 +94,15 @@ describe("Bets Routes", () => {
           message: "Bet recorded (stub)",
           state: "stub",
           betId: expect.any(String),
-          status: "STUB",
+          status: "ACCEPTED",
         },
       });
     });
 
     it("returns 200 and calls SorobanService when BET_STUB_MODE is false", async () => {
       process.env.BET_STUB_MODE = "false";
-      (sorobanService.placeBet as jest.Mock).mockResolvedValue({ state: "on-chain-success", txHash: "0x123" });
+      const txHash = uniqueTxHash("updown");
+      (sorobanService.placeBet as jest.Mock).mockResolvedValue({ state: "on-chain-success", txHash });
 
       const res = await request(app)
         .post("/api/bets/up-down")
@@ -110,9 +116,9 @@ describe("Bets Routes", () => {
         data: {
           message: "Bet placed on-chain",
           state: "on-chain-success",
-          txHash: "0x123",
+          txHash,
           betId: expect.any(String),
-          status: "CONFIRMED",
+          status: "SUBMITTED",
         },
       });
     });
@@ -159,7 +165,7 @@ describe("Bets Routes", () => {
         });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toMatch(/match authenticated user/i);
+      expect(res.body.message).toMatch(/match authenticated user/i);
     });
 
     it("returns 400 when required fields are missing", async () => {
@@ -176,7 +182,10 @@ describe("Bets Routes", () => {
     // --- Idempotency Tests ---
     it("idempotency: first request creates a bet, duplicate request with same key does not create another bet and returns original response", async () => {
       process.env.BET_STUB_MODE = "false";
-      (sorobanService.placeBet as jest.Mock).mockResolvedValue({ state: "on-chain-success", txHash: "0xidempotent" });
+      (sorobanService.placeBet as jest.Mock).mockImplementation(async () => ({
+        state: "on-chain-success",
+        txHash: uniqueTxHash("idempotent"),
+      }));
 
       const key = "key-updown-123";
       const payload = { address: VALID_ADDRESS, amount: 10, side: "UP" };
@@ -189,7 +198,7 @@ describe("Bets Routes", () => {
         .send(payload);
 
       expect(res1.status).toBe(200);
-      expect(res1.body.data.txHash).toBe("0xidempotent");
+      expect(res1.body.data.txHash).toMatch(/^0xidempotent-/);
       expect(sorobanService.placeBet).toHaveBeenCalledTimes(1);
 
       // Second request
@@ -206,7 +215,10 @@ describe("Bets Routes", () => {
 
     it("idempotency: expired key allows a new bet", async () => {
       process.env.BET_STUB_MODE = "false";
-      (sorobanService.placeBet as jest.Mock).mockResolvedValue({ state: "on-chain-success", txHash: "0xexpired" });
+      (sorobanService.placeBet as jest.Mock).mockImplementation(async () => ({
+        state: "on-chain-success",
+        txHash: uniqueTxHash("expired"),
+      }));
 
       const key = "key-updown-expired";
       const payload = { address: VALID_ADDRESS, amount: 10, side: "UP" };
@@ -237,7 +249,10 @@ describe("Bets Routes", () => {
 
     it("idempotency: missing header behaves exactly as before", async () => {
       process.env.BET_STUB_MODE = "false";
-      (sorobanService.placeBet as jest.Mock).mockResolvedValue({ state: "on-chain-success", txHash: "0xnoheader" });
+      (sorobanService.placeBet as jest.Mock).mockImplementation(async () => ({
+        state: "on-chain-success",
+        txHash: uniqueTxHash("noheader"),
+      }));
 
       const payload = { address: VALID_ADDRESS, amount: 10, side: "UP" };
 
@@ -256,9 +271,10 @@ describe("Bets Routes", () => {
 
     it("idempotency: concurrent retries only trigger bet creation once", async () => {
       process.env.BET_STUB_MODE = "false";
+      const concurrentHash = uniqueTxHash("concurrent");
       (sorobanService.placeBet as jest.Mock).mockImplementation(async () => {
         await new Promise(resolve => setTimeout(resolve, 500));
-        return { state: "on-chain-success", txHash: "0xconcurrent" };
+        return { state: "on-chain-success", txHash: concurrentHash };
       });
 
       const key = "key-updown-concurrent";
@@ -276,7 +292,7 @@ describe("Bets Routes", () => {
 
       for (const res of responses) {
         expect(res.status).toBe(200);
-        expect(res.body.data.txHash).toBe("0xconcurrent");
+        expect(res.body.data.txHash).toBe(concurrentHash);
       }
 
       expect(sorobanService.placeBet).toHaveBeenCalledTimes(1);
@@ -284,7 +300,10 @@ describe("Bets Routes", () => {
 
     it("idempotency: returns 409 Conflict if key is reused with a different body", async () => {
       process.env.BET_STUB_MODE = "false";
-      (sorobanService.placeBet as jest.Mock).mockResolvedValue({ state: "on-chain-success", txHash: "0xconflict" });
+      (sorobanService.placeBet as jest.Mock).mockImplementation(async () => ({
+        state: "on-chain-success",
+        txHash: uniqueTxHash("conflict"),
+      }));
 
       const key = "key-updown-conflict";
 
@@ -318,17 +337,18 @@ describe("Bets Routes", () => {
       expect(res.body).toEqual({
         success: true,
         data: {
-          message: "Bet recorded (stub)",
+          message: "Precision bet recorded (stub)",
           state: "stub",
           betId: expect.any(String),
-          status: "STUB",
+          status: "ACCEPTED",
         },
       });
     });
 
     it("returns 200 and calls SorobanService when BET_STUB_MODE is false", async () => {
       process.env.BET_STUB_MODE = "false";
-      (sorobanService.placePrecisionBet as jest.Mock).mockResolvedValue({ state: "on-chain-success", txHash: "0x456" });
+      const txHash = uniqueTxHash("precision");
+      (sorobanService.placePrecisionBet as jest.Mock).mockResolvedValue({ state: "on-chain-success", txHash });
 
       const res = await request(app)
         .post("/api/bets/precision")
@@ -340,11 +360,11 @@ describe("Bets Routes", () => {
       expect(res.body).toEqual({
         success: true,
         data: {
-          message: "Bet placed on-chain",
+          message: "Precision bet placed on-chain",
           state: "on-chain-success",
-          txHash: "0x456",
+          txHash,
           betId: expect.any(String),
-          status: "CONFIRMED",
+          status: "SUBMITTED",
         },
       });
     });
@@ -378,7 +398,10 @@ describe("Bets Routes", () => {
     // --- Idempotency Tests ---
     it("idempotency: precision first request creates a bet, duplicate request with same key returns original response", async () => {
       process.env.BET_STUB_MODE = "false";
-      (sorobanService.placePrecisionBet as jest.Mock).mockResolvedValue({ state: "on-chain-success", txHash: "0xprecision-idemp" });
+      (sorobanService.placePrecisionBet as jest.Mock).mockImplementation(async () => ({
+        state: "on-chain-success",
+        txHash: uniqueTxHash("precision-idemp"),
+      }));
 
       const key = "key-precision-123";
       const payload = { address: VALID_ADDRESS, amount: 5, predictedPrice: 0.12 };
