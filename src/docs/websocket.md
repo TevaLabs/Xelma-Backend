@@ -13,23 +13,28 @@ This document defines the real-time event contract, lifecycle events, and type s
 
 ### 1. Connection Requirements
 
-Connections use the standard Socket.IO client library against the root namespace (`/`). Authentication requires a valid JWT in the initial handshake.
+Connections use the standard Socket.IO client library against the root namespace (`/`). A JWT is **optional for public events** (e.g. `price:update`, `round:*`) but **required** for chat, notifications, and any `user:*` room. The server accepts the token from **either** of these locations (see [`src/socket.ts`](../socket.ts) → `io.use`):
+
+1. `socket.handshake.auth.token` — the preferred/recommended form
+2. `Authorization: Bearer <jwt>` header — a fallback for non-browser clients
 
 - **Production Gateway URL:** `https://api.tevalabs.com`
-- **Protocol:** WebSocket / polling fallback
+- **Protocol:** WebSocket with polling fallback
+- **Auth:** JWT access token, no wallet challenge needed once you already have a token
 
 ```typescript
 import { io } from "socket.io-client";
 // types are co-located with src/, so the relative path from src/docs/ is ../types/socket-events
 import type { TypedClientSocket } from "../types/socket-events";
 
-const socket: TypedClientSocket = io("https://api.tevalabs.com", {
-  auth: {
-    token: "YOUR_JWT_ACCESS_TOKEN",
-  },
+const GATEWAY_URL = "https://api.tevalabs.com";
+
+// Recommended: token in `auth`. The server also accepts an
+// `Authorization: Bearer <jwt>` header (see above) for parity with HTTP.
+const socket: TypedClientSocket = io(GATEWAY_URL, {
+  auth: { token: "YOUR_JWT_ACCESS_TOKEN" },
   autoConnect: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
+  transports: ["websocket", "polling"],
 });
 
 // All events are fully typed — no guessing payload shapes
@@ -38,6 +43,8 @@ socket.on("round:started", (data) => {
   console.log(data.startPrice); // typed
 });
 ```
+
+> **Connecting without a token is allowed** and yields a public socket (price/round events only). The server emits `server:hello` with `authenticated: false`; joining chat or notification rooms will then fail with `error: { message: "Authentication required..." }`.
 
 ### 2. Heartbeat Contract
 
@@ -55,7 +62,52 @@ interface ServerHelloPayload {
 
 Clients that do not receive a server ping within `pingInterval + pingTimeout` ms should reconnect.
 
-### 3. Token Expiry & Reconnect
+### 3. Reconnect & Backoff Policy
+
+After a transport drop, re-create the socket and **re-join every room you need** — the reconnect contract treats a new socket as a fresh connection (the server does persist rooms for authenticated users via `session:resume`, but the client should not rely on it as the only path).
+
+Recommended Socket.IO options:
+
+| Option | Recommended value | Why |
+|--------|-------------------|-----|
+| `reconnection` | `true` | Let Socket.IO manage the retry loop |
+| `reconnectionAttempts` | `10` | Give up after ~10 tries, then fall back to a manual retry with a fresh token |
+| `reconnectionDelay` | `1000` (ms) | First retry after 1 s |
+| `reconnectionDelayMax` | `15000` (ms) | Cap the exponential backoff at 15 s |
+| `randomizationFactor` | `0.5` | Jitter to avoid a reconnect thundering herd |
+
+```typescript
+import { io } from "socket.io-client";
+import type { TypedClientSocket } from "../types/socket-events";
+
+const socket: TypedClientSocket = io("https://api.tevalabs.com", {
+  auth: { token: getAccessToken() },
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1_000,
+  reconnectionDelayMax: 15_000,
+  randomizationFactor: 0.5,
+});
+
+// Mirror the client-side backoff for a GET /api/notifications catch-up after
+// a reconnect so you don't miss events that fired while offline.
+socket.on("connect", () => {
+  socket.emit("join:round");
+  if (isAuthenticated()) {
+    socket.emit("join:chat");
+    socket.emit("join:notifications");
+  }
+});
+
+// Surface reconnect failures so the UI can show a manual "Retry" affordance.
+socket.on("reconnect_failed", () => {
+  console.warn("Socket reconnection attempts exhausted");
+});
+```
+
+**Which events need an ack?** Only `chat:send` uses an acknowledgement callback (see the table below). Every other client→server event is fire-and-forget; treat the `room:joined` / `room:left` confirmation events as the acknowledgement for room joins.
+
+### 4. Token Expiry & Reconnect
 
 When the JWT expires the server emits `auth:error` then disconnects the socket:
 
@@ -67,8 +119,8 @@ interface AuthErrorPayload {
 ```
 
 **Client flow:**
-1. Listen for `auth:error` events.
-2. On `code === "AUTH_TOKEN_EXPIRED"`: call the HTTP token refresh endpoint `POST /api/auth/refresh`:
+1. Listen for `auth:error` events. During the initial handshake a bad token instead surfaces as a `connect_error` with message `AUTH_TOKEN_EXPIRED` / `AUTH_TOKEN_INVALID` (the server rejects the handshake in `io.use`), so handle both.
+2. On `code === "AUTH_TOKEN_EXPIRED"` (or the matching `connect_error`): call the HTTP token refresh endpoint `POST /api/auth/refresh`:
    ```bash
    curl -X POST "$API_BASE_URL/api/auth/refresh" \
      -H "Authorization: Bearer YOUR_EXPIRED_JWT"
@@ -77,7 +129,7 @@ interface AuthErrorPayload {
 3. Reconnect with the new token returned in `response.data.token` set as `socket.handshake.auth.token`.
 4. Re-join rooms (e.g. `join:round`, `join:chat`) after reconnect without requiring a full wallet re-authentication challenge.
 
-### 4. Reconnect Continuity
+### 5. Reconnect Continuity
 
 After a reconnect, the server sends a `session:resume` event that lists previously-joined rooms and saved metadata:
 
@@ -98,14 +150,16 @@ socket.emit("session:checkpoint", { lastViewedRound: "abc-123" });
 
 ## Client-to-Server Events
 
+Server sends `room:joined` / `room:left` after each join/leave; those are the acknowledgements for room membership.
+
 | Event | Payload | Ack | Description |
 |-------|---------|-----|-------------|
-| `join:round` | `{ roundId?: string }` | — | Join a round room (omit roundId for general round room) |
-| `leave:round` | `{ roundId?: string }` | — | Leave a round room |
-| `join:chat` | — | — | Join the global chat room (auth required) |
-| `leave:chat` | — | — | Leave the chat room |
-| `chat:send` | `{ content: string }` | `ChatAckPayload` | Send a chat message (auth required, rate-limited) |
-| `join:notifications` | — | — | Join personal notification room (auth required) |
+| `join:round` | `{ roundId?: string }` | `room:joined` | Join a round room (omit roundId for general round room). Also accepts a bare `string` roundId. |
+| `leave:round` | `{ roundId?: string }` | `room:left` | Leave a round room |
+| `join:chat` | — | `room:joined` | Join the global chat room (auth required) |
+| `leave:chat` | — | `room:left` | Leave the chat room |
+| `chat:send` | `{ content: string }` | `ChatAckPayload` (callback) | Send a chat message (auth required, rate-limited 5/min/user) |
+| `join:notifications` | — (or explicit room string) | `room:joined` | Join personal notification room (auth required) |
 | `session:checkpoint` | `Record<string, unknown>` | — | Save opaque session metadata for reconnect |
 
 ### Chat Send Ack

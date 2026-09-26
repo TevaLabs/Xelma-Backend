@@ -93,6 +93,19 @@ export const priceOracleFetchFailuresTotal = new Counter({
 });
 
 /**
+ * Price providers returning HTTP 429 (rate limited). Labelled by provider so
+ * `coingecko_rate_limited_total` can be alerted on independently of the
+ * CoinCap fallback. See src/services/priceService.ts — a non-zero rate here is
+ * expected to coincide with `stale: true` responses being served from cache.
+ */
+export const priceProviderRateLimitedTotal = new Counter({
+   name: 'price_provider_rate_limited_total',
+   help: 'Total price provider requests rejected with HTTP 429 (rate limited), by provider',
+   labelNames: ['provider'] as const,
+   registers: [metricsRegistry],
+});
+
+/**
  * Oracle health gauges (#229).
  *
  * These let dashboards/alerting reason about price freshness directly,

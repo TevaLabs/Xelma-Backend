@@ -14,13 +14,24 @@
 import { DispatchChannel, DispatchStatus, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
-import { redactDlqPayload } from "../utils/redact-payload";
+import {
+  redactDlqPayload,
+  sanitizeDlqPayload,
+  isTruncatedDlqPayload,
+} from "../utils/redact-payload";
+import { buildOffsetMeta } from "../utils/pagination.util";
 
 /**
  * Hard cap so a single pathological payload (e.g. a runaway error chain)
  * can never blow up the DB column. The Prisma column is VARCHAR(1000).
  */
 const MAX_ERROR_LEN = 1000;
+
+/** Maximum page size accepted by `list` (mirrors the Zod route schema). */
+export const MAX_DLQ_LIST_LIMIT = 100;
+
+/** Default page size when the caller does not supply one. */
+export const DEFAULT_DLQ_LIST_LIMIT = 20;
 
 /**
  * Default upper bound on retry attempts before a row is auto-marked
@@ -69,6 +80,8 @@ export interface RetryDryRunResult {
   status: DispatchStatus;
   attempts: number;
   redactedPayload: unknown;
+  /** True when the stored payload hit the size cap and was truncated. */
+  truncated: boolean;
 }
 
 export interface RetryOptions {
@@ -107,12 +120,15 @@ class DeadLetterQueueService {
    */
   async record(input: RecordFailureInput): Promise<{ id: string } | null> {
     try {
+      // Redact secrets and cap the payload before it ever reaches Postgres so
+      // the DLQ cannot become an unbounded log of user content and JWTs.
+      const sanitized = sanitizeDlqPayload(input.payload);
       const row = await prisma.failedDispatch.create({
         data: {
           channel: input.channel,
           eventName: input.eventName ?? null,
           userId: input.userId ?? null,
-          payload: (input.payload ?? {}) as Prisma.InputJsonValue,
+          payload: sanitized.payload as Prisma.InputJsonValue,
           attempts: 1,
           status: DispatchStatus.PENDING,
           lastError: truncateError(input.error),
@@ -124,6 +140,8 @@ class DeadLetterQueueService {
         channel: input.channel,
         eventName: input.eventName ?? null,
         userId: input.userId ?? null,
+        payloadTruncated: sanitized.truncated,
+        payloadBytes: sanitized.originalBytes,
       });
       return row;
     } catch (err) {
@@ -138,8 +156,19 @@ class DeadLetterQueueService {
    */
   async list(
     options: ListOptions = {},
-  ): Promise<{ entries: any[]; total: number; limit: number; offset: number }> {
-    const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  ): Promise<{
+    data: any[];
+    pagination: {
+      limit: number;
+      offset: number;
+      total: number;
+      hasNextPage: boolean;
+    };
+  }> {
+    const limit = Math.min(
+      Math.max(options.limit ?? DEFAULT_DLQ_LIST_LIMIT, 1),
+      MAX_DLQ_LIST_LIMIT,
+    );
     const offset = Math.max(options.offset ?? 0, 0);
     const where: Prisma.FailedDispatchWhereInput = {};
     if (options.status) where.status = options.status;
@@ -157,8 +186,11 @@ class DeadLetterQueueService {
     const redactedEntries = entries.map(row => ({
       ...row,
       payload: redactDlqPayload(row.payload),
+      // Surface the size cap as a first-class flag so the admin UI can badge
+      // truncated rows without having to introspect the payload shape.
+      truncated: isTruncatedDlqPayload(row.payload),
     }));
-    return { entries: redactedEntries, total, limit, offset };
+    return { data: redactedEntries, pagination: buildOffsetMeta(limit, offset, total) };
   }
 
   /**
@@ -187,6 +219,7 @@ class DeadLetterQueueService {
         status: row.status,
         attempts: row.attempts,
         redactedPayload: redactDlqPayload(row.payload),
+        truncated: isTruncatedDlqPayload(row.payload),
       };
     }
     if (row.status === DispatchStatus.RESOLVED) {
@@ -279,6 +312,7 @@ class DeadLetterQueueService {
         status: row.status,
         attempts: row.attempts,
         redactedPayload: redactDlqPayload(row.payload),
+        truncated: isTruncatedDlqPayload(row.payload),
       }));
       return { dryRun: true, attempted: rows.length, previews };
     }
