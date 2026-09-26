@@ -841,7 +841,7 @@ Prismaâ€™s Postgres connector reads pool/timeouts via connection string que
 
 | Variable                     | Purpose                                      | Default |
 | ---------------------------- | -------------------------------------------- | ------- |
-| `DB_CONNECTION_LIMIT`        | Max Prisma DB connections                    | `10`    |
+| `DB_CONNECTION_LIMIT`        | Max Prisma DB connections (recommended: 5 for multi-instance Render) | `10`    |
 | `DB_POOL_TIMEOUT_SECONDS`    | Wait for a pooled connection                 | `10`    |
 | `DB_CONNECT_TIMEOUT_SECONDS` | Timeout establishing a new connection        | `10`    |
 | `DB_STATEMENT_TIMEOUT_MS`    | Server-side statement timeout (`0` disables) | `0`     |

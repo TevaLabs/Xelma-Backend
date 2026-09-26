@@ -95,6 +95,57 @@ describe('runPreflightChecks — full mode', () => {
     expect(result.ok).toBe(true);
     expect(result.warnings).toHaveLength(0);
   });
+
+  it('fails when DATABASE_URL has an invalid connection_limit (0 or negative)', () => {
+    const env = {
+      ...FULL_ENV,
+      DATABASE_URL: 'postgresql://user:***@localhost:5432/xelma?connection_limit=0',
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.includes('invalid connection_limit'))).toBe(true);
+  });
+
+  it('fails when DB_CONNECTION_LIMIT is non-positive or not a number', () => {
+    const env = {
+      ...FULL_ENV,
+      DB_CONNECTION_LIMIT: '-5',
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.includes('DB_CONNECTION_LIMIT "-5" is invalid'))).toBe(true);
+  });
+
+  it('warns in production when connection_limit and DB_CONNECTION_LIMIT are omitted', () => {
+    const env = {
+      ...PRODUCTION_ENV,
+      DATABASE_URL: 'postgresql://user:***@localhost:5432/xelma',
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(true);
+    expect(result.warnings.some(w => w.includes('connection_limit'))).toBe(true);
+  });
+
+  it('does not warn in production when ?connection_limit is provided in DATABASE_URL', () => {
+    const env = {
+      ...PRODUCTION_ENV,
+      DATABASE_URL: 'postgresql://user:***@localhost:5432/xelma?connection_limit=5',
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(true);
+    expect(result.warnings.some(w => w.includes('connection_limit'))).toBe(false);
+  });
+
+  it('does not warn in production when DB_CONNECTION_LIMIT is set', () => {
+    const env = {
+      ...PRODUCTION_ENV,
+      DATABASE_URL: 'postgresql://user:***@localhost:5432/xelma',
+      DB_CONNECTION_LIMIT: '5',
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(true);
+    expect(result.warnings.some(w => w.includes('connection_limit'))).toBe(false);
+  });
 });
 
 describe('runPreflightChecks — hackathon mode', () => {

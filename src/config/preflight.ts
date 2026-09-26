@@ -146,14 +146,64 @@ function checkDatabaseUrl(
   const url = env.DATABASE_URL;
   if (!url) return [];
   try {
-    new URL(url);
+    const parsed = new URL(url);
+    const limitParam = parsed.searchParams.get('connection_limit');
+    if (limitParam !== null) {
+      const limit = parseInt(limitParam, 10);
+      if (isNaN(limit) || limit <= 0) {
+        return [
+          `DATABASE_URL has an invalid connection_limit "${limitParam}". ` +
+            `connection_limit must be a positive integer (e.g. ?connection_limit=5).`,
+        ];
+      }
+    }
+    if (env.DB_CONNECTION_LIMIT !== undefined && env.DB_CONNECTION_LIMIT.trim().length > 0) {
+      const envLimit = parseInt(env.DB_CONNECTION_LIMIT, 10);
+      if (isNaN(envLimit) || envLimit <= 0) {
+        return [
+          `DB_CONNECTION_LIMIT "${env.DB_CONNECTION_LIMIT}" is invalid. ` +
+            `It must be a positive integer (e.g. DB_CONNECTION_LIMIT=5).`,
+        ];
+      }
+    }
     return [];
   } catch {
     return [
       `DATABASE_URL is not a valid URL. ` +
-        `Expected format: postgresql://user:pass@host:5432/db. ` +
+        `Expected format: postgresql://user:***@host:5432/db. ` +
         `Copy .env.example to .env and update DATABASE_URL for your local database.`,
     ];
+  }
+}
+
+function checkDatabaseConnectionLimit(
+  env: NodeJS.ProcessEnv,
+  mode: RuntimeMode,
+): string[] {
+  if (mode !== 'full') return [];
+  const url = env.DATABASE_URL;
+  if (!url) return [];
+  try {
+    const parsed = new URL(url);
+    const hasUrlLimit = parsed.searchParams.has('connection_limit');
+    const hasEnvLimit = Boolean(
+      env.DB_CONNECTION_LIMIT && env.DB_CONNECTION_LIMIT.trim().length > 0,
+    );
+
+    if (
+      !hasUrlLimit &&
+      !hasEnvLimit &&
+      (env.SAFETY_PROFILE === 'production' || env.NODE_ENV === 'production')
+    ) {
+      return [
+        `DATABASE_URL omits "?connection_limit" (and DB_CONNECTION_LIMIT is unset). ` +
+          `In multi-instance production environments (Render web/workers), Prisma defaults can exhaust PostgreSQL connections. ` +
+          `Recommended: add ?connection_limit=5 to DATABASE_URL or set DB_CONNECTION_LIMIT=5.`,
+      ];
+    }
+    return [];
+  } catch {
+    return [];
   }
 }
 
@@ -240,7 +290,10 @@ export function runPreflightChecks(
     ...checkProductionSafetyProfile(env, safetyProfile),
   ];
 
-  const warnings: string[] = [...checkRedisIfConfigured(env)];
+  const warnings: string[] = [
+    ...checkRedisIfConfigured(env),
+    ...checkDatabaseConnectionLimit(env, mode),
+  ];
 
   return {
     ok: errors.length === 0,
