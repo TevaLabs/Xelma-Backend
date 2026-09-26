@@ -97,3 +97,73 @@ requestId=123e4567-e89b-12d3-a456-426614174000 AND txHash=abc123
 ## Redis adapter note
 
 For multi-instance tracing, ensure `REDIS_URL` is set so the Redis adapter and distributed locks share the same instance. See `docs/multi-instance-deployment.md` and `src/utils/socket-adapter.ts` for adapter config.
+
+---
+
+## OpenTelemetry-style spans (#630)
+
+On top of `requestId`/`txHash` log correlation, the backend can emit
+**OpenTelemetry-style spans** that connect one HTTP request across HTTP → bet
+→ Prisma/Soroban. The implementation lives in
+[`src/observability/tracing.ts`](../src/observability/tracing.ts) and is a
+deliberately tiny, dependency-free helper — not the full OTel SDK.
+
+> **Tracing is off by default.** The helpers become near-zero-cost no-ops when
+disabled, so tests and CI never need a collector.
+
+### What you get
+
+```
+http.server.request            (requestId, method, url, status_code)
+  └─ bet.place.up-down         (requestId, address, amount, side, round_id)
+       └─ soroban.sorobanPlaceBet   (requestId, tx_hash, error)
+```
+
+* `requestId` is attached to every span automatically (from the existing
+  AsyncLocalStorage request context).
+* `soroban.tx_hash` is attached when the contract call returns a transaction hash.
+* Failures set `status = error` and an `error.message` attribute.
+* While tracing is enabled, the structured `http request` log line also gains
+  `traceId` / `spanId`, so logs and spans line up.
+
+### Enable it locally
+
+Console exporter (spans are logged through Winston at `debug` level):
+
+```bash
+OTEL_TRACING_ENABLED=true LOG_LEVEL=debug npm run dev
+```
+
+Export to an OTLP/HTTP collector (setting the endpoint enables tracing):
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm run dev
+```
+
+Spans are POSTed to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces` on a
+fire-and-forget basis — an unreachable collector never slows down or fails a
+request.
+
+| Variable                      | Values         | Effect                                                   |
+| ----------------------------- | -------------- | -------------------------------------------------------- |
+| `OTEL_TRACING_ENABLED`        | `true`/`false` | Explicitly enable/disable. `false` wins over an endpoint.|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | URL            | Enables tracing and exports spans as OTLP/HTTP JSON.     |
+| `LOG_LEVEL`                   | `debug`, …     | Console exporter only emits spans at `debug`.            |
+
+### Programmatic use
+
+```ts
+import { withSpan } from '../observability/tracing';
+
+const result = await withSpan(
+  'bet.place.up-down',
+  { requestId, 'bet.amount': amount },
+  (span) => sorobanService.placeBet(address, amount, side),
+);
+```
+
+### Tests
+
+[`src/tests/tracing.spec.ts`](../src/tests/tracing.spec.ts) runs fully offline
+with an in-memory exporter injected via `configureTracing({ enabled, exporter })`;
+`resetTracing()` restores env-derived defaults. No collector is required.

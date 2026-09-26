@@ -1561,6 +1561,25 @@ Current test coverage includes:
 
 ---
 
+## Observability & tracing
+
+Span tracing across HTTP → bet → Prisma/Soroban is **disabled by default** and
+safe to leave off (the helpers are no-ops). To turn it on locally:
+
+```bash
+# Console exporter — set LOG_LEVEL=debug to print spans
+OTEL_TRACING_ENABLED=true LOG_LEVEL=debug npm run dev
+
+# Or export to an OTLP/HTTP collector (setting the endpoint enables tracing)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm run dev
+```
+
+`requestId` (and `txHash` where the contract returns one) are attached to the
+spans, and the `http request` log line gains `traceId`/`spanId` while tracing
+is enabled. See **[docs/tracing.md](docs/tracing.md)** for details.
+
+---
+
 ## Migration Safety
 
 Schema changes should follow the migration checklist in [docs/migration-safety.md](docs/migration-safety.md). Use it before opening PRs that edit `prisma/schema.prisma`, add files under `prisma/migrations/`, or require production backfills.

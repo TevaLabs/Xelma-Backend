@@ -242,6 +242,101 @@ describe('runPreflightChecks — production safety profile', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// #629 — fail closed on a bad vendored contract client in live Soroban mode.
+// The validator is injected so the matrix runs without touching the real
+// vendor/ tree.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LIVE_SOROBAN_ENV: NodeJS.ProcessEnv = {
+  ...FULL_ENV,
+  NODE_ENV: 'development',
+  SOROBAN_CONTRACT_ID: 'CCJZ5DGZBW5JRZYPZ6J6V3JZ5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z',
+};
+
+function fakeBindingsResult(ok: boolean) {
+  return {
+    ok,
+    errors: ok ? [] : ['Bindings commit skew: vendor is stale.'],
+    warnings: [],
+    remediation: ['1. Rebuild the vendored bindings:  node scripts/install-bindings.js --refresh'],
+    info: {
+      vendorPath: '/tmp/vendor',
+      pinPath: '/tmp/bindings.pin.json',
+      esmEntry: null,
+      cjsEntry: null,
+      typesEntry: null,
+      packageName: null,
+      commitSha: null,
+      expectedCommitSha: null,
+      declaredMethods: [],
+      runtimeMethods: [],
+      specMethods: [],
+    },
+  };
+}
+
+const BAD_BINDINGS = { validateBindings: () => fakeBindingsResult(false) };
+const GOOD_BINDINGS = { validateBindings: () => fakeBindingsResult(true) };
+
+describe('runPreflightChecks — vendored bindings gate (#629)', () => {
+  it('live Soroban mode + bad vendor ⇒ hard failure that refuses to serve', () => {
+    const result = runPreflightChecks(LIVE_SOROBAN_ENV, BAD_BINDINGS);
+    expect(result.ok).toBe(false);
+    expect(
+      result.errors.some(
+        (e) => e.includes('failed validation in live Soroban mode') && e.includes('BET_STUB_MODE'),
+      ),
+    ).toBe(true);
+    // The validator's own error list and remediation steps are surfaced.
+    expect(result.errors.some((e) => e.includes('Bindings commit skew'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('install-bindings.js --refresh'))).toBe(true);
+  });
+
+  it('live Soroban mode + good vendor ⇒ boots', () => {
+    const result = runPreflightChecks(LIVE_SOROBAN_ENV, GOOD_BINDINGS);
+    expect(result.ok).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('stub/demo mode + bad vendor ⇒ still boots (warning only)', () => {
+    const env = { ...LIVE_SOROBAN_ENV, BET_STUB_MODE: 'true' };
+    const result = runPreflightChecks(env, BAD_BINDINGS);
+    expect(result.ok).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('API-only / no-contract deployment + bad vendor ⇒ still boots', () => {
+    const env = { ...FULL_ENV, SOROBAN_CONTRACT_ID: undefined };
+    const result = runPreflightChecks(env, BAD_BINDINGS);
+    expect(result.ok).toBe(true);
+  });
+
+  it('BINDINGS_CHECK=off disables the gate even in live Soroban mode', () => {
+    const env = { ...LIVE_SOROBAN_ENV, BINDINGS_CHECK: 'off' };
+    const result = runPreflightChecks(env, BAD_BINDINGS);
+    expect(result.ok).toBe(true);
+  });
+
+  it('assertPreflightOrExit throws (instead of exiting) for a bad vendor in tests', () => {
+    const env = { ...LIVE_SOROBAN_ENV, NODE_ENV: 'test', JEST_WORKER_ID: '1' };
+    // Test env resolves to `warn`, so it must NOT throw for bindings alone…
+    expect(() => assertPreflightOrExit(env, BAD_BINDINGS)).not.toThrow();
+  });
+
+  it('assertPreflightOrExit throws PreflightError when live + bad in a production-shaped process', () => {
+    // NODE_ENV must not be "test" for the policy to be strict; the Jest
+    // worker id makes assertPreflightOrExit throw instead of process.exit.
+    const env = {
+      ...PRODUCTION_ENV,
+      NODE_ENV: 'production',
+      SOROBAN_CONTRACT_ID: 'C123',
+      BET_STUB_MODE: 'false',
+    };
+    expect(() => assertPreflightOrExit(env, BAD_BINDINGS)).toThrow(PreflightError);
+  });
+});
+
 describe('assertPreflightOrExit', () => {
   it('does not throw with a valid full env in test environment', () => {
     expect(() => assertPreflightOrExit(FULL_ENV)).not.toThrow();

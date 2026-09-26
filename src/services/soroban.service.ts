@@ -15,6 +15,7 @@ import {
   sorobanRpcDurationSeconds,
 } from "../metrics/application.metrics";
 import { getRequestId } from "../utils/requestContext";
+import { withSpan, Span } from "../observability/tracing";
 
 export interface SorobanHealth {
   initialized: boolean;
@@ -225,6 +226,21 @@ export class SorobanService {
     operation: () => Promise<TimeoutResult<T>>,
     fallback?: T,
   ): Promise<TimeoutResult<T>> {
+    // One nested span per contract call (#630). No-op unless tracing is on, so
+    // hot paths pay nothing by default.
+    return withSpan(
+      `soroban.${operationName}`,
+      { "soroban.operation": operationName },
+      (span) => this.executeWithBreaker(operationName, operation, fallback, span),
+    );
+  }
+
+  private async executeWithBreaker<T>(
+    operationName: string,
+    operation: () => Promise<TimeoutResult<T>>,
+    fallback: T | undefined,
+    span: Span,
+  ): Promise<TimeoutResult<T>> {
     const startMs = Date.now();
 
     try {
@@ -242,8 +258,16 @@ export class SorobanService {
       sorobanRpcDurationSeconds.observe({ operation: operationName }, latencySeconds);
       sorobanRpcCallsTotal.inc({ operation: operationName, outcome: "success" });
 
+      // Attach the chain tx hash so a single request can be followed from HTTP
+      // into the contract call.
+      const txHash = (result as { data?: { txHash?: string } } | undefined)?.data?.txHash;
+      if (typeof txHash === "string") {
+        span.setAttribute("soroban.tx_hash", txHash);
+      }
+
       return result;
     } catch (error) {
+      span.setAttribute("error", true);
       const latencySeconds = (Date.now() - startMs) / 1000;
       sorobanRpcDurationSeconds.observe({ operation: operationName }, latencySeconds);
 
