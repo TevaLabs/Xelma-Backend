@@ -12,8 +12,10 @@ const router = Router();
  *     summary: Live BTC, ETH, and XLM prices
  *     description: |
  *       Fetches USD prices from CoinGecko with a 30-second in-memory cache.
- *       When CoinGecko is temporarily unavailable, returns the last cached
- *       values with `stale: true`.
+ *       When CoinGecko is temporarily unavailable (including **429 rate
+ *       limits**, in which case the `Retry-After` backoff is honored),
+ *       returns the last cached values with `stale: true`. Concurrent cache
+ *       misses share a single upstream request (single-flight).
  *       The legacy single-asset XLM oracle endpoint lives on its own router so the
  *       app factory can gate it behind the `legacyPriceEndpoint` flag: the hackathon
  *       app serves `GET /api/prices` but must not expose `GET /api/price`.
@@ -31,6 +33,14 @@ export const legacyXlmPriceRouter = Router();
  *
  *       Returns live BTC, ETH, and XLM spot prices in USD (CoinGecko, 30-second
  *       in-memory cache). Use this for multi-asset price widgets and tickers.
+ *
+ *       **Cache-miss stampede protection:** concurrent cache misses share one
+ *       upstream request (single-flight). When CoinGecko responds **429**, the
+ *       service honors its `Retry-After` header, serves the last cached
+ *       snapshot with `stale: true`, and suppresses further upstream calls
+ *       until the backoff expires. The event is counted in
+ *       `price_provider_rate_limited_total{provider="coingecko"}` and logged
+ *       as `coingecko_rate_limited`.
  *
  *       | Path | Purpose | Typical client |
  *       |------|---------|----------------|
