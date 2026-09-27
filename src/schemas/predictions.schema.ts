@@ -13,7 +13,11 @@ export const submitPredictionSchema = z
   .object({
     roundId: z.string({ error: "Round ID is required" }).min(1, "Round ID is required"),
     amount: z.number({ error: "Invalid amount" }).positive("Invalid amount"),
-    side: z.string().optional(),
+    side: z
+      .enum(["UP", "DOWN"], {
+        message: "side must be UP or DOWN",
+      })
+      .optional(),
     priceRange: predictionPriceRangeSchema.optional(),
   })
   .refine((data) => data.side || data.priceRange, {

@@ -7,7 +7,7 @@ import { PredictionService } from "../services/prediction.service";
 // Mock factory creates fns internally to avoid jest.mock() hoisting TDZ issues
 jest.mock("../lib/prisma", () => {
   const round = { findUnique: jest.fn(), update: jest.fn() };
-  const prediction = { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn() };
+  const prediction = { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), findUniqueOrThrow: jest.fn(), update: jest.fn() };
   const user = { findUnique: jest.fn(), update: jest.fn() };
   const outboxEvent = { create: jest.fn().mockResolvedValue({ id: "outbox-1" }) };
   return {
@@ -25,7 +25,9 @@ jest.mock("../lib/prisma", () => {
 
 jest.mock("../services/soroban.service", () => ({
   __esModule: true,
-  default: { placeBet: jest.fn().mockResolvedValue(undefined) },
+  // resolveChainResult reads txHash off the chain result; a bare `undefined`
+  // mock breaks the UP_DOWN success path.
+  default: { placeBet: jest.fn().mockResolvedValue({ state: "on-chain-success", txHash: "tx-test-1" }) },
 }));
 
 import { PredictionService as _PS } from "../services/prediction.service";
@@ -37,6 +39,7 @@ const mockRoundUpdate = prisma.round.update as jest.Mock;
 const mockPredictionFindUnique = prisma.prediction.findUnique as jest.Mock;
 const mockPredictionFindMany = prisma.prediction.findMany as jest.Mock;
 const mockPredictionCreate = prisma.prediction.create as jest.Mock;
+const mockPredictionFindUniqueOrThrow = prisma.prediction.findUniqueOrThrow as jest.Mock;
 const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
 const mockUserUpdate = prisma.user.update as jest.Mock;
 
@@ -48,6 +51,12 @@ const roundId = "round-1";
 describe("PredictionService (Issue #78)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default: the user exists (individual tests override when needed).
+    mockUserFindUnique.mockResolvedValue({
+      id: userId,
+      walletAddress: "GXXX",
+      virtualBalance: 1000,
+    });
   });
 
   describe("submitPrediction", () => {
@@ -80,7 +89,12 @@ describe("PredictionService (Issue #78)", () => {
           mode: "UP_DOWN",
           status: "ACTIVE",
         });
-        mockPredictionFindUnique.mockResolvedValue({ id: "existing-pred" });
+        // CONFIRMED chain status means the prediction was already settled on
+        // chain — the service must reject the duplicate outright.
+        mockPredictionFindUnique.mockResolvedValue({
+          id: "existing-pred",
+          chainStatus: "CONFIRMED",
+        });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, "UP")
@@ -184,6 +198,7 @@ describe("PredictionService (Issue #78)", () => {
           userId,
           amount: 100,
           side: "UP",
+          chainStatus: "PENDING",
           createdAt: new Date(),
         };
         mockPredictionCreate.mockResolvedValue(created);
@@ -201,6 +216,18 @@ describe("PredictionService (Issue #78)", () => {
           priceRanges: [],
           resolvedAt: null,
         });
+        // finalizeChainSuccess re-reads the row inside its own transaction.
+        // First findUnique (duplicate check) must see no existing prediction;
+        // the second (inside finalization) sees the freshly created PENDING row.
+        mockPredictionFindUnique
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ id: "pred-1", chainStatus: "PENDING" });
+        // Post-finalization re-read of the settled prediction row.
+        mockPredictionFindUniqueOrThrow.mockResolvedValue({
+          ...created,
+          chainStatus: "CONFIRMED",
+          txHash: "tx-test-1",
+        });
 
         const result = await predictionService.submitPrediction(
           userId,
@@ -209,13 +236,21 @@ describe("PredictionService (Issue #78)", () => {
           "UP"
         );
 
-        expect(result).toEqual(created);
+        // UP_DOWN path re-reads the row after chain finalization, so the
+        // caller sees the CONFIRMED state written by finalizeChainSuccess.
+        expect(result).toEqual({
+          ...created,
+          chainStatus: "CONFIRMED",
+          txHash: "tx-test-1",
+        });
         expect(mockPredictionCreate).toHaveBeenCalledWith({
           data: {
             roundId,
             userId,
             amount: 100,
             side: "UP",
+            priceRange: undefined,
+            chainStatus: "PENDING",
           },
         });
         // Service uses an atomic WHERE+DECREMENT pattern to prevent race conditions
@@ -254,6 +289,7 @@ describe("PredictionService (Issue #78)", () => {
           userId,
           amount: 50,
           priceRange: { min: 1, max: 2 },
+          chainStatus: "NOT_REQUIRED",
           createdAt: new Date(),
         };
         mockPredictionCreate.mockResolvedValue(created);
@@ -291,6 +327,7 @@ describe("PredictionService (Issue #78)", () => {
             amount: 50,
             side: undefined,
             priceRange: { min: 1, max: 2 },
+            chainStatus: "NOT_REQUIRED",
           },
         });
         expect(mockRoundUpdate).toHaveBeenCalledWith({
