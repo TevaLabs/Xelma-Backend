@@ -231,6 +231,26 @@ describe('Predictions Routes - Auth Identity Binding (Issue #64)', () => {
       expect(res.body.message).toContain('Invalid amount');
     });
 
+    it('should reject invalid side value (must be UP or DOWN)', async () => {
+      // Guards the PredictionSide contract at the API boundary (issue #660):
+      // the service's typed `side?: PredictionSide` parameter must never see
+      // values outside the UP/DOWN enum from HTTP input. Uses userB so the
+      // per-user rate-limit budget for userA (shared with the idempotency
+      // tests below) is not consumed.
+      const res = await request(app)
+        .post('/api/predictions/submit')
+        .set('Authorization', `Bearer ${userBToken}`)
+        .send({
+          roundId: testRound.id,
+          amount: 100,
+          side: 'SIDEWAYS',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('side must be UP or DOWN');
+      expect(mockSubmitPrediction).not.toHaveBeenCalled();
+    });
+
     it('should require authentication', async () => {
       const res = await request(app)
         .post('/api/predictions/submit')

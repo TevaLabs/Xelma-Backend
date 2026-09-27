@@ -15,6 +15,7 @@ import {
 } from '../schemas/predictions.schema';
 import predictionService, {
    type PredictionRow,
+   type PredictionSubmissionInput,
 } from '../services/prediction.service';
 import {
    acquireIdempotencyLock,
@@ -234,7 +235,8 @@ router.post(
    batchPredictionRateLimiter,
    validate(batchSubmitPredictionsSchema),
    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-      const { predictions } = req.body;
+      // Zod-validated by batchSubmitPredictionsSchema before this handler runs.
+      const { predictions } = req.body as { predictions: PredictionSubmissionInput[] };
       const userId = req.user.userId;
 
       const result = await predictionService.submitBatchPredictions(

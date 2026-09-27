@@ -1,5 +1,5 @@
 import { OutboxEventType } from '@prisma/client';
-import type { PredictionSide, Prisma, PredictionChainStatus } from '@prisma/client';
+import type { PredictionSide, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { invalidateNamespace, invalidateLeaderboardSortedSet } from '../lib/redis';
 import { UserPriceRange } from '../types/round.types';
@@ -43,13 +43,35 @@ export type RoundPredictionRow = Prisma.PredictionGetPayload<{
    };
 }>;
 
+/**
+ * Side resolved from a persisted prediction row.
+ * `null` means the round mode did not require a side (LEGENDS) or the row
+ * predates the side column — never emit the raw Prisma enum here so callers
+ * (batch responses, websocket payloads, tests) see the narrower contract.
+ */
+export type PredictionSideResult = 'UP' | 'DOWN' | null;
+
+/**
+ * Payload accepted by {@link PredictionService.submitPrediction} and
+ * {@link PredictionService.submitBatchPredictions} (one batch item).
+ * `PredictionSide` (the Prisma enum) is the authoritative `UP`/`DOWN` union;
+ * the Prisma schema guarantees no other members, so this stays compile-time
+ * in sync with the database without a hand-rolled copy.
+ */
+export interface PredictionSubmissionInput {
+   roundId: string;
+   amount: number;
+   side?: PredictionSide;
+   priceRange?: UserPriceRange;
+}
+
 /** A single serialized prediction entry within a batch result. */
 export interface BatchPredictionEntry {
    id: string;
    roundId: string;
    /** Serialized decimal string (8-dp), never a raw JSON number. */
    amount: string;
-   side: PredictionSide | null;
+   side: PredictionSideResult;
    priceRange: Prisma.JsonValue | null;
    createdAt: Date;
 }
@@ -68,17 +90,42 @@ export interface BatchPredictionsResult {
    results: BatchPredictionResultItem[];
 }
 
+/**
+ * Successful outcome of {@link PredictionService.submitPrediction}.
+ * 
+ * Domain alias over the persisted {@link PredictionRow}; named so issue #660's
+ * "PlacePredictionResult" vocabulary maps onto the codebase and so callers can
+ * depend on the intent ("a placed prediction") rather than the storage shape.
+ * Serialized money fields (8-dp strings) travel through
+ * {@link BatchPredictionEntry} in the batch path and
+ * `serializePrediction` in the route layer.
+ */
+export type PlacePredictionResult = PredictionRow;
+
 export class PredictionService {
    /**
-    * Submits a prediction for a round
+    * Submits a prediction for a round.
+    *
+    * Deducts the user's virtual balance and records the prediction, then —
+    * for UP_DOWN rounds — settles the bet on chain (Soroban).
+    *
+    * @returns the persisted prediction row, typed as {@link PlacePredictionResult}.
+    * @throws {NotFoundError} when the round or user does not exist.
+    * @throws {BusinessRuleError} when the round is inactive, the game mode is
+    *   invalid, the user lacks funds, or a prediction already exists for the
+    *   round (duplicate / in-flight / needs manual review).
+    * @throws {ValidationError} when `side` or `priceRange` is missing for the
+    *   round's game mode, or the price range does not match a declared range.
+    * @throws {Error} the original chain error when the Soroban call fails
+    *   (the prediction is compensated or left for reconciliation first).
     */
    async submitPrediction(
       userId: string,
       roundId: string,
       amount: number,
-      side?: 'UP' | 'DOWN',
+      side?: PredictionSide,
       priceRange?: UserPriceRange,
-   ): Promise<PredictionRow> {
+   ): Promise<PlacePredictionResult> {
       // Reservation transaction is short and unlikely to need retries.
       // Soroban must NEVER be retried by this wrapper.
       return this.submitPredictionInternal(
@@ -98,9 +145,9 @@ export class PredictionService {
       userId: string,
       roundId: string,
       amount: number,
-      side?: 'UP' | 'DOWN',
+      side?: PredictionSide,
       priceRange?: UserPriceRange,
-   ): Promise<PredictionRow> {
+   ): Promise<PlacePredictionResult> {
       try {
          // --- Phase 1: DB Reservation ---
          const { prediction, user, updatedRound } = await prisma.$transaction(async tx => {
@@ -577,16 +624,14 @@ export class PredictionService {
    }
 
    /**
-    * Submits multiple predictions in a batch with partial success handling
+    * Submits multiple predictions in a batch with partial success handling.
+    *
+    * Each item is processed independently so one failure does not roll back
+    * the others (per-item transaction isolation).
     */
    async submitBatchPredictions(
       userId: string,
-      predictions: Array<{
-         roundId: string;
-         amount: number;
-         side?: 'UP' | 'DOWN';
-         priceRange?: UserPriceRange;
-      }>
+      predictions: PredictionSubmissionInput[],
    ): Promise<BatchPredictionsResult> {
       const results: BatchPredictionResultItem[] = [];
 

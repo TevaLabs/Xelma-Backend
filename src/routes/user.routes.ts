@@ -445,7 +445,31 @@ router.get(
 );
 
 /** Maps a raw Prisma prediction + round to the public API shape. */
-function mapPrediction(p: any) {
+/**
+ * Maps a raw Prisma prediction + related round (user history queries in this
+ * file) to the public API shape.
+ *
+ * Both call sites fetch the prediction with
+ * `include: { round: roundSelect }`, so this narrow structural type captures
+ * exactly the fields the mapper reads — no `any`, and no dependence on the
+ * full Prisma payload type.
+ */
+interface PredictionWithRoundForHistory {
+  chainStatus: string;
+  won: boolean | null;
+  roundId: string;
+  amount: unknown;
+  side: string | null;
+  priceRange: unknown;
+  payout: unknown;
+  createdAt: Date;
+  round: {
+    mode: string;
+    status: string;
+  };
+}
+
+function mapPrediction(p: PredictionWithRoundForHistory) {
   let result: string;
   if (p.chainStatus === 'FAILED') {
     result = 'FAILED';
