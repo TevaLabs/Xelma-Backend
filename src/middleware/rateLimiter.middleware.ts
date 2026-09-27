@@ -37,6 +37,22 @@ type RateLimitPolicy = {
   message: string;
 };
 
+/**
+ * The client address a limiter buckets on.
+ *
+ * `req.ip` is only the real client when the app trusts its proxy: with
+ * `TRUST_PROXY=1` (the Render value) Express resolves `req.ip` from
+ * `X-Forwarded-For`, so every per-IP limiter below follows the forwarded client
+ * IP without touching the header itself. With `TRUST_PROXY` unset the value is
+ * the socket peer — behind a load balancer that is the proxy, which collapses
+ * all visitors into one bucket (a shared lockout) or, if a limiter is keyed on
+ * something else, hides who is actually being limited.
+ * See src/utils/trust-proxy.ts.
+ */
+export function getRateLimitIp(req: Request): string {
+  return req.ip || 'unknown';
+}
+
 /** Documented limits for operators, tests, and README. Demo defaults; override via env. */
 export const RATE_LIMIT_POLICIES = {
   api: {
@@ -108,7 +124,8 @@ function createRateLimiter(opts: {
     // Do not pass `ipKeyGenerator` as keyGenerator: that helper takes an IP
     // string, not a Request. Using it as a keyGenerator stores the request
     // object as the Map key, so every request looks unique and never 429s.
-    // Omit keyGenerator to use express-rate-limit's default (IP + IPv6 subnet).
+    // Omit keyGenerator to use express-rate-limit's default (IP + IPv6 subnet),
+    // which reads req.ip — the forwarded client IP when TRUST_PROXY is set.
     ...(opts.keyGenerator ? { keyGenerator: opts.keyGenerator } : {}),
     message: { error: 'Too Many Requests', message: opts.message, retryAfter: Math.ceil(opts.windowMs / 1000) },
     standardHeaders: true,
@@ -117,7 +134,7 @@ function createRateLimiter(opts: {
     ...(store ? { store } : {}),
     validate: { keyGeneratorIpFallback: false },
     handler: (req, res) => {
-      const key = opts.keyGenerator ? opts.keyGenerator(req) : (req.ip || 'unknown');
+      const key = opts.keyGenerator ? opts.keyGenerator(req) : getRateLimitIp(req);
       const userId = req.user?.userId;
       const category = getRateLimitCategory(opts.name);
 
@@ -128,7 +145,7 @@ function createRateLimiter(opts: {
       rateLimitMetricsService.recordHit({
         endpoint: opts.name,
         key: key,
-        ip: req.ip,
+        ip: getRateLimitIp(req),
         userId: userId,
       }).catch(err => logger.error(`Failed to record hit for ${opts.name}:`, err));
 
@@ -183,7 +200,7 @@ export const chatMessageRateLimiter = createRateLimiter({
   windowMs: 60 * 1000,
   max: 5,
   message: 'You can only send 5 messages per minute. Please wait before sending another message.',
-  keyGenerator: (req) => req.user?.userId || req.ip || 'unknown',
+  keyGenerator: (req) => req.user?.userId || getRateLimitIp(req),
   name: 'chat/message',
 });
 
@@ -192,7 +209,7 @@ export const predictionRateLimiter = createRateLimiter({
   windowMs: RATE_LIMIT_POLICIES.predictionSubmit.windowMs,
   max: RATE_LIMIT_POLICIES.predictionSubmit.max,
   message: 'Too many prediction submissions. Please wait before submitting another.',
-  keyGenerator: (req) => req.user?.userId || req.ip || 'unknown',
+  keyGenerator: (req) => req.user?.userId || getRateLimitIp(req),
   name: RATE_LIMIT_POLICIES.predictionSubmit.name,
 });
 
@@ -202,7 +219,7 @@ export const batchPredictionRateLimiter = createRateLimiter({
   max: RATE_LIMIT_POLICIES.predictionBatchSubmit.max,
   message:
     'Too many batch prediction requests. Each batch can include many predictions — please wait before submitting another batch.',
-  keyGenerator: (req) => req.user?.userId || req.ip || 'unknown',
+  keyGenerator: (req) => req.user?.userId || getRateLimitIp(req),
   name: RATE_LIMIT_POLICIES.predictionBatchSubmit.name,
 });
 
@@ -211,7 +228,7 @@ export const batchLeaderboardRateLimiter = createRateLimiter({
   windowMs: RATE_LIMIT_POLICIES.leaderboardBatch.windowMs,
   max: RATE_LIMIT_POLICIES.leaderboardBatch.max,
   message: 'Too many batch leaderboard requests. Please wait before trying again.',
-  keyGenerator: (req) => req.user?.userId || req.ip || 'unknown',
+  keyGenerator: (req) => req.user?.userId || getRateLimitIp(req),
   name: RATE_LIMIT_POLICIES.leaderboardBatch.name,
 });
 

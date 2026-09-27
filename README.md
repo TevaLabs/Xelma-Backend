@@ -498,6 +498,7 @@ TOURNAMENT_INVALID_STATE` rather than mutating state.
 - Authenticated bets (`POST /api/bets/up-down`, `POST /api/bets/precision`): **5 requests/minute per IP**
 - Auth, chat, admin round creation, and oracle resolve endpoints have tailored policies
 - Rate-limit hits are recorded for the admin metrics dashboard (`GET /api/admin/metrics/rate-limits`)
+- **Client IP behind a proxy:** every per-IP limiter keys on `req.ip`, which is only the real client when the app trusts its proxy. Set `TRUST_PROXY=1` behind Render (or `TRUST_PROXY=<hop count>` for a CDN/ingress in front) so `X-Forwarded-For` is used; unset — the local/test default — means `req.ip` is the socket peer, so a proxied deploy would put every visitor in one bucket. Prefer a hop count over `true`, which trusts a client-supplied header. See [src/utils/trust-proxy.ts](src/utils/trust-proxy.ts) and [docs/multi-instance-deployment.md](docs/multi-instance-deployment.md).
 - **Multi-instance:** when `REDIS_URL` is set, every limiter stores its counters in a shared Redis store so throttles hold across replicas (Issue #520). Each limiter gets its own key prefix (`xelma:rl:<limiter>:`); when Redis is unreachable the default policy falls back to a per-process window (see `RATE_LIMIT_REDIS_FAIL_OPEN`). With no `REDIS_URL` configured the limiters use express-rate-limit's in-process store, so local single-node development is unchanged. See [docs/multi-instance-deployment.md](docs/multi-instance-deployment.md).
 
 #### **Route Authorization Registry (`src/security/route-auth.registry.ts`)**
@@ -1944,6 +1945,53 @@ Required env vars:
 4. Deploy. The service is reachable at `https://<service-name>.onrender.com:<PORT>`.
 
 > **Port note**: The server listens on the port defined by the `PORT` env var (default `3000`). Render automatically sets `PORT` in the runtime environment.
+
+### Trust proxy and client IPs (`TRUST_PROXY`)
+
+Render terminates TLS and forwards every request to the service over its own
+network, so the socket peer is Render's edge — not the user. Express ignores
+`X-Forwarded-For` until the proxy hop is declared trustworthy, and `req.ip` is
+what every per-IP rate limit buckets on. **Both Render profiles set
+`TRUST_PROXY=1` in [`render.yaml`](render.yaml) for exactly this reason.**
+
+| `TRUST_PROXY` | `req.ip` resolves to | Use when |
+| :------------ | :------------------- | :------- |
+| unset (default) | the socket peer | local dev, tests, and any deploy reached directly — the peer really is the client |
+| `1` | the right-most `X-Forwarded-For` entry | **Render** (one edge proxy in front of the service) |
+| `2`, `3`, … | that many entries back | a CDN / Cloudflare / ingress sits in front of Render — count every hop that prepends the header |
+| `true` | the left-most entry — **client-controlled** | never on an internet-facing service: anyone could forge the address the rate limiters key on |
+| `false` / `off` / `0` | the socket peer | explicit "trust nothing" |
+
+Notes:
+
+- **Unset is not free.** With `TRUST_PROXY` unset behind a proxy, every visitor
+  shares one counter: the public demo URL becomes a shared lockout, and per-IP
+  metrics (`GET /api/admin/metrics/rate-limits`) attribute everything to the
+  proxy address. Startup logs a warning when `NODE_ENV=production` and the
+  setting is off.
+- **A typo degrades safely.** An unrecognised value logs a warning and trusts
+  nothing, rather than being handed to Express as a trust string.
+- **Values accepted:** hop count, `true`/`false`, or a proxy-addr trust string
+  (`loopback`, `10.0.0.0/8`, comma-separated lists). Resolution lives in
+  [`src/utils/trust-proxy.ts`](src/utils/trust-proxy.ts) and is applied once per
+  app in [`src/app-factory.ts`](src/app-factory.ts), so both entrypoints behave
+  identically. Tests assert both directions in
+  [`src/tests/trust-proxy.spec.ts`](src/tests/trust-proxy.spec.ts).
+- **Verify after deploy:** the recorded client must be a real client address, not
+  Render's edge, and two clients on different networks must not share a bucket
+  while one client is still throttled.
+
+  ```bash
+  # Burn a per-IP limit from one network, then confirm the blocked IP is your
+  # public client IP (not the proxy) and that another network is unaffected.
+  for i in $(seq 1 25); do
+    curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+      https://<service>.onrender.com/api/bets/up-down -H 'Content-Type: application/json' -d '{}'
+  done
+  # The 429 body/headers belong to your own IP; on a different network the same
+  # loop still returns non-429. `GET /api/admin/metrics/rate-limits` → topAbusers
+  # should list client IPs, never the proxy address.
+  ```
 
 ---
 

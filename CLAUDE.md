@@ -83,6 +83,7 @@ See [.env.example](.env.example) for the full list. Critical variables:
 | `SOROBAN_ORACLE_SECRET` | Oracle keypair for price settlement |
 | `ROUND_SCHEDULER_ENABLED` | Set to `true` to activate cron-based round creation |
 | `ROUND_SCHEDULER_MODE` | `UP_DOWN` or `LEGENDS` |
+| `TRUST_PROXY` | Proxy hops to trust for `req.ip` (and per-IP rate limits). `1` on Render; unset locally/tests. See [docs/multi-instance-deployment.md](docs/multi-instance-deployment.md) |
 | `BINDINGS_CHECK` | `off`/`warn`/`strict` — startup enforcement for vendored-bindings skew |
 
 ## API Documentation

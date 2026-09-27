@@ -63,6 +63,7 @@ import { notFoundHandler } from './middleware/notFound';
 import { errorHandler as hackathonErrorHandler } from './middleware/errorHandler';
 import { errorHandler as fullErrorHandler } from './middleware/errorHandler.middleware';
 import { getHttpCorsOrigins } from './utils/cors';
+import { applyTrustProxy } from './utils/trust-proxy';
 import { swaggerSpec } from './docs/openapi';
 import { hackathonSwaggerSpec } from './docs/hackathon-openapi';
 import config from './config';
@@ -304,6 +305,12 @@ export function createApp(options: CreateAppOptions = {}): Application {
   const features = resolveFeatures(mode, options.features);
 
   const app: Application = express();
+
+  // Before any middleware: per-IP rate limits (and the auth audit trail) key on
+  // req.ip, which is only the real client when the proxy hop is trusted. Reads
+  // TRUST_PROXY and defaults to off, so local dev and tests are unaffected.
+  // Behind Render set TRUST_PROXY=1 — see src/utils/trust-proxy.ts.
+  applyTrustProxy(app);
 
   mountBaseMiddleware(app, mode);
 

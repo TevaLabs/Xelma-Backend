@@ -322,6 +322,62 @@ development is completely unchanged.
   served from the per-process fallback because Redis was unreachable — alert on
   it to catch a Redis outage that has silently degraded shared throttling.
 
+### Client IPs behind a proxy (`TRUST_PROXY`)
+
+Shared counters are only half of a working rate limit: the *key* has to be the
+real client. Behind Render the socket peer is the edge proxy, so with Express's
+default (`trust proxy` off) `req.ip` is the proxy address and **every visitor
+shares one bucket** — the public demo URL is then either a shared lockout or,
+for any limiter keyed on something else, a bypass. Express only reads
+`X-Forwarded-For` once the hop is declared trustworthy, which is what
+`TRUST_PROXY` does.
+
+- **Module:** `src/utils/trust-proxy.ts` resolves the env value and applies
+  `app.set('trust proxy', …)`; `createApp` calls it once per app, so both
+  entrypoints (full and hackathon) get the same answer. Every limiter in
+  `src/middleware/rateLimiter.middleware.ts` keys on `req.ip` and therefore
+  follows the forwarded client IP automatically — the header is never read by
+  hand.
+- **Required config:**
+
+  | Variable | Default | Purpose |
+  |---|---|---|
+  | `TRUST_PROXY` | unset (trust nothing) | Proxy hops to trust. `1` on Render; count every hop when a CDN/Cloudflare/ingress adds one. |
+
+- **Values:** a hop count (`1`, `2`, …), `true`/`false`/`on`/`off`, or a
+  proxy-addr trust string (`loopback`, `10.0.0.0/8`, comma-separated). An
+  unrecognised value logs a warning and trusts nothing — a typo never silently
+  enables proxy trust.
+- **Why not `true`:** `true` resolves `req.ip` to the *left-most*
+  `X-Forwarded-For` entry, which the client controls. Anyone could then forge
+  the address the limiters key on and get a fresh bucket per request. A hop
+  count reads only entries appended by hops you operate.
+- **Default stays safe:** unset (local dev, tests, direct access) keeps
+  Express's stock behaviour, so no fixture changes. In `NODE_ENV=production`
+  with trust proxy off, startup logs a warning that per-IP limits are bucketing
+  by the proxy address.
+- **Verify:**
+
+  ```bash
+  # Locally: one forwarded client, then a different one — the second must not
+  # inherit the first's throttle.
+  TRUST_PROXY=1 npm run dev
+  curl -s -o /dev/null -w "%{http_code}\n" -H 'X-Forwarded-For: 203.0.113.10' \
+    http://localhost:3001/api/rounds/active
+  curl -s -o /dev/null -w "%{http_code}\n" -H 'X-Forwarded-For: 198.51.100.20' \
+    http://localhost:3001/api/rounds/active
+  # After deploy: `GET /api/admin/metrics/rate-limits` → topAbusers lists client
+  # IPs, not the Render edge address.
+  ```
+
+- **Tests:** `src/tests/trust-proxy.spec.ts` covers the env matrix, the factory
+  wiring, `req.ip` from `X-Forwarded-For` (and hop counting), and that the
+  rate-limit key separates clients only when the setting is on.
+
+```bash
+npx jest --selectProjects unit --testPathPattern="trust-proxy"
+```
+
 ---
 
 ## Testing
