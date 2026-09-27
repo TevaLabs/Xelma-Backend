@@ -121,6 +121,18 @@ describe('StellarService — verifySignature', () => {
     expect(mockVerify).not.toHaveBeenCalled();
   });
 
+  it('returns false when the challenge home domain is tampered', async () => {
+    mockVerify.mockReturnValue(true);
+    const tampered = buildChallengeMessage({
+      domain: 'xelma.io',
+      homeDomain: 'evil.com',
+      nonce: 'ab'.repeat(32),
+    });
+    const result = await verifySignature(VALID_ADDRESS, tampered, 'c2lnbmF0dXJl');
+    expect(result).toBe(false);
+    expect(mockVerify).not.toHaveBeenCalled();
+  });
+
   it('returns false when wallet binding mismatches', async () => {
     mockVerify.mockReturnValue(true);
     const challenge = generateChallenge(VALID_ADDRESS);

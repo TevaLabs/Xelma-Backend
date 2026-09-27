@@ -125,6 +125,20 @@ describe('challenge.util', () => {
       expect(isValidChallengeDomain(msg)).toBe(false);
     });
 
+    it('fails when home domain is tampered', () => {
+      const msg = buildChallengeMessage({
+        domain: getAuthDomain(),
+        homeDomain: 'evil.com',
+        nonce: 'ab'.repeat(32),
+      });
+      expect(isValidChallengeDomain(msg)).toBe(false);
+    });
+
+    it('fails when the required home domain field is missing', () => {
+      const msg = ['Xelma Authentication', `Domain: ${getAuthDomain()}`, 'Nonce: abc'].join('\n');
+      expect(isValidChallengeDomain(msg)).toBe(false);
+    });
+
     it('fails when challenge has no domain', () => {
       expect(isValidChallengeDomain('Xelma Authentication\nNonce: abc\n')).toBe(false);
     });
