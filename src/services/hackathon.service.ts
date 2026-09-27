@@ -4,6 +4,9 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { BusinessRuleError, ErrorCode } from '../utils/errors';
 import logger from '../utils/logger';
 
+/** One-time demo winnings seed so a new stub user can exercise the claim flow. */
+export const SEEDED_DEMO_PENDING_WINNINGS = 10;
+
 export interface PlaceBetInput {
   userId: string;
   roundId: string;
@@ -177,7 +180,7 @@ export class HackathonService {
     const defaultUser = {
       address,
       balance: 1000,
-      pendingWinnings: 0,
+      pendingWinnings: SEEDED_DEMO_PENDING_WINNINGS,
       totalWins: 3,
       totalLosses: 1,
       currentStreak: 3,
@@ -215,7 +218,7 @@ export class HackathonService {
             address,
             rank: 0,
             balance: 1000,
-            pendingWinnings: 0,
+            pendingWinnings: SEEDED_DEMO_PENDING_WINNINGS,
             totalWins: 3,
             totalLosses: 1,
             winStreak: 3,

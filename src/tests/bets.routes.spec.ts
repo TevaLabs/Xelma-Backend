@@ -5,6 +5,7 @@ import { UserRole } from "@prisma/client";
 import { ErrorCode, ExternalServiceError } from "../utils/errors";
 import { CircuitBreakerOpenError } from "../utils/circuit-breaker";
 import { createApp } from "../index";
+import betService from "../services/bet.service";
 import sorobanService from "../services/soroban.service";
 import { generateToken } from "../utils/jwt.util";
 import { resetInMemoryIdempotencyStore } from "../utils/idempotency.util";
@@ -401,6 +402,41 @@ describe("Bets Routes", () => {
       expect(res2.status).toBe(200);
       expect(res2.body).toEqual(res1.body);
       expect(sorobanService.placePrecisionBet).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("POST /api/bets/claim", () => {
+    it("returns the claimed amount and replays the same response for a duplicate idempotency key", async () => {
+      const claimSpy = jest.spyOn(betService, "claimWinnings").mockResolvedValue({
+        state: "stub",
+        amount: 10,
+        balance: 1010,
+        pendingWinnings: 0,
+      });
+      const key = "key-claim-123";
+      const sendClaim = () => request(app)
+        .post("/api/bets/claim")
+        .set("Authorization", `Bearer ${token}`)
+        .set("Idempotency-Key", key)
+        .send({ address: VALID_ADDRESS });
+
+      const first = await sendClaim();
+      const duplicate = await sendClaim();
+
+      expect(first.status).toBe(200);
+      expect(first.body).toEqual({
+        success: true,
+        message: "Winnings claimed (stub)",
+        state: "stub",
+        amount: 10,
+        balance: 1010,
+        pendingWinnings: 0,
+        requestId: expect.any(String),
+      });
+      expect(duplicate.status).toBe(200);
+      expect(duplicate.body).toEqual(first.body);
+      expect(claimSpy).toHaveBeenCalledTimes(1);
+      claimSpy.mockRestore();
     });
   });
 });

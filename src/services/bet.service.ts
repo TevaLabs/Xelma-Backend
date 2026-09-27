@@ -8,6 +8,7 @@ import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
+import { SEEDED_DEMO_PENDING_WINNINGS } from './hackathon.service';
 
 export interface UpDownBetInput {
   address: string;
@@ -690,11 +691,11 @@ export class BetService {
     explicitRequestId?: string
   ): Promise<{ state: string; amount: number; txHash?: string }> {
     const requestId = explicitRequestId ?? getRequestId();
-    let result: { state: string; amount: number; txHash?: string };
+    let result: { state: string; amount: number; txHash?: string; balance?: number; pendingWinnings?: number };
 
     if (process.env.BET_STUB_MODE === 'true') {
-      logger.info('Claim winnings stub recorded', { address, idempotencyKey, requestId });
-      result = { state: 'stub', amount: 0 };
+      logger.info('Claiming stub winnings', { address, idempotencyKey, requestId });
+      result = await this.claimStubWinnings(address);
     } else {
       logger.info('Claiming winnings on-chain', { address, idempotencyKey, requestId });
 
@@ -747,6 +748,75 @@ export class BetService {
     });
 
     return result;
+  }
+
+  /**
+   * Credits the demo balance from mockLeaderboard.pendingWinnings. The
+   * compare-and-set update makes the pending amount consumable only once, even
+   * when duplicate claims race; the balance credit and claim ledger entry are
+   * committed in the same transaction. No transaction hash is fabricated for
+   * a stub payout.
+   */
+  private async claimStubWinnings(
+    address: string
+  ): Promise<{ state: string; amount: number; balance: number; pendingWinnings: number }> {
+    const mockPrisma = prisma as any;
+    if (!mockPrisma.mockLeaderboard) {
+      throw new Error('Stub claims require the mock balance store (DATA_STORE=memory)');
+    }
+
+    return mockPrisma.$transaction(async (tx: any) => {
+      let user = await tx.mockLeaderboard.findUnique({ where: { address } });
+      if (!user) {
+        user = await tx.mockLeaderboard.create({
+          data: {
+            address,
+            rank: 0,
+            balance: 1000,
+            pendingWinnings: SEEDED_DEMO_PENDING_WINNINGS,
+            totalWins: 0,
+            totalLosses: 0,
+            winStreak: 0,
+            xp: 0,
+            rankTitle: 'Rookie',
+          },
+        });
+      }
+
+      const pending = toNumber(user.pendingWinnings ?? 0);
+      let amount = 0;
+      if (pending > 0) {
+        // Guard on the observed amount so only one concurrent claimant can
+        // clear it and receive the corresponding balance increment.
+        const consumed = await tx.mockLeaderboard.updateMany({
+          where: { address, pendingWinnings: user.pendingWinnings },
+          data: {
+            balance: { increment: user.pendingWinnings },
+            pendingWinnings: { set: 0 },
+          },
+        });
+
+        if (consumed.count === 1) {
+          amount = pending;
+          await tx.claim.create({
+            data: {
+              walletAddress: address,
+              amount: toDecimal(pending),
+              status: ClaimStatus.CONFIRMED,
+              claimedAt: new Date(),
+            },
+          });
+        }
+      }
+
+      const updated = await tx.mockLeaderboard.findUnique({ where: { address } });
+      return {
+        state: 'stub',
+        amount,
+        balance: toNumber(updated?.balance ?? user.balance ?? 0),
+        pendingWinnings: toNumber(updated?.pendingWinnings ?? 0),
+      };
+    });
   }
 
   /**
