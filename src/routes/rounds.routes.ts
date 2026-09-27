@@ -453,6 +453,24 @@ router.post(
  * The hackathon round repository is still updated first so the in-memory
  * hackathon views keep reflecting the bet.
  */
+/**
+ * @openapi
+ * /api/rounds/hackathon/up-down/{id}/bet:
+ *   post:
+ *     summary: Place an UP/DOWN bet on a hackathon round
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Bet recorded or placed on-chain
+ *       401:
+ *         description: Missing or invalid JWT
+ */
 router.post(
   "/hackathon/up-down/:id/bet",
   verifyStellarAuth,
@@ -477,6 +495,24 @@ router.post(
   }) as any,
 );
 
+/**
+ * @openapi
+ * /api/rounds/hackathon/precision/{id}/bet:
+ *   post:
+ *     summary: Place a Precision bet on a hackathon round
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Bet recorded or placed on-chain
+ *       401:
+ *         description: Missing or invalid JWT
+ */
 router.post(
   "/hackathon/precision/:id/bet",
   verifyStellarAuth,

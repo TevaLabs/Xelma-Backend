@@ -266,8 +266,23 @@ router.post(
 );
 
 /**
- * POST /api/tournaments/:id/join
- * Join a tournament (authenticated).
+ * @openapi
+ * /api/tournaments/{id}/join:
+ *   post:
+ *     summary: Join a tournament
+ *     description: Requires authentication.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Tournament joined
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.post(
   "/:id/join",
