@@ -288,13 +288,11 @@ export function isValidChallengeDomain(challenge: string): boolean {
   const parsed = parseChallenge(challenge);
   if (!parsed) return false;
   if (parsed.isLegacy) return true;
-  if (!parsed.domain) return false;
+  if (!parsed.domain || !parsed.homeDomain) return false;
   const expectedDomain = getAuthDomain();
   const expectedHome = getHomeDomain();
-  // Domain must match exactly; homeDomain if present must also match
-  if (parsed.domain !== expectedDomain) return false;
-  if (parsed.homeDomain && parsed.homeDomain !== expectedHome) return false;
-  return true;
+  // Both domain fields are required and must match exactly.
+  return parsed.domain === expectedDomain && parsed.homeDomain === expectedHome;
 }
 
 /**
