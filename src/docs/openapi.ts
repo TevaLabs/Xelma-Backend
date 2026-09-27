@@ -31,6 +31,22 @@ export const swaggerSpec = swaggerJSDoc({
           description: 'Paste a JWT like: Bearer <token>',
         },
       },
+      headers: {
+        /**
+         * `Retry-After` in delta-seconds form (RFC 9110 §10.2.3). Every 429
+         * returned by the rate limiters in src/middleware/rateLimiter.middleware.ts
+         * carries it, computed from the time left in the current limiter window,
+         * and the same number is mirrored in the body's `retryAfter` field. The
+         * limiter's standard rate-limit headers are returned alongside it.
+         * Clients must back off for at least this many seconds instead of
+         * retrying immediately.
+         */
+        RetryAfter: {
+          description:
+            'Seconds to wait before retrying — the time left in the current rate-limit window (also returned as `retryAfter` in the response body). Always >= 1.',
+          schema: { type: 'integer', format: 'int32', minimum: 1, example: 60 },
+        },
+      },
       schemas: {
         // ── Shared base (re-declared via allOf with production-specific fields) ──
         ErrorResponse: {
@@ -59,10 +75,13 @@ export const swaggerSpec = swaggerJSDoc({
         ...sharedComponents.schemas,
         RateLimitResponse: {
           allOf: [{ $ref: '#/components/schemas/ErrorResponse' }],
+          description:
+            'Body of a rate-limited response. The same backoff signal is also sent as the `Retry-After` response header — see `components/headers/RetryAfter`.',
           example: {
-            error: 'AppError',
+            error: 'Too Many Requests',
             message: 'Too many requests from this IP, please try again after 15 minutes',
             code: 'RATE_LIMIT_EXCEEDED',
+            retryAfter: 900,
           },
         },
 

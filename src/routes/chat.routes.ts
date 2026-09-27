@@ -33,7 +33,10 @@ const router = Router();
  *       201:
  *         description: Message created
  *       429:
- *         description: Too many messages
+ *         description: Too many messages. Back off for the number of seconds in `Retry-After` before retrying.
+ *         headers:
+ *           Retry-After:
+ *             $ref: '#/components/headers/RetryAfter'
  *         content:
  *           application/json:
  *             schema:

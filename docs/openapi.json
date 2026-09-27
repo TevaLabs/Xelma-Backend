@@ -19,6 +19,17 @@
         "description": "Paste a JWT like: Bearer <token>"
       }
     },
+    "headers": {
+      "RetryAfter": {
+        "description": "Seconds to wait before retrying — the time left in the current rate-limit window (also returned as `retryAfter` in the response body). Always >= 1.",
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "example": 60
+        }
+      }
+    },
     "schemas": {
       "ErrorResponse": {
         "allOf": [
@@ -98,10 +109,12 @@
             "$ref": "#/components/schemas/ErrorResponse"
           }
         ],
+        "description": "Body of a rate-limited response. The same backoff signal is also sent as the `Retry-After` response header — see `components/headers/RetryAfter`.",
         "example": {
-          "error": "AppError",
+          "error": "Too Many Requests",
           "message": "Too many requests from this IP, please try again after 15 minutes",
-          "code": "RATE_LIMIT_EXCEEDED"
+          "code": "RATE_LIMIT_EXCEEDED",
+          "retryAfter": 900
         }
       },
       "AuthChallengeRequest": {
@@ -1576,7 +1589,12 @@
             "description": "Predictions processed"
           },
           "429": {
-            "description": "Too many batch requests",
+            "description": "Too many batch requests. Back off for the number of seconds in `Retry-After` before retrying.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2281,7 +2299,12 @@
             "description": "Message created"
           },
           "429": {
-            "description": "Too many messages",
+            "description": "Too many messages. Back off for the number of seconds in `Retry-After` before retrying.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2668,7 +2691,12 @@
             }
           },
           "429": {
-            "description": "Too many requests",
+            "description": "Too many requests. Back off for the number of seconds in `Retry-After` before retrying.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2676,7 +2704,8 @@
                 },
                 "example": {
                   "error": "Too Many Requests",
-                  "message": "Too many challenge requests from this IP, please try again after 15 minutes"
+                  "message": "Too many challenge requests from this IP, please try again after 15 minutes",
+                  "retryAfter": 900
                 }
               }
             }
@@ -2767,7 +2796,12 @@
             }
           },
           "429": {
-            "description": "Too many requests",
+            "description": "Too many requests. Back off for the number of seconds in `Retry-After` before retrying.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2775,7 +2809,8 @@
                 },
                 "example": {
                   "error": "Too Many Requests",
-                  "message": "Too many authentication attempts from this IP, please try again after 15 minutes"
+                  "message": "Too many authentication attempts from this IP, please try again after 15 minutes",
+                  "retryAfter": 900
                 }
               }
             }

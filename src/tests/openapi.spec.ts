@@ -109,6 +109,26 @@ describe("OpenAPI spec", () => {
     expect(batchOp?.responses?.["429"]).toBeDefined();
   });
 
+  it("documents the Retry-After header clients must back off on", () => {
+    const components = (swaggerSpec as { components?: { headers?: Record<string, any> } })
+      .components;
+    const retryAfter = components?.headers?.RetryAfter;
+    expect(retryAfter).toBeDefined();
+    expect(retryAfter?.schema?.type).toBe("integer");
+    expect(retryAfter?.schema?.minimum).toBe(1);
+
+    // Every documented 429 points at that header component.
+    for (const [path, method] of [
+      ["/api/auth/challenge", "post"],
+      ["/api/auth/connect", "post"],
+      ["/api/predictions/batch-submit", "post"],
+      ["/api/chat/send", "post"],
+    ] as const) {
+      const headers = paths[path]?.[method]?.responses?.["429"]?.headers;
+      expect(headers?.["Retry-After"]?.$ref).toBe("#/components/headers/RetryAfter");
+    }
+  });
+
   it("auth examples use valid Stellar StrKey fixtures (not placeholder strings)", () => {
     // WHY: a documented example that only *resembles* a Stellar address (a
     // string that fails StrKey checksum validation) cannot be copy-pasted by

@@ -222,7 +222,10 @@ router.post(
  *       200:
  *         description: Predictions processed
  *       429:
- *         description: Too many batch requests
+ *         description: Too many batch requests. Back off for the number of seconds in `Retry-After` before retrying.
+ *         headers:
+ *           Retry-After:
+ *             $ref: '#/components/headers/RetryAfter'
  *         content:
  *           application/json:
  *             schema:

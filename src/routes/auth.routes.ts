@@ -81,7 +81,10 @@ const router = Router();
  *               invalidWallet:
  *                 value: { error: "Validation Error", message: "Invalid Stellar wallet address format" }
  *       429:
- *         description: Too many requests
+ *         description: Too many requests. Back off for the number of seconds in `Retry-After` before retrying.
+ *         headers:
+ *           Retry-After:
+ *             $ref: '#/components/headers/RetryAfter'
  *         content:
  *           application/json:
  *             schema:
@@ -89,6 +92,7 @@ const router = Router();
  *             example:
  *               error: Too Many Requests
  *               message: Too many challenge requests from this IP, please try again after 15 minutes
+ *               retryAfter: 900
  *       500:
  *         description: Internal server error
  *         content:
@@ -226,7 +230,10 @@ router.post(
  *               domainMismatch:
  *                 value: { error: "Authentication Error", message: "Invalid signature" }
  *       429:
- *         description: Too many requests
+ *         description: Too many requests. Back off for the number of seconds in `Retry-After` before retrying.
+ *         headers:
+ *           Retry-After:
+ *             $ref: '#/components/headers/RetryAfter'
  *         content:
  *           application/json:
  *             schema:
@@ -234,6 +241,7 @@ router.post(
  *             example:
  *               error: Too Many Requests
  *               message: Too many authentication attempts from this IP, please try again after 15 minutes
+ *               retryAfter: 900
  *       500:
  *         description: Internal server error
  *         content:

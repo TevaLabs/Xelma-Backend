@@ -90,6 +90,38 @@ function redisStoreFor(name: string) {
   });
 }
 
+/** Never advertise a 0s backoff — that is an invitation to retry immediately. */
+const MIN_RETRY_AFTER_SECONDS = 1;
+
+/**
+ * Seconds a throttled client should back off for, derived from the part of the
+ * limiter window that is still open.
+ *
+ * express-rate-limit hangs the current window's reset instant off the request
+ * (`req.rateLimit.resetTime`, default `requestPropertyName`) *before* it invokes
+ * `handler`, so we mirror the store's own view of the window instead of assuming
+ * the caller arrived at second zero: a client that already burned half its
+ * window is told to wait for the remainder, not for the whole window again.
+ * Falls back to the configured window length when no reset time is reported.
+ *
+ * Returned in seconds per RFC 9110 §10.2.3 (`Retry-After` delta-seconds form).
+ */
+export function resolveRetryAfterSeconds(req: Request, windowMs: number): number {
+  const resetTime = (req as unknown as { rateLimit?: { resetTime?: Date | number } }).rateLimit
+    ?.resetTime;
+
+  if (resetTime !== undefined && resetTime !== null) {
+    const resetAtMs = resetTime instanceof Date ? resetTime.getTime() : Number(resetTime);
+    if (Number.isFinite(resetAtMs)) {
+      // The library clamps its own Retry-After to 0s; a 0 tells the client to
+      // hammer the endpoint again immediately, so floor the value at 1s.
+      return Math.max(MIN_RETRY_AFTER_SECONDS, Math.ceil((resetAtMs - Date.now()) / 1000));
+    }
+  }
+
+  return Math.max(MIN_RETRY_AFTER_SECONDS, Math.ceil(windowMs / 1000));
+}
+
 /**
  * Factory function to create rate limiters with consistent 429 shape.
  */
@@ -110,6 +142,8 @@ function createRateLimiter(opts: {
     // object as the Map key, so every request looks unique and never 429s.
     // Omit keyGenerator to use express-rate-limit's default (IP + IPv6 subnet).
     ...(opts.keyGenerator ? { keyGenerator: opts.keyGenerator } : {}),
+    // Only used by the library's default handler; the `handler` below is
+    // authoritative and reports the *remaining* window, not the full one.
     message: { error: 'Too Many Requests', message: opts.message, retryAfter: Math.ceil(opts.windowMs / 1000) },
     standardHeaders: true,
     legacyHeaders: false,
@@ -132,7 +166,15 @@ function createRateLimiter(opts: {
         userId: userId,
       }).catch(err => logger.error(`Failed to record hit for ${opts.name}:`, err));
 
-      res.status(429).json({ error: 'Too Many Requests', message: opts.message, retryAfter: Math.ceil(opts.windowMs / 1000) });
+      // `Retry-After` is the contract clients back off on (RFC 9110 §10.2.3).
+      // Set it explicitly rather than relying on the limiter's own emission:
+      // that one can read 0 once the window is nearly spent, and it is not
+      // guaranteed across versions. The same number is mirrored in the body so
+      // clients that ignore headers still know how long to wait.
+      const retryAfter = resolveRetryAfterSeconds(req, opts.windowMs);
+      res.setHeader('Retry-After', String(retryAfter));
+
+      res.status(429).json({ error: 'Too Many Requests', message: opts.message, retryAfter });
     },
   });
 }
