@@ -23,8 +23,17 @@ import { computeXp, computeRankTitle } from "../utils/user-rank.util";
 const router = Router();
 
 /**
- * GET /api/user/profile
- * Returns the authenticated user's full profile information
+ * @openapi
+ * /api/user/profile:
+ *   get:
+ *     summary: Get the authenticated user's profile
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User profile
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.get(
   "/profile",
@@ -72,8 +81,17 @@ router.get(
 );
 
 /**
- * GET /api/user/balance
- * Returns current virtual balance
+ * @openapi
+ * /api/user/balance:
+ *   get:
+ *     summary: Get the authenticated user's virtual balance
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current virtual balance
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.get(
   "/balance",
@@ -97,8 +115,17 @@ router.get(
 );
 
 /**
- * GET /api/user/stats
- * Returns detailed user statistics
+ * @openapi
+ * /api/user/stats:
+ *   get:
+ *     summary: Get the authenticated user's statistics
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User statistics
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.get("/stats", authenticateUser, (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
@@ -201,8 +228,17 @@ router.get(
 );
 
 /**
- * PATCH /api/user/profile
- * Update user preferences/profile
+ * @openapi
+ * /api/user/profile:
+ *   patch:
+ *     summary: Update the authenticated user's profile
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Updated user profile
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.patch(
   "/profile",
@@ -263,8 +299,17 @@ router.patch(
 );
 
 /**
- * GET /api/user/transactions
- * Paginated list of balance changes
+ * @openapi
+ * /api/user/transactions:
+ *   get:
+ *     summary: Get the authenticated user's transactions
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Paginated balance changes
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.get(
   "/transactions",

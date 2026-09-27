@@ -250,6 +250,10 @@ router.get('/payout-reconciliation', requireAdmin, async (req: Request, res: Res
  *           application/json:
  *             schema:
  *               type: object
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.get('/rate-limit-summary', requireAdmin, async (req: Request, res: Response) => {
   try {

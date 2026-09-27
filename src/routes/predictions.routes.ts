@@ -91,6 +91,8 @@ function buildSubmitPredictionResponse(prediction: PredictionRow) {
  *     responses:
  *       200:
  *         description: Prediction submitted
+ *       401:
+ *         description: Missing or invalid JWT
  *       409:
  *         description: Idempotency key reused with a different request body
  *         content:
@@ -221,6 +223,8 @@ router.post(
  *     responses:
  *       200:
  *         description: Predictions processed
+ *       401:
+ *         description: Missing or invalid JWT
  *       429:
  *         description: Too many batch requests
  *         content:
@@ -260,6 +264,8 @@ router.post(
  *     responses:
  *       200:
  *         description: List of predictions
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.get(
    '/user',

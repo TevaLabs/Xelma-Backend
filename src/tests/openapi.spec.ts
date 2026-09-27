@@ -1,5 +1,13 @@
 import { describe, expect, it } from "@jest/globals";
 import { swaggerSpec } from "../docs/openapi";
+import { createApp } from "../app-factory";
+import {
+  authenticateUser,
+  requireAdmin,
+  requireMetricsAuth,
+  requireOracle,
+  verifyStellarAuth,
+} from "../middleware/auth.middleware";
 import { isValidStellarAddress } from "../utils/stellar-address.util";
 
 interface RequiredOperation {
@@ -66,12 +74,101 @@ const LEGACY_REQUIRED_OPERATIONS: Array<{ path: string; method: string }> = [
   { path: "/api/prices", method: "get" },
 ];
 
+function decodeMountPath(layer: any): string {
+  const regexp = layer?.regexp;
+  if (!regexp || regexp.fast_slash) return "";
+  let source: string = regexp.source;
+  if (source.startsWith("^")) source = source.slice(1);
+  return source
+    .replace(/\\\/?\(\?=\\\/\|\$\)$/, "")
+    .replace(/\\\/?\$$/, "")
+    .replace(/\$$/, "")
+    .replace(/\\\//g, "/")
+    .replace(/\\\./g, ".");
+}
+
+function getProtectedExpressOperations(): Array<{ path: string; method: string }> {
+  const app = createApp({ mode: "full" }) as any;
+  const authMiddleware = new Set([
+    authenticateUser,
+    verifyStellarAuth,
+    requireAdmin,
+    requireOracle,
+    requireMetricsAuth,
+  ]);
+  const protectedOperations = new Map<string, { path: string; method: string }>();
+
+  const visit = (stack: any[], prefix: string): void => {
+    for (const layer of stack) {
+      if (layer.route) {
+        const routePaths = Array.isArray(layer.route.path)
+          ? layer.route.path
+          : [layer.route.path];
+        const isProtected = (layer.route.stack ?? []).some((routeLayer: any) =>
+          authMiddleware.has(routeLayer.handle),
+        );
+        if (!isProtected) continue;
+
+        const methods = Object.keys(layer.route.methods ?? {}).filter(
+          (method) => layer.route.methods[method] && method !== "_all",
+        );
+        for (const routePath of routePaths) {
+          const path = `${prefix}${routePath}`.replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
+          // Versioned aliases intentionally mirror the same handlers; their
+          // operations are not separately published in the legacy OpenAPI spec.
+          if (path.startsWith("/api/v1/")) continue;
+          for (const method of methods) {
+            const key = `${method.toLowerCase()} ${path}`;
+            protectedOperations.set(key, { path, method: method.toLowerCase() });
+          }
+        }
+      } else if (layer.name === "router" && layer.handle?.stack) {
+        visit(layer.handle.stack, `${prefix}${decodeMountPath(layer)}`);
+      }
+    }
+  };
+
+  const router = app._router ?? app.router;
+  if (router?.stack) visit(router.stack, "");
+  return [...protectedOperations.values()];
+}
+
+function toOpenApiPath(path: string): string {
+  return path.replace(/:([^/]+)/g, "{$1}");
+}
+
 describe("OpenAPI spec", () => {
   const paths = (swaggerSpec as { paths?: Record<string, Record<string, any>> }).paths ?? {};
 
   it("documents every required auth, money-path, and operational route", () => {
     for (const { path, method } of REQUIRED_OPERATIONS) {
       expect(paths[path]?.[method]).toBeDefined();
+    }
+  });
+
+  it("documents bearer security and 401 for every auth-middleware-protected Express route", () => {
+    const protectedOperations = getProtectedExpressOperations();
+    expect(protectedOperations.length).toBeGreaterThan(0);
+
+    for (const { path, method } of protectedOperations) {
+      const openApiPath = toOpenApiPath(path);
+      const operation = paths[openApiPath]?.[method];
+      expect(operation).toBeDefined();
+      expect(operation?.security).toEqual(
+        expect.arrayContaining([expect.objectContaining({ bearerAuth: [] })]),
+      );
+      expect(operation?.responses?.["401"]).toBeDefined();
+    }
+  });
+
+  it("keeps public health and price operations unsecured", () => {
+    expect((swaggerSpec as { security?: unknown[] }).security ?? []).toEqual([]);
+    for (const [path, method] of [
+      ["/health", "get"],
+      ["/api/price", "get"],
+      ["/api/prices", "get"],
+    ]) {
+      expect(paths[path]?.[method]?.security ?? []).toEqual([]);
     }
   });
 

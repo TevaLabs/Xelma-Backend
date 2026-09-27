@@ -113,8 +113,17 @@ router.get(
 );
 
 /**
- * GET /api/notifications/unread-count
- * Get the count of unread notifications for the authenticated user
+ * @openapi
+ * /api/notifications/unread-count:
+ *   get:
+ *     summary: Get the authenticated user's unread notification count
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Unread notification count
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.get(
   "/unread-count",
@@ -131,8 +140,22 @@ router.get(
 );
 
 /**
- * GET /api/notifications/:id
- * Get a specific notification
+ * @openapi
+ * /api/notifications/{id}:
+ *   get:
+ *     summary: Get a notification
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Notification details
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.get("/:id", authenticateUser, (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
@@ -163,8 +186,22 @@ router.get("/:id", authenticateUser, (async (req: AuthenticatedRequest, res: Res
 }) as any);
 
 /**
- * PATCH /api/notifications/:id/read
- * Mark a single notification as read
+ * @openapi
+ * /api/notifications/{id}/read:
+ *   patch:
+ *     summary: Mark a notification as read
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Notification marked as read
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.patch(
   "/:id/read",
@@ -195,8 +232,17 @@ router.patch(
 );
 
 /**
- * PATCH /api/notifications/read-all
- * Mark all unread notifications as read for the authenticated user
+ * @openapi
+ * /api/notifications/read-all:
+ *   patch:
+ *     summary: Mark all notifications as read
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Unread notifications marked as read
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.patch(
   "/read-all",
@@ -217,8 +263,22 @@ router.patch(
 );
 
 /**
- * DELETE /api/notifications/:id
- * Delete a single notification
+ * @openapi
+ * /api/notifications/{id}:
+ *   delete:
+ *     summary: Delete a notification
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Notification deleted
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.delete("/:id", authenticateUser, (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
@@ -238,8 +298,17 @@ router.delete("/:id", authenticateUser, (async (req: AuthenticatedRequest, res: 
 }) as any);
 
 /**
- * DELETE /api/notifications
- * Delete all read notifications for the authenticated user
+ * @openapi
+ * /api/notifications:
+ *   delete:
+ *     summary: Delete all read notifications
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Read notifications deleted
+ *       401:
+ *         description: Missing or invalid JWT
  */
 router.delete("/", authenticateUser, (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {

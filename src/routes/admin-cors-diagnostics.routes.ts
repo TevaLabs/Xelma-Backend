@@ -31,6 +31,10 @@ const router = Router();
  *     responses:
  *       200:
  *         description: Resolved CORS configuration
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.get('/', requireAdmin, (req: Request, res: Response) => {
   const nodeEnv = process.env.NODE_ENV ?? 'development';

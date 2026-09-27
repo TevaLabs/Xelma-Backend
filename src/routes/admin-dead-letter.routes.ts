@@ -74,6 +74,11 @@ function parseDryRun(req: Request): boolean {
  *       - Admin
  *     security:
  *       - bearerAuth: []
+ *     responses:
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.get('/', requireAdmin, async (req: Request, res: Response) => {
   try {
@@ -100,6 +105,11 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
  *       - Admin
  *     security:
  *       - bearerAuth: []
+ *     responses:
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.post('/retry-all', requireAdmin, async (req: Request, res: Response) => {
   try {
@@ -127,6 +137,11 @@ router.post('/retry-all', requireAdmin, async (req: Request, res: Response) => {
  *       - Admin
  *     security:
  *       - bearerAuth: []
+ *     responses:
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.post('/:id/retry', requireAdmin, async (req: Request, res: Response) => {
   try {

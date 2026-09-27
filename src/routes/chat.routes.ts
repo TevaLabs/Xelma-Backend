@@ -32,6 +32,8 @@ const router = Router();
  *     responses:
  *       201:
  *         description: Message created
+ *       401:
+ *         description: Missing or invalid JWT
  *       429:
  *         description: Too many messages
  *         content:
