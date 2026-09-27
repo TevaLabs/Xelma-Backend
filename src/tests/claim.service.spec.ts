@@ -25,12 +25,18 @@ jest.mock("../lib/prisma", () => {
     findMany: jest.fn(),
     groupBy: jest.fn(),
   };
+  const mockLeaderboard = {
+    findUnique: jest.fn(),
+    create: jest.fn(),
+    updateMany: jest.fn(),
+  };
   return {
     prisma: {
       claim,
+      mockLeaderboard,
       user: { findUnique: jest.fn(), create: jest.fn() },
       bet: { findMany: jest.fn() },
-      $transaction: jest.fn((fn: (tx: any) => Promise<any>) => fn({ claim })),
+      $transaction: jest.fn((fn: (tx: any) => Promise<any>) => fn({ claim, mockLeaderboard })),
     },
   };
 });
@@ -60,6 +66,7 @@ const VALID_ADDRESS = "GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890";
 const mockClaimFindFirst = prisma.claim.findFirst as jest.Mock;
 const mockClaimCreate = prisma.claim.create as jest.Mock;
 const mockClaimUpdateMany = prisma.claim.updateMany as jest.Mock;
+const mockLeaderboard = (prisma as any).mockLeaderboard;
 
 describe("BetService.claimWinnings", () => {
   const originalEnv = process.env;
@@ -77,20 +84,59 @@ describe("BetService.claimWinnings", () => {
     process.env = originalEnv;
   });
 
-  it("returns stub claim when BET_STUB_MODE=true and touches no claim ledger", async () => {
+  it("credits pending demo winnings, clears pending, and records a confirmed claim", async () => {
     process.env.BET_STUB_MODE = "true";
+    const user = { address: VALID_ADDRESS, balance: 100, pendingWinnings: 12.5 };
+    mockLeaderboard.findUnique.mockImplementation(async () => ({ ...user }));
+    mockLeaderboard.updateMany.mockImplementation(async ({ where, data }: any) => {
+      if (where.pendingWinnings !== user.pendingWinnings) return { count: 0 };
+      user.balance += data.balance.increment;
+      user.pendingWinnings = data.pendingWinnings.set;
+      return { count: 1 };
+    });
 
     const result = await betService.claimWinnings(VALID_ADDRESS);
 
-    expect(result).toEqual({ state: "stub", amount: 0 });
+    expect(result).toEqual({ state: "stub", amount: 12.5, balance: 112.5, pendingWinnings: 0 });
     expect(sorobanService.claimWinnings).not.toHaveBeenCalled();
     expect(prisma.claim.findFirst).not.toHaveBeenCalled();
-    expect(betAuditService.emitClaimAccepted).toHaveBeenCalledWith({
+    expect(mockLeaderboard.updateMany).toHaveBeenCalledWith({
+      where: { address: VALID_ADDRESS, pendingWinnings: 12.5 },
+      data: { balance: { increment: 12.5 }, pendingWinnings: { set: 0 } },
+    });
+    expect(mockClaimCreate).toHaveBeenCalledTimes(1);
+    const claimData = mockClaimCreate.mock.calls[0][0].data;
+    expect(claimData.walletAddress).toBe(VALID_ADDRESS);
+    expect(claimData.amount.toNumber()).toBe(12.5);
+    expect(claimData.status).toBe(ClaimStatus.CONFIRMED);
+    expect(claimData.claimedAt).toEqual(expect.any(Date));
+    expect(betAuditService.emitClaimAccepted).toHaveBeenCalledWith(expect.objectContaining({
       address: VALID_ADDRESS,
-      amount: 0,
+      amount: 12.5,
       result: "stub",
       txHash: undefined,
+    }));
+  });
+
+  it("does not credit or ledger the same pending amount twice", async () => {
+    process.env.BET_STUB_MODE = "true";
+    const user = { address: VALID_ADDRESS, balance: 100, pendingWinnings: 8 };
+    mockLeaderboard.findUnique.mockImplementation(async () => ({ ...user }));
+    mockLeaderboard.updateMany.mockImplementation(async ({ where, data }: any) => {
+      if (where.pendingWinnings !== user.pendingWinnings) return { count: 0 };
+      user.balance += data.balance.increment;
+      user.pendingWinnings = data.pendingWinnings.set;
+      return { count: 1 };
     });
+
+    const first = await betService.claimWinnings(VALID_ADDRESS, "same-key-123");
+    const duplicate = await betService.claimWinnings(VALID_ADDRESS, "same-key-123");
+
+    expect(first.amount).toBe(8);
+    expect(duplicate.amount).toBe(0);
+    expect(user).toEqual({ address: VALID_ADDRESS, balance: 108, pendingWinnings: 0 });
+    expect(mockClaimCreate).toHaveBeenCalledTimes(1);
+    expect(sorobanService.claimWinnings).not.toHaveBeenCalled();
   });
 
   it("calls SorobanService, records the claim ledger, and audits when BET_STUB_MODE=false", async () => {

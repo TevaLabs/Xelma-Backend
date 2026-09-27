@@ -506,6 +506,15 @@ const bets = new MemoryCollection("id", () => ({
   resolvedAt: null,
   failedAt: null,
 }));
+const claims = new MemoryCollection("id", () => ({
+  userId: null,
+  amount: null,
+  status: "PENDING",
+  txHash: null,
+  attempts: 0,
+  lastError: null,
+  claimedAt: null,
+}));
 const notifications = new MemoryCollection("id", () => ({
   data: null,
   isRead: false,
@@ -684,6 +693,7 @@ const modelClients = {
   round: rounds,
   prediction: predictionModel(),
   bet: bets,
+  claim: claims,
   notification: notifications,
   userStats,
   message: messageModel(),

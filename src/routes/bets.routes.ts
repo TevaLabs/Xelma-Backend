@@ -211,10 +211,12 @@ router.post(
         success: true,
         message:
           result.state === "stub"
-            ? "Claim recorded (stub)"
+            ? "Winnings claimed (stub)"
             : "Winnings claimed on-chain",
         state: result.state,
         amount: result.amount,
+        ...(result.balance !== undefined ? { balance: result.balance } : {}),
+        ...(result.pendingWinnings !== undefined ? { pendingWinnings: result.pendingWinnings } : {}),
         ...(result.txHash ? { txHash: result.txHash } : {}),
         ...(requestId ? { requestId } : {}),
       };
