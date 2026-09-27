@@ -220,6 +220,11 @@ router.get(
       process.env.EDUCATION_GUIDES_CACHE_TTL_SECONDS || "86400",
       10,
     ),
+    // `educationGuides` is a module-level constant, so the body is identical for
+    // every caller — including authenticated ones. Declaring `scope: "public"`
+    // is what lets logged-in users keep hitting the shared cache here. Anything
+    // derived from `req.user` must use `scope: "user"` instead.
+    scope: "public",
   }),
   (req: Request, res: Response, next: NextFunction) => {
   try {
