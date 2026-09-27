@@ -42,6 +42,12 @@ services:
         sync: false
       - key: COINGECKO_API_URL
         value: https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd
+      # Render's edge is one proxy hop in front of the service, so req.ip (and
+      # every per-IP rate limit) must come from X-Forwarded-For. Without this,
+      # every visitor to the public demo URL shares one limiter bucket.
+      # Add a CDN/Cloudflare in front and this becomes 2.
+      - key: TRUST_PROXY
+        value: "1"
       # Canonical Soroban names (aliases STELLAR_RPC_URL / CONTRACT_ID also accepted)
       - key: SOROBAN_RPC_URL
         value: https://soroban-testnet.stellar.org
@@ -69,6 +75,12 @@ services:
         value: production
       - key: PORT
         value: "3000"
+      # Render's edge is one proxy hop in front of the service, so req.ip (and
+      # every per-IP rate limit) must come from X-Forwarded-For. Without this,
+      # every visitor to the public demo URL shares one limiter bucket.
+      # Add a CDN/Cloudflare in front and this becomes 2.
+      - key: TRUST_PROXY
+        value: "1"
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
