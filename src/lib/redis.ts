@@ -166,6 +166,24 @@ export function isRedisCacheEnabled(): boolean {
   return getRedisCacheEnabled();
 }
 
+/**
+ * Record a cache bypass that did not come from Redis being unavailable.
+ *
+ * The JSON cache helpers bypass when the client cannot be reached; callers
+ * that deliberately refuse to cache (e.g. `cache.middleware.ts` refusing to
+ * store an authenticated response under a shared key) call this instead so the
+ * `redis_cache_bypasses_total` gauge covers both kinds of miss.
+ *
+ * @param namespace Cache namespace the request was headed for.
+ * @param reason    Short, low-cardinality reason label (metric-safe).
+ */
+export function noteCacheBypass(namespace: string, reason: string): void {
+  metrics.bypasses += 1;
+  if (redisCacheDebug) {
+    logger.info("Redis cache bypassed by caller", { namespace, reason });
+  }
+}
+
 export async function invalidateNamespace(namespace: string): Promise<void> {
   const redisClient = await ensureClient();
   if (!redisClient) {
@@ -188,6 +206,15 @@ export async function invalidateNamespace(namespace: string): Promise<void> {
   }
 }
 
+/**
+ * Read a JSON cache entry.
+ *
+ * ⚠️ The JSON cache performs **no authorization of its own**: it stores and
+ * returns whatever key it is handed, so any two requests that produce the same
+ * key share a body. Callers are responsible for making authenticated keys
+ * user-scoped (see `src/middleware/cache.middleware.ts`, which refuses to
+ * cache `Authorization`-bearing requests under a shared key).
+ */
 export async function getJsonFromCache<T>(namespace: string, rawKey: string): Promise<T | null> {
   const redisClient = await ensureClient();
   if (!redisClient) {
