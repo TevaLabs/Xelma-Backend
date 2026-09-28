@@ -191,6 +191,9 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
   // Permissions-Policy that helmet's defaults do not set (Issue #414/#480).
   app.use(securityHeadersMiddleware);
 
+  // Assign a request ID before body parsing so parser failures can be correlated.
+  app.use(requestIdMiddleware);
+
   const jsonLimit = process.env.JSON_BODY_LIMIT || '16kb';
   app.use(express.json({ limit: jsonLimit }));
   if (mode === 'full') {
@@ -206,8 +209,6 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
     }),
   );
 
-  // Correlation ID first, so everything downstream can log it.
-  app.use(requestIdMiddleware);
   app.use(metricsMiddleware);
   // Both modes log the same shape (method, path, status, durationMs,
   // requestId) on response finish — see src/middleware/httpLogger.middleware.ts

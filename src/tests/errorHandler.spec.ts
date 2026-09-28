@@ -18,6 +18,7 @@ import {
 } from "../utils/errors";
 import { CircuitBreakerOpenError } from "../utils/circuit-breaker";
 import { errorHandler } from "../middleware/errorHandler.middleware";
+import { errorHandler as hackathonErrorHandler } from "../middleware/errorHandler";
 import { requestIdMiddleware } from "../middleware/requestId.middleware";
 
 function prismaKnownError(
@@ -34,10 +35,19 @@ function prismaKnownError(
 /** Build a minimal Express app with one route that throws the given error */
 function makeApp(thrower: (req: Request, res: Response, next: NextFunction) => void) {
   const app = express();
-  app.use(express.json());
   app.use(requestIdMiddleware);
+  app.use(express.json());
   app.get("/test", thrower);
   app.use(errorHandler);
+  return app;
+}
+
+function makeMalformedJsonApp(handler: typeof errorHandler) {
+  const app = express();
+  app.use(requestIdMiddleware);
+  app.use(express.json());
+  app.post("/json", (_req, res) => res.json({ ok: true }));
+  app.use(handler);
   return app;
 }
 
@@ -98,6 +108,49 @@ describe("AppError subclasses", () => {
 });
 
 describe("errorHandler middleware", () => {
+  it.each([
+    { handler: errorHandler, label: "full handler" },
+    { handler: hackathonErrorHandler, label: "hackathon handler" },
+  ])("returns a safe JSON envelope for malformed JSON with $label", async ({ handler }) => {
+    const app = makeMalformedJsonApp(handler);
+    for (const body of ['{"amount":', '{"amount": 1,}']) {
+      const res = await request(app)
+        .post("/json")
+        .set("Content-Type", "application/json")
+        .set("X-Request-ID", "bad-json-test-id")
+        .send(body);
+
+      expect(res.status).toBe(400);
+      expect(res.headers["content-type"]).toMatch(/application\/json/);
+      expect(res.body).toMatchObject({
+        error: "Bad Request",
+        message: "Invalid JSON in request body",
+        code: "INVALID_JSON",
+        path: "/json",
+        requestId: "bad-json-test-id",
+      });
+      expect(typeof res.body.requestId).toBe("string");
+      expect(res.body.requestId.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("does not expose parser details or stack traces in production", async () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const res = await request(makeMalformedJsonApp(errorHandler))
+        .post("/json")
+        .set("Content-Type", "application/json")
+        .send('{"amount":');
+
+      expect(res.status).toBe(400);
+      expect(res.body.stack).toBeUndefined();
+      expect(JSON.stringify(res.body)).not.toMatch(/SyntaxError|at .*\(.+:\d+:\d+\)/);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
+
   it("maps ValidationError to 400 with correct shape", async () => {
     const app = makeApp((_req, _res, next) =>
       next(new ValidationError("bad input", [{ field: "name", message: "required" }]))
