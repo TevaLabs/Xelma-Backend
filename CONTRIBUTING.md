@@ -130,6 +130,29 @@ make sure it is created there — not at the repository root.
 The pull request template is applied automatically to new PRs from
 [.github/pull_request_template.md](.github/pull_request_template.md).
 
+## Code owners
+
+[`.github/CODEOWNERS`](.github/CODEOWNERS) assigns a domain reviewer to the
+files where a bad merge can lose funds, break auth, or corrupt data:
+
+| Area | Owned paths |
+| --- | --- |
+| Money / on-chain | `src/services/bet.service.ts`, `src/services/prediction.service.ts`, `src/services/resolution.service.ts`, `src/services/soroban.service.ts` |
+| Auth | `src/utils/jwt.util.ts` |
+| Database schema | `prisma/schema.prisma` |
+
+When your PR touches one of these files, GitHub automatically requests a review
+from the listed owner. Expect that review before merge, and keep changes to
+these files in small, focused PRs so they are easy to review.
+
+CODEOWNERS is **advisory** until branch protection enforces it. On its own, it
+only requests the review. It does not block merging. Enforcement is a repo
+setting and can't be changed from a pull request.
+
+> **Admins:** go to **Settings → Branches** (or **Settings → Rules → Rulesets**),
+> edit the rule for `main`, and enable **Require a pull request before merging →
+> Require review from Code Owners**.
+
 ## Runtime modes
 
 Before opening a PR, verify your change works under the appropriate runtime
