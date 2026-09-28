@@ -8,6 +8,12 @@ import chatService from './services/chat.service';
 import multiplayerSessionService from './services/multiplayer-session.service';
 import logger from './utils/logger';
 import { initializeSocketAdapter } from './utils/socket-adapter';
+import {
+   isSafeRoomName,
+   isValidIdSegment,
+   isValidSessionId,
+   sessionRoom,
+} from './utils/socket-room.util';
 import config from './config';
 import {
    setSocketConnectionsActive,
@@ -469,10 +475,17 @@ export async function initializeSocket(
                // Auto-rejoin rooms the user occupied before the drop. The
                // client also receives the resume payload so it can update
                // local UI state without a round-trip.
-               for (const room of resume.rooms) {
+               // Issue #730: persisted rooms may predate id validation (or
+               // have been written by an older instance), so re-validate
+               // before re-joining. Unsafe names are dropped, not repaired.
+               const safeRooms = resume.rooms.filter(isSafeRoomName);
+               for (const room of safeRooms) {
                   socket.join(room);
                }
-               socket.emit('session:resume', resume as ResumePayload);
+               socket.emit('session:resume', {
+                  ...resume,
+                  rooms: safeRooms,
+               } as ResumePayload);
 
                // Issue #555: reconcile DB rooms against the adapter.
                // If a previous instance crashed between a DB write and an adapter
@@ -502,6 +515,18 @@ export async function initializeSocket(
             roundId = data;
          } else if (data && typeof data === 'object') {
             roundId = data.roundId;
+         }
+
+         // Issue #730: never build a room name from an unvalidated id.
+         if (roundId !== undefined && !isValidIdSegment(roundId)) {
+            const errPayload: GenericErrorPayload = {
+               message: 'Invalid round id',
+            };
+            socket.emit('error', errPayload);
+            logger.warn(
+               `Rejected join:round for socket ${socket.id}: invalid round id`,
+            );
+            return;
          }
 
          const room = roundId ? `round:${roundId}` : 'round';
@@ -697,6 +722,19 @@ export async function initializeSocket(
             return;
          }
 
+         // Issue #730: bound the name and require a server-managed prefix, so
+         // a client cannot subscribe to an arbitrary room (e.g. `round:*`).
+         if (!isSafeRoomName(targetRoom)) {
+            const errPayload: GenericErrorPayload = {
+               message: 'Invalid room name',
+            };
+            socket.emit('error', errPayload);
+            logger.warn(
+               `Blocked invalid room name for socket ${socket.id}: ${targetRoom}`,
+            );
+            return;
+         }
+
          socket.join(targetRoom);
          // Ack with generic 'notifications' for backwards-compat when joining own room;
          // if caller explicitly asked for a room name, echo that room so tests and
@@ -709,6 +747,43 @@ export async function initializeSocket(
          // actually in `user:${userId}`; multi-node emit via websocket.service still targets `user:${userId}`.
          socket.emit('room:joined', joinedNotif);
          void multiplayerSessionService.addRoom(socket.userId, targetRoom);
+      });
+
+      // Issue #730: multiplayer session rooms live under the `session:`
+      // namespace so they can never alias a `user:` or `round:` room, and the
+      // id must be a cuid/uuid — anything else is rejected before socket.join.
+      socket.on('join:session', (sessionId?: string) => {
+         if (!isValidSessionId(sessionId)) {
+            const errPayload: GenericErrorPayload = {
+               message: 'Invalid session id',
+            };
+            socket.emit('error', errPayload);
+            logger.warn(
+               `Rejected join:session for socket ${socket.id}: invalid session id`,
+            );
+            return;
+         }
+
+         const room = sessionRoom(sessionId);
+         socket.join(room);
+         logger.info(`Socket ${socket.id} joined room: ${room}`);
+         const joinedSession: RoomEventPayload = { room };
+         socket.emit('room:joined', joinedSession);
+         if (socket.userId) {
+            void multiplayerSessionService.addRoom(socket.userId, room);
+         }
+      });
+
+      socket.on('leave:session', (sessionId?: string) => {
+         if (!isValidSessionId(sessionId)) return;
+         const room = sessionRoom(sessionId);
+         socket.leave(room);
+         logger.info(`Socket ${socket.id} left room: ${room}`);
+         const leftSession: RoomEventPayload = { room };
+         socket.emit('room:left', leftSession);
+         if (socket.userId) {
+            void multiplayerSessionService.removeRoom(socket.userId, room);
+         }
       });
 
       // Issue #194: clients can checkpoint opaque session metadata
