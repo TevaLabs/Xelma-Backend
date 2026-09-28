@@ -13,6 +13,7 @@ export type SafetyProfile = "production" | "demo";
 
 export interface AppConfig {
   port: number;
+  requestTimeoutMs: number;
   nodeEnv: "development" | "production" | "test";
   clientUrl: string;
   logLevel: string;
@@ -119,6 +120,12 @@ function buildConfig(): Config {
 
   const app: AppConfig = {
     port: v.port(env.PORT, "PORT", 3000),
+    requestTimeoutMs: v.nonNegativeInt(
+      env.REQUEST_TIMEOUT_MS,
+      "REQUEST_TIMEOUT_MS",
+      15000,
+      { min: 1, max: 2_147_483_647 },
+    ),
     nodeEnv: v.oneOf(
       env.NODE_ENV,
       "NODE_ENV",
