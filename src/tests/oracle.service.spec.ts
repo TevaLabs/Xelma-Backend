@@ -52,6 +52,10 @@ jest.mock('../utils/distributed-lock', () =>
 );
 
 import oracleService from '../services/oracle.service';
+import {
+  LockLostError,
+  withDistributedLock,
+} from '../utils/distributed-lock';
 import { oracleResolveBlockedTotal } from '../metrics/application.metrics';
 
 describe('OracleService — unit tests & resolve skip reasons (Issue #525)', () => {
@@ -113,6 +117,61 @@ describe('OracleService — unit tests & resolve skip reasons (Issue #525)', () 
       expect(incSpy).toHaveBeenCalledWith({ reason: 'stale_price' });
       expect(mockRoundFindMany).not.toHaveBeenCalled();
       expect(mockResolveRound).not.toHaveBeenCalled();
+      // The staleness context is read for the warning log.
+      expect(mockGetLastUpdatedAt).toHaveBeenCalled();
+      expect(mockGetStalenessSeconds).toHaveBeenCalled();
+    });
+
+    it('never resolves a round on skip, even when rounds are eligible', async () => {
+      // A skip must be a hard stop: eligible work sitting in the DB must not
+      // tempt the loop into resolving with an untrusted price.
+      mockRoundFindMany.mockResolvedValue([
+        { id: 'round-due', status: 'ACTIVE', endTime: new Date(Date.now() - 60_000) },
+      ]);
+
+      mockGetPrice.mockReturnValue(null);
+      await oracleService.resolveEligibleRounds();
+      expect(incSpy).toHaveBeenLastCalledWith({ reason: 'invalid_price' });
+      expect(mockResolveRound).not.toHaveBeenCalled();
+
+      incSpy.mockClear();
+      mockGetPrice.mockReturnValue(new Decimal('0.25'));
+      mockIsStale.mockReturnValue(true);
+      await oracleService.resolveEligibleRounds();
+      expect(incSpy).toHaveBeenLastCalledWith({ reason: 'stale_price' });
+      expect(mockResolveRound).not.toHaveBeenCalled();
+    });
+
+    it('aborts the batch and increments lock_lost when leadership is lost', async () => {
+      // The loop re-checks leadership between rounds; a stolen/expired lock
+      // must stop the batch before the next unsafe write.
+      mockGetPrice.mockReturnValue(new Decimal('0.25'));
+      mockIsStale.mockReturnValue(false);
+      mockRoundFindMany.mockResolvedValue([
+        { id: 'round-lost', status: 'ACTIVE', endTime: new Date(Date.now() - 30_000) },
+      ]);
+
+      const lostLock = {
+        lockName: 'oracle-resolve-rounds',
+        lockId: 'test-lock-id',
+        signal: new AbortController().signal,
+        isHeld: () => false,
+        lostReason: () => 'stolen' as const,
+        assertHeld: () => {
+          throw new LockLostError('oracle-resolve-rounds', 'stolen');
+        },
+      };
+
+      (withDistributedLock as unknown as jest.Mock).mockImplementationOnce(
+        async (_name: string, fn: (lock: unknown) => Promise<void>) =>
+          fn(lostLock),
+      );
+
+      await oracleService.resolveEligibleRounds();
+
+      expect(incSpy).toHaveBeenCalledTimes(1);
+      expect(incSpy).toHaveBeenCalledWith({ reason: 'lock_lost' });
+      expect(mockResolveRound).not.toHaveBeenCalled();
     });
   });
 
@@ -142,6 +201,7 @@ describe('OracleService — unit tests & resolve skip reasons (Issue #525)', () 
 
       await oracleService.resolveEligibleRounds();
 
+      // Healthy path: resolve is invoked and no blocked reason is recorded.
       expect(incSpy).not.toHaveBeenCalled();
       expect(mockResolveRound).toHaveBeenCalledTimes(2);
       expect(mockResolveRound).toHaveBeenCalledWith('round-1', '0.25');
