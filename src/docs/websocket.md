@@ -57,14 +57,24 @@ Clients that do not receive a server ping within `pingInterval + pingTimeout` ms
 
 ### 3. Token Expiry & Reconnect
 
-When the JWT expires the server emits `auth:error` then disconnects the socket:
+When an authenticated socket's JWT expires, the server emits `auth:error` and
+disconnects it. Expiry is enforced at the token deadline and rechecked when the
+server receives a Socket.IO event or heartbeat pong, so an idle socket cannot
+keep receiving private-room broadcasts after expiry:
 
 ```typescript
 interface AuthErrorPayload {
   code: "AUTH_TOKEN_EXPIRED" | "AUTH_TOKEN_INVALID";
+  reason?: "auth_expired";
   message: string;
 }
 ```
+
+For expiry, `reason` is the stable application reason `auth_expired`. The
+Socket.IO `disconnect` callback has its own protocol reason (`io server
+disconnect`); clients should use `auth:error.reason` to identify token expiry
+and refresh rather than relying on that transport-level string. The server
+does not send stack traces to clients.
 
 **Client flow:**
 1. Listen for `auth:error` events.
@@ -76,6 +86,12 @@ interface AuthErrorPayload {
    Or send the token in the request body `{ "token": "YOUR_EXPIRED_JWT" }`.
 3. Reconnect with the new token returned in `response.data.token` set as `socket.handshake.auth.token`.
 4. Re-join rooms (e.g. `join:round`, `join:chat`) after reconnect without requiring a full wallet re-authentication challenge.
+
+Unauthenticated sockets may connect for public realtime events and may join
+public round rooms (`round` and `round:{id}`). Chat and personal notification
+rooms require authentication; a socket can join only its own `user:{userId}`
+room. Expired authenticated sockets are disconnected and removed from all
+rooms, including public rooms, until they reconnect with a fresh JWT.
 
 ### 4. Reconnect Continuity
 

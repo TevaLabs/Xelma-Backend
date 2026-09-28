@@ -15,6 +15,7 @@ export interface ServerHelloPayload {
 }
 
 export interface AuthErrorPayload {
+  reason?: 'auth_expired';
   code: 'AUTH_TOKEN_EXPIRED' | 'AUTH_TOKEN_INVALID';
   message: string;
 }

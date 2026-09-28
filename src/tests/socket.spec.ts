@@ -21,6 +21,8 @@ import {
    checkStaleConnections,
    PING_INTERVAL,
    PING_TIMEOUT,
+   AUTH_EXPIRED_REASON,
+   AUTH_TOKEN_EXPIRED,
 } from '../socket';
 import { generateToken } from '../utils/jwt.util';
 import { UserRole } from '@prisma/client';
@@ -215,6 +217,48 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
          expect(client.connected).toBe(true);
          client.disconnect();
       });
+
+      it('disconnects an authenticated socket at JWT expiry with a stable reason', async () => {
+         const shortLivedToken = (() => {
+            const previousExpiry = process.env.JWT_EXPIRY;
+            process.env.JWT_EXPIRY = '1s';
+            try {
+               return generateToken(
+                  testUser.id,
+                  testUser.walletAddress,
+                  UserRole.USER
+               );
+            } finally {
+               if (previousExpiry === undefined) {
+                  delete process.env.JWT_EXPIRY;
+               } else {
+                  process.env.JWT_EXPIRY = previousExpiry;
+               }
+            }
+         })();
+
+         const client = ioClient(baseURL, {
+            auth: { token: shortLivedToken },
+            transports: ['websocket'],
+            autoConnect: false,
+         });
+         const authErrorPromise = waitFor(client, 'auth:error', 10_000);
+         const disconnectPromise = waitForDisconnect(client, 10_000);
+
+         client.connect();
+         await waitForConnect(client);
+
+         const authError = await authErrorPromise;
+         expect(authError).toEqual(expect.objectContaining({
+            code: AUTH_TOKEN_EXPIRED,
+            reason: AUTH_EXPIRED_REASON,
+         }));
+         await disconnectPromise;
+         expect(
+            io.sockets.adapter.rooms.get(`user:${SOCKET_USER_ID}`)?.has(client.id) ?? false
+         ).toBe(false);
+         client.disconnect();
+      }, 15_000);
    });
 
    describe('Room events', () => {

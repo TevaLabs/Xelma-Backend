@@ -113,6 +113,7 @@ export const PING_INTERVAL = 25_000;
  * Clients MUST NOT attempt to reuse the same expired token on reconnect.
  */
 export const AUTH_TOKEN_EXPIRED = 'AUTH_TOKEN_EXPIRED';
+export const AUTH_EXPIRED_REASON = 'auth_expired';
 
 /**
  * Socket error code emitted when the supplied token is structurally invalid
@@ -158,6 +159,25 @@ export interface ConnectionRecord {
  * socket. Exported so tests and monitoring tools can inspect it directly.
  */
 export const connectionRegistry = new Map<string, ConnectionRecord>();
+
+function disconnectExpiredSocket(
+   socket: AuthenticatedSocket,
+   tokenExpiresAt: number | undefined,
+   nowMs = Date.now()
+): boolean {
+   if (!tokenExpiresAt || tokenExpiresAt > nowMs) return false;
+
+   const authErrorPayload: AuthErrorPayload = {
+      code: AUTH_TOKEN_EXPIRED,
+      reason: AUTH_EXPIRED_REASON,
+      message:
+         'Your session token has expired. ' +
+         'Refresh your access token and reconnect.',
+   };
+   socket.emit('auth:error', authErrorPayload);
+   socket.disconnect(false);
+   return true;
+}
 
 /**
  * Scan the registry for sockets that have been silent longer than
@@ -231,14 +251,7 @@ export function checkExpiredTokenSockets(
 
       const socket = io.sockets.sockets.get(socketId);
       if (socket) {
-         const authErrorPayload: AuthErrorPayload = {
-            code: AUTH_TOKEN_EXPIRED,
-            message:
-               'Your session token has expired. ' +
-               'Refresh your access token and reconnect.',
-         };
-         socket.emit('auth:error', authErrorPayload);
-         socket.disconnect(false);
+         disconnectExpiredSocket(socket as AuthenticatedSocket, record.tokenExpiresAt, nowMs);
       } else {
          connectionRegistry.delete(socketId);
          setSocketConnectionsActive(connectionRegistry.size);
@@ -263,7 +276,9 @@ export function checkExpiredTokenSockets(
  *
  * ### Token expiry & reconnect flow
  * When a JWT expires, the server emits an `auth:error` event with
- * `{ code: "AUTH_TOKEN_EXPIRED" }` and then gracefully disconnects the socket.
+ * `{ code: "AUTH_TOKEN_EXPIRED", reason: "auth_expired" }` and disconnects
+ * the socket. Expiry is enforced by a deadline timer and rechecked for every
+ * Socket.IO event and heartbeat pong.
  * Clients MUST:
  *   1. Listen for `auth:error` events on every authenticated socket.
  *   2. On `code === "AUTH_TOKEN_EXPIRED"`: call the HTTP token-refresh endpoint
@@ -421,6 +436,23 @@ export async function initializeSocket(
          authenticated: String(Boolean(socket.userId)),
       });
 
+      if (socket.tokenExpiresAt) {
+         const expiryTimer = setTimeout(
+            () => disconnectExpiredSocket(socket, socket.tokenExpiresAt),
+            Math.max(0, socket.tokenExpiresAt - Date.now())
+         );
+         expiryTimer.unref();
+         socket.once('disconnect', () => clearTimeout(expiryTimer));
+      }
+
+      socket.use((_packet, next) => {
+         if (disconnectExpiredSocket(socket, socket.tokenExpiresAt)) {
+            next(new Error(AUTH_TOKEN_EXPIRED));
+            return;
+         }
+         next();
+      });
+
       // Announce the heartbeat contract so clients can tune their reconnect
       // logic. On reconnect, clients must re-join rooms explicitly.
       const helloPayload: ServerHelloPayload = {
@@ -441,6 +473,7 @@ export async function initializeSocket(
       // Also refresh on engine-level pong responses (heartbeat replies).
       (socket.conn as any).on('packet', (packet: { type: string }) => {
          if (packet.type === 'pong') {
+            if (disconnectExpiredSocket(socket, socket.tokenExpiresAt)) return;
             const record = connectionRegistry.get(socket.id);
             if (record) record.lastSeenAt = Date.now();
          }

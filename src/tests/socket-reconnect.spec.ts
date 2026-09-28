@@ -9,6 +9,7 @@ import {
   connectionRegistry,
   AUTH_TOKEN_EXPIRED,
   AUTH_TOKEN_INVALID,
+  AUTH_EXPIRED_REASON,
 } from '../socket';
 import { verifyTokenDetailed } from '../utils/jwt.util';
 import jwt from 'jsonwebtoken';
@@ -115,6 +116,7 @@ describe('checkExpiredTokenSockets', () => {
     expect(notified).toBe(1);
     expect(mockEmit).toHaveBeenCalledWith('auth:error', expect.objectContaining({
       code: AUTH_TOKEN_EXPIRED,
+      reason: AUTH_EXPIRED_REASON,
     }));
     expect(mockDisconnect).toHaveBeenCalledWith(false);
   });
@@ -140,6 +142,10 @@ describe('socket error code constants', () => {
   it('exports AUTH_TOKEN_EXPIRED as a string', () => {
     expect(typeof AUTH_TOKEN_EXPIRED).toBe('string');
     expect(AUTH_TOKEN_EXPIRED).toBe('AUTH_TOKEN_EXPIRED');
+  it('exports the stable auth-expiry reason', () => {
+    expect(AUTH_EXPIRED_REASON).toBe('auth_expired');
+  });
+
   });
 
   it('exports AUTH_TOKEN_INVALID as a string', () => {
