@@ -38,4 +38,24 @@ export function getCorsOrigins(): CorsOriginConfig {
   return clientUrl;
 }
 
+/**
+ * Returns whether `credentials: true` is safe for the current CORS origin
+ * configuration.
+ *
+ * Browsers reject the combination of `Access-Control-Allow-Origin: *` and
+ * `Access-Control-Allow-Credentials: true` (WHATWG Fetch / CORS spec).
+ * When the resolved origin config is the wildcard (`true` / `"*"`),
+ * credentials must be disabled to avoid a non-functional and misleading
+ * configuration.
+ *
+ * - Explicit origin list (string or string[]) → credentials enabled (`true`).
+ * - Wildcard / allow-all (`true` or `"*"`) → credentials disabled (`false`).
+ */
+export function corsCredentials(origins: CorsOriginConfig): boolean {
+  if (origins === true || origins === '*') {
+    return false;
+  }
+  return true;
+}
+
 export const getHttpCorsOrigins = getCorsOrigins;

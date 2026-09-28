@@ -33,7 +33,7 @@ let activeTokenExpiryInterval: NodeJS.Timeout | null = null;
 let ioInstance: SocketIOServer | null = null;
 
 export { getCorsOrigins } from './utils/cors';
-import { getCorsOrigins } from './utils/cors';
+import { getCorsOrigins, corsCredentials } from './utils/cors';
 
 function isAuthorizedPrivateRoomJoin(
    socket: AuthenticatedSocket,
@@ -299,7 +299,7 @@ export async function initializeSocket(
       cors: {
          origin: corsOrigins,
          methods: ['GET', 'POST'],
-         credentials: true,
+         credentials: corsCredentials(corsOrigins),
       },
    });
 
