@@ -57,14 +57,6 @@ export const swaggerSpec = swaggerJSDoc({
         },
         // ── Shared base schema (imported from shared-components) ──
         ...sharedComponents.schemas,
-        RateLimitResponse: {
-          allOf: [{ $ref: '#/components/schemas/ErrorResponse' }],
-          example: {
-            error: 'AppError',
-            message: 'Too many requests from this IP, please try again after 15 minutes',
-            code: 'RATE_LIMIT_EXCEEDED',
-          },
-        },
 
         AuthChallengeRequest: {
           type: 'object',

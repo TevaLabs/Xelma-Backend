@@ -16,7 +16,9 @@ on:
           - staging
           - production
 
-# Prevent concurrent deployments to the same environment
+# Prevent concurrent deployments to the same environment / branch.
+# cancel-in-progress is intentionally false to avoid interrupting active deployments
+# mid-flight, which could leave services in an inconsistent state or corrupt release locks.
 concurrency:
   group: deploy-${{ github.ref_name }}
   cancel-in-progress: false

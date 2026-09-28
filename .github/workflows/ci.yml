@@ -9,6 +9,12 @@ on:
       - main
   workflow_call:
 
+# Cancel in-progress CI runs when new commits are pushed to a PR branch, saving runner minutes.
+# For pushes to main or workflow_call triggers, keep cancel-in-progress false to preserve audit records.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: lint

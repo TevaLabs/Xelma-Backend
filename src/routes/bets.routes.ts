@@ -56,10 +56,59 @@ const router = Router();
  *     responses:
  *       200:
  *         description: Bet recorded (stub)
- *       401:
- *         description: Missing or invalid JWT
  *       400:
  *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: ValidationError
+ *               message: amount must be positive
+ *               code: VALIDATION_ERROR
+ *               path: /api/bets/up-down
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       401:
+ *         description: Missing or invalid JWT
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnauthorizedResponse'
+ *             example:
+ *               error: AuthenticationError
+ *               message: No token provided
+ *               code: AUTHENTICATION_ERROR
+ *               path: /api/bets/up-down
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       403:
+ *         description: Wallet address mismatch
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ForbiddenResponse'
+ *             example:
+ *               error: ForbiddenError
+ *               message: Wallet address does not match authenticated user
+ *               code: FORBIDDEN
+ *               path: /api/bets/up-down
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       429:
+ *         description: Too many bet submissions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RateLimitResponse'
+ *             example:
+ *               error: Too Many Requests
+ *               message: Too many bet submissions from this IP. Please wait before placing another bet.
+ *               code: RATE_LIMIT_EXCEEDED
+ *               path: /api/bets/up-down
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *               retryAfter: 60
  */
 router.post(
   "/up-down",
@@ -97,10 +146,59 @@ router.post(
  *     responses:
  *       200:
  *         description: Bet recorded (stub)
- *       401:
- *         description: Missing or invalid JWT
  *       400:
  *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: ValidationError
+ *               message: predictedPrice is required
+ *               code: VALIDATION_ERROR
+ *               path: /api/bets/precision
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       401:
+ *         description: Missing or invalid JWT
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnauthorizedResponse'
+ *             example:
+ *               error: AuthenticationError
+ *               message: No token provided
+ *               code: AUTHENTICATION_ERROR
+ *               path: /api/bets/precision
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       403:
+ *         description: Wallet address mismatch
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ForbiddenResponse'
+ *             example:
+ *               error: ForbiddenError
+ *               message: Wallet address does not match authenticated user
+ *               code: FORBIDDEN
+ *               path: /api/bets/precision
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       429:
+ *         description: Too many bet submissions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RateLimitResponse'
+ *             example:
+ *               error: Too Many Requests
+ *               message: Too many bet submissions from this IP. Please wait before placing another bet.
+ *               code: RATE_LIMIT_EXCEEDED
+ *               path: /api/bets/precision
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *               retryAfter: 60
  */
 router.post(
   "/precision",
@@ -140,16 +238,98 @@ router.post(
  *     responses:
  *       200:
  *         description: Claim recorded or submitted on-chain
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: ValidationError
+ *               message: Invalid address format
+ *               code: VALIDATION_ERROR
+ *               path: /api/bets/claim
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
  *       401:
  *         description: Missing or invalid JWT
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnauthorizedResponse'
+ *             example:
+ *               error: AuthenticationError
+ *               message: No token provided
+ *               code: AUTHENTICATION_ERROR
+ *               path: /api/bets/claim
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
  *       403:
  *         description: Wallet address mismatch
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ForbiddenResponse'
+ *             example:
+ *               error: ForbiddenError
+ *               message: Wallet address does not match authenticated user
+ *               code: FORBIDDEN
+ *               path: /api/bets/claim
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
  *       409:
  *         description: Idempotency key conflict
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: ConflictError
+ *               message: Idempotency key conflict
+ *               code: CONFLICT
+ *               path: /api/bets/claim
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
  *       422:
  *         description: No claimable winnings / invalid contract state
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: UnprocessableEntityError
+ *               message: No claimable winnings found for this wallet
+ *               code: UNPROCESSABLE_ENTITY
+ *               path: /api/bets/claim
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       429:
+ *         description: Rate limit exceeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RateLimitResponse'
+ *             example:
+ *               error: Too Many Requests
+ *               message: Too many write requests from this IP. Please wait before submitting again.
+ *               code: RATE_LIMIT_EXCEEDED
+ *               path: /api/bets/claim
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *               retryAfter: 60
  *       503:
  *         description: Contract interaction failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: ServiceUnavailableError
+ *               message: Soroban RPC node unavailable
+ *               code: SERVICE_UNAVAILABLE
+ *               path: /api/bets/claim
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
  */
 router.post(
   "/claim",
