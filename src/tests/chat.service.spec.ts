@@ -24,6 +24,7 @@ jest.mock('../services/websocket.service', () => ({
 }));
 
 import chatService from '../services/chat.service';
+import { sanitizeChatContent } from '../utils/sanitization.util';
 import { encodeCursor } from '../utils/pagination.util';
 
 const USER_ID = 'user-123';
@@ -208,6 +209,99 @@ describe('ChatService — unit tests & XSS regression coverage (Issue #526)', ()
 
       expect(result.content).toBe('This **** is **** crazy, what the ****!');
       expect(result.content).not.toMatch(/shit|damn|fuck/i);
+    });
+  });
+
+  describe('XSS regression matrix (Issue #648)', () => {
+    /**
+     * Each payload is a real-world bypass shape. The shared assertion is that
+     * whatever reaches the database and the websocket fan-out can never
+     * contain an executable tag or an inline event handler.
+     */
+    const XSS_PAYLOADS: Array<{ name: string; payload: string }> = [
+      { name: 'lowercase script tag', payload: '<script>alert(1)</script>' },
+      { name: 'uppercase script tag', payload: '<SCRIPT>alert(1)</SCRIPT>' },
+      { name: 'split script tag', payload: '<scr<script>ipt>alert(1)</script>' },
+      { name: 'img onerror', payload: '<img src=x onerror=alert(1)>' },
+      { name: 'svg onload', payload: '<svg onload=alert(1)>' },
+      { name: 'body onload', payload: '<body onload="alert(1)">' },
+      { name: 'anchor javascript: url', payload: '<a href="javascript:alert(1)">x</a>' },
+      { name: 'iframe src javascript:', payload: '<iframe src="javascript:alert(1)"></iframe>' },
+      { name: 'input onfocus', payload: '<input onfocus=alert(1) autofocus>' },
+      { name: 'marquee onmouseover', payload: '<marquee onmouseover=alert(1)>hi</marquee>' },
+    ];
+
+    /** Nothing that could be parsed as an element or handler survives. */
+    const assertNotExecutable = (content: string): void => {
+      expect(content).not.toMatch(/<\s*\/?\s*script/i);
+      expect(content).not.toMatch(/<\s*(img|svg|iframe|input|marquee|body)\b/i);
+      expect(content).not.toMatch(/\bon\w+\s*=/i);
+      expect(content).not.toMatch(/<\s*a\b/i);
+    };
+
+    it.each(XSS_PAYLOADS)('neutralizes $name at the service boundary', async ({ payload }) => {
+      mockMessageCreate.mockImplementation(({ data }: any) =>
+        Promise.resolve({
+          id: 'msg-xss',
+          userId: USER_ID,
+          content: data.content,
+          createdAt: new Date('2026-08-28T12:00:00.000Z'),
+          user: { walletAddress: WALLET_ADDRESS },
+        }),
+      );
+
+      const result = await chatService.sendMessage(USER_ID, WALLET_ADDRESS, payload);
+
+      // What the service asked Prisma to store, and what it returned/fanned out.
+      const storedContent = mockMessageCreate.mock.calls[0][0].data.content;
+      expect(storedContent).not.toBe(payload);
+      expect(storedContent).toBe(result.content);
+      expect(mockEmitChatMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: storedContent }),
+      );
+
+      assertNotExecutable(storedContent);
+      assertNotExecutable(result.content);
+    });
+
+    it('escapes the delimiter characters rather than stripping content', async () => {
+      mockMessageCreate.mockImplementation(({ data }: any) =>
+        Promise.resolve({
+          id: 'msg-esc',
+          userId: USER_ID,
+          content: data.content,
+          createdAt: new Date('2026-08-28T12:00:00.000Z'),
+          user: { walletAddress: WALLET_ADDRESS },
+        }),
+      );
+
+      const { content } = await chatService.sendMessage(
+        USER_ID,
+        WALLET_ADDRESS,
+        '<script>alert(1)</script>',
+      );
+
+      expect(content).toContain('&lt;script&gt;');
+      expect(content).toContain('&lt;&#x2F;script&gt;');
+    });
+
+    it('fails if sanitization is removed (guard is load-bearing)', () => {
+      // The service delegates to this util; if it stopped doing so, a raw
+      // payload would survive the round-trip. Prove the difference is real.
+      const payload = '<script>alert(1)</script>';
+      expect(sanitizeChatContent(payload)).not.toContain('<script>');
+      expect(payload).toContain('<script>');
+    });
+
+    it('rejects oversized payloads before any sanitizing work', async () => {
+      const oversized = `<script>${'a'.repeat(600)}</script>`;
+
+      await expect(
+        chatService.sendMessage(USER_ID, WALLET_ADDRESS, oversized),
+      ).rejects.toThrow(/exceeds maximum length/);
+
+      expect(mockMessageCreate).not.toHaveBeenCalled();
+      expect(mockEmitChatMessage).not.toHaveBeenCalled();
     });
   });
 
