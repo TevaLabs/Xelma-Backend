@@ -561,7 +561,14 @@ See [prisma/schema.prisma](prisma/schema.prisma) for full schema.
 
 ## Prerequisites
 
-- **Node.js** 22.x or higher
+- **Node.js** 22.x or higher. The repo pins Node 22 in [`.nvmrc`](.nvmrc), which CI also reads. With [nvm](https://github.com/nvm-sh/nvm), run this in the repo root:
+
+  ```bash
+  nvm install   # first time only: installs the version in .nvmrc
+  nvm use       # switches to Node 22
+  ```
+
+  [fnm](https://github.com/Schniz/fnm) (`fnm use`) and asdf (with `legacy_version_file = yes`) also read `.nvmrc`.
 - **npm**, **pnpm**, or **yarn**
 - **PostgreSQL** database (local or cloud-hosted)
 - **Stellar account** with testnet/mainnet keypairs (for admin & oracle roles)
