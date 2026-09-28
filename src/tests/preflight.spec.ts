@@ -139,9 +139,21 @@ describe('runPreflightChecks — edge cases', () => {
     expect(result.errors.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('rejects unsupported Node versions with an actionable message', () => {
+    const result = runPreflightChecks(FULL_ENV, 'v20.18.0');
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(error => error.includes('Node.js v22.x or higher is required'))).toBe(true);
+    expect(result.errors.some(error => error.includes('found v20.18.0'))).toBe(true);
+  });
+
+  it('accepts supported Node versions', () => {
+    const result = runPreflightChecks(FULL_ENV, 'v22.12.0');
+    expect(result.ok).toBe(true);
+  });
+
   it('includes nodeVersion, environment, and mode in result', () => {
     const result = runPreflightChecks(FULL_ENV);
-    expect(result.nodeVersion).toMatch(/^v\d+/);
+    expect(result.nodeVersion).toMatch(/^\d+/);
     expect(result.environment).toBe('test');
     expect(result.mode).toBe('full');
   });

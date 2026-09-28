@@ -5,17 +5,15 @@
  *
  * Mirrors the minimum version declared in package.json "engines".
  */
-const MIN_NODE_MAJOR = 22;
+import { getNodeVersionError } from '../config/preflight';
 
 export function assertSupportedNodeVersion(): void {
   if (process.env.NODE_ENV === 'test') return;
-  const raw = process.version;
-  const major = parseInt(raw.replace('v', '').split('.')[0], 10);
-  if (isNaN(major) || major < MIN_NODE_MAJOR) {
-    process.stderr.write(
-      `\nApplication startup failed: Node.js v${MIN_NODE_MAJOR}.x or higher is required ` +
-        `(found ${raw}). Upgrade Node.js before starting the server.\n\n`,
-    );
+
+  const raw = process.versions.node ?? process.version;
+  const error = getNodeVersionError(raw);
+  if (error) {
+    process.stderr.write(`\nApplication startup failed: ${error}\n\n`);
     process.exit(1);
   }
 }
