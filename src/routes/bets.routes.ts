@@ -4,6 +4,8 @@ import {
   verifyStellarAuth,
   bindAuthenticatedWallet,
   requireAdmin,
+  authenticateUser,
+  AuthenticatedRequest,
 } from "../middleware/auth.middleware";
 import { betRateLimiter } from "../middleware/rateLimiter.middleware";
 import { upDownBetSchema, precisionBetSchema, claimWinningsSchema } from "../schemas/bets.schema";
@@ -31,6 +33,8 @@ import {
 import { serializeBet } from "../serializers/monetary.serializer";
 import { prisma } from "../lib/prisma";
 import { executeBet } from "./bet-execution";
+import { offsetPaginationSchema, OffsetPaginationParams } from "../schemas/pagination.schema";
+import { sendSuccess } from "../utils/response";
 
 const router = Router();
 
@@ -272,6 +276,87 @@ router.post(
 );
 
 const BET_STATUSES: BetStatus[] = ["ACCEPTED", "SUBMITTED", "CONFIRMED", "RESOLVED", "FAILED"];
+
+/**
+ * @openapi
+ * /api/bets:
+ *   get:
+ *     tags: [bets]
+ *     summary: List the authenticated user's bets
+ *     description: Returns only bets owned by the caller, newest first. Uses offset pagination.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, minimum: 0, default: 0 }
+ *     responses:
+ *       200:
+ *         description: User bet page
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data, meta]
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     required: [id, state, txHash, roundId, amount, mode, side, createdAt, updatedAt]
+ *                     properties:
+ *                       id: { type: string }
+ *                       state: { type: string, enum: [ACCEPTED, SUBMITTED, CONFIRMED, RESOLVED, FAILED] }
+ *                       txHash: { type: string, nullable: true }
+ *                       roundId: { type: string, nullable: true }
+ *                       amount: { $ref: '#/components/schemas/MoneyAmount' }
+ *                       mode: { type: string, enum: [UP_DOWN, PRECISION] }
+ *                       side: { type: string, nullable: true, enum: [UP, DOWN] }
+ *                       predictedPrice: { $ref: '#/components/schemas/NullableMoneyAmount' }
+ *                       createdAt: { type: string, format: date-time }
+ *                       updatedAt: { type: string, format: date-time }
+ *                       submittedAt: { type: string, format: date-time, nullable: true }
+ *                       confirmedAt: { type: string, format: date-time, nullable: true }
+ *                       resolvedAt: { type: string, format: date-time, nullable: true }
+ *                       failedAt: { type: string, format: date-time, nullable: true }
+ *                 meta:
+ *                   type: object
+ *                   required: [pagination]
+ *                   properties:
+ *                     pagination:
+ *                       type: object
+ *                       required: [limit, offset, total, hasNextPage]
+ *                       properties:
+ *                         limit: { type: integer }
+ *                         offset: { type: integer }
+ *                         total: { type: integer }
+ *                         hasNextPage: { type: boolean }
+ *       400:
+ *         description: Invalid pagination parameters
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       401:
+ *         description: Missing or invalid JWT
+ */
+router.get(
+  "/",
+  authenticateUser,
+  validate(offsetPaginationSchema, "query"),
+  (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const pagination = req.query as unknown as OffsetPaginationParams;
+      const result = await betService.listBetsForUser(req.user.userId, pagination);
+      return sendSuccess(res, result.data, { pagination: result.pagination });
+    } catch (error) {
+      return next(error);
+    }
+  }) as any,
+);
 
 /**
  * @swagger

@@ -28,6 +28,7 @@ const REQUIRED_OPERATIONS: RequiredOperation[] = [
   { path: "/api/predictions/round/{roundId}", method: "get", statuses: ["200"] },
 
   // Bets — stub/on-chain money movement (src/routes/bets.routes.ts)
+  { path: "/api/bets", method: "get", statuses: ["200", "400", "401"] },
   { path: "/api/bets/up-down", method: "post", statuses: ["200", "400", "401"] },
   { path: "/api/bets/precision", method: "post", statuses: ["200", "400", "401"] },
 
