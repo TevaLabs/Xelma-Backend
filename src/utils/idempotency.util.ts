@@ -1,6 +1,28 @@
 import { createHash } from 'crypto';
 import logger from './logger';
 import { prisma } from '../lib/prisma';
+import { Prisma } from '@prisma/client';
+
+/**
+ * Narrows a Prisma `Json` column value back to the caller's response type.
+ * The single writer is {@link storeIdempotencyResult}, which only persists
+ * JSON round-trip safe values, so every `JsonValue` is a faithful decode of a
+ * previously stored `TRes`. (Prisma cannot express "this Json column holds a
+ * `TRes`" — the instantiation is anchored to the read sites in this module.)
+ */
+function fromPrismaJson<TRes>(value: Prisma.JsonValue): TRes {
+   return value as TRes;
+}
+
+/**
+ * Converts an arbitrary stored value to a Prisma JSON input via a JSON
+ * round-trip. This is sound at runtime (JSON columns can only hold JSON) and
+ * keeps the single narrowing confined to the storage boundary instead of
+ * leaking `any`/unchecked casts into callers.
+ */
+function toPrismaJson(value: unknown): Prisma.InputJsonValue {
+   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
 
 /**
  * Configuration for idempotency key handling
@@ -224,7 +246,7 @@ export async function checkIdempotency<TReq = unknown, TRes = unknown>(
          isIdempotent: true,
          cachedResponse: {
             status: existing.responseStatus,
-            body: existing.responseBody as unknown as TRes,
+            body: fromPrismaJson<TRes>(existing.responseBody),
          },
       };
    } catch (error) {
@@ -309,13 +331,13 @@ export async function storeIdempotencyResult<TReq = unknown, TRes = unknown>(
             idempotencyKey,
             requestHash,
             responseStatus,
-            responseBody: responseBody as any,
+            responseBody: toPrismaJson(responseBody),
             expiresAt,
          },
          update: {
             requestHash,
             responseStatus,
-            responseBody: responseBody as any,
+            responseBody: toPrismaJson(responseBody),
             expiresAt,
          },
       });
@@ -515,7 +537,7 @@ export async function acquireIdempotencyLock<TReq = unknown, TRes = unknown>(
                      isIdempotent: true,
                      cachedResponse: {
                         status: polled.responseStatus,
-                        body: polled.responseBody as TRes,
+                        body: fromPrismaJson<TRes>(polled.responseBody),
                      },
                   };
                }
@@ -537,7 +559,7 @@ export async function acquireIdempotencyLock<TReq = unknown, TRes = unknown>(
                isIdempotent: true,
                cachedResponse: {
                   status: existing.responseStatus,
-                  body: existing.responseBody as TRes,
+                  body: fromPrismaJson<TRes>(existing.responseBody),
                },
             };
          }

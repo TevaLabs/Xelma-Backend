@@ -7,12 +7,17 @@
  * two families of routes. The only difference between callers is which
  * BetService method they hand over and whether a round id is bound.
  */
-import { Response, NextFunction } from "express";
+import { Request, Response, NextFunction } from "express";
+import { z } from "zod";
 import betService, {
   BetResult,
   PrecisionBetInput,
   UpDownBetInput,
 } from "../services/bet.service";
+import {
+  upDownBetSchema,
+  precisionBetSchema,
+} from "../schemas/bets.schema";
 import {
   acquireIdempotencyLock,
   IDEMPOTENCY_STORE_UNAVAILABLE,
@@ -36,6 +41,19 @@ import { invalidateNamespace } from "../lib/redis";
 
 const IDEMPOTENCY_TTL_HOURS = 24;
 
+/** Validated up/down bet request body (existing route schema). */
+export type UpDownBetBody = z.infer<typeof upDownBetSchema>;
+
+/** Validated precision bet request body (existing route schema). */
+export type PrecisionBetBody = z.infer<typeof precisionBetSchema>;
+
+/**
+ * Body accepted by {@link executeBet}: whichever bet schema the calling route
+ * has already validated. `roundId` is optional because round-scoped routes
+ * bind it from the URL rather than the body.
+ */
+export type BetRequestBody = UpDownBetBody | PrecisionBetBody;
+
 export type BetKind = "up-down" | "precision";
 
 export interface BetResponseData {
@@ -52,12 +70,12 @@ export interface BetResponseData {
  */
 async function placeBet(
   kind: BetKind,
-  body: Record<string, any>,
+  body: BetRequestBody,
   roundId: string | undefined,
   idempotencyKey: string | undefined,
   requestId?: string,
 ): Promise<BetResult> {
-  if (kind === "up-down") {
+  if ("side" in body) {
     const input: UpDownBetInput = {
       address: body.address,
       amount: body.amount,
@@ -107,13 +125,13 @@ export interface ExecuteBetOptions {
  * structured errors, exactly as they are for `/api/bets/*`.
  */
 export async function executeBet(
-  req: any,
+  req: Request,
   res: Response,
   next: NextFunction,
   { kind, endpoint, roundId }: ExecuteBetOptions,
 ): Promise<void> {
   const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
-  const userId = req.user.userId;
+  const userId = req.user!.userId;
   let lockAcquired = false;
   let operationCompleted = false;
 
@@ -125,7 +143,10 @@ export async function executeBet(
         );
       }
 
-      const lockResult = await acquireIdempotencyLock(
+      const lockResult = await acquireIdempotencyLock<
+        BetRequestBody,
+        BetResponseData
+      >(
         userId,
         endpoint,
         idempotencyKey,
@@ -156,7 +177,7 @@ export async function executeBet(
       lockAcquired = !!lockResult.lockAcquired;
     }
 
-    const requestId = (req as any).requestId as string | undefined;
+    const requestId = req.requestId;
     const result = await placeBet(kind, req.body, roundId, idempotencyKey, requestId);
     operationCompleted = true;
 
@@ -169,7 +190,7 @@ export async function executeBet(
     const responseBody = { success: true as const, data };
 
     if (idempotencyKey && lockAcquired) {
-      await storeIdempotencyResult(
+      await storeIdempotencyResult<BetRequestBody, typeof responseBody>(
         userId,
         endpoint,
         idempotencyKey,
@@ -196,7 +217,7 @@ export async function executeBet(
     } else {
       await execute();
     }
-  } catch (error: any) {
+  } catch (error) {
     if (idempotencyKey && lockAcquired && !operationCompleted) {
       await releaseIdempotencyLock(userId, endpoint, idempotencyKey);
     }
