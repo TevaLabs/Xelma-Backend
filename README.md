@@ -24,6 +24,7 @@ TypeScript/Node.js backend for the [Xelma](https://github.com/TevaLabs/Xelma-Blo
 - [Migration Safety](#migration-safety)
 - [Scripts](#scripts)
 - [Troubleshooting](#troubleshooting)
+- [Changelog](#changelog)
 
 ---
 
@@ -1766,6 +1767,13 @@ Can't reach database server at localhost:5432
 
 **Solution:**
 Set `ROUND_SCHEDULER_ENABLED=true` in `.env` and restart the server.
+
+---
+
+## Changelog
+
+User-facing changes between releases are tracked in [CHANGELOG.md](CHANGELOG.md).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
