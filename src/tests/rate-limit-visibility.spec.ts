@@ -201,6 +201,14 @@ describe('Rate Limit Visibility', () => {
     expect(response.text).toContain('http_rate_limit_hits_total');
   });
 
+  it('should deny the metrics scrape to regular users', async () => {
+    const response = await request(app)
+      .get('/api/admin/metrics/metrics')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(response.status).toBe(403);
+  });
+
   it('should expose rate-limit-summary JSON to admins', async () => {
     const response = await request(app)
       .get('/api/admin/metrics/rate-limit-summary')

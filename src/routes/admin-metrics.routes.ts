@@ -117,16 +117,20 @@ const router = Router();
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/rate-limits', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
-    const summary = await rateLimitMetricsService.getSummary(limit);
-    res.json(summary);
-  } catch (error) {
-    logger.error('Error fetching rate-limit metrics:', error);
-    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch rate-limit metrics' });
-  }
-});
+router.get(
+  '/rate-limits',
+  requireAdminPermission(AdminPermission.METRICS_READ),
+  async (req: Request, res: Response) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const summary = await rateLimitMetricsService.getSummary(limit);
+      res.json(summary);
+    } catch (error) {
+      logger.error('Error fetching rate-limit metrics:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch rate-limit metrics' });
+    }
+  },
+);
 
 /**
  * @openapi
@@ -153,16 +157,20 @@ router.get('/rate-limits', requireAdmin, async (req: Request, res: Response) => 
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.post('/rate-limits/clear', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const days = req.query.days ? parseInt(req.query.days as string) : 7;
-    const count = await rateLimitMetricsService.clearOldMetrics(days);
-    res.json({ message: 'Success', deletedCount: count });
-  } catch (error) {
-    logger.error('Error clearing rate-limit metrics:', error);
-    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to clear rate-limit metrics' });
-  }
-});
+router.post(
+  '/rate-limits/clear',
+  requireAdminPermission(AdminPermission.METRICS_WRITE),
+  async (req: Request, res: Response) => {
+    try {
+      const days = req.query.days ? parseInt(req.query.days as string) : 7;
+      const count = await rateLimitMetricsService.clearOldMetrics(days);
+      res.json({ message: 'Success', deletedCount: count });
+    } catch (error) {
+      logger.error('Error clearing rate-limit metrics:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to clear rate-limit metrics' });
+    }
+  },
+);
 
 /**
  * @openapi
@@ -234,15 +242,19 @@ router.get('/metrics', requireMetricsAuth, async (req: Request, res: Response) =
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/payout-reconciliation', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const summary = await payoutReconciliationService.getReconciliationSummary();
-    res.json({ success: true, summary });
-  } catch (error) {
-    logger.error('Error fetching payout reconciliation summary:', error);
-    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch payout reconciliation summary' });
-  }
-});
+router.get(
+  '/payout-reconciliation',
+  requireAdminPermission(AdminPermission.PAYOUT_RECONCILIATION_READ),
+  async (req: Request, res: Response) => {
+    try {
+      const summary = await payoutReconciliationService.getReconciliationSummary();
+      res.json({ success: true, summary });
+    } catch (error) {
+      logger.error('Error fetching payout reconciliation summary:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch payout reconciliation summary' });
+    }
+  },
+);
 
 /**
  * @openapi
@@ -262,25 +274,29 @@ router.get('/payout-reconciliation', requireAdmin, async (req: Request, res: Res
  *             schema:
  *               type: object
  */
-router.get('/rate-limit-summary', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const metric = register.getSingleMetric('http_rate_limit_hits_total');
-    const values = metric ? (await metric.get()).values : [];
+router.get(
+  '/rate-limit-summary',
+  requireAdminPermission(AdminPermission.METRICS_READ),
+  async (req: Request, res: Response) => {
+    try {
+      const metric = register.getSingleMetric('http_rate_limit_hits_total');
+      const values = metric ? (await metric.get()).values : [];
 
-    const summary = values.map(v => ({
-      endpoint: v.labels.endpoint,
-      method: v.labels.method,
-      hits: v.value,
-    }));
+      const summary = values.map(v => ({
+        endpoint: v.labels.endpoint,
+        method: v.labels.method,
+        hits: v.value,
+      }));
 
-    res.json({
-      metric: 'http_rate_limit_hits_total',
-      summary,
-    });
-  } catch (error) {
-    logger.error('Error fetching rate-limit summary:', error);
-    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch rate-limit summary' });
-  }
-});
+      res.json({
+        metric: 'http_rate_limit_hits_total',
+        summary,
+      });
+    } catch (error) {
+      logger.error('Error fetching rate-limit summary:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch rate-limit summary' });
+    }
+  },
+);
 
 export default router;

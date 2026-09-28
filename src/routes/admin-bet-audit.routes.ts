@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { requireAdmin } from '../middleware/auth.middleware';
+import { requireAdminPermission } from '../middleware/auth.middleware';
+import { AdminPermission } from '../security/admin-permissions';
 import { betAuditService } from '../services/bet-audit.service';
 import logger from '../utils/logger';
 
@@ -52,7 +53,7 @@ const router = Router();
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/', requireAdmin, async (req: Request, res: Response) => {
+router.get('/', requireAdminPermission(AdminPermission.BET_AUDIT_READ), async (req: Request, res: Response) => {
   try {
     const address = typeof req.query.address === 'string' ? req.query.address : undefined;
     const limit = Math.min(

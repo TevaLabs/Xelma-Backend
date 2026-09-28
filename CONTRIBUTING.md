@@ -28,6 +28,9 @@ one entrypoint but not the other is no longer possible by accident** — the two
 apps read the same mounting code, and everything that differs is an explicit
 feature flag.
 
+Admin routes are additionally governed by a role → permission matrix and an
+append-only audit trail; see [docs/rbac.md](docs/rbac.md) before adding one.
+
 ### Feature flags
 
 Every surface that exists in only one app is a flag on `AppFeatures` in
@@ -39,7 +42,7 @@ Every surface that exists in only one app is a flag on `AppFeatures` in
 | `predictions` | `/api/predictions/*` | on | off |
 | `education` | `/api/education/*` | on | off |
 | `errorCatalog` | `GET /api/errors` | on | off |
-| `adminRoutes` | `/api/admin/metrics`, `/api/admin/cors-diagnostics`, `/api/admin/dead-letter` | on | off |
+| `adminRoutes` | `/api/admin/metrics`, `/api/admin/cors-diagnostics`, `/api/admin/dead-letter`, `/api/admin/bet-audit` | on | off |
 | `versionedAlias` | mirrors every `/api/*` route under `/api/v1/*` | on | off |
 | `deprecationHeaders` | `Deprecation` / `Sunset` / `Link` headers on unversioned `/api/*` | on | off |
 | `globalApiRateLimit` | applies the read/write limiters to all of `/api` | off | on |

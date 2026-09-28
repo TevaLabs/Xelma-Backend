@@ -487,7 +487,9 @@ TOURNAMENT_INVALID_STATE` rather than mutating state.
 
 - **`authenticateUser`**: Verifies JWT token and attaches user to request
 - **`requireAdmin`**: Ensures user has ADMIN role
+- **`requireAdminPermission`**: Enforces the admin RBAC matrix for a single permission and writes an append-only audit record for every privileged call (see [docs/rbac.md](docs/rbac.md))
 - **`requireOracle`**: Ensures user has ORACLE role
+- **`requireMetricsAuth`**: Allows a Prometheus scrape via `METRICS_SCRAPE_TOKEN`, otherwise falls back to admin JWT
 
 #### **Rate Limiter Middleware (`rateLimiter.middleware.ts`)**
 
@@ -503,7 +505,9 @@ TOURNAMENT_INVALID_STATE` rather than mutating state.
 #### **Route Authorization Registry (`src/security/route-auth.registry.ts`)**
 
 - Canonical list of API routes and required auth levels (`public`, `authenticated`, `admin`, `oracle`)
+- Admin entries also declare the specific `AdminPermission` they require; the roles → permissions matrix lives in `src/security/admin-permissions.ts` and is documented in [docs/rbac.md](docs/rbac.md)
 - `src/tests/security.spec.ts` and `src/tests/route-auth.registry.spec.ts` fail CI when the registry drifts from implemented routes
+- `src/tests/admin-rbac.spec.ts` asserts every `/api/admin/*` route 403s non-admins, is audited, and stays off in hackathon mode
 - Role middleware (`requireAdmin`, `requireOracle`, `authenticateUser`) is built on a shared `requireRole` helper in `auth.middleware.ts`
 
 ---
@@ -532,7 +536,8 @@ The backend implements automated data retention policies to control storage grow
 
 All authentication and authorization events are logged for security monitoring and compliance:
 
-- **Events Logged**: Challenge lifecycle (issued, verified, failed, expired, invalidated), authentication success/failure, user creation/login
+- **Events Logged**: Challenge lifecycle (issued, verified, failed, expired, invalidated), authentication success/failure, user creation/login, and privileged admin actions
+- **Admin audit (Issue #497)**: every `/api/admin/*` call is recorded as `admin.action` (allowed, on response finish) or `admin.access.denied` (403). Admin audit rows are append-only — application code only ever creates them. See [docs/rbac.md](docs/rbac.md)
 - **Storage**: Audit events are persisted to the `AuditLog` table in the database
 - **Configuration**: Controlled by `AUDIT_LOG_DATABASE_ENABLED` (default: `true`)
 - **Fallback**: When database persistence is disabled, events are only logged to Winston (files/console)

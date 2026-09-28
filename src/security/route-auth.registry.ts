@@ -1,4 +1,5 @@
 import { UserRole } from "@prisma/client";
+import { AdminPermission } from "./admin-permissions";
 
 /**
  * Minimum authorization required to call a route.
@@ -21,6 +22,12 @@ export interface RouteAuthEntry {
   /** Full mounted path (e.g. /api/predictions/submit) */
   path: string;
   auth: RouteAuthLevel;
+  /**
+   * For `auth: ADMIN` entries: the specific admin permission the route
+   * requires (Issue #497). Enforced by `requireAdminPermission` and documented
+   * in docs/rbac.md — keep this in sync when adding an admin route.
+   */
+  permission?: AdminPermission;
   /** Human-readable note for contributors */
   notes?: string;
 }
@@ -132,6 +139,20 @@ export function getProtectedRoutes(): RouteAuthEntry[] {
 
 export function getAdminRoutes(): RouteAuthEntry[] {
   return ROUTE_AUTH_REGISTRY.filter((e) => e.auth === RouteAuthLevel.ADMIN);
+}
+
+/**
+ * Admin entries that declare a matrix permission. Every `/api/admin/*` route
+ * must appear here; the RBAC test asserts that no admin route is left without
+ * an explicit permission (Issue #497).
+ */
+export function getAdminRoutesWithPermissions(): (RouteAuthEntry & {
+  permission: AdminPermission;
+})[] {
+  return getAdminRoutes().filter(
+    (e): e is RouteAuthEntry & { permission: AdminPermission } =>
+      e.permission !== undefined,
+  );
 }
 
 export function getOracleRoutes(): RouteAuthEntry[] {
