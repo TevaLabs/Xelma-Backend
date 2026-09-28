@@ -61,6 +61,28 @@ export interface BetQuery {
   status?: BetStatus;
 }
 
+export interface UserBetListParams {
+  limit: number;
+  offset: number;
+}
+
+export interface UserBetDto {
+  id: string;
+  state: BetStatus;
+  txHash: string | null;
+  roundId: string | null;
+  amount: string;
+  mode: BetMode;
+  side: PredictionSide | null;
+  predictedPrice: string | null;
+  createdAt: string;
+  updatedAt: string;
+  submittedAt: string | null;
+  confirmedAt: string | null;
+  resolvedAt: string | null;
+  failedAt: string | null;
+}
+
 export class BetService {
   private isStubMode(): boolean {
     return process.env.BET_STUB_MODE === 'true';
@@ -490,6 +512,73 @@ export class BetService {
       orderBy: { createdAt: 'desc' },
     });
     return bets.map(this.mapBet);
+  }
+
+  /**
+   * List bets belonging to one authenticated user. Bet rows are authoritative
+   * for BetService writes, including BET_STUB_MODE; the older address-keyed
+   * in-memory history store is a demo mirror and is not merged into this list.
+   * Ownership is enforced in the database query so other users' records are
+   * never loaded for filtering.
+   */
+  async listBetsForUser(
+    userId: string,
+    { limit, offset }: UserBetListParams,
+  ): Promise<{
+    data: UserBetDto[];
+    pagination: { limit: number; offset: number; total: number; hasNextPage: boolean };
+  }> {
+    const where: Prisma.BetWhereInput = { userId };
+    const [rows, total] = await Promise.all([
+      prisma.bet.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: offset,
+        take: limit,
+        select: {
+          id: true,
+          status: true,
+          txHash: true,
+          roundId: true,
+          amount: true,
+          mode: true,
+          side: true,
+          predictedPrice: true,
+          createdAt: true,
+          updatedAt: true,
+          submittedAt: true,
+          confirmedAt: true,
+          resolvedAt: true,
+          failedAt: true,
+        },
+      }),
+      prisma.bet.count({ where }),
+    ]);
+
+    return {
+      data: rows.map((bet) => ({
+        id: bet.id,
+        state: bet.status,
+        txHash: bet.txHash,
+        roundId: bet.roundId,
+        amount: serializeMoney(bet.amount),
+        mode: bet.mode,
+        side: bet.side,
+        predictedPrice: bet.predictedPrice === null ? null : serializeMoney(bet.predictedPrice),
+        createdAt: bet.createdAt.toISOString(),
+        updatedAt: bet.updatedAt.toISOString(),
+        submittedAt: bet.submittedAt?.toISOString() ?? null,
+        confirmedAt: bet.confirmedAt?.toISOString() ?? null,
+        resolvedAt: bet.resolvedAt?.toISOString() ?? null,
+        failedAt: bet.failedAt?.toISOString() ?? null,
+      })),
+      pagination: {
+        limit,
+        offset,
+        total,
+        hasNextPage: offset + limit < total,
+      },
+    };
   }
 
   async getReconciliationSummary(): Promise<Record<BetStatus, number>> {
