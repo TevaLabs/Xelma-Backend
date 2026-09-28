@@ -358,6 +358,23 @@ See [docs/architecture.md](docs/architecture.md) for the full architecture decis
 - `GET /active` - Get all active rounds
 - `GET /:id` - Get specific round details
 - `POST /:id/resolve` - [Oracle] Resolve a round with final price
+- `POST /:id/simulate` - [Admin, **QA only**] Dry-run a round resolution. Off by default — see the warning below.
+
+> ### ⚠️ `POST /api/rounds/:id/simulate` must never be enabled in production
+>
+> This endpoint writes prices and settles fake rounds **without placing real bets**. It is a
+> manual QA tool, not a product feature.
+>
+> - **Off by default.** `ENABLE_SIMULATION` is `false` unless you set it explicitly.
+> - **When off, the route is not discoverable.** It answers `404` with the same body as any
+>   unknown path, in every environment including development and test. It never returns a `403`
+>   that would confirm the route exists, and it never names the environment variable.
+> - **When on, it is admin-only** (`Authorization: Bearer <JWT>` with the `ADMIN` role) and the
+>   body is validated with Zod (`finalPrice` must be a positive number or numeric string).
+>
+> **Never set `ENABLE_SIMULATION=true` on a production deployment, in a production `.env`, or in
+> a production container/secret store.** If you need it for a demo, run it in a non-production
+> environment and turn it off again afterwards.
 
 ##### Frontend round card contract
 

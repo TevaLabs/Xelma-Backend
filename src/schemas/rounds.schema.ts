@@ -65,6 +65,33 @@ export const resolveRoundSchema = z.object({
   }, 'Invalid final price'),
 });
 
+/**
+ * Body contract for the QA-only `POST /api/rounds/:id/simulate` endpoint (#667).
+ *
+ * Same `finalPrice` shape as {@link resolveRoundSchema} — a positive price,
+ * accepted as either a JSON number or a numeric string, exactly like the real
+ * settlement path it stands in for.
+ *
+ * `finalPrice` is declared optional and then required by a presence refine
+ * rather than as a plain required key: that way a missing field produces
+ * "finalPrice is required" instead of Zod's generic "Invalid input". The
+ * simulate endpoint is a manual QA tool, so the operator hitting it should get
+ * a message that names the field.
+ */
+export const simulateRoundSchema = z
+  .object({
+    finalPrice: priceStringOrNumber
+      .refine((value) => {
+        const numeric = typeof value === 'string' ? parseFloat(value) : value;
+        return Number.isFinite(numeric) && numeric > 0;
+      }, 'finalPrice must be a positive number')
+      .optional(),
+  })
+  .refine((data) => data.finalPrice !== undefined, {
+    message: 'finalPrice is required',
+    path: ['finalPrice'],
+  });
+
 export const createPriceRangeSchema = z.object({
   min: z.number(),
   max: z.number(),

@@ -622,13 +622,24 @@ describe("Route authorization registry", () => {
     const { createApp } = require("../index");
     const app = createApp();
 
+    // Issue #667: the QA-only `POST /api/rounds/:id/simulate` route is gated by
+    // ENABLE_SIMULATION and, while the flag is off, answers 404 with the same
+    // body as any unknown path — a disabled build must not advertise the route
+    // with a 403. Read the flag from the app's own config so this expectation
+    // matches exactly what the route handler checks.
+    const appConfig = require("../config").default as {
+      app: { enableSimulation: boolean };
+    };
+
     for (const route of getAdminRoutes()) {
       const path = route.path.replace(":id", "test-id");
       const method = route.method.toLowerCase() as "get" | "post";
       const req = request(app)[method](path).set("Authorization", `Bearer ${token}`);
       const res = await req;
 
-      expect(res.status).toBe(403);
+      const hiddenQaRoute =
+        !appConfig.app.enableSimulation && route.path.endsWith("/simulate");
+      expect(res.status).toBe(hiddenQaRoute ? 404 : 403);
     }
   });
 

@@ -19,7 +19,11 @@ import {
 } from "../middleware/rateLimiter.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { sendSuccess } from "../utils/response";
-import { startRoundSchema, resolveRoundSchema } from "../schemas/rounds.schema";
+import {
+  startRoundSchema,
+  resolveRoundSchema,
+  simulateRoundSchema,
+} from "../schemas/rounds.schema";
 import {
   betSchema,
   upDownBetSchema,
@@ -310,21 +314,35 @@ router.post(
 
 /**
  * ENABLE_SIMULATION is the master switch for the QA simulate endpoint.
- * When it is off the route is locked down (403) in EVERY environment —
- * including development and test — so simulation can never run misconfigured.
- * When it is on, only ADMIN callers may use it (see requireAdmin below).
+ *
+ * When the flag is off the endpoint must not be discoverable at all: it raises
+ * the exact same NotFoundError that the app-level fallback in `app-factory.ts`
+ * raises for an unmatched path, in EVERY environment — including development and
+ * test — so simulation can never run misconfigured.
+ *
+ * This deliberately replaced a 403. A 403 is a disclosure bug: it confirms the
+ * route exists and that flipping an env var would unlock it, and the old body
+ * even echoed the variable name back to the caller. Sharing the 404 path makes a
+ * disabled deployment indistinguishable from one that never shipped the route,
+ * and it also avoids leaking that an admin token is required.
+ *
+ * `req.originalUrl` (not `req.path`) is used for the message because `req.path`
+ * is router-relative inside this router, while the app-level fallback sees the
+ * full path.
+ *
+ * When the flag is on, only ADMIN callers may use it (see requireAdmin below).
  */
 const requireSimulationEnabled = (
-  _req: Request,
-  res: Response,
+  req: Request,
+  _res: Response,
   next: NextFunction,
 ): void => {
   if (!config.app.enableSimulation) {
-    res.status(403).json({
-      success: false,
-      error:
-        "Simulation is disabled. Set ENABLE_SIMULATION=true to enable this QA endpoint.",
-    });
+    next(
+      new NotFoundError(
+        `Route ${req.method} ${req.originalUrl.split("?")[0]} not found`,
+      ),
+    );
     return;
   }
   next();
@@ -338,11 +356,15 @@ const requireSimulationEnabled = (
  *     description: >
  *       Simulates payout distribution for a round WITHOUT placing real bets or
  *       mutating the round. This is a QA/admin-only endpoint and must not be
- *       enabled on production builds. It is gated by the ENABLE_SIMULATION
- *       environment variable (default: false): when the flag is off the route
- *       returns 403 in EVERY environment, including development and test. When
- *       the flag is on, the caller must present an ADMIN bearer token
- *       (`Authorization: Bearer <JWT>`).
+ *       enabled on production builds.
+ *
+ *       Gated by the ENABLE_SIMULATION environment variable (default: false).
+ *       When the flag is off the endpoint is not discoverable: it answers 404,
+ *       with the same body as any unknown path, in EVERY environment including
+ *       development and test. When the flag is on, the caller must present an
+ *       ADMIN bearer token (`Authorization: Bearer <JWT>`) and the body is
+ *       validated against a Zod schema (`finalPrice` must be a positive number
+ *       or numeric string).
  *     tags: [rounds]
  *     security:
  *       - bearerAuth: []
@@ -361,7 +383,9 @@ const requireSimulationEnabled = (
  *             properties:
  *               finalPrice:
  *                 type: number
- *                 description: Hypothetical final price used to compute winners
+ *                 description: >
+ *                   Hypothetical final price used to compute winners. Must be a
+ *                   positive number (numeric strings are accepted too).
  *             required: [finalPrice]
  *     responses:
  *       200:
@@ -401,27 +425,28 @@ const requireSimulationEnabled = (
  *                     refunded: { type: integer }
  *                     totalPayout: { type: number }
  *       400:
- *         description: Validation error - finalPrice missing
+ *         description: >
+ *           Validation error - the request body failed schema validation
+ *           (missing finalPrice, or a non-positive / non-numeric value)
  *       401:
  *         description: Unauthorized - missing or invalid bearer token
  *       403:
- *         description: Forbidden - simulation disabled (ENABLE_SIMULATION=false) or caller is not an admin
+ *         description: Forbidden - caller is not an admin (only reachable when ENABLE_SIMULATION=true)
  *       404:
- *         description: Round not found
+ *         description: >
+ *           Round not found, OR the endpoint is not exposed because
+ *           ENABLE_SIMULATION=false (indistinguishable from an unknown path)
  */
 router.post(
   "/:id/simulate",
   requireSimulationEnabled,
   requireAdmin,
+  validate(simulateRoundSchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
+    // Shape (presence + positivity) is enforced by simulateRoundSchema above,
+    // so the handler can pass the value straight through.
     const { finalPrice } = req.body;
-
-    if (finalPrice === undefined || finalPrice === null) {
-      return res
-        .status(400)
-        .json({ success: false, error: "finalPrice is required" });
-    }
 
     const result = await simulationService.simulateRound(id, finalPrice);
     if (!result) {
