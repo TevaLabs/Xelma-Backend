@@ -5,6 +5,7 @@ import { z } from "zod";
 import { validate } from "../middleware/validate.middleware";
 import { errorHandler } from "../middleware/errorHandler.middleware";
 import { ValidationError } from "../utils/errors";
+import { requestIdMiddleware } from "../middleware/requestId.middleware";
 
 /**
  * Test suite for validate.middleware
@@ -16,6 +17,7 @@ describe("validate middleware", () => {
   beforeEach(() => {
     // Create a fresh app for each test
     app = express();
+    app.use(requestIdMiddleware);
     app.use(express.json());
   });
 
@@ -173,8 +175,15 @@ describe("validate middleware", () => {
         .send("{invalid json"); // Malformed
 
       expect(res.status).toBe(400); // Should be 400 from express.json() middleware
-      // The error should be caught somewhere in the chain
-      expect([400, 413]).toContain(res.status);
+      expect(res.headers["content-type"]).toMatch(/application\/json/);
+      expect(res.body).toMatchObject({
+        error: "Bad Request",
+        message: "Invalid JSON in request body",
+        code: "INVALID_JSON",
+        path: "/test",
+      });
+      expect(typeof res.body.requestId).toBe("string");
+      expect(res.body.requestId.length).toBeGreaterThan(0);
     });
 
     it("should handle empty body", async () => {

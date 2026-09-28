@@ -60,6 +60,28 @@ export function errorHandler(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _next: NextFunction,
 ): void {
+  const isJsonParseError =
+    (err as any)?.type === 'entity.parse.failed' ||
+    (err instanceof SyntaxError && (err as any).status === 400 && 'body' in err);
+  if (isJsonParseError) {
+    const requestId = (req as any).requestId;
+    logger.error('[INVALID_JSON] Request body parsing failed', {
+      requestId,
+      method: req.method,
+      path: req.originalUrl,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    res.status(400).type('application/json').json({
+      error: 'Bad Request',
+      message: 'Invalid JSON in request body',
+      code: ErrorCode.INVALID_JSON,
+      path: req.originalUrl,
+      requestId,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
   let appError: AppError;
 
   let retryAfterSeconds: number | undefined;
@@ -81,13 +103,6 @@ export function errorHandler(
     appError = err;
   } else if (err instanceof PrismaClientKnownRequestError) {
     appError = fromPrismaError(err);
-  } else if (
-    err instanceof SyntaxError &&
-    typeof (err as any).status === 'number' &&
-    (err as any).status === 400 &&
-    (err as any).type === 'entity.parse.failed'
-  ) {
-    appError = new ValidationError('Malformed JSON body');
   } else if (
     (err as any)?.type === 'entity.too.large' ||
     (err as any)?.status === 413
@@ -117,7 +132,7 @@ export function errorHandler(
   });
 
   const body: ErrorResponse & { stack?: string } = {
-    error: appError.message || appError.name, // Ensure textual summary error field is clear
+    error: appError.name || 'InternalServerError',
     message: appError.message,
     code: appError.code,
     path: req.originalUrl, // <-- Explicitly mapped parameter requirement
