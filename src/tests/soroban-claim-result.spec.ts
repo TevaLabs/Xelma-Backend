@@ -1,18 +1,17 @@
 import { describe, it, expect } from "@jest/globals";
 import {
   parseClaimResult,
-  InvalidClaimResultError,
 } from "../services/soroban.service";
-import type { contract } from "@tevalabs/xelma-bindings";
+import { ExternalServiceError } from "../utils/errors";
 
 function fixture(
-  overrides: Partial<contract.SentTransaction<bigint>> = {},
-): contract.SentTransaction<bigint> {
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     result: BigInt(70_000_000),
-    sendTransactionResponse: { hash: "claim_tx_hash_xyz789" } as any,
+    sendTransactionResponse: { hash: "claim_tx_hash_xyz789" },
     ...overrides,
-  } as contract.SentTransaction<bigint>;
+  };
 }
 
 describe("parseClaimResult", () => {
@@ -23,6 +22,7 @@ describe("parseClaimResult", () => {
       state: "on-chain-success",
       amount: 7,
       txHash: "claim_tx_hash_xyz789",
+      claimedAmount: BigInt(70_000_000),
     });
   });
 
@@ -33,23 +33,21 @@ describe("parseClaimResult", () => {
     expect(parsed.state).toBe("on-chain-success");
   });
 
-  it("omits txHash when sendTransactionResponse is absent", () => {
-    const parsed = parseClaimResult(
-      fixture({ sendTransactionResponse: undefined }),
+  it("rejects a response without a transaction hash", () => {
+    expect(() => parseClaimResult(fixture({ sendTransactionResponse: undefined }))).toThrow(
+      ExternalServiceError,
     );
-
-    expect(parsed.txHash).toBeUndefined();
   });
 
   it("rejects a non-bigint result", () => {
     expect(() =>
-      parseClaimResult(fixture({ result: "70000000" as unknown as bigint })),
-    ).toThrow(InvalidClaimResultError);
+      parseClaimResult(fixture({ result: "70000000" })),
+    ).toThrow(ExternalServiceError);
   });
 
   it("rejects a negative claimed amount", () => {
     expect(() =>
       parseClaimResult(fixture({ result: BigInt(-1) })),
-    ).toThrow(InvalidClaimResultError);
+    ).toThrow(ExternalServiceError);
   });
 });

@@ -1,5 +1,5 @@
 import { Keypair, Networks, Transaction } from "@stellar/stellar-sdk";
-import type { Client as XelmaClient, BetSide, OraclePayload, RoundMode, UserStats, contract } from "@tevalabs/xelma-bindings";
+import type { Client as XelmaClient, BetSide, OraclePayload, RoundMode, UserStats } from "@tevalabs/xelma-bindings";
 import config from "../config";
 import logger from "../utils/logger";
 import { toDecimal } from "../utils/decimal.util";
@@ -43,15 +43,32 @@ export interface TransactionStatus {
 export interface ClaimResult {
   state: "on-chain-success";
   amount: number;
-  txHash?: string;
+  /** The submitted Soroban transaction hash. */
+  txHash: string;
+  /** The contract return value in stroops, preserved without precision loss. */
+  claimedAmount: string | bigint;
 }
 
-/** Thrown when a `claim_winnings` response does not have the shape the contract promises. */
-export class InvalidClaimResultError extends Error {
-  constructor(reason: string) {
-    super(`Invalid Soroban claim_winnings result: ${reason}`);
-    this.name = "InvalidClaimResultError";
+interface ClaimWinningsTransaction {
+  result: unknown;
+  sendTransactionResponse?: {
+    hash?: unknown;
+  };
+}
+
+function isClaimWinningsTransaction(
+  value: unknown,
+): value is ClaimWinningsTransaction {
+  if (typeof value !== "object" || value === null || !("result" in value)) {
+    return false;
   }
+
+  const sendTransactionResponse = Reflect.get(value, "sendTransactionResponse");
+  return (
+    sendTransactionResponse === undefined ||
+    (typeof sendTransactionResponse === "object" &&
+      sendTransactionResponse !== null)
+  );
 }
 
 /**
@@ -61,25 +78,35 @@ export class InvalidClaimResultError extends Error {
  * before trusting it, rather than casting past the type system.
  */
 export function parseClaimResult(
-  sent: contract.SentTransaction<bigint>,
+  sent: unknown,
 ): ClaimResult {
+  if (!isClaimWinningsTransaction(sent)) {
+    throw mapSorobanError("Malformed claim_winnings transaction response");
+  }
+
   const claimedStroops = sent.result;
 
   if (typeof claimedStroops !== "bigint") {
-    throw new InvalidClaimResultError(
-      `expected a bigint result, received ${typeof claimedStroops}`,
+    throw mapSorobanError(
+      `Invalid claim_winnings result type: expected bigint, received ${typeof claimedStroops}`,
     );
   }
   if (claimedStroops < BigInt(0)) {
-    throw new InvalidClaimResultError(
-      `claimed amount must not be negative, received ${claimedStroops}`,
+    throw mapSorobanError(
+      `Invalid claim_winnings result: claimed amount must not be negative (${claimedStroops})`,
     );
+  }
+
+  const txHash = sent.sendTransactionResponse?.hash;
+  if (typeof txHash !== "string" || txHash.length === 0) {
+    throw mapSorobanError("Missing transaction hash in claim_winnings response");
   }
 
   return {
     state: "on-chain-success",
     amount: stroopsToXlm(claimedStroops),
-    txHash: sent.sendTransactionResponse?.hash,
+    txHash,
+    claimedAmount: claimedStroops,
   };
 }
 
