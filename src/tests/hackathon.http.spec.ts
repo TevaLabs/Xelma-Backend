@@ -26,13 +26,40 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
   const hackerWallet = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
   const hackerToken = generateToken('hackathon-http-user', hackerWallet, UserRole.USER);
 
+  // Hackathon bets are written to MockBet, which has a foreign key onto
+  // MockRound. CI only runs `prisma migrate deploy` (no seed step), so these
+  // rounds are provisioned here to keep the suite self-contained.
+  const hackathonRounds = [
+    {
+      id: 'btc-updown-live',
+      asset: 'BTC',
+      mode: 'updown',
+      status: 'live',
+      startPrice: 60000,
+      closesAt: '2099-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'eth-precision-live',
+      asset: 'ETH',
+      mode: 'precision',
+      status: 'live',
+      startPrice: 3000,
+      closesAt: '2099-01-01T00:00:00.000Z',
+    },
+  ];
+  const hackathonRoundIds = hackathonRounds.map((r) => r.id);
+
   beforeAll(async () => {
     await prisma.user.create({
       data: { id: 'hackathon-http-user', walletAddress: hackerWallet },
     });
+    await prisma.mockRound.createMany({ data: hackathonRounds, skipDuplicates: true });
   });
 
   afterAll(async () => {
+    await prisma.mockBet.deleteMany({ where: { address: hackerWallet } });
+    await prisma.mockLeaderboard.deleteMany({ where: { address: hackerWallet } });
+    await prisma.mockRound.deleteMany({ where: { id: { in: hackathonRoundIds } } });
     await prisma.user.deleteMany({ where: { walletAddress: hackerWallet } });
   });
 

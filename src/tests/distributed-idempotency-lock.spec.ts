@@ -1,4 +1,12 @@
-import { describe, expect, it, beforeEach, jest } from "@jest/globals";
+import {
+  describe,
+  expect,
+  it,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  jest,
+} from "@jest/globals";
 import { getConnectedRedisClient } from "../lib/redis";
 import {
   buildDistributedIdempotencyLockKey,
@@ -7,7 +15,11 @@ import {
 } from "../utils/distributed-idempotency-lock";
 import { ErrorCode } from "../utils/errors";
 
+// Spread the real module so newly added exports (isRedisConfigured,
+// isRedisRateLimitConfigured, ...) stay callable; a bare factory would replace
+// the module wholesale and break any consumer importing a newer export.
 jest.mock("../lib/redis", () => ({
+  ...jest.requireActual("../lib/redis"),
   getConnectedRedisClient: jest.fn(),
 }));
 
@@ -21,6 +33,25 @@ function makeFakeClient() {
 }
 
 describe("distributed idempotency lock (fail-closed)", () => {
+  const originalRedisUrl = process.env.REDIS_URL;
+  const originalDataStore = process.env.DATA_STORE;
+
+  // withDistributedIdempotencyLock short-circuits to the bare callback unless
+  // Redis is configured AND the data store is postgres. Both are read from
+  // process.env at call time, so they must be set before the assertions run —
+  // otherwise every lock assertion silently sees zero Redis calls.
+  beforeAll(() => {
+    process.env.REDIS_URL = "redis://localhost:6379";
+    process.env.DATA_STORE = "postgres";
+  });
+
+  afterAll(() => {
+    if (originalRedisUrl === undefined) delete process.env.REDIS_URL;
+    else process.env.REDIS_URL = originalRedisUrl;
+    if (originalDataStore === undefined) delete process.env.DATA_STORE;
+    else process.env.DATA_STORE = originalDataStore;
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
   });

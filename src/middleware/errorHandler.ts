@@ -17,11 +17,13 @@ export function errorHandler(
     const errorName = err.name || 'InternalServerError';
     const message = err.message || 'Internal Server Error';
     const code = err.code || (statusCode === 500 ? 'INTERNAL_SERVER_ERROR' : undefined);
+    const path = req.originalUrl || req.path || '/';
 
     res.status(statusCode).json({
       error: errorName,
       message: message,
       ...(code ? { code } : {}),
+      path,
       ...(err.details ? { details: err.details } : {}),
     });
   } catch (error) {

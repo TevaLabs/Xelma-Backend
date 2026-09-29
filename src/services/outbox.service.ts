@@ -30,9 +30,66 @@
  * - `OUTBOX_RETENTION_DAYS`        – days to keep PROCESSED rows (default 7).
  */
 import { OutboxEventStatus, OutboxEventType, DispatchChannel } from '@prisma/client';
+import { Counter, register } from 'prom-client';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
 import deadLetterQueueService from './dead-letter-queue.service';
+
+// ─── event catalog (Issue #554) ───────────────────────────────────────────────
+
+export interface OutboxCatalogEntry {
+  eventType: string;
+  channel: DispatchChannel;
+  description: string;
+}
+
+export const OUTBOX_EVENT_CATALOG: Record<string, OutboxCatalogEntry> = {
+  [OutboxEventType.NOTIFICATION_CREATE]: {
+    eventType: OutboxEventType.NOTIFICATION_CREATE,
+    channel: DispatchChannel.NOTIFICATION_CREATE,
+    description: 'Notification creation event',
+  },
+  [OutboxEventType.WEBSOCKET_EMIT]: {
+    eventType: OutboxEventType.WEBSOCKET_EMIT,
+    channel: DispatchChannel.WEBSOCKET_EMIT,
+    description: 'Websocket payload emit event',
+  },
+};
+
+export type KnownOutboxEventType = keyof typeof OUTBOX_EVENT_CATALOG;
+
+export function isKnownOutboxEventType(eventType: string): boolean {
+  return Object.prototype.hasOwnProperty.call(OUTBOX_EVENT_CATALOG, eventType);
+}
+
+export function getOutboxCatalogEntry(eventType: string): OutboxCatalogEntry | null {
+  return OUTBOX_EVENT_CATALOG[eventType] ?? null;
+}
+
+// ─── metrics (Issue #554) ─────────────────────────────────────────────────────
+
+const UNKNOWN_OUTBOX_EVENT_METRIC_NAME = 'outbox_unknown_event_types_total';
+
+let unknownOutboxEventCounter = register.getSingleMetric(
+  UNKNOWN_OUTBOX_EVENT_METRIC_NAME
+) as Counter<string>;
+
+if (!unknownOutboxEventCounter) {
+  unknownOutboxEventCounter = new Counter({
+    name: UNKNOWN_OUTBOX_EVENT_METRIC_NAME,
+    help: 'Total count of unknown outbox event types routed to DLQ',
+    labelNames: ['eventType'] as const,
+    registers: [register],
+  });
+}
+
+export function recordUnknownOutboxEventTypeMetric(eventType: string): void {
+  try {
+    unknownOutboxEventCounter.inc({ eventType });
+  } catch (err) {
+    logger.error('Failed to increment unknown outbox event type metric:', err);
+  }
+}
 
 // ─── tunables ────────────────────────────────────────────────────────────────
 
@@ -202,6 +259,40 @@ class OutboxService {
         continue;
       }
 
+      // Check for unknown event types against our typed catalog (Issue #554).
+      if (!isKnownOutboxEventType(row.eventType)) {
+        const errorMsg = `Unknown outbox event type: ${row.eventType}`;
+        recordUnknownOutboxEventTypeMetric(row.eventType);
+
+        await prisma.outboxEvent.update({
+          where: { id: row.id },
+          data: {
+            status: OutboxEventStatus.FAILED,
+            attempts: row.attempts + 1,
+            lastError: truncateError(errorMsg),
+            updatedAt: new Date(),
+          },
+        });
+
+        await deadLetterQueueService.record({
+          channel: DispatchChannel.NOTIFICATION_CREATE,
+          eventName: `UNKNOWN_EVENT:${row.eventType}`,
+          userId: (row.payload as any)?.userId ?? null,
+          payload: {
+            originalPayload: row.payload,
+            eventType: row.eventType,
+            catalogEntry: null,
+            reason: 'UNKNOWN_OUTBOX_EVENT_TYPE',
+          },
+          error: new Error(errorMsg),
+        });
+
+        result.failed += 1;
+        result.escalated += 1;
+        logger.warn(`Outbox: event ${row.id} has unknown eventType '${row.eventType}'; routed to DLQ`);
+        continue;
+      }
+
       try {
         await this.dispatch(row, handlers);
 
@@ -234,11 +325,9 @@ class OutboxService {
 
         if (exhausted) {
           // Escalate to the existing DLQ so an operator can replay it.
+          const catalogEntry = getOutboxCatalogEntry(row.eventType);
           await deadLetterQueueService.record({
-            channel:
-              row.eventType === OutboxEventType.NOTIFICATION_CREATE
-                ? DispatchChannel.NOTIFICATION_CREATE
-                : DispatchChannel.WEBSOCKET_EMIT,
+            channel: catalogEntry ? catalogEntry.channel : DispatchChannel.NOTIFICATION_CREATE,
             eventName: (row.payload as any)?.eventName ?? row.eventType,
             userId: (row.payload as any)?.userId ?? null,
             payload: row.payload,

@@ -32,7 +32,11 @@ jest.mock('../services/oracle', () => ({
 const mockCheckRedisHealth = jest.fn<() => Promise<{ status: string; durationMs: number; error?: string }>>();
 const mockIsRedisCacheEnabled = jest.fn<boolean>();
 
+// Spread the real module so newly added exports (isRedisConfigured,
+// isRedisRateLimitConfigured, ...) stay callable; a bare factory would replace
+// the module wholesale and break any consumer importing a newer export.
 jest.mock('../lib/redis', () => ({
+  ...jest.requireActual('../lib/redis'),
   checkRedisHealth: (...args: unknown[]) => mockCheckRedisHealth(...args),
   isRedisCacheEnabled: (...args: unknown[]) => mockIsRedisCacheEnabled(...args),
 }));

@@ -9,9 +9,13 @@ jest.mock('../lib/prisma', () => ({
     authChallenge: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn() },
     transaction: { create: jest.fn() },
     bet: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]), update: jest.fn(), groupBy: jest.fn().mockResolvedValue([]) },
-    round: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
+    round: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn(), count: jest.fn().mockResolvedValue(0) },
     prediction: { findMany: jest.fn(), update: jest.fn() },
     outboxEvent: { create: jest.fn() },
+    // Health/readiness pings the DB with $queryRaw; without it the probe
+    // reports "unhealthy" and GET /api returns a bare payload instead of the
+    // success envelope the rest of the suite asserts on.
+    $queryRaw: jest.fn().mockResolvedValue([{ ok: 1 }]),
     $disconnect: jest.fn(),
   },
 }));
@@ -27,7 +31,11 @@ jest.mock('@prisma/client', () => ({
   Prisma: {},
 }));
 
+// Spread the real module so newly added exports (isRedisConfigured,
+// isRedisRateLimitConfigured, ...) stay callable; a bare factory would replace
+// the module wholesale and break any consumer importing a newer export.
 jest.mock('../lib/redis', () => ({
+  ...jest.requireActual('../lib/redis'),
   invalidateNamespace: jest.fn(),
   invalidateLeaderboardSortedSet: jest.fn(),
   checkRedisHealth: jest.fn().mockResolvedValue(true),
@@ -234,6 +242,7 @@ jest.mock('../middleware/auth.middleware', () => ({
   authenticateUser: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireOracle: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireMetricsAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   verifyStellarAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   bindAuthenticatedWallet: (_req: unknown, _res: unknown, next: () => void) => next(),
   optionalAuthentication: (_req: unknown, _res: unknown, next: () => void) => next(),

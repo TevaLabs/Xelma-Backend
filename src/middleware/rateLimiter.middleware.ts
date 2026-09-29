@@ -11,15 +11,8 @@ function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean 
   return value.toLowerCase() !== 'false';
 }
 
-// Shared (multi-instance) rate limiting — Issue #520. When REDIS_URL is set,
-// every limiter below writes its counter to Redis so throttles hold across
-// replicas. Each limiter gets its own store instance with a unique prefix so
-// stacked limiters (api + write + bet on one request) never share counters.
 const REDIS_RATE_LIMIT_PREFIX =
   process.env.RATE_LIMIT_REDIS_PREFIX?.trim() || 'xelma:rl';
-// Redis unreachable → fall back to a per-process window (default true) so the
-// API stays up with per-instance throttling. Set RATE_LIMIT_REDIS_FAIL_OPEN=false
-// to reject requests (HTTP 500) instead. See src/lib/redis.ts RedisRateLimitStore.
 const REDIS_RATE_LIMIT_FAIL_OPEN = parseBooleanEnv(
   process.env.RATE_LIMIT_REDIS_FAIL_OPEN,
   true,
@@ -37,25 +30,21 @@ type RateLimitPolicy = {
   message: string;
 };
 
-/** Documented limits for operators, tests, and README. Demo defaults; override via env. */
 export const RATE_LIMIT_POLICIES = {
   api: {
     windowMs: parsePositiveInt(process.env.RATE_LIMIT_API_WINDOW_MS, 60 * 1000),
     max: parsePositiveInt(process.env.RATE_LIMIT_API_MAX, 100),
-    message:
-      'Too many requests from this IP. Please slow down and try again shortly.',
+    message: 'Too many requests from this IP. Please slow down and try again shortly.',
   },
   write: {
     windowMs: parsePositiveInt(process.env.RATE_LIMIT_WRITE_WINDOW_MS, 60 * 1000),
     max: parsePositiveInt(process.env.RATE_LIMIT_WRITE_MAX, 20),
-    message:
-      'Too many write requests from this IP. Please wait before submitting again.',
+    message: 'Too many write requests from this IP. Please wait before submitting again.',
   },
   bet: {
     windowMs: parsePositiveInt(process.env.RATE_LIMIT_BET_WINDOW_MS, 60 * 1000),
     max: parsePositiveInt(process.env.RATE_LIMIT_BET_MAX, 5),
-    message:
-      'Too many bet submissions from this IP. Please wait before placing another bet.',
+    message: 'Too many bet submissions from this IP. Please wait before placing another bet.',
   },
   predictionSubmit: {
     windowMs: parsePositiveInt(process.env.RATE_LIMIT_PREDICTION_WINDOW_MS, 60 * 1000),
@@ -74,11 +63,6 @@ export const RATE_LIMIT_POLICIES = {
   },
 } as const;
 
-/**
- * Redis-backed store for one limiter, or undefined when REDIS_URL is unset so
- * express-rate-limit keeps its default in-process MemoryStore (single-node /
- * local dev — Issue #520 acceptance: local still works without Redis).
- */
 function redisStoreFor(name: string) {
   if (!isRedisRateLimitConfigured()) return undefined;
   return new RedisRateLimitStore({
@@ -90,49 +74,49 @@ function redisStoreFor(name: string) {
   });
 }
 
-/**
- * Factory function to create rate limiters with consistent 429 shape.
- */
 function createRateLimiter(opts: {
   windowMs: number;
   max: number;
   message: string;
   name: string;
-  keyGenerator?: (req: any) => string;
+  keyGenerator?: (req: Request) => string;
   skip?: (req: Request) => boolean;
 }) {
   const store = redisStoreFor(opts.name);
   return rateLimit({
     windowMs: opts.windowMs,
     max: opts.max,
-    // Do not pass `ipKeyGenerator` as keyGenerator: that helper takes an IP
-    // string, not a Request. Using it as a keyGenerator stores the request
-    // object as the Map key, so every request looks unique and never 429s.
-    // Omit keyGenerator to use express-rate-limit's default (IP + IPv6 subnet).
     ...(opts.keyGenerator ? { keyGenerator: opts.keyGenerator } : {}),
-    message: { error: 'Too Many Requests', message: opts.message, retryAfter: Math.ceil(opts.windowMs / 1000) },
+    message: {
+      error: 'Too Many Requests',
+      message: opts.message,
+      retryAfter: Math.ceil(opts.windowMs / 1000),
+    },
     standardHeaders: true,
     legacyHeaders: false,
     skip: opts.skip,
     ...(store ? { store } : {}),
     validate: { keyGeneratorIpFallback: false },
     handler: (req, res) => {
-      const key = opts.keyGenerator ? opts.keyGenerator(req) : (req.ip || 'unknown');
-      const userId = req.user?.userId;
+      const key = opts.keyGenerator ? opts.keyGenerator(req) : req.ip || 'unknown';
+      const userId = (req as any).user?.userId;
       const category = getRateLimitCategory(opts.name);
 
       rateLimitHitsTotal.inc({ endpoint: opts.name, category });
-
       RateLimitMetricsService.recordHit(opts.name, req.method);
 
       rateLimitMetricsService.recordHit({
         endpoint: opts.name,
-        key: key,
+        key,
         ip: req.ip,
-        userId: userId,
+        userId,
       }).catch(err => logger.error(`Failed to record hit for ${opts.name}:`, err));
 
-      res.status(429).json({ error: 'Too Many Requests', message: opts.message, retryAfter: Math.ceil(opts.windowMs / 1000) });
+      res.status(429).json({
+        error: 'Too Many Requests',
+        message: opts.message,
+        retryAfter: Math.ceil(opts.windowMs / 1000),
+      });
     },
   });
 }

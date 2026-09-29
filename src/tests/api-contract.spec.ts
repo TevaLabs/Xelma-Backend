@@ -48,7 +48,11 @@ jest.mock('@prisma/client', () => ({
   Prisma: {},
 }));
 
+// Spread the real module so newly added exports (isRedisConfigured,
+// isRedisRateLimitConfigured, ...) stay callable; a bare factory would replace
+// the module wholesale and break any consumer importing a newer export.
 jest.mock('../lib/redis', () => ({
+  ...jest.requireActual('../lib/redis'),
   invalidateNamespace: jest.fn(),
   invalidateLeaderboardSortedSet: jest.fn(),
   checkRedisHealth: jest.fn().mockResolvedValue(true),
@@ -249,6 +253,7 @@ jest.mock('../middleware/auth.middleware', () => ({
   authenticateUser: (_req: any, _res: any, next: any) => next(),
   requireAdmin: (_req: any, _res: any, next: any) => next(),
   requireOracle: (_req: any, _res: any, next: any) => next(),
+  requireMetricsAuth: (_req: any, _res: any, next: any) => next(),
   verifyStellarAuth: (_req: any, _res: any, next: any) => next(),
   bindAuthenticatedWallet: (_req: any, _res: any, next: any) => next(),
   optionalAuthentication: (_req: any, _res: any, next: any) => next(),

@@ -127,6 +127,9 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "test-round",
         },
         undefined,
+        // recordUpDownBet/recordPrecisionBet also take (idempotencyKey, requestId);
+        // the request id is generated per request, so match on its type.
+        expect.any(String),
       );
     });
 
@@ -204,6 +207,9 @@ describe("Round bet routes - BetService integration", () => {
       expect(mockRecordUpDownBet).toHaveBeenCalledWith(
         expect.objectContaining({ address: VALID_ADDRESS }),
         undefined,
+        // recordUpDownBet/recordPrecisionBet also take (idempotencyKey, requestId);
+        // the request id is generated per request, so match on its type.
+        expect.any(String),
       );
     });
 
@@ -332,6 +338,9 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "test-round",
         },
         undefined,
+        // recordUpDownBet/recordPrecisionBet also take (idempotencyKey, requestId);
+        // the request id is generated per request, so match on its type.
+        expect.any(String),
       );
     });
 
@@ -377,6 +386,9 @@ describe("Round bet routes - BetService integration", () => {
       expect(mockRecordPrecisionBet).toHaveBeenCalledWith(
         expect.objectContaining({ address: VALID_ADDRESS }),
         undefined,
+        // recordUpDownBet/recordPrecisionBet also take (idempotencyKey, requestId);
+        // the request id is generated per request, so match on its type.
+        expect.any(String),
       );
     });
 
@@ -466,6 +478,9 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "round-1",
         },
         undefined,
+        // recordUpDownBet/recordPrecisionBet also take (idempotencyKey, requestId);
+        // the request id is generated per request, so match on its type.
+        expect.any(String),
       );
       expect(mockRecordPrecisionBet).not.toHaveBeenCalled();
     });
@@ -487,6 +502,9 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "round-1",
         },
         undefined,
+        // recordUpDownBet/recordPrecisionBet also take (idempotencyKey, requestId);
+        // the request id is generated per request, so match on its type.
+        expect.any(String),
       );
       expect(mockRecordUpDownBet).not.toHaveBeenCalled();
     });

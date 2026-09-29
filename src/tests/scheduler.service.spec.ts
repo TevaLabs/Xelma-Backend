@@ -172,7 +172,7 @@ describeDb("SchedulerService", () => {
     it("does not schedule tasks when AUTO_RESOLVE_ENABLED is not set", () => {
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(6);
+      expect(cron.schedule).toHaveBeenCalledTimes(7);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),
@@ -187,6 +187,12 @@ describeDb("SchedulerService", () => {
       );
       expect(cron.schedule).toHaveBeenCalledWith(
         "30 3 * * *",
+        expect.any(Function),
+      );
+      // Two jobs share the per-minute cadence: bet reconciliation and
+      // prediction reconciliation.
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "* * * * *",
         expect.any(Function),
       );
       expect(cron.schedule).toHaveBeenCalledWith(
@@ -204,7 +210,7 @@ describeDb("SchedulerService", () => {
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(6);
+      expect(cron.schedule).toHaveBeenCalledTimes(7);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),
@@ -221,6 +227,12 @@ describeDb("SchedulerService", () => {
         "30 3 * * *",
         expect.any(Function),
       );
+      // Two jobs share the per-minute cadence: bet reconciliation and
+      // prediction reconciliation.
+      expect(cron.schedule).toHaveBeenCalledWith(
+        "* * * * *",
+        expect.any(Function),
+      );
       expect(cron.schedule).toHaveBeenCalledWith(
         "* * * * *",
         expect.any(Function),
@@ -231,12 +243,12 @@ describeDb("SchedulerService", () => {
       );
     });
 
-    it('schedules exactly seven tasks when AUTO_RESOLVE_ENABLED is "true"', () => {
+    it('schedules exactly eight tasks when AUTO_RESOLVE_ENABLED is "true"', () => {
       process.env.AUTO_RESOLVE_ENABLED = "true";
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(7);
+      expect(cron.schedule).toHaveBeenCalledTimes(8);
     });
 
     it("schedules the payout reconciliation job at the default 5-minute cadence", () => {

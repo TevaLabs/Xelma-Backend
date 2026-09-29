@@ -123,9 +123,12 @@ describe("Stub-mode idempotency without Redis (#374)", () => {
     const key = "memory-no-redis-concurrency-003";
     const body = { address: VALID_ADDRESS, amount: 5, side: "UP" };
 
-    // Import betStore to count bets before/after.
-    const { betStore } = await import("../data/bet-store");
-    const before = betStore.getBets({ address: VALID_ADDRESS }).length;
+    // Count bets in the memory data store the app actually writes to. The legacy
+    // data/bet-store is not used in DATA_STORE=memory mode, so counting there
+    // always reads 0. Bet rows are keyed by a user resolved from the address,
+    // so assert on the collection size rather than a userId filter.
+    const { prisma } = await import("../lib/prisma");
+    const before = await prisma.bet.count();
 
     const results = await Promise.all(
       Array.from({ length: 5 }, () =>
@@ -142,7 +145,7 @@ describe("Stub-mode idempotency without Redis (#374)", () => {
     expect(statuses.every((s) => s === 200)).toBe(true);
 
     // The underlying bet should have been placed exactly once.
-    const after = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const after = await prisma.bet.count();
     expect(after - before).toBe(1);
   });
 });

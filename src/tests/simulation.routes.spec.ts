@@ -66,6 +66,9 @@ jest.mock("../config", () => ({
       dataStore: "postgres",
       enableSimulation: mockConfigState.enableSimulation,
       enableMultiplayerSocial: false,
+      // src/index.ts logs the safety profile at module load; omitting it here
+      // made that line throw on `.toUpperCase()` of undefined.
+      safetyProfile: "demo",
     },
     jwt: {
       secret: "test-jwt-secret-for-mock",

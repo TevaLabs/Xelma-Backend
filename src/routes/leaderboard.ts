@@ -24,12 +24,12 @@ const router = Router();
 router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await getRepositories().leaderboard.listLeaderboard(100, 0);
-    const { pagination, ...data } = result as unknown as Record<string, unknown> & { pagination?: Record<string, unknown> };
-    return sendSuccess(
-      res,
-      Array.isArray(result) ? { leaderboard: result } : data,
-      pagination ? { pagination } : undefined,
-    );
+    const normalized = result as unknown as {
+      pagination?: Record<string, unknown>;
+      [key: string]: unknown;
+    };
+    const { pagination, ...data } = normalized;
+    return sendSuccess(res, data as Record<string, unknown>, pagination ? { pagination } : undefined);
   } catch (err) {
     next(err);
   }

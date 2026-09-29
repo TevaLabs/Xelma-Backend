@@ -10,7 +10,7 @@ import {
   AuthenticatedRequest,
 } from "../middleware/auth.middleware";
 import { asyncHandler } from "../middleware/errorHandler.middleware";
-import { toDecimal } from "../utils/decimal.util";
+import { toDecimal, serializeMoney } from "../utils/decimal.util";
 import { serializeRound } from "../serializers/monetary.serializer";
 import {
   adminRoundRateLimiter,
@@ -375,7 +375,7 @@ const requireSimulationEnabled = (
  *                 roundId: { type: string }
  *                 simulatedPrice: { type: number }
  *                 mode: { type: string, enum: [UP_DOWN, LEGENDS] }
- *                 startPrice: { type: number }
+ *                 startPrice: { type: string }
  *                 winningSide: { type: string, nullable: true, enum: [UP, DOWN] }
  *                 winningRange:
  *                   type: object
@@ -389,8 +389,8 @@ const requireSimulationEnabled = (
  *                     type: object
  *                     properties:
  *                       won: { type: boolean, nullable: true }
- *                       payout: { type: number }
- *                       amount: { type: number }
+ *                       payout: { type: string }
+ *                       amount: { type: string }
  *                       side: { type: string, nullable: true, enum: [UP, DOWN] }
  *                 summary:
  *                   type: object
@@ -399,7 +399,7 @@ const requireSimulationEnabled = (
  *                     winners: { type: integer }
  *                     losers: { type: integer }
  *                     refunded: { type: integer }
- *                     totalPayout: { type: number }
+ *                     totalPayout: { type: string }
  *       400:
  *         description: Validation error - finalPrice missing
  *       401:
@@ -435,11 +435,20 @@ router.post(
       roundId: result.roundId,
       simulatedPrice: result.simulatedPrice,
       mode: result.mode,
-      startPrice: result.startPrice,
+      // Money fields are canonical fixed-scale strings, never JSON numbers.
+      startPrice: serializeMoney(result.startPrice),
       winningSide: result.winningSide,
       winningRange: result.winningRange,
-      predictions: result.predictions,
-      summary: result.summary,
+      predictions: result.predictions.map((p) => ({
+        won: p.won,
+        payout: serializeMoney(p.payout),
+        amount: serializeMoney(p.amount),
+        side: p.side,
+      })),
+      summary: {
+        ...result.summary,
+        totalPayout: serializeMoney(result.summary.totalPayout),
+      },
     });
   }),
 );

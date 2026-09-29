@@ -1,8 +1,5 @@
 /**
  * Hackathon server (`npm run dev:hackathon`).
- *
- * Chooses the mode and owns the process lifecycle; all HTTP wiring comes from
- * `src/app-factory.ts` via `src/app.ts`.
  */
 import dotenv from 'dotenv';
 import { createServer } from 'http';
@@ -43,8 +40,6 @@ initWebSocket(httpServer).catch(error => {
   process.exit(1);
 });
 
-// Start lightweight in-memory retention loop to prune expired auth challenges
-// and idempotency keys without running the full production scheduler.
 memoryHousekeepingService.start();
 
 httpServer.listen(PORT, () => {
@@ -55,7 +50,6 @@ const shutdown = () => {
   console.log('Shutting down gracefully...');
   memoryHousekeepingService.stop();
   closeWebSocket();
-  // Ensure we don't hang on HTTP keep-alive connections
   httpServer.closeAllConnections();
   httpServer.close(() => {
     console.log('Shutdown complete');

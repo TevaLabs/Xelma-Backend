@@ -7,7 +7,15 @@ import { PredictionService } from "../services/prediction.service";
 // Mock factory creates fns internally to avoid jest.mock() hoisting TDZ issues
 jest.mock("../lib/prisma", () => {
   const round = { findUnique: jest.fn(), update: jest.fn() };
-  const prediction = { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn() };
+  // UP_DOWN rounds also settle on-chain: finalizeChainSuccess reads/updates the
+  // prediction inside a second $transaction and re-reads via findUniqueOrThrow.
+  const prediction = {
+    findUnique: jest.fn(),
+    findUniqueOrThrow: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  };
   const user = { findUnique: jest.fn(), update: jest.fn() };
   const outboxEvent = { create: jest.fn().mockResolvedValue({ id: "outbox-1" }) };
   return {
@@ -23,9 +31,15 @@ jest.mock("../lib/prisma", () => {
   };
 });
 
+// placeBet resolves to { state, txHash? } in production; returning undefined
+// made prediction.service throw on `chainResult.txHash` in the UP_DOWN path.
 jest.mock("../services/soroban.service", () => ({
   __esModule: true,
-  default: { placeBet: jest.fn().mockResolvedValue(undefined) },
+  default: {
+    placeBet: jest
+      .fn()
+      .mockResolvedValue({ state: "on-chain-success", txHash: "0xtesttx" }),
+  },
 }));
 
 import { PredictionService as _PS } from "../services/prediction.service";
@@ -35,6 +49,7 @@ import { prisma } from "../lib/prisma";
 const mockRoundFindUnique = prisma.round.findUnique as jest.Mock;
 const mockRoundUpdate = prisma.round.update as jest.Mock;
 const mockPredictionFindUnique = prisma.prediction.findUnique as jest.Mock;
+const mockPredictionFindUniqueOrThrow = prisma.prediction.findUniqueOrThrow as jest.Mock;
 const mockPredictionFindMany = prisma.prediction.findMany as jest.Mock;
 const mockPredictionCreate = prisma.prediction.create as jest.Mock;
 const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
@@ -80,7 +95,25 @@ describe("PredictionService (Issue #78)", () => {
           mode: "UP_DOWN",
           status: "ACTIVE",
         });
-        mockPredictionFindUnique.mockResolvedValue({ id: "existing-pred" });
+        // A duplicate is only rejected once the prior prediction has settled
+        // (CONFIRMED / NOT_REQUIRED); PENDING and FAILED are resubmittable.
+        mockPredictionFindUnique.mockResolvedValue({
+          id: "existing-pred",
+          chainStatus: "CONFIRMED",
+        });
+        // The service loads the user before it checks for an existing prediction,
+        // so the user lookup has to succeed to reach that branch.
+        mockUserFindUnique.mockResolvedValue({
+          id: userId,
+          walletAddress: "GXXX",
+          virtualBalance: 1000,
+        });
+        // The balance decrement (and its .catch) runs before the duplicate check.
+        mockUserUpdate.mockResolvedValue({
+          id: userId,
+          walletAddress: "GXXX",
+          virtualBalance: 900,
+        });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, "UP")
@@ -187,6 +220,7 @@ describe("PredictionService (Issue #78)", () => {
           createdAt: new Date(),
         };
         mockPredictionCreate.mockResolvedValue(created);
+        mockPredictionFindUniqueOrThrow.mockResolvedValue(created);
         mockUserUpdate.mockResolvedValue({ id: userId, walletAddress: "GXXX", virtualBalance: 900 });
         mockRoundUpdate.mockResolvedValue({
           id: roundId,
@@ -216,6 +250,9 @@ describe("PredictionService (Issue #78)", () => {
             userId,
             amount: 100,
             side: "UP",
+            priceRange: undefined,
+            // UP_DOWN rounds start PENDING and settle on-chain.
+            chainStatus: "PENDING",
           },
         });
         // Service uses an atomic WHERE+DECREMENT pattern to prevent race conditions
@@ -291,6 +328,8 @@ describe("PredictionService (Issue #78)", () => {
             amount: 50,
             side: undefined,
             priceRange: { min: 1, max: 2 },
+            // LEGENDS rounds settle off-chain, so no Soroban submission.
+            chainStatus: "NOT_REQUIRED",
           },
         });
         expect(mockRoundUpdate).toHaveBeenCalledWith({

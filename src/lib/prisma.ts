@@ -44,6 +44,29 @@ export const prisma = (() => {
         updateMany: async () => ({ count: 0 }) as any,
         // Add other model mocks if needed.
       },
+      // Retention sweeps these three; without them `prisma.authChallenge` and
+      // friends are undefined and spyOn/`.deleteMany` throws in unit runs
+      // (CI sets TEST_TYPE=unit, so this branch is what tests actually get).
+      authChallenge: {
+        deleteMany: async () => ({ count: 0 }) as any,
+        findMany: async () => [] as any,
+        findUnique: async () => null as any,
+        create: async () => null as any,
+        updateMany: async () => ({ count: 0 }) as any,
+        count: async () => 0 as any,
+      },
+      message: {
+        deleteMany: async () => ({ count: 0 }) as any,
+        findMany: async () => [] as any,
+        create: async () => null as any,
+        count: async () => 0 as any,
+      },
+      auditLog: {
+        deleteMany: async () => ({ count: 0 }) as any,
+        findMany: async () => [] as any,
+        create: async () => null as any,
+        count: async () => 0 as any,
+      },
       // #391: lightweight in-memory stubs for the hackathon-data models so
       // unit tests (NODE_ENV=test, no real DATABASE_URL) exercise the same
       // Prisma-shaped API as production without needing a live database.
