@@ -202,7 +202,16 @@ router.post(
  *     tags: [Predictions]
  *     summary: Submit multiple predictions at once
  *     description: |
- *       Batch submit up to 50 predictions. Rate limit: **3 batch requests per minute per user** (stricter than single submit). On limit, responds with **429**.
+ *       Batch submit predictions for distinct rounds in one request.
+ *
+ *       **Size limit:** between **1 and 50** predictions per batch. A batch with
+ *       0 or 51+ items is rejected with **400** before any prediction is placed.
+ *       Each `roundId` may appear at most once per batch.
+ *
+ *       **Rate limit:** **3 batch requests per minute per user** (stricter than
+ *       single submit, which allows 10/min). The 4th batch within the window is
+ *       rejected with **429**; the response body and `Retry-After` header report
+ *       when the window resets.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -215,18 +224,62 @@ router.post(
  *             properties:
  *               predictions:
  *                 type: array
+ *                 minItems: 1
+ *                 maxItems: 50
  *                 items:
  *                   type: object
  *                   required: [roundId, amount]
+ *                   properties:
+ *                     roundId:
+ *                       type: string
+ *                     amount:
+ *                       type: number
+ *                     side:
+ *                       type: string
+ *                       enum: [UP, DOWN]
+ *                     priceRange:
+ *                       type: object
+ *                       properties:
+ *                         min:
+ *                           type: number
+ *                         max:
+ *                           type: number
  *     responses:
  *       200:
  *         description: Predictions processed
+ *       400:
+ *         description: |
+ *           Batch failed validation — empty batch, more than 50 predictions,
+ *           duplicate round IDs, or an invalid prediction entry. `details[]`
+ *           lists the offending field(s).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: Maximum 50 predictions per batch
+ *               message: Maximum 50 predictions per batch
+ *               code: VALIDATION_ERROR
+ *               path: /api/predictions/batch-submit
+ *               details:
+ *                 - field: predictions
+ *                   message: Maximum 50 predictions per batch
+ *       401:
+ *         description: Missing or invalid bearer token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       429:
- *         description: Too many batch requests
+ *         description: Too many batch requests — 3 per minute per user
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/RateLimitResponse'
+ *             example:
+ *               error: Too Many Requests
+ *               message: Too many batch prediction requests. Each batch can include many predictions — please wait before submitting another batch.
+ *               retryAfter: 60
  */
 router.post(
    '/batch-submit',

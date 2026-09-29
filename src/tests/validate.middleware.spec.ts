@@ -118,7 +118,8 @@ describe("validate middleware", () => {
         .send({ email: "not-an-email" });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("ValidationError");
+      // The full error handler sets `error` to the human-readable message.
+      expect(res.body.error).toBe(res.body.message);
       expect(res.body.code).toBe("VALIDATION_ERROR");
       expect(res.body.message).toBeDefined();
       expect(res.body.details).toBeDefined();

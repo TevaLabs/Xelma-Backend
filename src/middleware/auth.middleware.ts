@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
 import { AuthRequest, AuthenticatedRequest, JwtPayload } from "../types/auth.types";
 import { ORACLE_ALLOWED_ROLES } from "../security/route-auth.registry";
+import { AuthenticationError, AuthorizationError } from "../utils/errors";
 import config from "../config";
 
 // Re-export UserRole for backwards compatibility
@@ -83,7 +84,7 @@ export async function verifyStellarAuth(
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    res.status(401).json({ error: "No token provided" });
+    next(new AuthenticationError("No token provided"));
     return;
   }
 
@@ -91,7 +92,7 @@ export async function verifyStellarAuth(
   const decoded = verifyToken(token);
 
   if (!decoded || !decoded.walletAddress) {
-    res.status(401).json({ error: "Invalid or expired token" });
+    next(new AuthenticationError("Invalid or expired token"));
     return;
   }
 
@@ -117,14 +118,16 @@ export function requireRole(
 
       if (!user) {
         const hasHeader = Boolean(req.headers.authorization?.startsWith("Bearer "));
-        res.status(401).json({
-          error: hasHeader ? "Invalid or expired token" : "No token provided",
-        });
+        next(
+          new AuthenticationError(
+            hasHeader ? "Invalid or expired token" : "No token provided",
+          ),
+        );
         return;
       }
 
       if (!userHasAnyRole(user, allowedRoles)) {
-        res.status(403).json({ error: forbiddenMessage });
+        next(new AuthorizationError(forbiddenMessage));
         return;
       }
 
@@ -132,7 +135,7 @@ export function requireRole(
       next();
     } catch (error) {
       logger.error("Role authentication error:", { error, requestId });
-      res.status(401).json({ error: "Authentication failed" });
+      next(new AuthenticationError("Authentication failed"));
     }
   };
 }
@@ -218,14 +221,12 @@ export function bindAuthenticatedWallet(
 ): void {
   const walletAddress = req.user?.walletAddress;
   if (!walletAddress) {
-    res.status(401).json({ error: "No token provided" });
+    next(new AuthenticationError("No token provided"));
     return;
   }
 
   if (req.body?.address && req.body.address !== walletAddress) {
-    res.status(403).json({
-      error: "Wallet address does not match authenticated user",
-    });
+    next(new AuthorizationError("Wallet address does not match authenticated user"));
     return;
   }
 

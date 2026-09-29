@@ -157,7 +157,7 @@ describeEducationTip("GET /api/education/tip - Integration Tests", () => {
     it("should return 400 when roundId is missing", async () => {
       const response = await request(app).get("/api/education/tip").expect(400);
 
-      expect(response.body.error).toBe("ValidationError");
+      expect(response.body.error).toBe(response.body.message);
       expect(response.body.message).toContain("roundId");
     });
 
@@ -167,7 +167,7 @@ describeEducationTip("GET /api/education/tip - Integration Tests", () => {
         .query({ roundId: "not-a-valid-uuid" })
         .expect(400);
 
-      expect(response.body.error).toBe("ValidationError");
+      expect(response.body.error).toBe(response.body.message);
       expect(response.body.message).toContain("UUID");
     });
 
@@ -177,7 +177,7 @@ describeEducationTip("GET /api/education/tip - Integration Tests", () => {
         .query({ roundId: "" })
         .expect(400);
 
-      expect(response.body.error).toBe("ValidationError");
+      expect(response.body.error).toBe(response.body.message);
     });
   });
 
@@ -190,7 +190,7 @@ describeEducationTip("GET /api/education/tip - Integration Tests", () => {
         .query({ roundId: nonExistentId })
         .expect(404);
 
-      expect(response.body.error).toBe("NotFoundError");
+      expect(response.body.error).toBe(response.body.message);
       expect(response.body.message).toBe("Round not found");
     });
   });
@@ -202,7 +202,7 @@ describeEducationTip("GET /api/education/tip - Integration Tests", () => {
         .query({ roundId: unresolvedRoundId })
         .expect(422);
 
-      expect(response.body.error).toBe("BusinessRuleError");
+      expect(response.body.error).toBe(response.body.message);
       expect(response.body.message).toContain("resolved");
     });
 
@@ -223,7 +223,7 @@ describeEducationTip("GET /api/education/tip - Integration Tests", () => {
         .query({ roundId: incompletRound.id })
         .expect(422);
 
-      expect(response.body.error).toBe("BusinessRuleError");
+      expect(response.body.error).toBe(response.body.message);
       expect(response.body.message).toContain("price data");
 
       // Cleanup

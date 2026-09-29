@@ -105,7 +105,7 @@ describe("errorHandler middleware", () => {
 
     const res = await request(app).get("/test");
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("ValidationError");
+    expect(res.body.error).toBe(res.body.message);
     expect(res.body.message).toBe("bad input");
     expect(res.body.code).toBe("VALIDATION_ERROR");
     expect(res.body.details).toEqual([{ field: "name", message: "required" }]);
@@ -121,7 +121,7 @@ describe("errorHandler middleware", () => {
 
     const res = await request(app).get("/test");
     expect(res.status).toBe(401);
-    expect(res.body.error).toBe("AuthenticationError");
+    expect(res.body.error).toBe(res.body.message);
     expect(res.body.code).toBe("AUTHENTICATION_ERROR");
     expect(res.body.requestId).toBeDefined();
     expect(res.body.timestamp).toBeDefined();

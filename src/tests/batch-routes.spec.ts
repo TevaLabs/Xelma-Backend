@@ -4,6 +4,10 @@ import request from "supertest";
 import { UserRole } from "@prisma/client";
 import { createApp } from "../index";
 import { generateToken } from "../utils/jwt.util";
+import {
+  batchLeaderboardRateLimiter,
+  batchPredictionRateLimiter,
+} from "../middleware/rateLimiter.middleware";
 
 const USER_A_ID = "batch-user-a-id";
 const USER_B_ID = "batch-user-b-id";
@@ -46,6 +50,9 @@ describe("Batch Predictions Routes", () => {
 
     userA = {
       id: USER_A_ID,
+      // `requireRole` reads `role` from the loaded user; without it the
+      // authenticated request is rejected with 403 before it reaches the route.
+      role: UserRole.USER,
       walletAddress: "GBATCH_USER_A_TEST_AAAAAAAAAAAAAAAA",
     };
     userAToken = generateToken(userA.id, userA.walletAddress, UserRole.USER);
@@ -55,6 +62,10 @@ describe("Batch Predictions Routes", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUserFindUnique.mockResolvedValue(userA);
+    // Each test starts with a clean rate-limit window so a burst of requests
+    // in one test cannot 429 the next one.
+    batchPredictionRateLimiter.resetKey(USER_A_ID);
   });
 
   describe("POST /api/predictions/batch-submit", () => {
@@ -179,9 +190,16 @@ describe("Batch Predictions Routes", () => {
         .send({ predictions: [] });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe("ValidationError");
-      expect(response.body.message).toContain(
-        "At least one prediction is required",
+      expect(response.body.code).toBe("VALIDATION_ERROR");
+      expect(response.body.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "predictions",
+            message: expect.stringContaining(
+              "At least one prediction is required",
+            ),
+          }),
+        ]),
       );
     });
 
@@ -207,7 +225,7 @@ describe("Batch Predictions Routes", () => {
         .send(batchRequest);
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe("ValidationError");
+      expect(response.body.code).toBe("VALIDATION_ERROR");
       expect(response.body.message).toContain(
         "Duplicate round IDs are not allowed",
       );
@@ -228,10 +246,51 @@ describe("Batch Predictions Routes", () => {
         .send({ predictions });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe("ValidationError");
-      expect(response.body.message).toContain(
-        "Maximum 50 predictions per batch",
+      expect(response.body.code).toBe("VALIDATION_ERROR");
+      expect(response.body.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "predictions",
+            message: expect.stringContaining(
+              "Maximum 50 predictions per batch",
+            ),
+          }),
+        ]),
       );
+    });
+
+    it("should rate limit the 4th batch request within the window (429)", async () => {
+      const batchRequest = {
+        predictions: [{ roundId: ROUND_1_ID, amount: 10, side: "UP" }],
+      };
+
+      mockSubmitBatchPredictions.mockResolvedValue({
+        success: true,
+        results: [{ index: 0, success: true }],
+      });
+
+      // Policy: 3 batch requests per minute per user. The first three reach the
+      // handler; the fourth is rejected by the limiter before validation runs.
+      const statuses: number[] = [];
+      for (let i = 0; i < 4; i++) {
+        const response = await request(app)
+          .post("/api/predictions/batch-submit")
+          .set("Authorization", `Bearer ${userAToken}`)
+          .send(batchRequest);
+        statuses.push(response.status);
+      }
+
+      expect(statuses).toEqual([200, 200, 200, 429]);
+
+      const limited = await request(app)
+        .post("/api/predictions/batch-submit")
+        .set("Authorization", `Bearer ${userAToken}`)
+        .send(batchRequest);
+
+      expect(limited.status).toBe(429);
+      expect(limited.body.error).toBe("Too Many Requests");
+      expect(limited.body.retryAfter).toBeGreaterThan(0);
+      expect(limited.headers["retry-after"]).toBeDefined();
     });
 
     it("should require authentication", async () => {
@@ -264,6 +323,9 @@ describe("Batch Leaderboard Routes", () => {
 
     userA = {
       id: USER_A_ID,
+      // `requireRole` reads `role` from the loaded user; without it the
+      // authenticated request is rejected with 403 before it reaches the route.
+      role: UserRole.USER,
       walletAddress: "GBATCH_USER_A_TEST_AAAAAAAAAAAAAAAA",
     };
     userAToken = generateToken(userA.id, userA.walletAddress, UserRole.USER);
@@ -273,6 +335,8 @@ describe("Batch Leaderboard Routes", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUserFindUnique.mockResolvedValue(userA);
+    batchLeaderboardRateLimiter.resetKey(USER_A_ID);
   });
 
   describe("POST /api/leaderboard/batch", () => {
@@ -387,9 +451,16 @@ describe("Batch Leaderboard Routes", () => {
         .send({ userIds: [] });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe("ValidationError");
-      expect(response.body.message).toContain(
-        "At least one user ID is required",
+      expect(response.body.code).toBe("VALIDATION_ERROR");
+      expect(response.body.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "userIds",
+            message: expect.stringContaining(
+              "At least one user ID is required",
+            ),
+          }),
+        ]),
       );
     });
 
@@ -404,8 +475,15 @@ describe("Batch Leaderboard Routes", () => {
         .send({ userIds });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe("ValidationError");
-      expect(response.body.message).toContain("Maximum 100 user IDs per query");
+      expect(response.body.code).toBe("VALIDATION_ERROR");
+      expect(response.body.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: "userIds",
+            message: expect.stringContaining("Maximum 100 user IDs per query"),
+          }),
+        ]),
+      );
     });
 
     it("should require authentication", async () => {

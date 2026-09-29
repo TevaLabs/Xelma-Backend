@@ -886,8 +886,9 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
             id: 'round-789',
             mode: 'UP_DOWN',
             status: 'ACTIVE',
-            poolUp: 100,
-            poolDown: 200,
+            // Money fields are serialized to fixed-scale decimal strings.
+            poolUp: '100.00000000',
+            poolDown: '200.00000000',
          });
 
          // 2. Emit price_update via websocketService

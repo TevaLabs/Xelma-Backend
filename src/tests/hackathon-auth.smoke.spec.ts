@@ -35,14 +35,20 @@ jest.mock('../services/priceService', () => ({
   getPrices: jest.fn(async () => ({ btc: 1, eth: 2, xlm: 0.1, stale: false })),
 }));
 
-jest.mock('../lib/redis', () => ({
-  invalidateNamespace: jest.fn(),
-  invalidateLeaderboardSortedSet: jest.fn(),
-  checkRedisHealth: jest.fn().mockResolvedValue(true),
-  getCache: jest.fn(),
-  setCache: jest.fn(),
-  deleteCache: jest.fn(),
-}));
+jest.mock('../lib/redis', () => {
+  const actual = jest.requireActual('../lib/redis');
+  return {
+    ...actual,
+    invalidateNamespace: jest.fn(),
+    invalidateLeaderboardSortedSet: jest.fn(),
+    checkRedisHealth: jest.fn().mockResolvedValue(true),
+    getCache: jest.fn(),
+    setCache: jest.fn(),
+    deleteCache: jest.fn(),
+    isRedisConfigured: jest.fn(() => false),
+    isRedisRateLimitConfigured: jest.fn(() => false),
+  };
+});
 
 jest.mock('../services/websocket.service', () => ({
   __esModule: true,
@@ -196,6 +202,7 @@ jest.mock('../middleware/auth.middleware', () => ({
   authenticateUser: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireOracle: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireMetricsAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   verifyStellarAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   bindAuthenticatedWallet: (_req: unknown, _res: unknown, next: () => void) => next(),
   optionalAuthentication: (_req: unknown, _res: unknown, next: () => void) => next(),

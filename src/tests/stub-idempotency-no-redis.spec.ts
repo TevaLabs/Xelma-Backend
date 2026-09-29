@@ -123,9 +123,11 @@ describe("Stub-mode idempotency without Redis (#374)", () => {
     const key = "memory-no-redis-concurrency-003";
     const body = { address: VALID_ADDRESS, amount: 5, side: "UP" };
 
-    // Import betStore to count bets before/after.
-    const { betStore } = await import("../data/bet-store");
-    const before = betStore.getBets({ address: VALID_ADDRESS }).length;
+    // Bets flow through BetService (backed by the memory Prisma client in this
+    // mode), so count executions at the service boundary rather than in the
+    // legacy betStore, which the current bet path no longer writes to.
+    const { default: betService } = await import("../services/bet.service");
+    const recordSpy = jest.spyOn(betService, "recordUpDownBet");
 
     const results = await Promise.all(
       Array.from({ length: 5 }, () =>
@@ -142,8 +144,9 @@ describe("Stub-mode idempotency without Redis (#374)", () => {
     expect(statuses.every((s) => s === 200)).toBe(true);
 
     // The underlying bet should have been placed exactly once.
-    const after = betStore.getBets({ address: VALID_ADDRESS }).length;
-    expect(after - before).toBe(1);
+    expect(recordSpy).toHaveBeenCalledTimes(1);
+
+    recordSpy.mockRestore();
   });
 });
 

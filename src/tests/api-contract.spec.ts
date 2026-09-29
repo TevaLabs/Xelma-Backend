@@ -48,14 +48,20 @@ jest.mock('@prisma/client', () => ({
   Prisma: {},
 }));
 
-jest.mock('../lib/redis', () => ({
-  invalidateNamespace: jest.fn(),
-  invalidateLeaderboardSortedSet: jest.fn(),
-  checkRedisHealth: jest.fn().mockResolvedValue(true),
-  getCache: jest.fn(),
-  setCache: jest.fn(),
-  deleteCache: jest.fn(),
-}));
+jest.mock('../lib/redis', () => {
+  const actual = jest.requireActual('../lib/redis');
+  return {
+    ...actual,
+    invalidateNamespace: jest.fn(),
+    invalidateLeaderboardSortedSet: jest.fn(),
+    checkRedisHealth: jest.fn().mockResolvedValue(true),
+    getCache: jest.fn(),
+    setCache: jest.fn(),
+    deleteCache: jest.fn(),
+    isRedisConfigured: jest.fn(() => false),
+    isRedisRateLimitConfigured: jest.fn(() => false),
+  };
+});
 
 jest.mock('../services/soroban.service', () => ({
   __esModule: true,
@@ -249,6 +255,7 @@ jest.mock('../middleware/auth.middleware', () => ({
   authenticateUser: (_req: any, _res: any, next: any) => next(),
   requireAdmin: (_req: any, _res: any, next: any) => next(),
   requireOracle: (_req: any, _res: any, next: any) => next(),
+  requireMetricsAuth: (_req: any, _res: any, next: any) => next(),
   verifyStellarAuth: (_req: any, _res: any, next: any) => next(),
   bindAuthenticatedWallet: (_req: any, _res: any, next: any) => next(),
   optionalAuthentication: (_req: any, _res: any, next: any) => next(),
