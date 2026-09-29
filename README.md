@@ -1473,6 +1473,13 @@ npm run test:load
 
 src/tests/redis-adapter.spec.ts proves that Socket.IO room broadcasts fan out across two independent server instances via the Redis adapter (simulating a multi-instance deployment). It is skipped automatically when REDIS_URL is not set, so it never blocks the default unit test run.
 
+src/tests/multiplayer-room-multinode.spec.ts (Issue #669) runs two real `initializeSocket` servers against one Redis and one Postgres and checks that multiplayer room membership stays consistent across them: joins/leaves on one instance move the user's sockets on the other, reconnecting restores exactly the DB rooms, and a failed cluster-wide join is rolled back. **Redis is required for multi-instance multiplayer/social features**; see [docs/multi-instance-deployment.md](docs/multi-instance-deployment.md#multiplayer-room-membership-issue-669) for the membership protocol and the load-balancer requirements (sticky sessions or WebSocket-only clients). Run both Redis suites with:
+
+```bash
+docker run -d --name xelma-redis -p 6379:6379 redis:7-alpine
+REDIS_URL=redis://127.0.0.1:6379 npm run test:multinode   # also needs DATABASE_URL with migrations applied
+```
+
 ### Distributed idempotency lock tests (Issue #493)
 
 `src/tests/bets-idempotency-concurrency.spec.ts` races 12 concurrent requests
@@ -1502,7 +1509,7 @@ Coverage thresholds are enforced in `jest.config.ts`. The current floors are:
 - Lines: 35%
 - Statements: 35%
 
-CI runs `npm run test:unit:coverage` (unit tests with coverage upload) and `npm run test:integration` (integration tests against PostgreSQL and Redis service containers) as separate parallel jobs.
+CI runs `npm run test:unit:coverage` (unit tests with coverage upload), `npm run test:integration` (integration tests against a PostgreSQL service container) and `npm run test:multinode` (the Redis-gated multi-instance socket suites, against PostgreSQL and Redis service containers) as separate parallel jobs.
 
 ### Load test harness
 

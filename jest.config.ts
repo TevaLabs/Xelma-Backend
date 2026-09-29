@@ -47,6 +47,7 @@ const integrationTestFiles = [
   "user.routes.spec.ts",
   "validate.middleware.spec.ts",
   "redis-adapter.spec.ts",
+  "multiplayer-room-multinode.spec.ts",
 ];
 
 const escapeRegExp = (value: string): string =>

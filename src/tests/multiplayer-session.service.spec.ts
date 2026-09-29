@@ -3,14 +3,17 @@
  *
  * Verifies the persistence semantics that power reconnect continuity:
  *   - recordConnect upserts and snapshots the prior row.
- *   - addRoom / removeRoom mutate `rooms` immutably and dedupe.
  *   - patchMetadata merges and clamps oversized blobs.
  *   - recordDisconnect preserves the row and stamps disconnectedAt.
  *   - all methods swallow DB errors instead of throwing.
  *
- * Issue #555 — additional tests:
- *   - addRoom / removeRoom execute inside withRoomLock.
- *   - reconcileRooms detects and corrects DB-vs-adapter drift.
+ * Issue #669 — room membership protocol (with a fake adapter transport):
+ *   - join commits the DB before the adapter join, leave deletes before the
+ *     adapter leave, both inside withRoomLock.
+ *   - a failed adapter join is compensated only when this call added the
+ *     membership; a failed adapter leave never re-adds it.
+ *   - join/leave are idempotent and reject non-membership rooms.
+ *   - restoreMembership joins exactly the DB membership rooms.
  */
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 
@@ -37,12 +40,43 @@ jest.mock('../utils/room-lock', () => ({
   withRoomLock: (...args: any[]) => mockWithRoomLock(...args),
 }));
 
+jest.mock('../utils/logger', () => ({
+  __esModule: true,
+  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+}));
+
 // Import AFTER mocks are in place.
 import multiplayerSessionService, {
   MAX_PERSISTED_ROOMS,
   MAX_METADATA_CHARS,
   asStringArray,
+  type RoomMembershipTransport,
 } from '../services/multiplayer-session.service';
+import logger from '../utils/logger';
+
+const mockLogger = jest.mocked(logger);
+
+/**
+ * Fake adapter transport that records every call into `log`, so tests can
+ * assert the order of DB and adapter steps.
+ */
+function trackedTransport(opts: { failJoin?: boolean; failLeave?: boolean } = {}): {
+  transport: RoomMembershipTransport;
+  log: string[];
+} {
+  const log: string[] = [];
+  const transport: RoomMembershipTransport = {
+    join: async (userId, room) => {
+      log.push(`adapter:join:${userId}:${room}`);
+      if (opts.failJoin) throw new Error('adapter join timed out');
+    },
+    leave: async (userId, room) => {
+      log.push(`adapter:leave:${userId}:${room}`);
+      if (opts.failLeave) throw new Error('adapter leave timed out');
+    },
+  };
+  return { transport, log };
+}
 
 const USER_ID = 'user-194';
 const WALLET = 'GMULTIPLAYER_SESSION_TEST_WALLET_______________';
@@ -148,275 +182,297 @@ describe('MultiplayerSessionService (Issue #194)', () => {
     });
   });
 
-  describe('addRoom / removeRoom', () => {
-    it('appends a new room without duplicating existing entries', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round'],
+  // -------------------------------------------------------------------------
+  // Room membership protocol (Issue #669)
+  // -------------------------------------------------------------------------
+
+  describe('joinRoom (Issue #669)', () => {
+    it('commits DB membership BEFORE the adapter join, all under the room lock', async () => {
+      const { transport, log } = trackedTransport();
+      mockWithRoomLock.mockImplementationOnce(async (_userId: string, fn: () => Promise<unknown>) => {
+        log.push('lock:acquire');
+        const result = await fn();
+        log.push('lock:release');
+        return result;
       });
-      mockSessionUpdate.mockResolvedValueOnce({});
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['round'] });
+      mockSessionUpdate.mockImplementationOnce(async () => {
+        log.push('db:commit');
+        return {};
+      });
 
-      await multiplayerSessionService.addRoom(USER_ID, 'chat');
+      const result = await multiplayerSessionService.joinRoom(USER_ID, 'chat', transport);
 
-      const args = mockSessionUpdate.mock.calls[0][0];
-      expect(args.data.rooms).toEqual(['round', 'chat']);
+      expect(result).toEqual({ ok: true, room: 'chat', changed: true, adapterSynced: true });
+      expect(log).toEqual([
+        'lock:acquire',
+        'db:commit',
+        `adapter:join:${USER_ID}:chat`,
+        'lock:release',
+      ]);
+      expect(mockWithRoomLock).toHaveBeenCalledWith(USER_ID, expect.any(Function));
+      expect(mockSessionUpdate.mock.calls[0][0].data.rooms).toEqual(['round', 'chat']);
     });
 
-    it('is a no-op when the room is already present', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round', 'chat'],
+    it('compensates when the adapter join fails: removes the DB row it added, then socketsLeave', async () => {
+      const { transport, log } = trackedTransport({ failJoin: true });
+      mockSessionFindUnique
+        .mockResolvedValueOnce({ rooms: ['round'] })
+        .mockResolvedValueOnce({ rooms: ['round', 'chat'] });
+      mockSessionUpdate
+        .mockImplementationOnce(async () => {
+          log.push('db:commit');
+          return {};
+        })
+        .mockImplementationOnce(async () => {
+          log.push('db:compensate');
+          return {};
+        });
+
+      const result = await multiplayerSessionService.joinRoom(USER_ID, 'chat', transport);
+
+      expect(result).toEqual({
+        ok: false,
+        room: 'chat',
+        code: 'MEMBERSHIP_SYNC_FAILED',
+        message: 'Could not join chat; please retry.',
       });
+      expect(log).toEqual([
+        'db:commit',
+        `adapter:join:${USER_ID}:chat`,
+        'db:compensate',
+        `adapter:leave:${USER_ID}:chat`,
+      ]);
+      // The compensating write restores the pre-join membership.
+      expect(mockSessionUpdate.mock.calls[1][0].data.rooms).toEqual(['round']);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('adapter join failed, compensating (membership added by this call)'),
+      );
+    });
 
-      await multiplayerSessionService.addRoom(USER_ID, 'chat');
+    it('keeps a pre-existing membership when the adapter join fails', async () => {
+      const { transport, log } = trackedTransport({ failJoin: true });
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['chat'] });
 
-      // No DB write should occur — room already in the set.
+      const result = await multiplayerSessionService.joinRoom(USER_ID, 'chat', transport);
+
+      expect(result.ok).toBe(false);
+      // No DB write at all: neither a (no-op) add nor a compensating delete.
       expect(mockSessionUpdate).not.toHaveBeenCalled();
+      // And the user's sockets are not pulled out of a room they belong to.
+      expect(log).toEqual([`adapter:join:${USER_ID}:chat`]);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('membership pre-existing, kept'),
+      );
     });
 
-    it('caps persisted rooms at MAX_PERSISTED_ROOMS', async () => {
-      const tooMany = Array.from({ length: MAX_PERSISTED_ROOMS + 5 }, (_, i) => `r${i}`);
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: tooMany,
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
+    it('is idempotent: a repeat join is a no-op success that re-syncs presence', async () => {
+      const { transport, log } = trackedTransport();
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['chat'] });
 
-      await multiplayerSessionService.addRoom(USER_ID, 'one-more');
+      const result = await multiplayerSessionService.joinRoom(USER_ID, 'chat', transport);
 
-      const args = mockSessionUpdate.mock.calls[0][0];
-      expect(args.data.rooms.length).toBe(MAX_PERSISTED_ROOMS);
-      // Cap drops the trailing additions, not the originals, so "one-more"
-      // should not be in the persisted list.
-      expect(args.data.rooms).not.toContain('one-more');
+      expect(result).toEqual({ ok: true, room: 'chat', changed: false, adapterSynced: true });
+      expect(mockSessionUpdate).not.toHaveBeenCalled();
+      expect(log).toEqual([`adapter:join:${USER_ID}:chat`]);
     });
 
-    it('removes the requested room and leaves others intact', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round', 'chat', 'user:abc'],
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
+    it('does not touch the adapter when the DB commit fails', async () => {
+      const { transport, log } = trackedTransport();
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: [] });
+      mockSessionUpdate.mockRejectedValueOnce(new Error('db down'));
 
-      await multiplayerSessionService.removeRoom(USER_ID, 'chat');
+      const result = await multiplayerSessionService.joinRoom(USER_ID, 'round', transport);
 
-      const args = mockSessionUpdate.mock.calls[0][0];
-      expect(args.data.rooms).toEqual(['round', 'user:abc']);
+      expect(result).toMatchObject({ ok: false, code: 'MEMBERSHIP_PERSIST_FAILED' });
+      expect(log).toEqual([]);
     });
 
-    it('does nothing when no session row exists yet', async () => {
+    it('fails the join when no session row exists (nothing to commit to)', async () => {
+      const { transport, log } = trackedTransport();
       mockSessionFindUnique.mockResolvedValueOnce(null);
 
-      await multiplayerSessionService.addRoom(USER_ID, 'chat');
-      await multiplayerSessionService.removeRoom(USER_ID, 'chat');
+      const result = await multiplayerSessionService.joinRoom(USER_ID, 'round', transport);
 
+      expect(result).toMatchObject({ ok: false, code: 'MEMBERSHIP_PERSIST_FAILED' });
+      expect(log).toEqual([]);
+    });
+
+    it('fails the join when the persisted room limit is reached', async () => {
+      const { transport, log } = trackedTransport();
+      const full = Array.from({ length: MAX_PERSISTED_ROOMS }, (_, i) => `round:r${i}`);
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: full });
+
+      const result = await multiplayerSessionService.joinRoom(USER_ID, 'chat', transport);
+
+      expect(result).toMatchObject({ ok: false, code: 'MEMBERSHIP_PERSIST_FAILED' });
       expect(mockSessionUpdate).not.toHaveBeenCalled();
+      expect(log).toEqual([]);
     });
 
-    it('swallows DB errors instead of throwing', async () => {
-      mockSessionFindUnique.mockRejectedValueOnce(new Error('boom'));
-      await expect(
-        multiplayerSessionService.addRoom(USER_ID, 'chat'),
-      ).resolves.toBeUndefined();
-    });
-
-    it('ignores empty/invalid input without touching the DB', async () => {
-      await multiplayerSessionService.addRoom('', 'chat');
-      await multiplayerSessionService.addRoom(USER_ID, '');
-      await multiplayerSessionService.removeRoom('', 'chat');
-      await multiplayerSessionService.removeRoom(USER_ID, '');
-      expect(mockSessionFindUnique).not.toHaveBeenCalled();
-      expect(mockSessionUpdate).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('addRoom / removeRoom — distributed lock (Issue #555)', () => {
-    it('executes addRoom inside withRoomLock', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['round'] });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      await multiplayerSessionService.addRoom(USER_ID, 'chat');
-
-      expect(mockWithRoomLock).toHaveBeenCalledTimes(1);
-      expect(mockWithRoomLock).toHaveBeenCalledWith(
-        USER_ID,
-        expect.any(Function),
-      );
-    });
-
-    it('executes removeRoom inside withRoomLock', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round', 'chat'],
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      await multiplayerSessionService.removeRoom(USER_ID, 'chat');
-
-      expect(mockWithRoomLock).toHaveBeenCalledTimes(1);
-      expect(mockWithRoomLock).toHaveBeenCalledWith(
-        USER_ID,
-        expect.any(Function),
-      );
-    });
-
-    it('does not call withRoomLock when userId is empty', async () => {
-      await multiplayerSessionService.addRoom('', 'chat');
-      await multiplayerSessionService.removeRoom('', 'chat');
-
-      expect(mockWithRoomLock).not.toHaveBeenCalled();
-    });
-
-    it('serializes concurrent addRoom + removeRoom for the same user', async () => {
-      // Simulate two operations queued via withRoomLock.
-      // The lock mock executes callbacks sequentially (as they would be
-      // serialized by the real Redis lock).
-      const callOrder: string[] = [];
-
-      mockWithRoomLock.mockImplementationOnce(async (_userId: string, fn: () => Promise<any>) => {
-        callOrder.push('add-start');
-        const result = await fn();
-        callOrder.push('add-end');
-        return result;
-      });
-      mockWithRoomLock.mockImplementationOnce(async (_userId: string, fn: () => Promise<any>) => {
-        callOrder.push('remove-start');
-        const result = await fn();
-        callOrder.push('remove-end');
-        return result;
-      });
-
+    it('leaves presence alone when the compensating DB delete fails (DB still says member)', async () => {
+      const { transport, log } = trackedTransport({ failJoin: true });
       mockSessionFindUnique
         .mockResolvedValueOnce({ rooms: [] })
-        .mockResolvedValueOnce({ rooms: ['round'] });
+        .mockResolvedValueOnce({ rooms: ['chat'] });
       mockSessionUpdate
         .mockResolvedValueOnce({})
-        .mockResolvedValueOnce({});
+        .mockRejectedValueOnce(new Error('db down'));
 
-      await multiplayerSessionService.addRoom(USER_ID, 'round');
-      await multiplayerSessionService.removeRoom(USER_ID, 'round');
+      const result = await multiplayerSessionService.joinRoom(USER_ID, 'chat', transport);
 
-      // Operations executed sequentially under the lock
-      expect(callOrder).toEqual([
-        'add-start',
-        'add-end',
-        'remove-start',
-        'remove-end',
-      ]);
+      expect(result).toMatchObject({ ok: false, code: 'MEMBERSHIP_SYNC_FAILED' });
+      expect(log).toEqual([`adapter:join:${USER_ID}:chat`]);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('compensation DB delete failed'),
+      );
+    });
+
+    it.each([
+      ['a user room', `user:${USER_ID}`],
+      ['an unprefixed room', 'lobby'],
+      ['a round id with a colon', 'round:user:abc'],
+      ['a round id with spaces', 'round:bad id'],
+      ['an empty room', ''],
+    ])('rejects %s without touching the DB, lock or adapter', async (_label, room) => {
+      const { transport, log } = trackedTransport();
+
+      const result = await multiplayerSessionService.joinRoom(USER_ID, room, transport);
+
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_ROOM' });
+      expect(mockWithRoomLock).not.toHaveBeenCalled();
+      expect(mockSessionFindUnique).not.toHaveBeenCalled();
+      expect(log).toEqual([]);
     });
   });
 
-  describe('reconcileRooms (Issue #555)', () => {
-    it('returns empty array when userId is empty', async () => {
-      const result = await multiplayerSessionService.reconcileRooms('', ['round']);
-      expect(result).toEqual([]);
-    });
-
-    it('returns adapter rooms when no session exists in DB', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce(null);
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'chat'],
-      );
-      expect(result).toEqual(['round', 'chat']);
-    });
-
-    it('returns DB rooms unchanged when already consistent with adapter', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round', 'chat'],
+  describe('leaveRoom (Issue #669)', () => {
+    it('deletes DB membership BEFORE the adapter leave, all under the room lock', async () => {
+      const { transport, log } = trackedTransport();
+      mockWithRoomLock.mockImplementationOnce(async (_userId: string, fn: () => Promise<unknown>) => {
+        log.push('lock:acquire');
+        const result = await fn();
+        log.push('lock:release');
+        return result;
+      });
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['round', 'chat'] });
+      mockSessionUpdate.mockImplementationOnce(async () => {
+        log.push('db:delete');
+        return {};
       });
 
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'chat'],
+      const result = await multiplayerSessionService.leaveRoom(USER_ID, 'chat', transport);
+
+      expect(result).toEqual({ ok: true, room: 'chat', changed: true, adapterSynced: true });
+      expect(log).toEqual([
+        'lock:acquire',
+        'db:delete',
+        `adapter:leave:${USER_ID}:chat`,
+        'lock:release',
+      ]);
+      expect(mockSessionUpdate.mock.calls[0][0].data.rooms).toEqual(['round']);
+    });
+
+    it('keeps the DB deleted when the adapter leave fails, and logs it', async () => {
+      const { transport, log } = trackedTransport({ failLeave: true });
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['chat'] });
+      mockSessionUpdate.mockResolvedValueOnce({});
+
+      const result = await multiplayerSessionService.leaveRoom(USER_ID, 'chat', transport);
+
+      expect(result).toEqual({ ok: true, room: 'chat', changed: true, adapterSynced: false });
+      // Exactly one write (the delete); the membership is never re-added.
+      expect(mockSessionUpdate).toHaveBeenCalledTimes(1);
+      expect(mockSessionUpdate.mock.calls[0][0].data.rooms).toEqual([]);
+      expect(log).toEqual([`adapter:leave:${USER_ID}:chat`]);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('adapter leave failed after DB delete'),
       );
-      expect(result).toEqual(['round', 'chat']);
-      // No DB update should occur
+    });
+
+    it('is idempotent: leaving a room the user is not in is a no-op success', async () => {
+      const { transport, log } = trackedTransport();
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['round'] });
+
+      const result = await multiplayerSessionService.leaveRoom(USER_ID, 'chat', transport);
+
+      expect(result).toEqual({ ok: true, room: 'chat', changed: false, adapterSynced: true });
       expect(mockSessionUpdate).not.toHaveBeenCalled();
+      // Presence is still re-synced in case a stale socket is in the room.
+      expect(log).toEqual([`adapter:leave:${USER_ID}:chat`]);
     });
 
-    it('removes stale rooms present in DB but missing from adapter', async () => {
+    it('does not touch the adapter when the DB delete fails (user is still a member)', async () => {
+      const { transport, log } = trackedTransport();
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['chat'] });
+      mockSessionUpdate.mockRejectedValueOnce(new Error('db down'));
+
+      const result = await multiplayerSessionService.leaveRoom(USER_ID, 'chat', transport);
+
+      expect(result).toMatchObject({ ok: false, code: 'MEMBERSHIP_PERSIST_FAILED' });
+      expect(log).toEqual([]);
+    });
+
+    it('rejects non-membership rooms', async () => {
+      const { transport, log } = trackedTransport();
+
+      const result = await multiplayerSessionService.leaveRoom(USER_ID, `user:${USER_ID}`, transport);
+
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_ROOM' });
+      expect(log).toEqual([]);
+    });
+  });
+
+  describe('restoreMembership — connect reconciliation (Issue #669)', () => {
+    it('joins exactly the membership rooms recorded in the DB', async () => {
       mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round', 'chat', 'stale-room'],
+        rooms: ['round', 'round:r-1', 'chat'],
+      });
+      const joinLocal = jest.fn<(rooms: string[]) => void>();
+
+      const rooms = await multiplayerSessionService.restoreMembership(USER_ID, joinLocal);
+
+      expect(rooms).toEqual(['round', 'round:r-1', 'chat']);
+      expect(joinLocal).toHaveBeenCalledTimes(1);
+      expect(joinLocal).toHaveBeenCalledWith(['round', 'round:r-1', 'chat']);
+      expect(mockSessionUpdate).not.toHaveBeenCalled();
+      expect(mockWithRoomLock).toHaveBeenCalledWith(USER_ID, expect.any(Function));
+    });
+
+    it('does not join, and prunes, entries that are not membership rooms', async () => {
+      mockSessionFindUnique.mockResolvedValueOnce({
+        // `user:` entries were written by the pre-#669 reconcile; the others
+        // are malformed.
+        rooms: ['user:someone-else', 'round', 'round:bad id', 'lobby', 'chat', 7],
       });
       mockSessionUpdate.mockResolvedValueOnce({});
+      const joinLocal = jest.fn<(rooms: string[]) => void>();
 
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'chat'],
-      );
+      const rooms = await multiplayerSessionService.restoreMembership(USER_ID, joinLocal);
 
-      expect(result).toEqual(['round', 'chat']);
-      const updateArgs = mockSessionUpdate.mock.calls[0][0];
-      expect(updateArgs.data.rooms).toEqual(['round', 'chat']);
+      expect(rooms).toEqual(['round', 'chat']);
+      expect(joinLocal).toHaveBeenCalledWith(['round', 'chat']);
+      expect(mockSessionUpdate.mock.calls[0][0].data.rooms).toEqual(['round', 'chat']);
     });
 
-    it('persists rooms present in adapter but missing from DB', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round'],
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
+    it('joins nothing when the user has no session row', async () => {
+      mockSessionFindUnique.mockResolvedValueOnce(null);
+      const joinLocal = jest.fn<(rooms: string[]) => void>();
 
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'chat'],
-      );
-
-      expect(result).toEqual(['round', 'chat']);
-      const updateArgs = mockSessionUpdate.mock.calls[0][0];
-      expect(updateArgs.data.rooms).toEqual(['round', 'chat']);
+      await expect(
+        multiplayerSessionService.restoreMembership(USER_ID, joinLocal),
+      ).resolves.toEqual([]);
+      expect(joinLocal).not.toHaveBeenCalled();
     });
 
-    it('handles both stale and missing rooms simultaneously', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round', 'old-room'],
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'new-room'],
-      );
-
-      expect(result).toEqual(['round', 'new-room']);
-      const updateArgs = mockSessionUpdate.mock.calls[0][0];
-      expect(updateArgs.data.rooms).toEqual(['round', 'new-room']);
-    });
-
-    it('returns adapter rooms on DB error (best-effort)', async () => {
+    it('joins nothing (and does not throw) on DB error', async () => {
       mockSessionFindUnique.mockRejectedValueOnce(new Error('db down'));
+      const joinLocal = jest.fn<(rooms: string[]) => void>();
 
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round'],
-      );
-      expect(result).toEqual(['round']);
-    });
-
-    it('deduplicates rooms during reconciliation', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round'],
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'round', 'chat'],
-      );
-
-      expect(result).toEqual(['round', 'chat']);
-    });
-
-    it('caps reconciled rooms at MAX_PERSISTED_ROOMS', async () => {
-      const manyDbRooms = Array.from({ length: 20 }, (_, i) => `db-room-${i}`);
-      const manyAdapterRooms = Array.from({ length: 20 }, (_, i) => `adapter-room-${i}`);
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: manyDbRooms,
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        manyAdapterRooms,
-      );
-
-      expect(result.length).toBeLessThanOrEqual(MAX_PERSISTED_ROOMS);
+      await expect(
+        multiplayerSessionService.restoreMembership(USER_ID, joinLocal),
+      ).resolves.toEqual([]);
+      expect(joinLocal).not.toHaveBeenCalled();
     });
   });
 

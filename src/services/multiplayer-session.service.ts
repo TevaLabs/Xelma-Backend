@@ -13,11 +13,77 @@
  * Schema is `MultiplayerSession` (see prisma/schema.prisma) with a UNIQUE
  * constraint on `userId`, so one row per authenticated user. A fresh login
  * upserts; reconnects update the same row.
+ *
+ * The exception to "never throws, best-effort" is the room-membership
+ * protocol below (`joinRoom` / `leaveRoom` / `restoreMembership`), which
+ * reports failures to the caller as a `MembershipResult`.
+ *
+ * ---------------------------------------------------------------------------
+ * Room membership protocol (Issue #669)
+ * ---------------------------------------------------------------------------
+ *
+ * Membership vs presence:
+ *   - Membership is the DB: `MultiplayerSession.rooms` lists the membership
+ *     rooms (`round`, `round:<id>`, `chat`; see utils/socket-rooms.ts) a user
+ *     belongs to. It is per user, survives disconnects, and is the source of
+ *     truth.
+ *   - Presence is Socket.IO: which connected sockets are currently in which
+ *     rooms, spread across instances via the Redis adapter. It is derived from
+ *     membership and may briefly lag behind it, never the other way round.
+ *   Every authenticated socket is in `user:<userId>`, so `io.in(userRoom)`
+ *   reaches all of a user's sockets on every instance.
+ *
+ * All three operations run under `withRoomLock(userId)` (in-process queue +
+ * Redis lock), so a join, a leave and a reconnect for the same user never
+ * interleave.
+ *
+ * JOIN (`joinRoom`):
+ *   1. Validate: only membership rooms are accepted.
+ *   2. Commit DB membership. Idempotent: a room already present is a no-op
+ *      success; remember whether *this* call added it.
+ *   3. Adapter join, cluster-wide: every socket in `user:<userId>` joins the
+ *      room on every instance, confirmed by a round trip (see
+ *      `createRoomMembershipTransport` in utils/socket-adapter.ts).
+ *   4. If step 3 fails, compensate: if this call added the DB entry, remove
+ *      it, then make the user's sockets leave the room again. If the user was
+ *      already a member, the DB entry is kept (it predates this call) and the
+ *      sockets are not removed. Log and return an error either way.
+ *   DB first means a failure can never leave a socket in a room with no DB
+ *   row behind it.
+ *
+ * LEAVE (`leaveRoom`):
+ *   1. Delete DB membership (idempotent). If this fails, stop: the user is
+ *      still a member, and presence is left matching that.
+ *   2. Adapter leave, cluster-wide, confirmed as for join.
+ *   3. If step 2 fails, the leave still succeeds and the DB entry is NOT
+ *      re-added. The user asked to leave; resurrecting the membership would
+ *      override that and would be restored to every socket on the next
+ *      reconnect. A socket that missed the leave is only left receiving
+ *      broadcasts for a room it no longer belongs to; the safety nets bound
+ *      that.
+ *
+ * Safety nets (cluster-wide adapter operations are fire-and-forget pub/sub,
+ * so a node may miss one):
+ *   - Connect/reconnect reconciliation (`restoreMembership`): a new socket
+ *     joins exactly the membership rooms in the DB, nothing else, and legacy
+ *     or invalid entries are pruned. socket.ts joins `user:<userId>` *before*
+ *     this read, so a join committed concurrently either is read here or
+ *     reaches the socket through its user room.
+ *   - Room-scoped actions: the membership rooms are broadcast-only (public
+ *     round, price and chat events). No socket handler acts on behalf of a
+ *     room, so a stale adapter membership cannot act in one; it can only
+ *     receive a public broadcast until the socket reconnects. Any future
+ *     room-scoped handler must check DB membership (`MultiplayerSession.rooms`)
+ *     rather than `socket.rooms`.
+ *
+ * Disconnect: unchanged. Presence (the socket's rooms) disappears with the
+ * socket; membership (DB rooms) is kept so a reconnect restores it.
  */
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
 import { withRoomLock } from '../utils/room-lock';
+import { isMembershipRoom } from '../utils/socket-rooms';
 
 /** Maximum number of rooms we will persist in `rooms` per session. */
 export const MAX_PERSISTED_ROOMS = 32;
@@ -31,6 +97,41 @@ export interface ResumePayload {
   metadata: Record<string, unknown> | null;
   lastSeenAt: string | null;
   disconnectedAt: string | null;
+}
+
+/**
+ * Adapter half of the membership protocol: make every socket of `userId`, on
+ * every instance, join/leave `room`. Resolves once confirmed and rejects
+ * otherwise. Implemented by `createRoomMembershipTransport` in
+ * utils/socket-adapter.ts; injectable so tests can fake it.
+ */
+export interface RoomMembershipTransport {
+  join(userId: string, room: string): Promise<void>;
+  leave(userId: string, room: string): Promise<void>;
+}
+
+export type MembershipErrorCode =
+  | 'INVALID_ROOM'
+  | 'MEMBERSHIP_PERSIST_FAILED'
+  | 'MEMBERSHIP_SYNC_FAILED';
+
+export type MembershipResult =
+  | {
+      ok: true;
+      room: string;
+      /** False when the call was a no-op (already joined / already left). */
+      changed: boolean;
+      /** False when a leave was committed but the adapter step failed. */
+      adapterSynced: boolean;
+    }
+  | { ok: false; room: string; code: MembershipErrorCode; message: string };
+
+/** No `MultiplayerSession` row exists for the user (recordConnect failed). */
+class MissingSessionError extends Error {
+  constructor(userId: string) {
+    super(`no multiplayer session row for user ${userId}`);
+    this.name = 'MissingSessionError';
+  }
 }
 
 const EMPTY_RESUME: ResumePayload = {
@@ -64,6 +165,18 @@ function clampRooms(rooms: string[]): string[] {
     if (out.length >= MAX_PERSISTED_ROOMS) break;
   }
   return out;
+}
+
+function invalidRoom(room: string): MembershipResult {
+  return failure(room, 'INVALID_ROOM', 'Invalid room');
+}
+
+function failure(
+  room: string,
+  code: MembershipErrorCode,
+  message: string,
+): MembershipResult {
+  return { ok: false, room, code, message };
 }
 
 function clampMetadata(
@@ -145,121 +258,192 @@ class MultiplayerSessionService {
   }
 
   /**
-   * Add a room to the persisted set (no-op if already present).
-   *
-   * Protected by a per-user Redis distributed lock so concurrent
-   * addRoom / removeRoom calls across instances are serialized and
-   * cannot produce lost updates (Issue #555).
+   * JOIN half of the membership protocol (see the header comment).
+   * Never throws; failures are returned as `{ ok: false }`.
    */
-  async addRoom(userId: string, room: string): Promise<void> {
-    if (!userId || !room) return;
-    await withRoomLock(userId, async () => {
-      try {
-        const session = await prisma.multiplayerSession.findUnique({
-          where: { userId },
-        });
-        if (!session) return;
-        const currentRooms = asStringArray(session.rooms);
-        if (currentRooms.includes(room)) return;
-        const next = clampRooms([...currentRooms, room]);
-        await prisma.multiplayerSession.update({
-          where: { userId },
-          data: { rooms: next, lastSeenAt: new Date() },
-        });
-      } catch (error) {
-        logger.warn(
-          `[multiplayer-session] addRoom(${room}) failed for user ${userId}: ${(error as Error).message}`,
-        );
-      }
-    });
-  }
-
-  /**
-   * Remove a room from the persisted set (no-op if absent).
-   *
-   * Protected by a per-user Redis distributed lock (Issue #555).
-   */
-  async removeRoom(userId: string, room: string): Promise<void> {
-    if (!userId || !room) return;
-    await withRoomLock(userId, async () => {
-      try {
-        const session = await prisma.multiplayerSession.findUnique({
-          where: { userId },
-        });
-        if (!session) return;
-        const next = asStringArray(session.rooms).filter(r => r !== room);
-        await prisma.multiplayerSession.update({
-          where: { userId },
-          data: { rooms: next, lastSeenAt: new Date() },
-        });
-      } catch (error) {
-        logger.warn(
-          `[multiplayer-session] removeRoom(${room}) failed for user ${userId}: ${(error as Error).message}`,
-        );
-      }
-    });
-  }
-
-  /**
-   * Reconcile DB room membership against the actual adapter rooms.
-   *
-   * When an instance crashes between a DB write and an adapter room
-   * propagation (or vice versa), the two sources of truth can diverge.
-   * This method detects and corrects the drift:
-   *
-   *   - Rooms in the DB but NOT in the adapter are stale (removed).
-   *   - Rooms in the adapter but NOT in the DB are persisted.
-   *
-   * @param userId        The user whose rooms to reconcile.
-   * @param adapterRooms  The rooms the user is actually in per the adapter.
-   * @returns             The reconciled room list (written to DB).
-   */
-  async reconcileRooms(
+  async joinRoom(
     userId: string,
-    adapterRooms: string[],
+    room: string,
+    transport: RoomMembershipTransport,
+  ): Promise<MembershipResult> {
+    if (!userId || !isMembershipRoom(room)) {
+      return invalidRoom(room);
+    }
+    return withRoomLock(userId, async () => {
+      let added: boolean;
+      try {
+        added = await this.persistRoom(userId, room);
+      } catch (error) {
+        logger.warn(
+          `[multiplayer-session] join ${room} for user ${userId}: DB commit failed: ${(error as Error).message}`,
+        );
+        return failure(
+          room,
+          'MEMBERSHIP_PERSIST_FAILED',
+          `Could not join ${room}; please retry.`,
+        );
+      }
+
+      try {
+        await transport.join(userId, room);
+      } catch (error) {
+        logger.warn(
+          `[multiplayer-session] join ${room} for user ${userId}: adapter join failed, compensating ` +
+            `(membership ${added ? 'added by this call' : 'pre-existing, kept'}): ${(error as Error).message}`,
+        );
+        if (added) await this.compensateJoin(userId, room, transport);
+        return failure(
+          room,
+          'MEMBERSHIP_SYNC_FAILED',
+          `Could not join ${room}; please retry.`,
+        );
+      }
+
+      return { ok: true, room, changed: added, adapterSynced: true };
+    });
+  }
+
+  /**
+   * LEAVE half of the membership protocol (see the header comment).
+   * Never throws; failures are returned as `{ ok: false }`.
+   */
+  async leaveRoom(
+    userId: string,
+    room: string,
+    transport: RoomMembershipTransport,
+  ): Promise<MembershipResult> {
+    if (!userId || !isMembershipRoom(room)) {
+      return invalidRoom(room);
+    }
+    return withRoomLock(userId, async () => {
+      let removed: boolean;
+      try {
+        removed = await this.unpersistRoom(userId, room);
+      } catch (error) {
+        logger.warn(
+          `[multiplayer-session] leave ${room} for user ${userId}: DB delete failed: ${(error as Error).message}`,
+        );
+        return failure(
+          room,
+          'MEMBERSHIP_PERSIST_FAILED',
+          `Could not leave ${room}; please retry.`,
+        );
+      }
+
+      try {
+        await transport.leave(userId, room);
+      } catch (error) {
+        // The DB is the truth and the user has left; do not re-add it.
+        logger.warn(
+          `[multiplayer-session] leave ${room} for user ${userId}: adapter leave failed after DB delete; ` +
+            `membership stays removed, stale sockets resync on reconnect: ${(error as Error).message}`,
+        );
+        return { ok: true, room, changed: removed, adapterSynced: false };
+      }
+
+      return { ok: true, room, changed: removed, adapterSynced: true };
+    });
+  }
+
+  /**
+   * Connect/reconnect reconciliation. Reads the user's DB membership under
+   * the room lock, prunes entries that are not membership rooms (legacy
+   * `user:` entries, invalid names), and hands exactly the remaining rooms to
+   * `joinLocal` so the new socket joins them. Returns the rooms joined.
+   * Never throws; on DB error nothing is joined.
+   */
+  async restoreMembership(
+    userId: string,
+    joinLocal: (rooms: string[]) => void,
   ): Promise<string[]> {
     if (!userId) return [];
     try {
-      const session = await prisma.multiplayerSession.findUnique({
-        where: { userId },
+      return await withRoomLock(userId, async () => {
+        const session = await prisma.multiplayerSession.findUnique({
+          where: { userId },
+        });
+        if (!session) return [];
+        const stored = asStringArray(session.rooms);
+        const rooms = clampRooms(stored.filter(isMembershipRoom));
+        if (rooms.length !== stored.length) {
+          await prisma.multiplayerSession.update({
+            where: { userId },
+            data: { rooms },
+          });
+          logger.info(
+            `[multiplayer-session] pruned ${stored.length - rooms.length} non-membership room(s) for user ${userId}`,
+          );
+        }
+        if (rooms.length > 0) joinLocal(rooms);
+        return rooms;
       });
-      if (!session) return adapterRooms;
-
-      const dbRooms = asStringArray(session.rooms);
-      const adapterSet = new Set(adapterRooms);
-
-      // Rooms in DB but not in adapter → stale entries from a crashed instance
-      const staleRooms = dbRooms.filter(r => !adapterSet.has(r));
-      // Rooms in adapter but not in DB → need to be persisted
-      const missingRooms = adapterRooms.filter(r => !dbRooms.includes(r));
-
-      if (staleRooms.length === 0 && missingRooms.length === 0) {
-        // Already consistent — nothing to do.
-        return dbRooms;
-      }
-
-      // Merge: keep only rooms that exist in the adapter, plus any new ones
-      const reconciled = clampRooms(
-        [...dbRooms.filter(r => adapterSet.has(r)), ...adapterRooms],
-      );
-
-      await prisma.multiplayerSession.update({
-        where: { userId },
-        data: { rooms: reconciled, lastSeenAt: new Date() },
-      });
-
-      logger.info(
-        `[multiplayer-session] reconciled rooms for user ${userId}: ` +
-          `removed ${staleRooms.length} stale, added ${missingRooms.length} missing`,
-      );
-
-      return reconciled;
     } catch (error) {
       logger.warn(
-        `[multiplayer-session] reconcileRooms failed for user ${userId}: ${(error as Error).message}`,
+        `[multiplayer-session] restoreMembership failed for user ${userId}: ${(error as Error).message}`,
       );
-      return adapterRooms;
+      return [];
     }
+  }
+
+  /** Undo a join this call committed: DB first, then presence. */
+  private async compensateJoin(
+    userId: string,
+    room: string,
+    transport: RoomMembershipTransport,
+  ): Promise<void> {
+    try {
+      await this.unpersistRoom(userId, room);
+    } catch (error) {
+      // The DB still says "member", so leave presence alone to match it; the
+      // next reconnect restores the room from the DB.
+      logger.error(
+        `[multiplayer-session] join ${room} for user ${userId}: compensation DB delete failed; ` +
+          `membership remains: ${(error as Error).message}`,
+      );
+      return;
+    }
+    try {
+      await transport.leave(userId, room);
+    } catch (error) {
+      logger.warn(
+        `[multiplayer-session] join ${room} for user ${userId}: compensation adapter leave failed; ` +
+          `stale sockets resync on reconnect: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /** Add `room` to the DB membership. Returns false if already present. Throws on DB error. */
+  private async persistRoom(userId: string, room: string): Promise<boolean> {
+    const session = await prisma.multiplayerSession.findUnique({
+      where: { userId },
+    });
+    if (!session) throw new MissingSessionError(userId);
+    const current = asStringArray(session.rooms);
+    if (current.includes(room)) return false;
+    const next = clampRooms([...current, room]);
+    if (!next.includes(room)) {
+      throw new Error(`room limit (${MAX_PERSISTED_ROOMS}) reached`);
+    }
+    await prisma.multiplayerSession.update({
+      where: { userId },
+      data: { rooms: next, lastSeenAt: new Date() },
+    });
+    return true;
+  }
+
+  /** Remove `room` from the DB membership. Returns false if absent. Throws on DB error. */
+  private async unpersistRoom(userId: string, room: string): Promise<boolean> {
+    const session = await prisma.multiplayerSession.findUnique({
+      where: { userId },
+    });
+    if (!session) return false;
+    const current = asStringArray(session.rooms);
+    if (!current.includes(room)) return false;
+    await prisma.multiplayerSession.update({
+      where: { userId },
+      data: { rooms: current.filter(r => r !== room), lastSeenAt: new Date() },
+    });
+    return true;
   }
 
   /**

@@ -25,6 +25,12 @@ export interface RoomEventPayload {
 
 export interface GenericErrorPayload {
   message: string;
+  /**
+   * Machine-readable reason, when there is one. Room joins/leaves use
+   * `INVALID_ROOM`, `MEMBERSHIP_PERSIST_FAILED` or `MEMBERSHIP_SYNC_FAILED`
+   * (Issue #669); the latter two are safe to retry.
+   */
+  code?: string;
 }
 
 export interface RoundStartedPayload {

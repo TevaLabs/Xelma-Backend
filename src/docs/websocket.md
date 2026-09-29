@@ -75,11 +75,14 @@ interface AuthErrorPayload {
    ```
    Or send the token in the request body `{ "token": "YOUR_EXPIRED_JWT" }`.
 3. Reconnect with the new token returned in `response.data.token` set as `socket.handshake.auth.token`.
-4. Re-join rooms (e.g. `join:round`, `join:chat`) after reconnect without requiring a full wallet re-authentication challenge.
+4. Authenticated sockets are put back into their rooms automatically on reconnect (see below). Unauthenticated sockets must re-join rooms (e.g. `join:round`) themselves. Re-joining is always safe; joins are idempotent.
 
 ### 4. Reconnect Continuity
 
-After a reconnect, the server sends a `session:resume` event that lists previously-joined rooms and saved metadata:
+Room membership for authenticated users is stored server-side (Issue #669).
+When an authenticated socket connects, the server joins it to exactly the
+rooms the user is a member of, and then sends `session:resume` listing those
+rooms and the saved metadata:
 
 ```typescript
 interface ResumePayload {
@@ -87,6 +90,32 @@ interface ResumePayload {
   metadata: Record<string, unknown> | null;
 }
 ```
+
+### 5. Room membership (authenticated users)
+
+Membership belongs to the **user**, not to one socket. `join:round`,
+`leave:round`, `join:chat` and `leave:chat` from an authenticated socket apply
+to every socket of that user (other tabs and devices, on any API instance).
+
+- `room:joined` / `room:left` are sent only after the change has been saved
+  and applied to all of the user's sockets.
+- On failure the server sends `error` with a `code` and the membership is
+  unchanged:
+
+  | `code` | Meaning | Retry? |
+  |---|---|---|
+  | `INVALID_ROOM` | The round id cannot name a room (ids are `[A-Za-z0-9_-]{1,64}`) | No |
+  | `MEMBERSHIP_PERSIST_FAILED` | The membership could not be saved | Yes |
+  | `MEMBERSHIP_SYNC_FAILED` | Not every instance confirmed the change in time; it was rolled back | Yes |
+
+- Room broadcasts can briefly reach a socket that has just left a room (for
+  example across an instance restart). Clients should ignore room events for
+  rooms they have left; the next reconnect realigns the socket with the
+  server-side membership.
+
+Room names are `round`, `round:<roundId>`, `chat` and `user:<userId>` (the
+private notification room, joined automatically). Unauthenticated sockets can
+join `round` rooms for the current connection only; nothing is saved.
 
 Clients can save per-session state via `session:checkpoint`:
 
@@ -100,10 +129,10 @@ socket.emit("session:checkpoint", { lastViewedRound: "abc-123" });
 
 | Event | Payload | Ack | Description |
 |-------|---------|-----|-------------|
-| `join:round` | `{ roundId?: string }` | — | Join a round room (omit roundId for general round room) |
-| `leave:round` | `{ roundId?: string }` | — | Leave a round room |
-| `join:chat` | — | — | Join the global chat room (auth required) |
-| `leave:chat` | — | — | Leave the chat room |
+| `join:round` | `{ roundId?: string }` | — | Join a round room (omit roundId for general round room). Replies `room:joined` or `error` (see [Room membership](#5-room-membership-authenticated-users)) |
+| `leave:round` | `{ roundId?: string }` | — | Leave a round room. Replies `room:left` or `error` |
+| `join:chat` | — | — | Join the global chat room (auth required). Replies `room:joined` or `error` |
+| `leave:chat` | — | — | Leave the chat room. Replies `room:left` or `error` |
 | `chat:send` | `{ content: string }` | `ChatAckPayload` | Send a chat message (auth required, rate-limited) |
 | `join:notifications` | — | — | Join personal notification room (auth required) |
 | `session:checkpoint` | `Record<string, unknown>` | — | Save opaque session metadata for reconnect |

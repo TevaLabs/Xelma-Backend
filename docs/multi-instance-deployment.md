@@ -254,7 +254,8 @@ outbox poller and bet-idempotency locks need it regardless.
 Real-time fanout across replicas requires the same `REDIS_URL`.
 
 - **Module:** `src/utils/socket-adapter.ts` — `initializeSocketAdapter(io)` creates two Redis clients (`pub`/`sub`) and calls `io.adapter(createAdapter(pub, sub, { key: 'xelma:socket.io' }))`.
-- **Fallback:** If `REDIS_URL` is unset or Redis is unreachable, Socket.IO keeps the in-memory adapter. Broadcasts then reach only clients on the same instance (safe for single-instance/dev, **not safe** for multi-instance notifications/price ticks).
+- **Fallback:** If `REDIS_URL` is unset or Redis is unreachable, Socket.IO keeps the in-memory adapter and logs a startup warning. Broadcasts then reach only clients on the same instance (safe for single-instance/dev, **not safe** for multi-instance notifications/price ticks/multiplayer rooms).
+- **Startup order:** `initializeSocket` attaches the adapter before the HTTP server starts listening. Attaching it later would re-create the adapter and silently drop the rooms of sockets that had already connected.
 - **Required config:**
 
   | Variable | Default | Purpose |
@@ -273,6 +274,55 @@ Real-time fanout across replicas requires the same `REDIS_URL`.
 - **ACL hardening:** `src/socket.ts:isAuthorizedPrivateRoomJoin` ensures `user:<id>` rooms are only joinable by the owning `userId`. Unauthorized `join:notifications` with a foreign `user:<otherId>` is rejected with an `error` event and logged as a warning. Auto-join on connect still runs (`socket.join(user:<own>)`) so `websocketService.emitNotification(userId, …)` reaches the correct tenant even across adapters.
 
 - **Monitoring:** `GET /metrics` exposes `websocket_connection_events_total` and `socket:io` metrics. After scale-up, `isUsingRedisAdapter(io)` should be `true` on every replica; otherwise broadcasts are instance-local.
+
+### Multiplayer room membership (Issue #669)
+
+**Redis is required to run the multiplayer/social features on more than one
+API instance.** Without `REDIS_URL` the app runs correctly as a single
+instance on the in-memory adapter; with two or more instances and no Redis,
+users on different instances silently stop seeing each other's room events.
+
+Room membership (`round`, `round:<id>`, `chat`) is stored per user in
+`MultiplayerSession.rooms` and is the source of truth; Socket.IO room
+membership (presence) is derived from it. The protocol, documented in full at
+the top of
+[`src/services/multiplayer-session.service.ts`](../src/services/multiplayer-session.service.ts):
+
+| Step | Join | Leave |
+|---|---|---|
+| 1 | Commit DB membership (idempotent) | Delete DB membership (idempotent) |
+| 2 | `io.in('user:<id>').socketsJoin(room)`: every socket of the user, on every instance | `socketsLeave` likewise |
+| 3 | Confirm with a cluster-wide `fetchSockets()` round trip (2 s deadline) | Same |
+| On failure | Remove the DB row *if this call added it*, make the sockets leave, return `MEMBERSHIP_SYNC_FAILED` | Keep the DB row deleted (the user left), log; stale sockets are harmless and resync on reconnect |
+
+- **Serialization:** join, leave and connect-time restore for the same user run
+  under `withRoomLock` ([`src/utils/room-lock.ts`](../src/utils/room-lock.ts)):
+  an in-process queue plus a Redis `SET NX PX` lock shared by all instances.
+- **Reconnect reconciliation:** a (re)connecting socket joins exactly its DB
+  rooms, on whichever instance it lands.
+- **Why confirm?** With the Redis adapter `socketsJoin` only *publishes* a
+  request; it returns before any instance (including the local one) applies
+  it and never reports failure. Instances handle adapter requests in order, so
+  a `fetchSockets()` published afterwards sees the change applied everywhere
+  or times out. That timeout is what triggers compensation.
+
+### Load balancer: sticky sessions or WebSocket-only
+
+Socket.IO's default transports are HTTP long-polling first, then an upgrade to
+WebSocket. The server (`src/socket.ts`) does not restrict transports, so both
+are enabled. A long-polling session is a series of HTTP requests that must all
+reach the instance holding the session. With more than one instance, pick one:
+
+1. **Sticky sessions** (session affinity by cookie or client IP) on the load
+   balancer, so a client's polling requests always reach the same instance; or
+2. **WebSocket-only clients:** `io(url, { transports: ['websocket'] })`. A
+   WebSocket is a single long-lived connection, so no affinity is needed.
+
+Without either, polling clients fail the handshake intermittently (`400
+Session ID unknown`). Check whether your platform's load balancer offers
+session affinity before scaling the web service; if it does not (or you are
+unsure), use WebSocket-only clients. This applies to the `xelma-backend`
+service in `render.yaml` as soon as it is scaled beyond one instance.
 
 ### Redis-backed rate limiting (Issue #520)
 
@@ -338,6 +388,18 @@ development is completely unchanged.
   — shared counters across store instances, per-prefix independence, and window
   expiry against a real Redis.
 
+- [`src/tests/multiplayer-room-multinode.spec.ts`](../src/tests/multiplayer-room-multinode.spec.ts)
+  — two real Socket.IO instances (`initializeSocket`) on one Redis and one
+  Postgres: a join/leave through one instance moves a socket on the other, a
+  user's tabs on both instances move together, reconnecting to the other
+  instance restores exactly the DB rooms, and an instance that never confirms
+  triggers compensation. Runs in CI in the `test (multi-node sockets, Redis)`
+  job; skipped when `REDIS_URL` is unset.
+
 ```bash
 npx jest --selectProjects unit --testPathPattern="distributed-lock"
+
+# Multi-node sockets (needs Postgres with migrations applied, plus Redis)
+docker run -d --name xelma-redis -p 6379:6379 redis:7-alpine
+REDIS_URL=redis://127.0.0.1:6379 npm run test:multinode
 ```

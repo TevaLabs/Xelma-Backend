@@ -31,8 +31,9 @@ jest.mock('../services/multiplayer-session.service', () => ({
   default: {
     recordConnect: jest.fn(),
     recordDisconnect: jest.fn(),
-    addRoom: jest.fn(),
-    removeRoom: jest.fn(),
+    restoreMembership: jest.fn(),
+    joinRoom: jest.fn(),
+    leaveRoom: jest.fn(),
     patchMetadata: jest.fn(),
   },
 }));

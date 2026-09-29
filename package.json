@@ -22,6 +22,7 @@
     "test:load": "jest --testPathPattern=performance",
     "test:hackathon": "npx ts-node src/tests/hackathon.test.ts",
     "test:hackathon:http": "jest --selectProjects integration --testPathPattern=hackathon\\.http\\.spec\\.ts",
+    "test:multinode": "jest --selectProjects integration --testPathPattern=\"(multiplayer-room-multinode|redis-adapter)\\.spec\\.ts\"",
     "ci": "npm run check:bindings && npm run lint && npm run build && npm run check:bindings:abi && npm run test:unit:coverage && npm run test:integration",
     "docs:openapi": "node dist/scripts/generate-openapi.js",
     "docs:postman": "node scripts/verify-postman-sync.js --write",
