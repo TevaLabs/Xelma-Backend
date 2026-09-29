@@ -1787,6 +1787,8 @@ CI runs automatically on every pull request and on pushes to `main`. It executes
 
 CI is fast, deterministic, and has no side effects. It is also used as a gate by the deployment workflow.
 
+Dependabot groups weekly npm and GitHub Actions updates into pull requests. Automated dependency updates still require maintainer review before merging; review bots do not replace a human reviewer.
+
 ### Deployment Workflow (CD)
 
 **File:** `.github/workflows/deploy.yml`
