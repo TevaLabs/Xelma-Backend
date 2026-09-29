@@ -1021,11 +1021,18 @@ How it works:
   broken by a DLQ persistence failure.
 - Rows have `attempts`, `lastError`, and `status` (`PENDING`, `RETRYING`,
   `RESOLVED`, `ABANDONED`) so an operator can triage stuck dispatches.
+- Payloads are **redacted and size-capped at 16 KiB** before storage, so the
+  DLQ can never become an unbounded log of user content, bearer tokens, or API
+  keys. Oversized payloads are stored as `{ truncated: true, originalBytes,
+  preview }` and returned with a top-level `truncated: true` flag on the admin
+  list.
 
 Operator endpoints (admin-only, gated by `requireAdmin`):
 
 - `GET  /api/admin/dead-letter` â€” list entries, newest first. Query
-  params: `status`, `channel`, `limit`, `offset`.
+  params: `status`, `channel`, `limit` (1–100, default 20), `offset`.
+  Response: `{ data, pagination: { limit, offset, total, hasNextPage } }`,
+  where each entry may carry `truncated: true`.
 - `POST /api/admin/dead-letter/:id/retry` â€” replay a single entry; sets
   `RESOLVED` on success, bumps `attempts` and moves to `ABANDONED` once
   the cap (default 5) is reached.
@@ -1386,9 +1393,18 @@ Connect to the WebSocket server with JWT authentication:
 import io from "socket.io-client";
 
 const socket = io("http://localhost:3000", {
+  // Preferred auth form. An `Authorization: Bearer <jwt>` header also works
+  // for non-browser clients (see src/socket.ts).
   auth: {
     token: "YOUR_JWT_TOKEN",
   },
+  // Reconnect with exponential backoff + jitter. The server treats a
+  // reconnect as a fresh socket, so re-join rooms on `connect`.
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1_000,
+  reconnectionDelayMax: 15_000,
+  randomizationFactor: 0.5,
 });
 
 // Listen for price updates

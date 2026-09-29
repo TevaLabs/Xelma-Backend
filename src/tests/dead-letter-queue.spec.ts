@@ -113,6 +113,49 @@ describe('DeadLetterQueueService', () => {
       expect(typeof args.data.lastError).toBe('string');
       expect(args.data.lastError).toContain('42');
     });
+
+    it('redacts secrets and tokens recursively before persisting', async () => {
+      mockCreate.mockResolvedValue({ id: 'dlq-redact' });
+      await deadLetterQueueService.record({
+        channel: DispatchChannel.WEBSOCKET_EMIT,
+        payload: {
+          room: 'user:u1',
+          data: {
+            authorization: 'Bearer abc.def.ghi',
+            nested: { apiKey: 'sk-live-secret', refresh_token: 'r3fr3sh' },
+            keep: 'visible',
+          },
+        },
+        error: new Error('boom'),
+      });
+
+      const stored = mockCreate.mock.calls[0][0].data.payload as any;
+      expect(String(stored.data.authorization)).toContain('[REDACTED]');
+      expect(String(stored.data.authorization)).not.toContain('abc.def.ghi');
+      expect(stored.data.nested.apiKey).toBe('[REDACTED]');
+      expect(stored.data.nested.refresh_token).toBe('[REDACTED]');
+      expect(stored.data.keep).toBe('visible');
+    });
+
+    it('truncates oversized payloads and flags them', async () => {
+      mockCreate.mockResolvedValue({ id: 'dlq-big' });
+      const huge = await deadLetterQueueService.record({
+        channel: DispatchChannel.NOTIFICATION_CREATE,
+        payload: { title: 'x'.repeat(64_000), token: 'secret-token' },
+        error: new Error('boom'),
+      });
+
+      expect(huge).toEqual({ id: 'dlq-big' });
+      const stored: any = mockCreate.mock.calls[0][0].data.payload;
+      expect(stored.truncated).toBe(true);
+      expect(stored.originalBytes).toBeGreaterThan(16 * 1024);
+      expect(typeof stored.preview).toBe('string');
+      // The token must not survive redaction even inside a truncated preview.
+      expect(JSON.stringify(stored)).not.toContain('secret-token');
+      expect(Buffer.byteLength(JSON.stringify(stored), 'utf8')).toBeLessThanOrEqual(
+        16 * 1024,
+      );
+    });
   });
 
   describe('retry', () => {
@@ -330,15 +373,54 @@ describe('DeadLetterQueueService', () => {
   });
 
   describe('list', () => {
-    it('clamps limit to the [1, 200] range', async () => {
+    it('clamps limit to the [1, 100] range and defaults to 20', async () => {
       mockFindMany.mockResolvedValue([]);
       mockCount.mockResolvedValue(0);
 
       await deadLetterQueueService.list({ limit: 9999 });
-      expect(mockFindMany.mock.calls[0][0].take).toBe(200);
+      expect(mockFindMany.mock.calls[0][0].take).toBe(100);
 
       await deadLetterQueueService.list({ limit: -3 });
       expect(mockFindMany.mock.calls[1][0].take).toBe(1);
+
+      await deadLetterQueueService.list();
+      expect(mockFindMany.mock.calls[2][0].take).toBe(20);
+    });
+
+    it('returns canonical pagination meta and a second page slice', async () => {
+      mockFindMany.mockResolvedValueOnce([
+        { id: 'row-1', payload: { keep: 'a' } },
+        { id: 'row-2', payload: { token: 't', keep: 'b' } },
+      ]);
+      mockCount.mockResolvedValueOnce(42);
+
+      const page = await deadLetterQueueService.list({ limit: 2, offset: 2 });
+
+      expect(page.pagination).toEqual({
+        limit: 2,
+        offset: 2,
+        total: 42,
+        hasNextPage: true,
+      });
+      expect(page.data).toHaveLength(2);
+      expect(page.data[0].id).toBe('row-1');
+      expect(page.data[1].payload.token).toBe('[REDACTED]');
+      const findArgs: any = mockFindMany.mock.calls[0][0];
+      expect(findArgs.skip).toBe(2);
+      expect(findArgs.take).toBe(2);
+    });
+
+    it('exposes a truncation flag for capped payloads', async () => {
+      mockFindMany.mockResolvedValueOnce([
+        { id: 'trunc', payload: { truncated: true, originalBytes: 99_999, preview: 'x' } },
+        { id: 'normal', payload: { keep: 'y' } },
+      ]);
+      mockCount.mockResolvedValueOnce(2);
+
+      const page = await deadLetterQueueService.list();
+
+      expect(page.data[0].truncated).toBe(true);
+      expect(page.data[1].truncated).toBe(false);
     });
   });
 

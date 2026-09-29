@@ -3,6 +3,10 @@ import axios from 'axios';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CoinGeckoProvider } from '../services/providers/coingecko.provider';
 import { CoinCapProvider } from '../services/providers/coincap.provider';
+import {
+  PriceProviderRateLimitError,
+  parseRetryAfterMs,
+} from '../services/price-provider.interface';
 
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
@@ -34,6 +38,49 @@ describe('CoinGeckoProvider.fetchAssetPrices', () => {
 
     await expect(provider.fetchAssetPrices()).rejects.toThrow(/missing BTC, ETH, or XLM/);
   });
+
+  it('converts an HTTP 429 into a typed rate-limit error carrying Retry-After', async () => {
+    mockedAxios.get.mockRejectedValueOnce({
+      response: { status: 429, headers: { 'retry-after': '90' } },
+    });
+
+    let caught: unknown;
+    try {
+      await provider.fetchAssetPrices();
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PriceProviderRateLimitError);
+    expect((caught as PriceProviderRateLimitError).provider).toBe('coingecko');
+    expect((caught as PriceProviderRateLimitError).retryAfterMs).toBe(90_000);
+  });
+
+  it('rethrows a non-429 failure unchanged', async () => {
+    mockedAxios.get.mockRejectedValueOnce(new Error('connection reset'));
+    await expect(provider.fetchAssetPrices()).rejects.toThrow('connection reset');
+  });
+});
+
+describe('parseRetryAfterMs', () => {
+  it('parses delta-seconds', () => {
+    expect(parseRetryAfterMs('120')).toBe(120_000);
+  });
+
+  it('parses an HTTP-date into a positive delta', () => {
+    const header = new Date(Date.now() + 30_000).toUTCString();
+    const ms = parseRetryAfterMs(header);
+    expect(ms).toBeGreaterThan(25_000);
+    expect(ms).toBeLessThanOrEqual(30_000);
+  });
+
+  it('returns null for missing or unparseable values', () => {
+    expect(parseRetryAfterMs(undefined)).toBeNull();
+    expect(parseRetryAfterMs('not-a-date')).toBeNull();
+  });
+
+  it('caps absurd Retry-After values', () => {
+    expect(parseRetryAfterMs('999999')).toBe(5 * 60_000);
+  });
 });
 
 describe('CoinCapProvider.fetchAssetPrices', () => {
@@ -63,5 +110,15 @@ describe('CoinCapProvider.fetchAssetPrices', () => {
     });
 
     await expect(provider.fetchAssetPrices()).rejects.toThrow(/missing BTC, ETH, or XLM/);
+  });
+
+  it('converts an HTTP 429 into a typed rate-limit error', async () => {
+    mockedAxios.get.mockRejectedValueOnce({
+      response: { status: 429, headers: {} },
+    });
+
+    await expect(provider.fetchAssetPrices()).rejects.toBeInstanceOf(
+      PriceProviderRateLimitError,
+    );
   });
 });

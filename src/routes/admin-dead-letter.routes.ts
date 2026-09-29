@@ -7,13 +7,14 @@
  * a CI smoke test or an on-call runbook can assert against it.
  */
 import { Router, Request, Response } from 'express';
-import { DispatchChannel, DispatchStatus } from '@prisma/client';
 import { requireAdmin } from '../middleware/auth.middleware';
+import { validate } from '../middleware/validate.middleware';
 import deadLetterQueueService, {
   RetryHandlers,
 } from '../services/dead-letter-queue.service';
 import notificationService from '../services/notification.service';
 import websocketService from '../services/websocket.service';
+import { adminDeadLetterListQuerySchema } from '../schemas/dead-letter.schema';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -32,22 +33,6 @@ function buildRetryHandlers(): RetryHandlers {
       websocketService.replayEmit(eventName, payload);
     },
   };
-}
-
-function parseStatus(raw: unknown): DispatchStatus | undefined {
-  if (typeof raw !== 'string') return undefined;
-  const upper = raw.toUpperCase();
-  return (Object.values(DispatchStatus) as string[]).includes(upper)
-    ? (upper as DispatchStatus)
-    : undefined;
-}
-
-function parseChannel(raw: unknown): DispatchChannel | undefined {
-  if (typeof raw !== 'string') return undefined;
-  const upper = raw.toUpperCase();
-  return (Object.values(DispatchChannel) as string[]).includes(upper)
-    ? (upper as DispatchChannel)
-    : undefined;
 }
 
 function parseInt32(raw: unknown, fallback: number): number {
@@ -69,26 +54,78 @@ function parseDryRun(req: Request): boolean {
  *     summary: List failed notification/event dispatches
  *     description: |
  *       Returns the dead-letter queue contents, newest first. Admin only.
- *       Use `?status=` and `?channel=` to filter; defaults to all rows.
+ *
+ *       Paginated with the repo's canonical offset/limit meta. `limit` is
+ *       capped at 100 (default 20) so the endpoint can never dump the whole
+ *       table. Oversized payloads stored in the DLQ are truncated at 16 KiB
+ *       and exposed with `truncated: true`.
  *     tags:
  *       - Admin
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Page size (1–100)
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *           default: 0
+ *         description: Rows to skip
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, RETRYING, RESOLVED, ABANDONED]
+ *         description: Filter by dispatch status (case-insensitive)
+ *       - in: query
+ *         name: channel
+ *         schema:
+ *           type: string
+ *           enum: [NOTIFICATION_CREATE, WEBSOCKET_EMIT]
+ *         description: Filter by dispatch channel (case-insensitive)
+ *     responses:
+ *       200:
+ *         description: Paginated dead-letter entries
+ *       400:
+ *         description: Invalid query parameters
+ *       401:
+ *         description: Missing or invalid token
+ *       403:
+ *         description: Admin access required
  */
-router.get('/', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const { entries, total, limit, offset } = await deadLetterQueueService.list({
-      status: parseStatus(req.query.status),
-      channel: parseChannel(req.query.channel),
-      limit: parseInt32(req.query.limit, 50),
-      offset: parseInt32(req.query.offset, 0),
-    });
-    res.json({ entries, total, limit, offset });
-  } catch (err) {
-    logger.error('DLQ list failed', { error: err });
-    res.status(500).json({ error: 'Failed to list dead-letter entries' });
-  }
-});
+router.get(
+  '/',
+  requireAdmin,
+  validate(adminDeadLetterListQuerySchema, 'query'),
+  async (req: Request, res: Response) => {
+    try {
+      const { limit, offset, status, channel } = req.query as unknown as {
+        limit: number;
+        offset: number;
+        status?: 'PENDING' | 'RETRYING' | 'RESOLVED' | 'ABANDONED';
+        channel?: 'NOTIFICATION_CREATE' | 'WEBSOCKET_EMIT';
+      };
+      const { data, pagination } = await deadLetterQueueService.list({
+        status,
+        channel,
+        limit,
+        offset,
+      });
+      res.json({ data, pagination });
+    } catch (err) {
+      logger.error('DLQ list failed', { error: err });
+      res.status(500).json({ error: 'Failed to list dead-letter entries' });
+    }
+  },
+);
 
 /**
  * @openapi
