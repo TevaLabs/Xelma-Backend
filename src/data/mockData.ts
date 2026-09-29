@@ -1,4 +1,5 @@
 import { mockDataRepository } from '../repositories/mockData.repository';
+import { serializeMoney } from '../utils/decimal.util';
 
 /**
  * Data-source matrix
@@ -23,9 +24,12 @@ import { mockDataRepository } from '../repositories/mockData.repository';
  */
 
 // Types are kept for backward compatibility with callers that map to the union shape.
+// Money fields are 8-dp decimal strings (the same contract the API envelope
+// uses) because the underlying Mock* columns are Decimal(20, 8); see
+// prisma/migrations/20260924000000_convert_mock_monetary_to_decimal.
 export type MockPredictionRound =
-  | { id: string; asset: string; mode: 'updown'; status: 'live' | 'new'; startPrice: number; poolUp: number; poolDown: number; closesAt: string; }
-  | { id: string; asset: string; mode: 'precision'; status: 'live' | 'new'; startPrice: number; totalPool: number; predictionCount: number; closesAt: string; };
+  | { id: string; asset: string; mode: 'updown'; status: 'live' | 'new'; startPrice: string; poolUp: string; poolDown: string; closesAt: string; }
+  | { id: string; asset: string; mode: 'precision'; status: 'live' | 'new'; startPrice: string; totalPool: string; predictionCount: number; closesAt: string; };
 
 export type MockLeaderboardUser = {
   rank: number;
@@ -52,12 +56,12 @@ export const getMockRounds = async (): Promise<MockPredictionRound[]> => {
     if (r.mode === 'updown') {
       return {
         id: r.id, asset: r.asset, mode: 'updown', status: r.status as 'live' | 'new',
-        startPrice: r.startPrice, poolUp: r.poolUp!, poolDown: r.poolDown!, closesAt: r.closesAt
+        startPrice: serializeMoney(r.startPrice), poolUp: serializeMoney(r.poolUp), poolDown: serializeMoney(r.poolDown), closesAt: r.closesAt
       };
     }
     return {
       id: r.id, asset: r.asset, mode: 'precision', status: r.status as 'live' | 'new',
-      startPrice: r.startPrice, totalPool: r.totalPool!, predictionCount: r.predictionCount!, closesAt: r.closesAt
+      startPrice: serializeMoney(r.startPrice), totalPool: serializeMoney(r.totalPool), predictionCount: r.predictionCount!, closesAt: r.closesAt
     };
   });
 };
