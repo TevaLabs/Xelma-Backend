@@ -1,24 +1,63 @@
-import { Buffer } from "buffer";
-import { Client as ContractClient, Spec as ContractSpec, } from "@stellar/stellar-sdk/contract";
-export * from "@stellar/stellar-sdk";
-export * as contract from "@stellar/stellar-sdk/contract";
-export * as rpc from "@stellar/stellar-sdk/rpc";
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.Client = exports.ContractError = exports.RoundMode = exports.rpc = exports.contract = void 0;
+const buffer_1 = require("buffer");
+const contract_1 = require("@stellar/stellar-sdk/contract");
+__exportStar(require("@stellar/stellar-sdk"), exports);
+exports.contract = __importStar(require("@stellar/stellar-sdk/contract"));
+exports.rpc = __importStar(require("@stellar/stellar-sdk/rpc"));
 if (typeof window !== "undefined") {
     //@ts-ignore Buffer exists
-    window.Buffer = window.Buffer || Buffer;
+    window.Buffer = window.Buffer || buffer_1.Buffer;
 }
 /**
  * Round mode for prediction type
  */
-export var RoundMode;
+var RoundMode;
 (function (RoundMode) {
     RoundMode[RoundMode["UpDown"] = 0] = "UpDown";
     RoundMode[RoundMode["Precision"] = 1] = "Precision";
-})(RoundMode || (RoundMode = {}));
+})(RoundMode || (exports.RoundMode = RoundMode = {}));
 /**
  * Contract error types
  */
-export const ContractError = {
+exports.ContractError = {
     /**
      * Contract has already been initialized
      */
@@ -100,15 +139,15 @@ export const ContractError = {
      */
     20: { message: "RoundAlreadyActive" }
 };
-export class Client extends ContractClient {
+class Client extends contract_1.Client {
     options;
     static async deploy(
     /** Options for initializing a Client as well as for calling a method, with extras specific to deploying. */
     options) {
-        return ContractClient.deploy(null, options);
+        return contract_1.Client.deploy(null, options);
     }
     constructor(options) {
-        super(new ContractSpec(["AAAAAQAAAAAAAAAAAAAABVJvdW5kAAAAAAAACAAAAAAAAAAOYmV0X2VuZF9sZWRnZXIAAAAAAAQAAAAAAAAACmVuZF9sZWRnZXIAAAAAAAQAAAAAAAAABG1vZGUAAAfQAAAACVJvdW5kTW9kZQAAAAAAAAAAAAAJcG9vbF9kb3duAAAAAAAACwAAAAAAAAAHcG9vbF91cAAAAAALAAAAAAAAAAtwcmljZV9zdGFydAAAAAAKAAAAAAAAAAhyb3VuZF9pZAAAAAYAAAAAAAAADHN0YXJ0X2xlZGdlcgAAAAQ=",
+        super(new contract_1.Spec(["AAAAAQAAAAAAAAAAAAAABVJvdW5kAAAAAAAACAAAAAAAAAAOYmV0X2VuZF9sZWRnZXIAAAAAAAQAAAAAAAAACmVuZF9sZWRnZXIAAAAAAAQAAAAAAAAABG1vZGUAAAfQAAAACVJvdW5kTW9kZQAAAAAAAAAAAAAJcG9vbF9kb3duAAAAAAAACwAAAAAAAAAHcG9vbF91cAAAAAALAAAAAAAAAAtwcmljZV9zdGFydAAAAAAKAAAAAAAAAAhyb3VuZF9pZAAAAAYAAAAAAAAADHN0YXJ0X2xlZGdlcgAAAAQ=",
             "AAAAAgAAACNSZXByZXNlbnRzIHdoaWNoIHNpZGUgYSB1c2VyIGJldCBvbgAAAAAAAAAAB0JldFNpZGUAAAAAAgAAAAAAAAAAAAAAAlVwAAAAAAAAAAAAAAAAAAREb3du",
             "AAAAAgAAAB5TdG9yYWdlIGtleXMgZm9yIGNvbnRyYWN0IGRhdGEAAAAAAAAAAAAHRGF0YUtleQAAAAAMAAAAAQAAAAAAAAAHQmFsYW5jZQAAAAABAAAAEwAAAAAAAAAAAAAABUFkbWluAAAAAAAAAAAAAAAAAAAGT3JhY2xlAAAAAAAAAAAAAAAAAAtBY3RpdmVSb3VuZAAAAAAAAAAAAAAAAAlQb3NpdGlvbnMAAAAAAAAAAAAAAAAAAA9VcERvd25Qb3NpdGlvbnMAAAAAAAAAAAAAAAASUHJlY2lzaW9uUG9zaXRpb25zAAAAAAABAAAAAAAAAA9QZW5kaW5nV2lubmluZ3MAAAAAAQAAABMAAAABAAAAAAAAAAlVc2VyU3RhdHMAAAAAAAABAAAAEwAAAAAAAAAAAAAAEEJldFdpbmRvd0xlZGdlcnMAAAAAAAAAAAAAABBSdW5XaW5kb3dMZWRnZXJzAAAAAAAAAAAAAAALTGFzdFJvdW5kSWQA",
             "AAAAAwAAAB5Sb3VuZCBtb2RlIGZvciBwcmVkaWN0aW9uIHR5cGUAAAAAAAAAAAAJUm91bmRNb2RlAAAAAAAAAgAAAAAAAAAGVXBEb3duAAAAAAAAAAAAAAAAAAlQcmVjaXNpb24AAAAAAAAB",
@@ -162,3 +201,4 @@ export class Client extends ContractClient {
         get_user_precision_prediction: (this.txFromJSON)
     };
 }
+exports.Client = Client;
