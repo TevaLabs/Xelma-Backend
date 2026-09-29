@@ -63,7 +63,7 @@ import { securityHeadersMiddleware } from './middleware/securityHeaders.middlewa
 import { notFoundHandler } from './middleware/notFound';
 import { errorHandler as hackathonErrorHandler } from './middleware/errorHandler';
 import { errorHandler as fullErrorHandler } from './middleware/errorHandler.middleware';
-import { getHttpCorsOrigins } from './utils/cors';
+import { getHttpCorsOrigins, isCorsDiagnosticsEnabled } from './utils/cors';
 import { swaggerSpec } from './docs/openapi';
 import { hackathonSwaggerSpec } from './docs/hackathon-openapi';
 import config from './config';
@@ -159,7 +159,7 @@ const HACKATHON_FEATURES: AppFeatures = {
   education: false,
   errorCatalog: false,
   adminRoutes: false,
-  corsDiagnostics: Boolean(process.env.ENABLE_CORS_DIAGNOSTICS),
+  corsDiagnostics: false,
   versionedAlias: false,
   deprecationHeaders: false,
   globalApiRateLimit: true,
@@ -176,6 +176,10 @@ export function resolveFeatures(
 ): AppFeatures {
   const base = mode === 'full' ? FULL_FEATURES : HACKATHON_FEATURES;
   const resolved: AppFeatures = { ...base, ...overrides };
+
+  if (mode === 'hackathon' && overrides.corsDiagnostics === undefined) {
+    resolved.corsDiagnostics = isCorsDiagnosticsEnabled();
+  }
 
   // ENABLE_MULTIPLAYER_SOCIAL can switch chat/notifications off in either
   // mode; an explicit override still wins so tests can force the surface on.

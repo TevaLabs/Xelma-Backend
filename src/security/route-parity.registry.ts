@@ -70,6 +70,7 @@ export const PARITY_ALLOWLIST: ParityAllowlistEntry[] = [
   { method: "POST", path: "/api/admin/dead-letter/retry-all", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },
   { method: "POST", path: "/api/admin/dead-letter/:id/retry", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },
   { method: "GET", path: "/api/admin/bet-audit", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },
+  { method: "GET", path: "/api/admin/runtime-flags", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },
 
   // --- legacyPriceEndpoint ---
   { method: "GET", path: "/api/price", only: "main", reason: "Production single-asset XLM price endpoint; both apps also serve /api/prices.", flag: "legacyPriceEndpoint" },
