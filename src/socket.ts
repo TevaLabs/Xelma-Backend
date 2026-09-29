@@ -7,7 +7,19 @@ import websocketService from './services/websocket.service';
 import chatService from './services/chat.service';
 import multiplayerSessionService from './services/multiplayer-session.service';
 import logger from './utils/logger';
-import { initializeSocketAdapter } from './utils/socket-adapter';
+import {
+   initializeSocketAdapter,
+   closeSocketAdapter,
+   createRoomMembershipTransport,
+} from './utils/socket-adapter';
+import {
+   CHAT_ROOM,
+   USER_ROOM_PREFIX,
+   isMembershipRoom,
+   isValidRoomId,
+   roundRoom,
+   userRoom,
+} from './utils/socket-rooms';
 import config from './config';
 import {
    setSocketConnectionsActive,
@@ -28,9 +40,13 @@ import type {
    SessionCheckpointPayload,
 } from './types/socket-events';
 
-let activeStaleInterval: NodeJS.Timeout | null = null;
-let activeTokenExpiryInterval: NodeJS.Timeout | null = null;
-let ioInstance: SocketIOServer | null = null;
+/**
+ * Servers created by `initializeSocket` and their timers, so `closeWebSocket`
+ * can tear all of them down (tests start more than one to simulate a
+ * multi-instance deployment).
+ */
+const activeServers: Array<{ io: SocketIOServer; timers: NodeJS.Timeout[] }> =
+   [];
 
 export { getCorsOrigins } from './utils/cors';
 import { getCorsOrigins } from './utils/cors';
@@ -39,10 +55,18 @@ function isAuthorizedPrivateRoomJoin(
    socket: AuthenticatedSocket,
    room: string,
 ): boolean {
-   if (!room.startsWith('user:')) return true;
-   if (!socket.userId) return false;
-   const expectedRoom = `user:${socket.userId}`;
-   return room === expectedRoom;
+   if (!room.startsWith(USER_ROOM_PREFIX)) return true;
+   if (!socket.userId || !isValidRoomId(socket.userId)) return false;
+   return room === userRoom(socket.userId);
+}
+
+/** Extract the round id from a `join:round` / `leave:round` payload. */
+function parseRoundId(
+   data: { roundId?: string } | string | undefined,
+): string | undefined {
+   if (typeof data === 'string') return data;
+   if (data && typeof data === 'object') return data.roundId;
+   return undefined;
 }
 
 // Extended socket with walletAddress attached directly alongside SocketData
@@ -282,6 +306,16 @@ export function checkExpiredTokenSockets(
  * a broadcast to a room reaches all clients in that room regardless of which
  * instance they are connected to. If Redis is unavailable, Socket.IO falls
  * back to in-memory adapter (broadcasts only reach clients on the same instance).
+ * The adapter is attached before this function resolves, i.e. before the
+ * caller starts listening, so no socket's rooms are lost to an adapter swap.
+ *
+ * ### Room membership (Issue #669)
+ * Authenticated joins/leaves of the membership rooms (`round`, `round:<id>`,
+ * `chat`) follow the DB-first protocol documented in
+ * services/multiplayer-session.service.ts: they apply to all of the user's
+ * sockets on every instance, and on (re)connect a socket joins exactly the
+ * rooms recorded in the DB. Unauthenticated sockets (and socket demo mode)
+ * have no DB membership and join/leave rooms for the current socket only.
  */
 export async function initializeSocket(
    httpServer: HTTPServer
@@ -303,32 +337,27 @@ export async function initializeSocket(
       },
    });
 
-   // Initialize Redis adapter for multi-instance fanout
-   // This is non-blocking; if Redis is unavailable, Socket.IO continues with in-memory adapter
-   void initializeSocketAdapter(io).catch(err => {
-      logger.warn('Socket adapter initialization failed', {
-         error: err instanceof Error ? err.message : String(err),
-      });
-   });
-
-   ioInstance = io;
+   // Adapter half of the room-membership protocol (Issue #669).
+   const roomTransport = createRoomMembershipTransport(io);
 
    // Periodic stale connection cleanup.
    // unref() ensures this timer does not keep the Node.js process alive.
-   activeStaleInterval = setInterval(
+   const staleInterval = setInterval(
       () => checkStaleConnections(io),
       STALE_CHECK_INTERVAL_MS
    );
-   activeStaleInterval.unref();
+   staleInterval.unref();
 
    // Periodic token-expiry check — proactively notify clients whose JWT has
    // expired so they can refresh and reconnect without waiting for an auth
    // failure on their next application event.
-   activeTokenExpiryInterval = setInterval(
+   const tokenExpiryInterval = setInterval(
       () => checkExpiredTokenSockets(io),
       PING_INTERVAL
    );
-   activeTokenExpiryInterval.unref();
+   tokenExpiryInterval.unref();
+
+   activeServers.push({ io, timers: [staleInterval, tokenExpiryInterval] });
 
    // JWT Authentication middleware
    io.use(async (socket: AuthenticatedSocket, next) => {
@@ -450,104 +479,139 @@ export async function initializeSocket(
       // Auto-join authenticated user to their personal notification room
       // -----------------------------------------------------------------------
 
+      // Sockets whose user has DB membership (authenticated, valid id, not
+      // demo mode). Everyone else joins/leaves rooms for this socket only.
+      const membershipUserId =
+         socket.userId &&
+         isValidRoomId(socket.userId) &&
+         !config.app.socketDemoMode
+            ? socket.userId
+            : undefined;
+
+      // Resolves once this socket has joined its DB rooms. Join/leave
+      // handlers wait for it so they apply on top of the restored state.
+      let membershipReady: Promise<void> = Promise.resolve();
+
       if (socket.userId) {
-         socket.join(`user:${socket.userId}`);
-         logger.info(`Socket ${socket.id} auto-joined user:${socket.userId}`);
-
-         if (!config.app.socketDemoMode) {
-         // Issue #194: persist session metadata for reconnect continuity.
-         // Fire-and-forget; a DB failure must never tear down a live socket.
-         const userIdSnapshot = socket.userId;
-         const walletSnapshot = socket.walletAddress ?? '';
-         multiplayerSessionService
-            .recordConnect({
-               userId: userIdSnapshot,
-               walletAddress: walletSnapshot,
-               socketId: socket.id,
-            })
-            .then(async resume => {
-               // Auto-rejoin rooms the user occupied before the drop. The
-               // client also receives the resume payload so it can update
-               // local UI state without a round-trip.
-               for (const room of resume.rooms) {
-                  socket.join(room);
-               }
-               socket.emit('session:resume', resume as ResumePayload);
-
-               // Issue #555: reconcile DB rooms against the adapter.
-               // If a previous instance crashed between a DB write and an adapter
-               // propagation, the DB may contain stale rooms. We also pick up any
-               // rooms the adapter added (e.g. the auto-joined user room) that are
-               // not yet in the DB.
-               const adapterRooms = Array.from(socket.rooms).filter(
-                  r => r !== socket.id,
-               );
-               void multiplayerSessionService.reconcileRooms(
-                  userIdSnapshot,
-                  adapterRooms,
-               );
-            })
-            .catch(err => {
-               logger.warn(
-                  `recordConnect failed for socket ${socket.id}: ${(err as Error).message}`
-               );
-            });
+         if (isValidRoomId(socket.userId)) {
+            // Must happen before the DB read in restoreMembership: a join
+            // committed concurrently then either shows up in that read or
+            // reaches this socket through its user room.
+            socket.join(userRoom(socket.userId));
+            logger.info(
+               `Socket ${socket.id} auto-joined ${userRoom(socket.userId)}`
+            );
+         } else {
+            logger.warn(
+               `Socket ${socket.id}: user id is not a valid room id; skipping user room`
+            );
          }
       }
 
-      // Join round room for price updates and round events
-      socket.on('join:round', (data?: { roundId?: string } | string) => {
-         let roundId: string | undefined;
-         if (typeof data === 'string') {
-            roundId = data;
-         } else if (data && typeof data === 'object') {
-            roundId = data.roundId;
-         }
+      if (membershipUserId) {
+         // Issue #194: persist session metadata for reconnect continuity.
+         // Issue #669: then join exactly the rooms the DB says this user is a
+         // member of. A DB failure must never tear down a live socket.
+         const walletSnapshot = socket.walletAddress ?? '';
+         membershipReady = (async () => {
+            const resume = await multiplayerSessionService.recordConnect({
+               userId: membershipUserId,
+               walletAddress: walletSnapshot,
+               socketId: socket.id,
+            });
+            const rooms = await multiplayerSessionService.restoreMembership(
+               membershipUserId,
+               restored => socket.join(restored),
+            );
+            // The client also receives the resume payload so it can update
+            // local UI state without a round-trip.
+            const resumePayload: ResumePayload = { ...resume, rooms };
+            socket.emit('session:resume', resumePayload);
+         })().catch(err => {
+            logger.warn(
+               `Session restore failed for socket ${socket.id}: ${(err as Error).message}`
+            );
+         });
+      }
 
-         const room = roundId ? `round:${roundId}` : 'round';
-         socket.join(room);
+      const joinRoomForSocket = async (room: string): Promise<void> => {
+         if (membershipUserId) {
+            await membershipReady;
+            const result = await multiplayerSessionService.joinRoom(
+               membershipUserId,
+               room,
+               roomTransport,
+            );
+            if (!result.ok) {
+               const errPayload: GenericErrorPayload = {
+                  message: result.message,
+                  code: result.code,
+               };
+               socket.emit('error', errPayload);
+               return;
+            }
+         } else {
+            socket.join(room);
+         }
          logger.info(`Socket ${socket.id} joined room: ${room}`);
          const joinedPayload: RoomEventPayload = { room };
          socket.emit('room:joined', joinedPayload);
-         if (socket.userId) {
-            void multiplayerSessionService.addRoom(socket.userId, room);
-         }
-      });
+      };
 
-      // Leave round room
-      socket.on('leave:round', (data?: { roundId?: string } | string) => {
-         let roundId: string | undefined;
-         if (typeof data === 'string') {
-            roundId = data;
-         } else if (data && typeof data === 'object') {
-            roundId = data.roundId;
+      const leaveRoomForSocket = async (room: string): Promise<void> => {
+         if (membershipUserId) {
+            await membershipReady;
+            const result = await multiplayerSessionService.leaveRoom(
+               membershipUserId,
+               room,
+               roomTransport,
+            );
+            if (!result.ok) {
+               const errPayload: GenericErrorPayload = {
+                  message: result.message,
+                  code: result.code,
+               };
+               socket.emit('error', errPayload);
+               return;
+            }
+         } else {
+            socket.leave(room);
          }
-
-         const room = roundId ? `round:${roundId}` : 'round';
-         socket.leave(room);
          logger.info(`Socket ${socket.id} left room: ${room}`);
          const leftPayload: RoomEventPayload = { room };
          socket.emit('room:left', leftPayload);
-         if (socket.userId) {
-            void multiplayerSessionService.removeRoom(
-               socket.userId,
-               room,
-            ).then(() => {
-               // Issue #555: reconcile DB against adapter after leave to correct
-               // any drift from concurrent operations across instances.
-               const adapterRooms = Array.from(socket.rooms).filter(
-                  r => r !== socket.id,
-               );
-               void multiplayerSessionService.reconcileRooms(
-                  socket.userId!,
-                  adapterRooms,
-               );
-            });
+      };
+
+      const roundRoomFromPayload = (
+         data: { roundId?: string } | string | undefined,
+      ): string | null => {
+         const roundId = parseRoundId(data);
+         if (roundId === undefined || roundId === '') return roundRoom();
+         if (!isValidRoomId(roundId)) {
+            const errPayload: GenericErrorPayload = {
+               message: 'Invalid round id',
+               code: 'INVALID_ROOM',
+            };
+            socket.emit('error', errPayload);
+            return null;
          }
+         return roundRoom(roundId);
+      };
+
+      // Join round room for price updates and round events
+      socket.on('join:round', async (data?: { roundId?: string } | string) => {
+         const room = roundRoomFromPayload(data);
+         if (room) await joinRoomForSocket(room);
+      });
+
+      // Leave round room
+      socket.on('leave:round', async (data?: { roundId?: string } | string) => {
+         const room = roundRoomFromPayload(data);
+         if (room) await leaveRoomForSocket(room);
       });
 
       // Join chat room (requires authentication)
-      socket.on('join:chat', () => {
+      socket.on('join:chat', async () => {
          if (config.app.socketDemoMode) {
             socket.emit('error', {
                message: 'Chat is unavailable in socket demo mode',
@@ -561,34 +625,12 @@ export async function initializeSocket(
             socket.emit('error', errPayload);
             return;
          }
-         socket.join('chat');
-         logger.info(`Socket ${socket.id} joined room: chat`);
-         const joinedChat: RoomEventPayload = { room: 'chat' };
-         socket.emit('room:joined', joinedChat);
-         void multiplayerSessionService.addRoom(socket.userId, 'chat');
+         await joinRoomForSocket(CHAT_ROOM);
       });
 
       // Leave chat room
-      socket.on('leave:chat', () => {
-         socket.leave('chat');
-         logger.info(`Socket ${socket.id} left room: chat`);
-         const leftChat: RoomEventPayload = { room: 'chat' };
-         socket.emit('room:left', leftChat);
-         if (socket.userId) {
-            void multiplayerSessionService.removeRoom(
-               socket.userId,
-               'chat',
-            ).then(() => {
-               // Issue #555: reconcile after leave to keep DB in sync.
-               const adapterRooms = Array.from(socket.rooms).filter(
-                  r => r !== socket.id,
-               );
-               void multiplayerSessionService.reconcileRooms(
-                  socket.userId!,
-                  adapterRooms,
-               );
-            });
-         }
+      socket.on('leave:chat', async () => {
+         await leaveRoomForSocket(CHAT_ROOM);
       });
 
       // Handle chat message (requires authentication, rate limited, ack-based)
@@ -672,7 +714,7 @@ export async function initializeSocket(
       );
 
       // Join user notification room (for authenticated users)
-      socket.on('join:notifications', (room?: string) => {
+      socket.on('join:notifications', async (room?: string) => {
          if (!socket.userId) {
             const errPayload: GenericErrorPayload = {
                message: 'Authentication required for notifications',
@@ -681,10 +723,20 @@ export async function initializeSocket(
             return;
          }
 
+         const ownRoom = isValidRoomId(socket.userId)
+            ? userRoom(socket.userId)
+            : undefined;
          const targetRoom =
             typeof room === 'string' && room.trim().length > 0
                ? room.trim()
-               : `user:${socket.userId}`;
+               : ownRoom;
+         if (!targetRoom) {
+            const errPayload: GenericErrorPayload = {
+               message: 'Notifications are unavailable for this account',
+            };
+            socket.emit('error', errPayload);
+            return;
+         }
 
          if (!isAuthorizedPrivateRoomJoin(socket, targetRoom)) {
             const errPayload: GenericErrorPayload = {
@@ -697,18 +749,25 @@ export async function initializeSocket(
             return;
          }
 
+         // Membership rooms always go through the DB-first protocol, whichever
+         // event asked for them (Issue #669).
+         if (isMembershipRoom(targetRoom)) {
+            await joinRoomForSocket(targetRoom);
+            return;
+         }
+
+         // The user room is identity, not membership: it is re-derived from the
+         // JWT on every connect, so it is joined for this socket and not persisted.
          socket.join(targetRoom);
          // Ack with generic 'notifications' for backwards-compat when joining own room;
          // if caller explicitly asked for a room name, echo that room so tests and
          // multi-room clients can correlate.
-         const ackRoom =
-            targetRoom === `user:${socket.userId}` ? 'notifications' : targetRoom;
-         const joinedNotif: RoomEventPayload = { room: ackRoom as any };
+         const ackRoom = targetRoom === ownRoom ? 'notifications' : targetRoom;
+         const joinedNotif: RoomEventPayload = { room: ackRoom };
          // Also emit the concrete room for clients that track exact rooms (useful for testing ACL denial)
          // To keep backwards-compat, we emit 'notifications' for the default case but the socket is
          // actually in `user:${userId}`; multi-node emit via websocket.service still targets `user:${userId}`.
          socket.emit('room:joined', joinedNotif);
-         void multiplayerSessionService.addRoom(socket.userId, targetRoom);
       });
 
       // Issue #194: clients can checkpoint opaque session metadata
@@ -743,6 +802,12 @@ export async function initializeSocket(
       });
    });
 
+   // Attach the Redis adapter for multi-instance fanout before the caller
+   // starts listening: swapping adapters later would drop the rooms of
+   // sockets that already connected. Never throws; without Redis, Socket.IO
+   // stays on the in-memory adapter (single instance only).
+   await initializeSocketAdapter(io);
+
    logger.info(
       config.app.socketDemoMode
          ? 'Socket.IO initialized in demo mode (no Prisma chat/session)'
@@ -756,18 +821,11 @@ export async function initWebSocket(httpServer: HTTPServer): Promise<void> {
 }
 
 export function closeWebSocket(): void {
-   if (activeStaleInterval) {
-      clearInterval(activeStaleInterval);
-      activeStaleInterval = null;
-   }
-   if (activeTokenExpiryInterval) {
-      clearInterval(activeTokenExpiryInterval);
-      activeTokenExpiryInterval = null;
-   }
-   if (ioInstance) {
+   for (const { io, timers } of activeServers.splice(0)) {
+      for (const timer of timers) clearInterval(timer);
       // Disconnect all socket clients forcefully to allow HTTP server to close
-      ioInstance.disconnectSockets(true);
-      ioInstance = null;
+      io.disconnectSockets(true);
+      void closeSocketAdapter(io);
    }
 }
 

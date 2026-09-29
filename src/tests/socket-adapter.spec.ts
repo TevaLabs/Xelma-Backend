@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { createServer, Server as HTTPServer } from 'http';
 import {
    initializeSocketAdapter,
+   closeSocketAdapter,
    isUsingRedisAdapter,
 } from '../utils/socket-adapter';
 import logger from '../utils/logger';
@@ -68,6 +69,77 @@ describe('Socket Adapter', () => {
          expect(result).toBe(false);
 
          process.env.REDIS_URL = originalRedisUrl;
+      });
+
+      it('warns that multi-instance social features need Redis when REDIS_URL is missing (Issue #669)', async () => {
+         const originalRedisUrl = process.env.REDIS_URL;
+         delete process.env.REDIS_URL;
+
+         await initializeSocketAdapter(io);
+
+         expect(logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('REDIS_URL is not set')
+         );
+         expect(logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('require Redis to run more than one API instance')
+         );
+
+         if (originalRedisUrl === undefined) delete process.env.REDIS_URL;
+         else process.env.REDIS_URL = originalRedisUrl;
+      });
+
+      it('destroys half-open Redis clients when initialization fails (Issue #669)', async () => {
+         const { createClient } = require('redis');
+         const destroyPub = jest.fn();
+         const destroySub = jest.fn();
+         createClient.mockImplementationOnce(() => ({
+            connect: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+            duplicate: () => ({
+               connect: jest.fn().mockResolvedValue(undefined),
+               on: jest.fn(),
+               isOpen: true,
+               destroy: destroySub,
+            }),
+            on: jest.fn(),
+            isOpen: true,
+            destroy: destroyPub,
+         }));
+
+         const result = await initializeSocketAdapter(io, {
+            redisUrl: 'redis://localhost:6379',
+         });
+
+         expect(result).toBe(false);
+         expect(destroyPub).toHaveBeenCalledTimes(1);
+         expect(destroySub).toHaveBeenCalledTimes(1);
+      });
+
+      it('closeSocketAdapter closes the pub/sub clients it created (Issue #669)', async () => {
+         const { createClient } = require('redis');
+         const closePub = jest.fn().mockResolvedValue(undefined);
+         const closeSub = jest.fn().mockResolvedValue(undefined);
+         createClient.mockImplementationOnce(() => ({
+            connect: jest.fn().mockResolvedValue(undefined),
+            duplicate: () => ({
+               connect: jest.fn().mockResolvedValue(undefined),
+               ping: jest.fn().mockResolvedValue('PONG'),
+               on: jest.fn(),
+               isOpen: true,
+               close: closeSub,
+            }),
+            ping: jest.fn().mockResolvedValue('PONG'),
+            on: jest.fn(),
+            isOpen: true,
+            close: closePub,
+         }));
+
+         await initializeSocketAdapter(io, { redisUrl: 'redis://localhost:6379' });
+         await closeSocketAdapter(io);
+         // Idempotent: a second close is a no-op.
+         await closeSocketAdapter(io);
+
+         expect(closePub).toHaveBeenCalledTimes(1);
+         expect(closeSub).toHaveBeenCalledTimes(1);
       });
 
       it('should return false when REDIS_URL is empty string', async () => {

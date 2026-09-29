@@ -32,6 +32,11 @@ const mockUserFindUnique = jest.fn();
 const mockChatSendMessage = jest.fn();
 const mockRoundFindMany = jest.fn();
 
+// In-memory MultiplayerSession table: authenticated room joins commit DB
+// membership before touching Socket.IO rooms (Issue #669).
+type SessionRow = Record<string, unknown> & { userId: string };
+const mockSessionRows = new Map<string, SessionRow>();
+
 jest.mock('../lib/prisma', () => ({
    prisma: {
       user: {
@@ -39,6 +44,39 @@ jest.mock('../lib/prisma', () => ({
       },
       round: {
          findMany: (...args: any[]) => mockRoundFindMany(...args),
+      },
+      multiplayerSession: {
+         findUnique: async (args: { where: { userId: string } }) =>
+            mockSessionRows.get(args.where.userId) ?? null,
+         upsert: async (args: {
+            where: { userId: string };
+            create: SessionRow;
+            update: Record<string, unknown>;
+         }) => {
+            const current = mockSessionRows.get(args.where.userId);
+            const next = current ? { ...current, ...args.update } : { ...args.create };
+            mockSessionRows.set(args.where.userId, next);
+            return next;
+         },
+         update: async (args: {
+            where: { userId: string };
+            data: Record<string, unknown>;
+         }) => {
+            const current = mockSessionRows.get(args.where.userId);
+            if (!current) throw new Error('Record to update not found');
+            const next = { ...current, ...args.data };
+            mockSessionRows.set(args.where.userId, next);
+            return next;
+         },
+         updateMany: async (args: {
+            where: { userId: string };
+            data: Record<string, unknown>;
+         }) => {
+            const current = mockSessionRows.get(args.where.userId);
+            if (!current) return { count: 0 };
+            mockSessionRows.set(args.where.userId, { ...current, ...args.data });
+            return { count: 1 };
+         },
       },
       $disconnect: jest.fn().mockResolvedValue(undefined),
    },
@@ -166,6 +204,7 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
        mockChatSendMessage.mockReset();
        mockRoundFindMany.mockReset();
        mockRoundFindMany.mockResolvedValue([]);
+       mockSessionRows.clear();
     });
 
     afterAll(async () => {
@@ -808,6 +847,123 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
          for (const id of socketIds) {
             expect(connectionRegistry.has(id)).toBe(false);
          }
+      });
+   });
+
+   describe('Room membership protocol (Issue #669)', () => {
+      async function connectAuthenticated(): Promise<{
+         client: Socket;
+         resume: { rooms: string[] };
+      }> {
+         const client = ioClient(baseURL, {
+            auth: { token: validToken },
+            transports: ['websocket'],
+            autoConnect: false,
+            reconnection: false,
+         });
+         const resume = waitFor(client, 'session:resume');
+         client.connect();
+         await waitForConnect(client);
+         return { client, resume: await resume };
+      }
+
+      function serverRooms(client: Socket): Set<string> {
+         const socket = io.sockets.sockets.get(client.id ?? '');
+         if (!socket) throw new Error('server socket not found');
+         return socket.rooms;
+      }
+
+      it('commits DB membership, then joins the socket, then acks', async () => {
+         const { client } = await connectAuthenticated();
+
+         const joined = waitFor(client, 'room:joined');
+         client.emit('join:round', { roundId: 'r-669' });
+
+         expect(await joined).toEqual({ room: 'round:r-669' });
+         expect(mockSessionRows.get(testUser.id)?.rooms).toEqual(['round:r-669']);
+         expect(serverRooms(client).has('round:r-669')).toBe(true);
+
+         const left = waitFor(client, 'room:left');
+         client.emit('leave:round', { roundId: 'r-669' });
+
+         expect(await left).toEqual({ room: 'round:r-669' });
+         expect(mockSessionRows.get(testUser.id)?.rooms).toEqual([]);
+         expect(serverRooms(client).has('round:r-669')).toBe(false);
+         client.disconnect();
+      });
+
+      it('moves every socket of the user, not just the one that asked', async () => {
+         const { client: tab1 } = await connectAuthenticated();
+         const { client: tab2 } = await connectAuthenticated();
+
+         const joined = waitFor(tab1, 'room:joined');
+         tab1.emit('join:chat');
+         await joined;
+
+         expect(serverRooms(tab2).has('chat')).toBe(true);
+
+         const left = waitFor(tab2, 'room:left');
+         tab2.emit('leave:chat');
+         await left;
+
+         expect(serverRooms(tab1).has('chat')).toBe(false);
+         tab1.disconnect();
+         tab2.disconnect();
+      });
+
+      it('returns an error and joins nothing when the DB commit fails', async () => {
+         const { client } = await connectAuthenticated();
+         // Simulate the session row being unavailable after connect.
+         mockSessionRows.delete(testUser.id);
+
+         const err = waitFor(client, 'error');
+         client.emit('join:round', 'r-669-fail');
+
+         expect(await err).toEqual({
+            message: 'Could not join round:r-669-fail; please retry.',
+            code: 'MEMBERSHIP_PERSIST_FAILED',
+         });
+         expect(serverRooms(client).has('round:r-669-fail')).toBe(false);
+         client.disconnect();
+      });
+
+      it('rejects a round id that cannot name a room', async () => {
+         const { client } = await connectAuthenticated();
+
+         const err = waitFor(client, 'error');
+         client.emit('join:round', { roundId: 'user:someone-else' });
+
+         expect(await err).toEqual({ message: 'Invalid round id', code: 'INVALID_ROOM' });
+         expect(mockSessionRows.get(testUser.id)?.rooms).toEqual([]);
+         expect(serverRooms(client).has('round:user:someone-else')).toBe(false);
+         client.disconnect();
+      });
+
+      it('rejoins exactly the DB membership rooms on reconnect', async () => {
+         const { client: first } = await connectAuthenticated();
+         const joined = waitFor(first, 'room:joined');
+         first.emit('join:round', 'r-669-resume');
+         await joined;
+         const gone = waitForDisconnect(first);
+         first.disconnect();
+         await gone;
+
+         // A legacy `user:` entry (written by the pre-#669 reconcile) must
+         // not be joined on reconnect.
+         const row = mockSessionRows.get(testUser.id);
+         if (!row) throw new Error('session row missing');
+         mockSessionRows.set(testUser.id, {
+            ...row,
+            rooms: ['round:r-669-resume', 'user:someone-else'],
+         });
+
+         const { client: second, resume } = await connectAuthenticated();
+
+         expect(resume.rooms).toEqual(['round:r-669-resume']);
+         expect(serverRooms(second).has('round:r-669-resume')).toBe(true);
+         expect(serverRooms(second).has('user:someone-else')).toBe(false);
+         expect(mockSessionRows.get(testUser.id)?.rooms).toEqual(['round:r-669-resume']);
+         second.disconnect();
       });
    });
 
