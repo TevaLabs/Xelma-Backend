@@ -101,6 +101,9 @@ jobs:
       - name: Check OpenAPI contract drift
         run: npm run docs:verify
 
+      - name: Check database migration drift
+        run: npm run db:check
+
   test-unit:
     name: test (unit)
     runs-on: ubuntu-latest

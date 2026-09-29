@@ -110,6 +110,19 @@ Prisma is the single database ORM and migration tool. The schema lives in
 and apply migrations, or use `npm run prisma:migrate` when changing the schema.
 See the README "Migration story" section for more detail.
 
+### Schema changes and drift checks
+
+When modifying `prisma/schema.prisma`, always generate a corresponding migration file locally using:
+
+```bash
+npx prisma migrate dev --name <descriptive_migration_name>
+```
+
+This creates a new migration directory under `prisma/migrations/` and updates the database schema.
+
+Never modify `prisma/schema.prisma` without generating and committing a migration file. Pull requests in CI run a migration drift check via `npm run db:check` (`npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --exit-code`). Any schema modifications without a corresponding migration file will fail CI.
+
+
 ## Keeping the repo root clean
 
 Accidental empty files at the repo root (e.g. `src*.ts` leftovers from misplacing

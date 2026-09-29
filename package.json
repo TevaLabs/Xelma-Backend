@@ -34,6 +34,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "db:migrate": "prisma migrate deploy",
     "db:prepare": "prisma generate && npm run db:migrate",
+    "db:check": "npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --exit-code",
     "db:seed:mock": "ts-node scripts/seed-mock-data.ts",
     "db:seed:tournaments": "ts-node scripts/seed-tournaments.ts",
     "dev:hackathon": "ts-node-dev --respawn --transpile-only src/server.ts",
