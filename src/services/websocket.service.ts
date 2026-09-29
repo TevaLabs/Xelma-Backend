@@ -10,6 +10,14 @@ import type {
   TypedServer,
 } from '../types/socket-events';
 import { serializeRoundUpdatePayload } from '../serializers/monetary.serializer';
+import {
+  CHAT_ROOM,
+  ROUND_LOBBY_ROOM,
+  ROUND_ROOM_PREFIX,
+  isValidRoomId,
+  roundRoom,
+  userRoom,
+} from '../utils/socket-rooms';
 
 export type { BetAcceptedPayload };
 
@@ -150,7 +158,7 @@ export class WebSocketService {
       startPrice: round.startPrice,
       priceRanges: round.priceRanges,
     };
-    this.safeEmit({ room: 'round', event: WebSocketEvents.RoundStarted, payload });
+    this.safeEmit({ room: ROUND_LOBBY_ROOM, event: WebSocketEvents.RoundStarted, payload });
     logger.info(`Emitted round:started for round ${round.id}`);
 
     // Also emit the real-time round_update event
@@ -168,7 +176,7 @@ export class WebSocketService {
       side: prediction.side,
       priceRange: prediction.priceRange,
     };
-    this.safeEmit({ room: 'round', event: WebSocketEvents.PredictionPlaced, payload });
+    this.safeEmit({ room: ROUND_LOBBY_ROOM, event: WebSocketEvents.PredictionPlaced, payload });
     logger.info(`Emitted prediction:placed for prediction ${prediction.id}`);
   }
 
@@ -180,13 +188,14 @@ export class WebSocketService {
    */
   emitBetAccepted(payload: BetAcceptedPayload): void {
     this.safeEmit({
-      room: 'round',
+      room: ROUND_LOBBY_ROOM,
       event: WebSocketEvents.BetAccepted,
       payload,
     });
-    if (payload.roundId) {
+    // An id that cannot name a room has no subscribers (joins validate ids).
+    if (isValidRoomId(payload.roundId)) {
       this.safeEmit({
-        room: `round:${payload.roundId}`,
+        room: roundRoom(payload.roundId),
         event: WebSocketEvents.BetAccepted,
         payload,
       });
@@ -209,7 +218,7 @@ export class WebSocketService {
       predictions: round.predictions?.length || 0,
       winners: round.predictions?.filter((p: any) => p.won === true).length || 0,
     };
-    this.safeEmit({ room: 'round', event: WebSocketEvents.RoundResolved, payload });
+    this.safeEmit({ room: ROUND_LOBBY_ROOM, event: WebSocketEvents.RoundResolved, payload });
     logger.info(`Emitted round:resolved for round ${round.id}`);
 
     // Also emit the real-time round_update event
@@ -223,10 +232,12 @@ export class WebSocketService {
     const payload = serializeRoundUpdatePayload(round as Record<string, unknown>);
 
     // Broadcast to general 'round' room
-    this.safeEmit({ room: 'round', event: WebSocketEvents.RoundUpdate, payload });
+    this.safeEmit({ room: ROUND_LOBBY_ROOM, event: WebSocketEvents.RoundUpdate, payload });
 
     // Broadcast to specific round room
-    this.safeEmit({ room: `round:${round.id}`, event: WebSocketEvents.RoundUpdate, payload });
+    if (isValidRoomId(round.id)) {
+      this.safeEmit({ room: roundRoom(round.id), event: WebSocketEvents.RoundUpdate, payload });
+    }
     logger.info(`Emitted round_update for round ${round.id}`);
   }
 
@@ -241,17 +252,17 @@ export class WebSocketService {
     };
     
     // Broadcast legacy event to general room
-    this.safeEmit({ room: 'round', event: WebSocketEvents.PriceUpdate, payload });
+    this.safeEmit({ room: ROUND_LOBBY_ROOM, event: WebSocketEvents.PriceUpdate, payload });
 
     // Broadcast new real-time price update to general room
-    this.safeEmit({ room: 'round', event: WebSocketEvents.PriceUpdateV2, payload });
+    this.safeEmit({ room: ROUND_LOBBY_ROOM, event: WebSocketEvents.PriceUpdateV2, payload });
 
     // In demo mode, clients join explicit round rooms; skip Prisma round lookup.
     if (config.app.socketDemoMode) {
       // Broadcast to every existing round room so demo clients that joined a
       // specific room still receive live ticks, without needing a DB query.
       for (const room of (this.io?.of('/').adapter.rooms.keys() ?? [])) {
-        if (room.startsWith('round:')) {
+        if (room.startsWith(ROUND_ROOM_PREFIX)) {
           this.safeEmit({ room, event: WebSocketEvents.PriceUpdateV2, payload });
         }
       }
@@ -265,7 +276,8 @@ export class WebSocketService {
         select: { id: true },
       });
       for (const r of activeRounds) {
-        this.safeEmit({ room: `round:${r.id}`, event: WebSocketEvents.PriceUpdateV2, payload });
+        if (!isValidRoomId(r.id)) continue;
+        this.safeEmit({ room: roundRoom(r.id), event: WebSocketEvents.PriceUpdateV2, payload });
       }
     } catch (err) {
       logger.error('Failed to broadcast price_update to active round rooms:', err);
@@ -276,7 +288,7 @@ export class WebSocketService {
    * Emit chat message to chat room
    */
   emitChatMessage(message: any): void {
-    this.safeEmit({ room: 'chat', event: WebSocketEvents.ChatMessage, payload: message });
+    this.safeEmit({ room: CHAT_ROOM, event: WebSocketEvents.ChatMessage, payload: message });
     logger.info(`Emitted chat:message: ${message.id}`);
   }
 
@@ -293,8 +305,12 @@ export class WebSocketService {
       isRead: notification.isRead,
       createdAt: notification.createdAt?.toISOString?.() || notification.createdAt,
     };
+    if (!isValidRoomId(userId)) {
+      logger.warn(`Skipping notification emit: user id is not a valid room id`);
+      return;
+    }
     this.safeEmit({
-      room: `user:${userId}`,
+      room: userRoom(userId),
       event: WebSocketEvents.NotificationNew,
       payload,
       userId,
@@ -310,8 +326,12 @@ export class WebSocketService {
       unreadCount,
       timestamp: new Date().toISOString(),
     };
+    if (!isValidRoomId(userId)) {
+      logger.warn(`Skipping unread-count emit: user id is not a valid room id`);
+      return;
+    }
     this.safeEmit({
-      room: `user:${userId}`,
+      room: userRoom(userId),
       event: WebSocketEvents.NotificationUnreadCount,
       payload,
       userId,
