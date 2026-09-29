@@ -102,7 +102,16 @@ function main() {
     console.log("[install-bindings] Building CJS output…");
     const cjsTsConfigPath = path.join(srcDir, "tsconfig.cjs.json");
     fs.writeFileSync(cjsTsConfigPath, JSON.stringify(CJS_TSCONFIG, null, 2));
-    run(`npx tsc -p tsconfig.cjs.json`, srcDir);
+    // Node16 chooses the emitted module format from the nearest package.json.
+    // Make the source directory CommonJS for this compilation so the `require`
+    // export is actually loadable, then remove the temporary marker.
+    const cjsPackagePath = path.join(srcDir, "src", "package.json");
+    fs.writeFileSync(cjsPackagePath, JSON.stringify({ type: "commonjs" }));
+    try {
+      run(`npx tsc -p tsconfig.cjs.json`, srcDir);
+    } finally {
+      fs.rmSync(cjsPackagePath, { force: true });
+    }
 
     // Add a package.json marker in dist/cjs so Node knows it's CJS
     fs.writeFileSync(

@@ -72,9 +72,6 @@ services:
       PORT: 3001
       API_MODE: hackathon
       # Hackathon health route lives at GET /api/health.
-      # The entrypoint also sets HEALTHCHECK_PATH automatically when
-      # API_MODE=hackathon, but we set it here for the compose-level probe.
-      HEALTHCHECK_PATH: /api/health
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/health || exit 1"]
       interval: 15s

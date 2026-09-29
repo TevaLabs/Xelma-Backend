@@ -1,0 +1,7 @@
+node_modules
+dist
+.git
+.env
+.env.*
+coverage
+vendor/xelma-bindings/node_modules

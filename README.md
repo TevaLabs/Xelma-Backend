@@ -642,27 +642,47 @@ DATABASE_URL=postgresql://user:pass@host.docker.internal:5432/my_db docker compo
 > DATABASE_URL=postgresql://user:pass@host.docker.internal:5432/my_db docker compose up --no-deps api
 > ```
 
-#### Docker entrypoint modes
+#### Docker image profiles
 
-The container entrypoint reads `API_MODE` to select which compiled binary to start:
+The image always includes the vendored `@tevalabs/xelma-bindings` package. This
+preserves the `file:vendor/xelma-bindings` dependency used by local `npm start`.
+Choose whether to validate that package during the image build with the
+`SOROBAN_ENABLED` build argument, then select the runtime profile with
+environment variables:
 
-| `API_MODE`    | Binary started       | Default port | Health probe path    | Use when                                    |
-| ------------- | -------------------- | ------------ | -------------------- | ------------------------------------------- |
-| _(unset)_     | `dist/index.js`     | `3000`       | `GET /health`        | Full production backend (default)           |
-| `hackathon`   | `dist/server.js`    | `3001`       | `GET /api/health`    | Demo / hackathon — mock data, no DB needed  |
+| Profile | Build argument | Runtime variables | Binary / health route | Use when |
+| --- | --- | --- | --- | --- |
+| API-only / hackathon | `SOROBAN_ENABLED=false` (default) | `API_MODE=hackathon`, `DATA_MODE=mock` | `dist/server.js` / `GET /api/health` | Demo or API-only deployment with no on-chain calls. |
+| Full API with Soroban | `SOROBAN_ENABLED=true` | `SOROBAN_ENABLED=true` plus `SOROBAN_CONTRACT_ID`, RPC, and signer variables | `dist/index.js` / `GET /health` | Production on-chain operations. |
 
-The entrypoint automatically sets `HEALTHCHECK_PATH` to match the selected mode,
-so the Dockerfile `HEALTHCHECK` directive works without manual overrides. You can
-also set `HEALTHCHECK_PATH` explicitly when running a standalone container:
+`SOROBAN_ENABLED=true` makes the Docker build run
+`node -e "require('@tevalabs/xelma-bindings')"`. The entrypoint repeats that
+load check (and validates the pinned binding artifacts) whenever Soroban is
+enabled by `SOROBAN_ENABLED=true`, `DATA_MODE=live`, `BET_STUB_MODE=false`, or
+`SOROBAN_CONTRACT_ID`. Startup stops if the bindings cannot be loaded.
+
+The Dockerfile healthcheck selects `/health` for the full API and
+`/api/health` for `API_MODE=hackathon`; it evaluates `API_MODE` directly because
+a Docker healthcheck does not inherit environment exports from the entrypoint.
+
+Build and run either profile as follows:
 
 ```bash
-# Full mode (default)
-docker build -t xelma-api .
-docker run -p 3000:3000 --env-file .env xelma-api
+# API-only / hackathon profile
+docker build --build-arg SOROBAN_ENABLED=false -t xelma-api:api-only .
+docker run --rm -p 3001:3001 \
+  -e PORT=3001 -e API_MODE=hackathon -e DATA_MODE=mock \
+  xelma-api:api-only
 
-# Hackathon mode
-docker run -p 3001:3001 -e API_MODE=hackathon xelma-api
+# Full API with Soroban profile
+docker build --build-arg SOROBAN_ENABLED=true -t xelma-api:soroban .
+docker run --rm -p 3000:3000 --env-file .env \
+  -e SOROBAN_ENABLED=true xelma-api:soroban
 ```
+
+For the Soroban profile, `.env` must include `DATABASE_URL`, `JWT_SECRET`,
+`SOROBAN_CONTRACT_ID`, `SOROBAN_RPC_URL`, `SOROBAN_ADMIN_SECRET`, and
+`SOROBAN_ORACLE_SECRET` as appropriate for the deployed contract.
 
 To run the **hackathon mode** via Docker Compose (no database required, in-memory store + mock data):
 
@@ -670,7 +690,8 @@ To run the **hackathon mode** via Docker Compose (no database required, in-memor
 docker compose --profile hackathon up
 ```
 
-The hackathon service maps port `3001` and sets `API_MODE=hackathon` + `HEALTHCHECK_PATH=/api/health` automatically.
+The hackathon service maps port `3001`, sets `API_MODE=hackathon`, and probes
+its real `GET /api/health` route.
 
 **Troubleshooting Docker setup**
 
@@ -681,7 +702,7 @@ The hackathon service maps port `3001` and sets `API_MODE=hackathon` + `HEALTHCH
 | Port `3000` already in use    | Change `PORT` in `.env` and map `3001:3001` (or similar) in `docker-compose.yml`                           |
 | Migrations fail on first boot | Run `docker compose logs api`; verify Postgres is healthy with `docker compose ps`                         |
 | Redis connection warnings     | Confirm Redis is healthy (`docker compose ps`) and `REDIS_URL` points at `redis://redis:6379` inside Compose |
-| Container reports unhealthy   | Verify `HEALTHCHECK_PATH` matches the mode (`/health` for full, `/api/health` for hackathon); check `docker inspect <container>` |
+| Container reports unhealthy   | Verify `API_MODE` matches the intended route (`/health` for full, `/api/health` for hackathon); check `docker inspect <container>` |
 
 ---
 
