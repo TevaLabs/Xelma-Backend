@@ -6,6 +6,7 @@ import {
 import { AppError, BackpressureError, ValidationError, ErrorCode } from '../utils/errors';
 import { CircuitBreakerOpenError } from '../utils/circuit-breaker';
 import logger from '../utils/logger';
+import { sanitizePath } from './httpLogger.middleware';
 
 /**
  * Standardized error response shape.
@@ -105,13 +106,17 @@ export function errorHandler(
   const requestId = (req as any).requestId;
   const timestamp = new Date().toISOString();
 
+  // sanitizePath strips the query string so tokens (e.g. ?access_token=…)
+  // never appear in log output or error responses.
+  const safePath = sanitizePath(req.originalUrl);
+
   logger.error(`[${appError.code}] ${req.method} ${req.path} → ${appError.statusCode}`, {
     code: appError.code,
     statusCode: appError.statusCode,
     message: appError.message,
     requestId,
     timestamp,
-    path: req.originalUrl,
+    path: safePath,
     ...(appError.details && { details: appError.details }),
     ...(isDev && err instanceof Error && { stack: err.stack }),
   });
@@ -120,7 +125,7 @@ export function errorHandler(
     error: appError.message || appError.name, // Ensure textual summary error field is clear
     message: appError.message,
     code: appError.code,
-    path: req.originalUrl, // <-- Explicitly mapped parameter requirement
+    path: safePath, // query string stripped — never expose tokens in error responses
     requestId,
     timestamp,
     ...(retryAfterSeconds !== undefined && { retryAfter: retryAfterSeconds }),
