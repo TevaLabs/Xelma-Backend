@@ -1,3 +1,5 @@
+import type { RedisClientType } from "redis";
+
 /**
  * Minimal in-memory Redis stand-in covering exactly the commands the
  * distributed lock uses: `SET key value NX PX`, and `EVAL` of the renew and
@@ -12,7 +14,7 @@ export interface FakeRedisEntry {
    expiresAtMs: number;
 }
 
-export class FakeRedis {
+export class FakeRedis implements Pick<RedisClientType, "set" | "eval"> {
    private readonly store = new Map<string, FakeRedisEntry>();
 
    /** Set to make the next command reject, simulating a Redis blip. */
