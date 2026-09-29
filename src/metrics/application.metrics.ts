@@ -446,3 +446,20 @@ export const roundTransitionFailuresTotal = new Counter({
    labelNames: ['from', 'to'] as const,
    registers: [metricsRegistry],
 });
+
+/**
+ * Outbox unknown event types (Issue #668).
+ *
+ * Incremented when the outbox poller encounters an `eventType` that is not
+ * part of the known catalog ({@link KNOWN_OUTBOX_EVENTS} in outbox.service).
+ * The row is routed to the DLQ instead of crashing the dispatcher, so a
+ * sustained nonzero rate means someone shipped a new `OutboxEventType` without
+ * teaching the dispatcher how to handle it — add the handler (or a DLQ-only
+ * expectation) in the same PR.
+ */
+export const outboxUnknownEventTypeTotal = new Counter({
+   name: 'outbox_unknown_event_type',
+   help: 'Total outbox rows skipped to the DLQ because their eventType is not in the known catalog',
+   labelNames: ['eventType'] as const,
+   registers: [metricsRegistry],
+});

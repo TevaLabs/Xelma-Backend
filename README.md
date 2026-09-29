@@ -1042,6 +1042,16 @@ All endpoints are accessible under both `/api/v1/*` (versioned) and `/api/*` (le
 
 Clients should migrate to `/api/v1/*` before that date.
 
+**Both entrypoints serve the alias.** Production (`src/index.ts`) and the
+hackathon/demo app (`src/app.ts`) mount the same `/api/v1/*` mirror over the
+routes each one serves (#439). The mirror is flag-aware: surfaces a given app
+does not have (e.g. `/api/predictions` on the hackathon app) are absent under
+`/api/v1/*` there too. Hackathon deployments additionally answer the bare
+`GET /api/v1` and `GET /api/v1/health` readiness probes, which the production
+app serves off-prefix at `/health` instead. Route parity is enforced by
+`src/tests/route-parity.spec.ts` and the registry in
+`src/security/route-parity.registry.ts`.
+
 Responses from the deprecated legacy paths include the following headers:
 
 - `Deprecation: true`

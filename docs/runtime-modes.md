@@ -10,6 +10,15 @@ behavior, or choosing the right flags for a deployment profile.
 > [`src/app-factory.ts`](../src/app-factory.ts) and documented in the
 > "Feature flags" section of [CONTRIBUTING.md](../CONTRIBUTING.md). The env
 > vars below change behaviour; the feature flags change surface area.
+>
+> **Base-path note (#439):** both entrypoints serve the documented `/api/v1/*`
+> versioned alias over their own route set (plus the legacy `/api/*` alias).
+> Clients can point `API_BASE_URL` at either app without changing their
+> request paths. The hackathon app additionally answers the bare
+> `GET /api/v1` and `GET /api/v1/health` readiness probes; the production
+> app serves `/health` off-prefix. Flag-gated production-only surfaces
+> (predictions, education, admin, …) remain absent on the hackathon app under
+> both prefixes.
 
 > **Startup tip:** The server logs the active mode flags at boot. Look for
 > `Active DATA_MODE=...`, `Bet mode: ...`, `ROUNDS_MOCK_MODE=...`, and
