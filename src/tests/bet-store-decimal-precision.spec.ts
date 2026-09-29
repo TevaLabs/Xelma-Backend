@@ -14,17 +14,16 @@ describe('bet-store Decimal-safe pool math', () => {
     }
 
     const round = betStore.getRounds().find((r) => r.id === 'btc-updown-live')!;
-    expect(round.poolUp).toBe(2801);
-    expect(round.totalPool).toBe(4201);
+    expect(round.poolUp).toBe('2801.00000000');
+    expect(round.totalPool).toBe('4201.00000000');
   });
 
   it('keeps totalPool consistent with poolUp + poolDown after a fractional DOWN bet', () => {
     betStore.addUpDownBet('xlm-updown-new', 'addr-down', 0.3, 'DOWN');
 
     const round = betStore.getRounds().find((r) => r.id === 'xlm-updown-new')!;
-    expect(round.poolDown).toBe(0.3);
-    expect(round.totalPool).toBe(round.poolUp + round.poolDown);
-    expect(round.totalPool).toBe(200.3);
+    expect(round.poolDown).toBe('0.30000000');
+    expect(round.totalPool).toBe('200.30000000');
   });
 
   it('accumulates fractional precision bets without float drift', () => {
@@ -34,8 +33,17 @@ describe('bet-store Decimal-safe pool math', () => {
 
     const round = betStore.getRounds().find((r) => r.id === 'eth-precision-live')!;
     // Seed totalPool is 1800; three 0.1 bets must land on exactly 1800.3.
-    expect(round.totalPool).toBe(1800.3);
+    expect(round.totalPool).toBe('1800.30000000');
     expect(round.predictionCount).toBe(25);
+  });
+
+  it('adds 0.1 + 0.2 exactly and stores amounts as strings', () => {
+    const bet = betStore.addUpDownBet('xlm-updown-new', 'addr-sum-1', 0.1, 'DOWN');
+    betStore.addUpDownBet('xlm-updown-new', 'addr-sum-2', 0.2, 'DOWN');
+
+    const round = betStore.getRounds().find((r) => r.id === 'xlm-updown-new')!;
+    expect(round.poolDown).toBe('0.30000000');
+    expect(bet.amount).toBe('0.10000000');
   });
 
   it('supports decimal string amounts without loss of precision', () => {
@@ -43,9 +51,9 @@ describe('bet-store Decimal-safe pool math', () => {
     betStore.addUpDownBet('xlm-updown-new', 'addr-str-2', '0.00000002', 'DOWN');
 
     const round = betStore.getRounds().find((r) => r.id === 'xlm-updown-new')!;
-    expect(round.poolUp).toBe(200.00000001);
-    expect(round.poolDown).toBe(0.00000002);
-    expect(round.totalPool).toBe(200.00000003);
+    expect(round.poolUp).toBe('200.00000001');
+    expect(round.poolDown).toBe('0.00000002');
+    expect(round.totalPool).toBe('200.00000003');
   });
 
   it('maintains correct bet records and reconciliation summaries', () => {
@@ -64,6 +72,6 @@ describe('bet-store Decimal-safe pool math', () => {
     const fetched = betStore.getBet(bet1.id);
     expect(fetched?.status).toBe('CONFIRMED');
     expect(fetched?.txHash).toBe('0xabc123');
-    expect(fetched?.amount).toBe(50);
+    expect(fetched?.amount).toBe('50.00000000');
   });
 });

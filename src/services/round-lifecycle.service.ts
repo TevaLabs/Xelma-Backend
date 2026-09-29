@@ -13,6 +13,7 @@ import {
 import { roundTransitionFailuresTotal } from '../metrics/application.metrics';
 import websocketService from './websocket.service';
 import logger from '../utils/logger';
+import { invalidateNamespace } from '../lib/redis';
 
 /** Client union so callers can pass either the global prisma or a transaction client. */
 type RoundDbClient = Prisma.TransactionClient | typeof prisma;
@@ -152,6 +153,8 @@ class RoundLifecycleService {
     logger.info(
       `[RoundLifecycle] Round ${roundId} transitioned ${existing.status} -> ${toState}`,
     );
+
+    void invalidateNamespace("rounds").catch(() => {});
 
     return updated;
   }

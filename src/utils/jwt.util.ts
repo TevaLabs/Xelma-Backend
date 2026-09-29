@@ -4,6 +4,8 @@ import { JwtPayload } from '../types/auth.types';
 
 
 const getJwtExpiry = (): string | number => process.env.JWT_EXPIRY || '7d';
+const getJwtIssuer = (): string | undefined => process.env.JWT_ISSUER || undefined;
+const getJwtAudience = (): string | undefined => process.env.JWT_AUDIENCE || undefined;
 
 /**
  * Helper to get JWT secret at runtime.
@@ -31,9 +33,14 @@ export function generateToken(userId: string, walletAddress: string, role: UserR
     role,
   };
 
+  const issuer = getJwtIssuer();
+  const audience = getJwtAudience();
+
   // Pass options directly to avoid TypeScript type inference issues
   return jwt.sign(payload, getJwtSecret(), {
     expiresIn: getJwtExpiry() as any,
+    ...(issuer ? { issuer } : {}),
+    ...(audience ? { audience } : {}),
   });
 }
 
@@ -44,7 +51,12 @@ export function generateToken(userId: string, walletAddress: string, role: UserR
  */
 export function verifyToken(token: string): JwtPayload | null {
   try {
-    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
+    const issuer = getJwtIssuer();
+    const audience = getJwtAudience();
+    const decoded = jwt.verify(token, getJwtSecret(), {
+      ...(issuer ? { issuer } : {}),
+      ...(audience ? { audience } : {}),
+    }) as JwtPayload;
     return decoded;
   } catch (error) {
     return null;
@@ -62,7 +74,12 @@ export type TokenVerifyResult =
  */
 export function verifyTokenDetailed(token: string): TokenVerifyResult {
   try {
-    const payload = jwt.verify(token, getJwtSecret()) as JwtPayload;
+    const issuer = getJwtIssuer();
+    const audience = getJwtAudience();
+    const payload = jwt.verify(token, getJwtSecret(), {
+      ...(issuer ? { issuer } : {}),
+      ...(audience ? { audience } : {}),
+    }) as JwtPayload;
     return { valid: true, payload };
   } catch (error: any) {
     if (error?.name === 'TokenExpiredError') {
@@ -71,3 +88,4 @@ export function verifyTokenDetailed(token: string): TokenVerifyResult {
     return { valid: false, expired: false };
   }
 }
+

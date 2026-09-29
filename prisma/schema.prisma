@@ -116,7 +116,7 @@ model User {
   id                      String    @id @default(uuid())
   walletAddress           String    @unique
   publicKey               String?
-  nickname                String?
+  nickname                String?   @unique
   avatarUrl               String?
   preferences             Json?
   virtualBalance          Decimal   @default(1000) @db.Decimal(20, 8)
