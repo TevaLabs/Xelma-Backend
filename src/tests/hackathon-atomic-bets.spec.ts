@@ -61,6 +61,11 @@ describe('Hackathon Atomic Bets', () => {
       expect(freshBet!.side).toBe('UP');
       expect(userAfter!.balance).toBe(userBefore!.balance - 200);
       expect(roundAfter!.poolUp).toBe(roundBefore!.poolUp! + 200);
+
+      // Single-store consistency: the debit, the pool move and the recorded
+      // bet are the same number — no ledger is left behind.
+      expect(userBefore!.balance - userAfter!.balance).toBe(freshBet!.amount);
+      expect(roundAfter!.poolUp! - roundBefore!.poolUp!).toBe(freshBet!.amount);
     });
 
     it('atomically inserts bet and updates totalPool for Precision mode', async () => {
@@ -84,13 +89,13 @@ describe('Hackathon Atomic Bets', () => {
   });
 
   describe('rollback on failure', () => {
-    it('rolls back all changes when FK constraint is violated (non-existent round)', async () => {
+    it('rolls back all changes when the round does not exist', async () => {
       const userBefore = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
       const roundsBefore = await prisma.mockRound.findMany();
 
       await expect(
         hackathonService.placeBet('nonexistent-round-id', TEST_ADDRESS, 100, 'UP')
-      ).rejects.toThrow();
+      ).rejects.toThrow('Round not found');
 
       const userAfter = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
       const roundsAfter = await prisma.mockRound.findMany();
@@ -124,6 +129,25 @@ describe('Hackathon Atomic Bets', () => {
       expect(roundsAfter).toEqual(roundsBefore);
 
       txSpy.mockRestore();
+    });
+
+    it('does not debit the balance or move the pool on an overdraft', async () => {
+      const roundBefore = await prisma.mockRound.findUnique({ where: { id: 'btc-updown-live' } });
+      const userBefore = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
+
+      await expect(
+        hackathonService.placeBet('btc-updown-live', TEST_ADDRESS, userBefore!.balance + 1, 'UP')
+      ).rejects.toThrow('Insufficient balance');
+
+      const roundAfter = await prisma.mockRound.findUnique({ where: { id: 'btc-updown-live' } });
+      const userAfter = await prisma.mockLeaderboard.findUnique({ where: { address: TEST_ADDRESS } });
+      const bets = await prisma.mockBet.findMany({
+        where: { address: TEST_ADDRESS, roundId: 'btc-updown-live' },
+      });
+
+      expect(bets.length).toBe(0);
+      expect(userAfter!.balance).toBe(userBefore!.balance);
+      expect(roundAfter!.poolUp).toBe(roundBefore!.poolUp);
     });
   });
 
