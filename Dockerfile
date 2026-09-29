@@ -3,7 +3,9 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json package-lock.json ./
-COPY vendor ./vendor
+# The local `file:vendor/xelma-bindings` dependency must be present before
+# npm installs dependencies, otherwise npm creates a broken link in the image.
+COPY vendor/xelma-bindings ./vendor/xelma-bindings
 RUN npm ci
 
 FROM deps AS build
@@ -16,8 +18,15 @@ RUN npm run build
 FROM base AS runner
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
-COPY vendor ./vendor
-RUN npm ci --omit=dev && npm install prisma@^5.8.0 --no-save
+# Keep the vendored package in the runtime image as well as the dependency
+# stage: npm resolves it through package.json's `file:` specifier.
+COPY vendor/xelma-bindings ./vendor/xelma-bindings
+ARG SOROBAN_ENABLED=false
+RUN npm ci --omit=dev \
+  && npm install prisma@^5.8.0 --no-save \
+  && if [ "$SOROBAN_ENABLED" = "true" ]; then \
+       node -e "require('@tevalabs/xelma-bindings')"; \
+     fi
 COPY prisma ./prisma
 COPY scripts ./scripts
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
@@ -27,13 +36,9 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
 
-# Health probe path.  The full app (dist/index.js) serves a detailed health
-# check at GET /health; the hackathon app (dist/server.js) serves a
-# lightweight check at GET /api/health.  Override HEALTHCHECK_PATH at
-# runtime when switching modes (the entrypoint also sets this automatically
-# when API_MODE=hackathon).
-ENV HEALTHCHECK_PATH=/health
+# The healthcheck process does not inherit variables exported by entrypoint.sh.
+# Select the real route from the container's configured API_MODE instead.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:${PORT:-3000}${HEALTHCHECK_PATH} || exit 1
+  CMD if [ "$API_MODE" = "hackathon" ]; then wget -qO- "http://127.0.0.1:${PORT:-3000}/api/health"; else wget -qO- "http://127.0.0.1:${PORT:-3000}/health"; fi || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
