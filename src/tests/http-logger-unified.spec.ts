@@ -170,3 +170,140 @@ describe('HTTP request log shape is identical across apps', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Query-string redaction tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Collect every string that was passed to the mocked logger (info, warn,
+ * error, debug) so we can assert that no value from the query string ever
+ * made it into any log call.
+ */
+function allLoggedStrings(): string[] {
+  const out: string[] = [];
+
+  const collectFromCall = (args: any[]) => {
+    for (const a of args) {
+      if (typeof a === 'string') out.push(a);
+      if (a && typeof a === 'object') out.push(JSON.stringify(a));
+    }
+  };
+
+  mockLogInfo.mock.calls.forEach(collectFromCall);
+  return out;
+}
+
+describe('Query-string redaction — secrets must never appear in log output', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  describe('httpLoggerMiddleware (GET with ?access_token=secret)', () => {
+    it('does NOT log the token value in the hackathon app', async () => {
+      const { createApp } = await import('../app');
+      const app = createApp();
+
+      await request(app).get('/api/rounds?access_token=supersecret');
+
+      const logged = allLoggedStrings().join('\n');
+      expect(logged).not.toContain('supersecret');
+    });
+
+    it('does NOT log the token value in the production app', async () => {
+      const { createApp: createFullApp } = await import('../index');
+      const app = createFullApp();
+
+      await request(app).get('/api/health?access_token=supersecret');
+
+      const logged = allLoggedStrings().join('\n');
+      expect(logged).not.toContain('supersecret');
+    });
+
+    it('logs the path without query string', async () => {
+      const { createApp } = await import('../app');
+      const app = createApp();
+
+      await request(app).get('/api/rounds?access_token=supersecret');
+
+      const log = getLastHttpLog();
+      expect(log!.path).toBe('/api/rounds');
+      expect(log!.path).not.toContain('?');
+      expect(log!.path).not.toContain('supersecret');
+    });
+
+    it('logs queryKeys (key names only, no values) when query params are present', async () => {
+      const { createApp } = await import('../app');
+      const app = createApp();
+
+      await request(app).get('/api/rounds?access_token=supersecret&page=1');
+
+      const log = getLastHttpLog();
+      expect(log!.queryKeys).toBeDefined();
+      expect(log!.queryKeys).toContain('access_token');
+      expect(log!.queryKeys).toContain('page');
+      // The secret VALUE must not appear anywhere in the structured log
+      expect(log!.queryKeys).not.toContain('supersecret');
+    });
+
+    it('omits queryKeys field entirely when no query params are present', async () => {
+      const { createApp } = await import('../app');
+      const app = createApp();
+
+      await request(app).get('/api/rounds');
+
+      const log = getLastHttpLog();
+      expect(log).not.toHaveProperty('queryKeys');
+    });
+  });
+
+  describe('sanitizePath() / queryKeys() unit tests', () => {
+    it('sanitizePath strips query string', async () => {
+      const { sanitizePath } = await import('../middleware/httpLogger.middleware');
+      expect(sanitizePath('/api/rounds?access_token=secret')).toBe('/api/rounds');
+      expect(sanitizePath('/api/health')).toBe('/api/health');
+      expect(sanitizePath('/api/rounds?')).toBe('/api/rounds');
+    });
+
+    it('queryKeys returns key names without values', async () => {
+      const { queryKeys } = await import('../middleware/httpLogger.middleware');
+      expect(queryKeys('/api/rounds?access_token=secret&page=1')).toEqual(['access_token', 'page']);
+      expect(queryKeys('/api/health')).toEqual([]);
+      expect(queryKeys('/api/rounds?')).toEqual([]);
+    });
+
+    it('queryKeys does not include any secret values', async () => {
+      const { queryKeys } = await import('../middleware/httpLogger.middleware');
+      const keys = queryKeys('/api/rounds?access_token=TOK_12345&api_key=APIKEY_99');
+      expect(keys).toContain('access_token');
+      expect(keys).toContain('api_key');
+      expect(keys).not.toContain('TOK_12345');
+      expect(keys).not.toContain('APIKEY_99');
+    });
+  });
+
+  describe('errorHandler — error responses do not leak query string', () => {
+    it('path field in error JSON body is stripped of query string', async () => {
+      const { createApp: createFullApp } = await import('../index');
+      const app = createFullApp();
+
+      // Hit a route that doesn't exist — triggers the 404 handler
+      const res = await request(app)
+        .get('/api/does-not-exist?access_token=supersecret')
+        .expect(404);
+
+      expect(res.body.path).toBeDefined();
+      expect(res.body.path).not.toContain('supersecret');
+      expect(res.body.path).not.toContain('?');
+      expect(res.body.path).toBe('/api/does-not-exist');
+    });
+
+    it('logger.error call does not contain the token value when a 404 occurs', async () => {
+      const { createApp: createFullApp } = await import('../index');
+      const app = createFullApp();
+
+      await request(app).get('/api/does-not-exist?access_token=supersecret');
+
+      const logged = allLoggedStrings().join('\n');
+      expect(logged).not.toContain('supersecret');
+    });
+  });
+});
