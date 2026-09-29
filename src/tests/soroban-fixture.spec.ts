@@ -37,6 +37,7 @@ const mockClientCalls = {
   getUserStats: 0,
   getBalance: 0,
   getPendingWinnings: 0,
+  claimWinnings: 0,
 };
 
 function mockTx<T>(result: T) {
@@ -59,6 +60,10 @@ let mockGetUserStatsResult: unknown = {
 };
 let mockBalanceResult: unknown = BigInt(0);
 let mockPendingWinningsResult: unknown = BigInt(0);
+let mockClaimWinningsSentResult: unknown = {
+  result: BigInt(0),
+  sendTransactionResponse: { hash: "fixture_claim_tx_hash" },
+};
 
 const mockClient = {
   balance: () => {
@@ -79,7 +84,12 @@ const mockClient = {
   },
   predict_price: () => mockTx(undefined),
   resolve_round: () => mockTx(undefined),
-  claim_winnings: () => mockTx(BigInt(0)),
+  claim_winnings: () => {
+    mockClientCalls.claimWinnings++;
+    return Promise.resolve({
+      signAndSend: async (_opts?: unknown) => mockClaimWinningsSentResult,
+    });
+  },
   mint_initial: () => mockTx(BigInt(0)),
   get_active_round: () => {
     mockClientCalls.getActiveRound++;
@@ -149,12 +159,17 @@ function resetFixtures(): void {
   };
   mockBalanceResult = BigInt(0);
   mockPendingWinningsResult = BigInt(0);
+  mockClaimWinningsSentResult = {
+    result: BigInt(0),
+    sendTransactionResponse: { hash: "fixture_claim_tx_hash" },
+  };
   mockClientCalls.getActiveRound = 0;
   mockClientCalls.placeBet = 0;
   mockClientCalls.placePrecisionBet = 0;
   mockClientCalls.getUserStats = 0;
   mockClientCalls.getBalance = 0;
   mockClientCalls.getPendingWinnings = 0;
+  mockClientCalls.claimWinnings = 0;
 }
 
 beforeEach(async () => {
@@ -210,6 +225,37 @@ describe("Soroban Fixture Integration: getActiveRound", () => {
 
     expect(result).toBeNull();
     expect(mockClientCalls.getActiveRound).toBeGreaterThan(0);
+  });
+});
+
+describe("Soroban Fixture Integration: claimWinnings", () => {
+  it("returns the typed claim fixture with its transaction hash", async () => {
+    mockClaimWinningsSentResult = {
+      result: BigInt(70_000_000),
+      sendTransactionResponse: { hash: "fixture_claim_tx_hash" },
+    };
+
+    const result = await sorobanService.claimWinnings(
+      "GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX",
+    );
+
+    expect(result).toEqual({
+      state: "on-chain-success",
+      amount: 7,
+      txHash: "fixture_claim_tx_hash",
+      claimedAmount: BigInt(70_000_000),
+    });
+    expect(mockClientCalls.claimWinnings).toBe(1);
+  });
+
+  it("maps a malformed claim fixture that omits the transaction hash", async () => {
+    mockClaimWinningsSentResult = { result: BigInt(70_000_000) };
+
+    await expect(
+      sorobanService.claimWinnings(
+        "GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX",
+      ),
+    ).rejects.toThrow("An unexpected contract error occurred.");
   });
 });
 
