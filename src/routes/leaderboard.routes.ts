@@ -11,6 +11,7 @@ import { validate } from "../middleware/validate.middleware";
 import { batchLeaderboardQuerySchema } from "../schemas/predictions.schema";
 import { AppError } from "../utils/errors";
 import { asyncHandler } from "../middleware/errorHandler.middleware";
+import { sendSuccess } from "../utils/response";
 import {
   getBatchUserPositions,
   getLeaderboard,
@@ -102,12 +103,12 @@ router.get(
       if (cursor) {
         // Cursor mode
         const result = await getLeaderboardCursor(limit, cursor, userId);
-        return res.json(result);
+        return sendSuccess(res, result, { pagination: result.pagination });
       }
 
       // Offset mode (existing behaviour)
       const result = await getLeaderboard(limit, offset, userId);
-      return res.json(result);
+      return sendSuccess(res, result, { pagination: result.pagination });
     } catch (error) {
       if (error instanceof AppError) {
         throw error;

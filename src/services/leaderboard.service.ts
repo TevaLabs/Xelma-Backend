@@ -78,10 +78,17 @@ function buildEntry(
   },
   rank: number,
 ): LeaderboardEntry {
+  const maskedAddress = maskWalletAddress(stat.user.walletAddress);
+  const totalWins = stat.correctPredictions;
+  const totalLosses = Math.max(0, stat.totalPredictions - stat.correctPredictions);
+
   return {
     rank,
     userId: stat.user.id,
-    walletAddress: maskWalletAddress(stat.user.walletAddress),
+    address: maskedAddress,
+    walletAddress: maskedAddress,
+    totalWins,
+    totalLosses,
     totalEarnings: serializeMoney(stat.totalEarnings),
     totalPredictions: stat.totalPredictions,
     accuracy: calculateAccuracy(stat.correctPredictions, stat.totalPredictions),
@@ -103,6 +110,54 @@ function buildEntry(
           stat.legendsWins,
           stat.legendsWins + stat.legendsLosses,
         ),
+      },
+    },
+  };
+}
+
+/**
+ * Adapt a mock leaderboard user object to the unified `LeaderboardEntry` interface.
+ */
+export function adaptMockLeaderboardUser(user: {
+  rank: number;
+  address: string;
+  totalWins: number;
+  totalLosses: number;
+  winStreak: number;
+  xp: number;
+  rankTitle: string;
+}): LeaderboardEntry {
+  const totalPredictions = user.totalWins + user.totalLosses;
+  const accuracy =
+    totalPredictions > 0
+      ? Math.round((user.totalWins / totalPredictions) * 100 * 100) / 100
+      : 0;
+
+  return {
+    rank: user.rank,
+    address: user.address,
+    walletAddress: user.address,
+    userId: user.address,
+    totalWins: user.totalWins,
+    totalLosses: user.totalLosses,
+    totalEarnings: user.xp.toString(),
+    totalPredictions,
+    accuracy,
+    winStreak: user.winStreak,
+    xp: user.xp,
+    rankTitle: user.rankTitle,
+    modeStats: {
+      upDown: {
+        wins: user.totalWins,
+        losses: user.totalLosses,
+        earnings: user.xp.toString(),
+        accuracy,
+      },
+      legends: {
+        wins: 0,
+        losses: 0,
+        earnings: "0",
+        accuracy: 0,
       },
     },
   };

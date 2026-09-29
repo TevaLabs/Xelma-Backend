@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach } from '@jest/globals';
 import request from 'supertest';
 import { z } from 'zod';
-import { createApp } from '../app';
 import { setRepositoriesForTests } from '../repositories';
 
 jest.mock('../middleware/rateLimiter.middleware', () => ({
@@ -27,6 +26,7 @@ jest.mock('../services/priceService', () => ({
 jest.mock('../lib/prisma', () => ({
   prisma: {
     user: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    userStats: { findMany: jest.fn(), findUnique: jest.fn(), count: jest.fn() },
     authChallenge: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn() },
     transaction: { create: jest.fn() },
     bet: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn(), groupBy: jest.fn() },
@@ -55,6 +55,11 @@ jest.mock('../lib/redis', () => ({
   getCache: jest.fn(),
   setCache: jest.fn(),
   deleteCache: jest.fn(),
+  getJsonFromCache: jest.fn().mockResolvedValue(null),
+  setJsonToCache: jest.fn().mockResolvedValue(undefined),
+  zsetRangeWithScores: jest.fn().mockResolvedValue(null),
+  zsetCard: jest.fn().mockResolvedValue(null),
+  zsetRank: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('../services/soroban.service', () => ({
@@ -249,14 +254,16 @@ jest.mock('../middleware/auth.middleware', () => ({
   authenticateUser: (_req: any, _res: any, next: any) => next(),
   requireAdmin: (_req: any, _res: any, next: any) => next(),
   requireOracle: (_req: any, _res: any, next: any) => next(),
+  requireMetricsAuth: (_req: any, _res: any, next: any) => next(),
   verifyStellarAuth: (_req: any, _res: any, next: any) => next(),
   bindAuthenticatedWallet: (_req: any, _res: any, next: any) => next(),
   optionalAuthentication: (_req: any, _res: any, next: any) => next(),
 }));
 
 import { getPrices } from '../services/priceService';
+import { createApp } from '../app-factory';
 
-const app = createApp();
+const app = createApp({ mode: 'hackathon' });
 
 afterEach(() => {
   setRepositoriesForTests(null);
@@ -285,38 +292,110 @@ describe('API Contract Tests - frontend-critical endpoints (Issue #333)', () => 
   });
 
   describe('GET /api/leaderboard', () => {
-    const leaderboardContract = z.object({
+    const unifiedLeaderboardEntryContract = z.object({
+      rank: z.number(),
+      address: z.string(),
+      walletAddress: z.string(),
+      totalWins: z.number(),
+      totalLosses: z.number(),
+      totalEarnings: z.union([z.string(), z.number()]),
+      totalPredictions: z.number(),
+      accuracy: z.number(),
+      userId: z.string().optional(),
+      winStreak: z.number().optional(),
+      xp: z.number().optional(),
+      rankTitle: z.string().optional(),
+      modeStats: z.object({
+        upDown: z.object({
+          wins: z.number(),
+          losses: z.number(),
+          earnings: z.union([z.string(), z.number()]),
+          accuracy: z.number(),
+        }),
+        legends: z.object({
+          wins: z.number(),
+          losses: z.number(),
+          earnings: z.union([z.string(), z.number()]),
+          accuracy: z.number(),
+        }),
+      }).optional(),
+    });
+
+    const unifiedLeaderboardResponseContract = z.object({
       success: z.literal(true),
       data: z.object({
-        entries: z.array(
-          z.object({
-            userId: z.string(),
-            rank: z.number(),
-            score: z.union([z.string(), z.number()]),
-          }),
-        ),
+        leaderboard: z.array(unifiedLeaderboardEntryContract),
+        userPosition: unifiedLeaderboardEntryContract.optional(),
+        totalUsers: z.number().optional(),
+        lastUpdated: z.string().optional(),
+        pagination: z.object({
+          limit: z.number(),
+          offset: z.number().optional(),
+          total: z.number().optional(),
+          hasNextPage: z.boolean().optional(),
+          nextCursor: z.string().nullable().optional(),
+        }).optional(),
       }),
       meta: z.object({
         pagination: z.object({
           limit: z.number(),
-          offset: z.number(),
-          total: z.number(),
-        }),
-      }),
+          offset: z.number().optional(),
+          total: z.number().optional(),
+          hasNextPage: z.boolean().optional(),
+          nextCursor: z.string().nullable().optional(),
+        }).optional(),
+      }).optional(),
     });
 
-    it('matches the documented response contract', async () => {
-      const repos = emptyRepos();
-      (repos.leaderboard.listLeaderboard as jest.Mock).mockResolvedValue({
-        entries: [{ userId: 'u-1', rank: 1, score: 100 }],
-        pagination: { limit: 100, offset: 0, total: 1 },
-      });
-      setRepositoriesForTests(repos as any);
-
-      const res = await request(app).get('/api/leaderboard');
+    it('matches the unified response contract in hackathon mode', async () => {
+      const { createInMemoryRepositories } = require('../repositories/in-memory.repositories');
+      setRepositoriesForTests(createInMemoryRepositories());
+      const hackathonApp = createApp({ mode: 'hackathon' });
+      const res = await request(hackathonApp).get('/api/leaderboard');
 
       expect(res.status).toBe(200);
-      expect(() => leaderboardContract.parse(res.body)).not.toThrow();
+      expect(() => unifiedLeaderboardResponseContract.parse(res.body)).not.toThrow();
+      expect(res.body.data.leaderboard.length).toBeGreaterThan(0);
+      const first = res.body.data.leaderboard[0];
+      expect(first).toHaveProperty('address');
+      expect(first).toHaveProperty('walletAddress');
+      expect(first).toHaveProperty('totalWins');
+      expect(first).toHaveProperty('totalLosses');
+      expect(first).toHaveProperty('totalEarnings');
+      expect(first).toHaveProperty('totalPredictions');
+      expect(first).toHaveProperty('accuracy');
+    });
+
+    it('matches the unified response contract in full mode', async () => {
+      const { prisma } = require('../lib/prisma');
+      (prisma.userStats.findMany as jest.Mock).mockResolvedValue([
+        {
+          userId: 'u-1',
+          user: { id: 'u-1', walletAddress: 'GABC12345678901234567890123456789012345678901234' },
+          totalEarnings: 100,
+          totalPredictions: 12,
+          correctPredictions: 10,
+          upDownWins: 8,
+          upDownLosses: 2,
+          upDownEarnings: 80,
+          legendsWins: 2,
+          legendsLosses: 0,
+          legendsEarnings: 20,
+        },
+      ]);
+      (prisma.userStats.count as jest.Mock).mockResolvedValue(1);
+
+      const fullApp = createApp({ mode: 'full' });
+      const res = await request(fullApp).get('/api/leaderboard');
+
+      expect(res.status).toBe(200);
+      expect(() => unifiedLeaderboardResponseContract.parse(res.body)).not.toThrow();
+      const first = res.body.data.leaderboard[0];
+      expect(first).toHaveProperty('address');
+      expect(first).toHaveProperty('walletAddress');
+      expect(first).toHaveProperty('totalWins');
+      expect(first).toHaveProperty('totalLosses');
+      expect(first).toHaveProperty('totalEarnings');
     });
   });
 

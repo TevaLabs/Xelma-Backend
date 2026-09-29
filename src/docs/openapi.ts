@@ -134,14 +134,21 @@ export const swaggerSpec = swaggerJSDoc({
         LeaderboardEntry: {
           type: 'object',
           properties: {
-            rank: { type: 'integer' },
-            userId: { type: 'string' },
-            walletAddress: { type: 'string' },
+            rank: { type: 'integer', description: '1-based rank position' },
+            address: { type: 'string', description: 'Primary wallet address' },
+            walletAddress: { type: 'string', description: 'Alias for address (backward compatibility)' },
+            totalWins: { type: 'integer', description: 'Total predictions won' },
+            totalLosses: { type: 'integer', description: 'Total predictions lost' },
             totalEarnings: { $ref: '#/components/schemas/MoneyAmount' },
-            totalPredictions: { type: 'integer' },
-            accuracy: { type: 'number' },
+            totalPredictions: { type: 'integer', description: 'Total predictions placed' },
+            accuracy: { type: 'number', description: 'Win accuracy percentage (0-100)' },
+            userId: { type: 'string', description: 'Optional user ID (full mode)' },
+            winStreak: { type: 'integer', description: 'Optional win streak (mock mode)' },
+            xp: { type: 'number', description: 'Optional experience points (mock mode)' },
+            rankTitle: { type: 'string', description: 'Optional rank title (mock mode)' },
             modeStats: {
               type: 'object',
+              description: 'Optional mode-specific breakdown',
               properties: {
                 upDown: {
                   type: 'object',
@@ -164,16 +171,40 @@ export const swaggerSpec = swaggerJSDoc({
               },
             },
           },
+          required: [
+            'rank',
+            'address',
+            'walletAddress',
+            'totalWins',
+            'totalLosses',
+            'totalEarnings',
+            'totalPredictions',
+            'accuracy',
+          ],
         },
         LeaderboardResponse: {
           type: 'object',
           properties: {
-            leaderboard: { type: 'array', items: { $ref: '#/components/schemas/LeaderboardEntry' } },
-            userPosition: { $ref: '#/components/schemas/LeaderboardEntry', nullable: true },
-            totalUsers: { type: 'number' },
-            lastUpdated: { type: 'string' },
+            success: { type: 'boolean', example: true },
+            data: {
+              type: 'object',
+              properties: {
+                leaderboard: { type: 'array', items: { $ref: '#/components/schemas/LeaderboardEntry' } },
+                userPosition: { $ref: '#/components/schemas/LeaderboardEntry', nullable: true },
+                totalUsers: { type: 'number' },
+                lastUpdated: { type: 'string' },
+                pagination: { type: 'object' },
+              },
+              required: ['leaderboard'],
+            },
+            meta: {
+              type: 'object',
+              properties: {
+                pagination: { type: 'object' },
+              },
+            },
           },
-          required: ['leaderboard', 'totalUsers', 'lastUpdated'],
+          required: ['success', 'data'],
           additionalProperties: true,
         },
         UserBalanceResponse: {

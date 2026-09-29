@@ -8,13 +8,29 @@ export interface ModeStats {
 }
 
 export interface LeaderboardEntry {
+  /** 1-based rank position */
   rank: number;
-  userId: string;
+  /** Primary wallet address */
+  address: string;
+  /** Alias for address (backward compatibility) */
   walletAddress: string;
+  /** Total predictions won */
+  totalWins: number;
+  /** Total predictions lost */
+  totalLosses: number;
+  /** Total earnings or score formatted as string */
   totalEarnings: string;
+  /** Total predictions placed */
   totalPredictions: number;
+  /** Win percentage (0-100, 2 decimal places) */
   accuracy: number;
-  modeStats: {
+
+  /** Full-mode / mock optional extras */
+  userId?: string;
+  winStreak?: number;
+  xp?: number;
+  rankTitle?: string;
+  modeStats?: {
     upDown: ModeStats;
     legends: ModeStats;
   };
