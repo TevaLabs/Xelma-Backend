@@ -1,5 +1,6 @@
 import { describe, it, expect } from "@jest/globals";
 import { generateToken, verifyToken } from "../utils/jwt.util";
+import { parseJwtExpiry } from "../config/jwt-expiry";
 import jwt from "jsonwebtoken";
 
 /**
@@ -10,6 +11,23 @@ describe("JWT utilities", () => {
   const testUserId = "test-user-123";
   const testWalletAddress = "GABC123...";
   const testRole = "USER";
+
+  describe("JWT expiry parsing", () => {
+    it("preserves valid duration strings", () => {
+      expect(parseJwtExpiry("7d")).toBe("7d");
+    });
+
+    it("parses integer environment values as seconds", () => {
+      expect(parseJwtExpiry("3600")).toBe(3600);
+    });
+
+    it.each(["forever", "7 days-ish", "0", "0s", "1e3"])(
+      "rejects invalid expiry value %s",
+      (expiry) => {
+        expect(() => parseJwtExpiry(expiry)).toThrow(/JWT_EXPIRY must be/);
+      },
+    );
+  });
 
   beforeEach(() => {
     // Ensure JWT_SECRET is set

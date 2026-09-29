@@ -21,6 +21,7 @@
  */
 
 import { execSync } from 'child_process';
+import { parseJwtExpiry } from './jwt-expiry';
 import logger from '../utils/logger';
 export type RuntimeMode = 'hackathon' | 'full';
 export type SafetyProfile = 'production' | 'demo';
@@ -174,6 +175,15 @@ function checkJwtSecretStrength(
   return [];
 }
 
+function checkJwtExpiry(env: NodeJS.ProcessEnv): string[] {
+  try {
+    parseJwtExpiry(env.JWT_EXPIRY);
+    return [];
+  } catch (error) {
+    return [error instanceof Error ? error.message : 'JWT_EXPIRY is invalid.'];
+  }
+}
+
 function checkRedisIfConfigured(env: NodeJS.ProcessEnv): string[] {
   const url = env.REDIS_URL;
   if (!url) return [];
@@ -237,6 +247,7 @@ export function runPreflightChecks(
     ...checkNodeVersion(),
     ...checkDatabaseUrl(env, mode),
     ...checkJwtSecretStrength(env, mode),
+    ...checkJwtExpiry(env),
     ...checkProductionSafetyProfile(env, safetyProfile),
   ];
 

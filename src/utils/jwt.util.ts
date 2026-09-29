@@ -1,9 +1,10 @@
 import { UserRole } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import { parseJwtExpiry } from '../config/jwt-expiry';
 import { JwtPayload } from '../types/auth.types';
 
 
-const getJwtExpiry = (): string | number => process.env.JWT_EXPIRY || '7d';
+const getJwtExpiry = () => parseJwtExpiry(process.env.JWT_EXPIRY);
 const getJwtIssuer = (): string | undefined => process.env.JWT_ISSUER || undefined;
 const getJwtAudience = (): string | undefined => process.env.JWT_AUDIENCE || undefined;
 
@@ -36,9 +37,8 @@ export function generateToken(userId: string, walletAddress: string, role: UserR
   const issuer = getJwtIssuer();
   const audience = getJwtAudience();
 
-  // Pass options directly to avoid TypeScript type inference issues
   return jwt.sign(payload, getJwtSecret(), {
-    expiresIn: getJwtExpiry() as any,
+    expiresIn: getJwtExpiry(),
     ...(issuer ? { issuer } : {}),
     ...(audience ? { audience } : {}),
   });
