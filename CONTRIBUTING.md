@@ -40,6 +40,7 @@ Every surface that exists in only one app is a flag on `AppFeatures` in
 | `education` | `/api/education/*` | on | off |
 | `errorCatalog` | `GET /api/errors` | on | off |
 | `adminRoutes` | `/api/admin/metrics`, `/api/admin/cors-diagnostics`, `/api/admin/dead-letter` | on | off |
+| `corsDiagnostics` | `/api/admin/cors-diagnostics` independently gated by `ENABLE_CORS_DIAGNOSTICS` | on | off (default) |
 | `versionedAlias` | mirrors every `/api/*` route under `/api/v1/*` | on | off |
 | `deprecationHeaders` | `Deprecation` / `Sunset` / `Link` headers on unversioned `/api/*` | on | off |
 | `globalApiRateLimit` | applies the read/write limiters to all of `/api` | off | on |

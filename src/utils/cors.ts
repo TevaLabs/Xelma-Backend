@@ -12,6 +12,15 @@ export function parseOriginList(raw: string | undefined | null): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Determines whether CORS diagnostics endpoint is enabled.
+ * Defaults to false (for debug/hackathon use only).
+ */
+export function isCorsDiagnosticsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.ENABLE_CORS_DIAGNOSTICS?.trim()?.toLowerCase();
+  return raw === 'true' || raw === '1';
+}
+
 export function getCorsOrigins(): CorsOriginConfig {
   const clientUrl = process.env.CLIENT_URL;
   const isProduction = process.env.NODE_ENV === 'production';

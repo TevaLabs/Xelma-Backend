@@ -62,8 +62,12 @@ router.get('/', requireAdmin, (req: Request, res: Response) => {
   const http = resolved;
   const socket = resolved;
 
-  const testOrigin =
-    typeof req.query.origin === 'string' ? req.query.origin : null;
+  const queryOrigin =
+    typeof req.query.origin === 'string' && req.query.origin.trim()
+      ? req.query.origin.trim()
+      : null;
+  const headerOrigin = req.get('origin') ?? null;
+  const testOrigin = queryOrigin ?? headerOrigin;
 
   const matches = (origins: string[], allowAll: boolean): boolean | null => {
     if (testOrigin === null) return null;

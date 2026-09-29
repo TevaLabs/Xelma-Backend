@@ -123,6 +123,20 @@ It returns only a whitelist of non-secret mode and scheduler flags, including
 returns `DATABASE_URL`, JWT secrets, Soroban secrets, or other credentials.
 The endpoint is not mounted by the hackathon app.
 
+### CORS diagnostics (`ENABLE_CORS_DIAGNOSTICS`)
+
+> **WARNING:** `ENABLE_CORS_DIAGNOSTICS` is for debug/hackathon use only.
+
+By default, the hackathon app does not expose admin surfaces (`/api/admin/*`).
+When `ENABLE_CORS_DIAGNOSTICS=true` is set, the hackathon app conditionally mounts
+`GET /api/admin/cors-diagnostics` to allow frontend operators to troubleshoot
+CORS origin matching issues.
+
+Strict authentication/authorization remains enforced via `requireAdmin`:
+unauthenticated requests receive `401 Unauthorized` and non-admin tokens receive
+`403 Forbidden`. No secret environment variables or full internal allowlists are
+dumped publicly.
+
 Public price and stats responses use a 30-second browser/CDN cache aligned with
 the price service TTL. Health responses are always `no-store`; Redis and
 database caching are separate concerns from HTTP caching.
