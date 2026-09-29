@@ -127,6 +127,7 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "test-round",
         },
         undefined,
+        expect.any(String),
       );
     });
 
@@ -204,6 +205,7 @@ describe("Round bet routes - BetService integration", () => {
       expect(mockRecordUpDownBet).toHaveBeenCalledWith(
         expect.objectContaining({ address: VALID_ADDRESS }),
         undefined,
+        expect.any(String),
       );
     });
 
@@ -213,7 +215,7 @@ describe("Round bet routes - BetService integration", () => {
         .send({ address: VALID_ADDRESS, amount: 10, side: "UP" });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe("No token provided");
+      expect(res.body.message).toBe("No token provided");
       expect(mockRecordUpDownBet).not.toHaveBeenCalled();
     });
 
@@ -234,7 +236,7 @@ describe("Round bet routes - BetService integration", () => {
         .send({ address: VALID_ADDRESS, amount: 10, side: "UP" });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe("Invalid or expired token");
+      expect(res.body.message).toBe("Invalid or expired token");
     });
 
     it("returns 403 when body address does not match the authenticated wallet", async () => {
@@ -244,7 +246,7 @@ describe("Round bet routes - BetService integration", () => {
         .send({ address: OTHER_ADDRESS, amount: 10, side: "UP" });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toMatch(/match authenticated user/i);
+      expect(res.body.message).toMatch(/match authenticated user/i);
       expect(mockRecordUpDownBet).not.toHaveBeenCalled();
     });
 
@@ -302,7 +304,7 @@ describe("Round bet routes - BetService integration", () => {
         .send({ address: "INVALID_ADDRESS", amount: 10, side: "UP" });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toMatch(/match authenticated user/i);
+      expect(res.body.message).toMatch(/match authenticated user/i);
     });
   });
 
@@ -332,6 +334,7 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "test-round",
         },
         undefined,
+        expect.any(String),
       );
     });
 
@@ -377,6 +380,7 @@ describe("Round bet routes - BetService integration", () => {
       expect(mockRecordPrecisionBet).toHaveBeenCalledWith(
         expect.objectContaining({ address: VALID_ADDRESS }),
         undefined,
+        expect.any(String),
       );
     });
 
@@ -386,7 +390,7 @@ describe("Round bet routes - BetService integration", () => {
         .send({ address: VALID_ADDRESS, amount: 5, predictedPrice: 0.12 });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe("No token provided");
+      expect(res.body.message).toBe("No token provided");
     });
 
     it("returns 403 when body address does not match the authenticated wallet", async () => {
@@ -396,7 +400,7 @@ describe("Round bet routes - BetService integration", () => {
         .send({ address: OTHER_ADDRESS, amount: 5, predictedPrice: 0.12 });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toMatch(/match authenticated user/i);
+      expect(res.body.message).toMatch(/match authenticated user/i);
     });
 
     it("returns 400 for missing predictedPrice", async () => {
@@ -466,6 +470,7 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "round-1",
         },
         undefined,
+        expect.any(String),
       );
       expect(mockRecordPrecisionBet).not.toHaveBeenCalled();
     });
@@ -487,6 +492,7 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "round-1",
         },
         undefined,
+        expect.any(String),
       );
       expect(mockRecordUpDownBet).not.toHaveBeenCalled();
     });
@@ -545,7 +551,7 @@ describe("Round bet routes - BetService integration", () => {
         .send({ address: VALID_ADDRESS, amount: 10, side: "UP" });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe("No token provided");
+      expect(res.body.message).toBe("No token provided");
       expect(mockRecordUpDownBet).not.toHaveBeenCalled();
     });
 
@@ -556,7 +562,7 @@ describe("Round bet routes - BetService integration", () => {
         .send({ address: OTHER_ADDRESS, amount: 10, side: "UP" });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toMatch(/match authenticated user/i);
+      expect(res.body.message).toMatch(/match authenticated user/i);
     });
 
     it("returns 400 for empty body (after auth)", async () => {
@@ -607,7 +613,7 @@ describe("Round bet routes - BetService integration", () => {
         .send({ address: "INVALID", amount: 10, side: "UP" });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toMatch(/match authenticated user/i);
+      expect(res.body.message).toMatch(/match authenticated user/i);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { metricsRegistry } from '../middleware/metrics.middleware';
 import { prisma } from '../lib/prisma';
 import { checkSchemaReadiness } from '../services/schema-readiness.service';
@@ -31,7 +31,7 @@ const router = Router();
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/', requireMetricsAuth, async (_req: Request, res: Response) => {
+router.get('/', (req: Request, res: Response, next: NextFunction) => requireMetricsAuth(req, res, next), async (_req: Request, res: Response) => {
   res.set('Content-Type', metricsRegistry.contentType);
   res.end(await metricsRegistry.metrics());
 });

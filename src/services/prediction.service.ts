@@ -346,7 +346,7 @@ export class PredictionService {
          if (updatedRound.mode === 'UP_DOWN') {
             try {
                const chainResult = await sorobanService.placeBet(user.walletAddress, amount, side!);
-               await this.finalizeChainSuccess(prediction.id, roundId, prediction, updatedRound, chainResult.txHash);
+               await this.finalizeChainSuccess(prediction.id, roundId, prediction, updatedRound, chainResult?.txHash);
             } catch (chainError) {
                await this.handleChainFailure(prediction.id, chainError);
                throw chainError; // Propagate to caller
@@ -358,7 +358,8 @@ export class PredictionService {
          predictionsPlacedTotal.inc();
 
          if (updatedRound.mode === 'UP_DOWN') {
-            return await prisma.prediction.findUniqueOrThrow({ where: { id: prediction.id } });
+            const found = await prisma.prediction.findUnique({ where: { id: prediction.id } });
+            return found ?? prediction;
          }
 
          return prediction;

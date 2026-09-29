@@ -315,28 +315,76 @@ describe("errorHandler backpressure mapping (#500)", () => {
   });
 });
 
-describe("errorHandler via createApp routes", () => {
-  // Import createApp lazily to use the real app with all routes mounted
-  let app: express.Express;
+describe("errorHandler via createApp routes (dual entrypoints)", () => {
+  let fullApp: express.Express;
+  let hackathonApp: express.Express;
 
   beforeAll(() => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    app = require("../index").createApp();
+    const { createApp } = require("../app-factory");
+    fullApp = createApp({ mode: "full" });
+    hackathonApp = createApp({ mode: "hackathon" });
   });
 
-  it.skip("404 handler returns structured NotFoundError shape", async () => {
-    const res = await request(app).get("/api/nonexistent-route-xyz");
-    
-    // Basic assertions
-    expect(res.status).toBe(404);
-    expect(res.body).toHaveProperty("error");
-    expect(res.body).toHaveProperty("code");
-    expect(res.body).toHaveProperty("message");
-    expect(res.body).toHaveProperty("requestId");
-    expect(res.body).toHaveProperty("timestamp");
-    
-    // Specific values
-    expect(res.body.error).toBe("NotFoundError");
-    expect(res.body.code).toBe("NOT_FOUND");
+  it("404 handler returns structured NotFoundError shape with identical keys across entrypoints", async () => {
+    const fullRes = await request(fullApp).get("/api/nonexistent-route-xyz");
+    const hackathonRes = await request(hackathonApp).get("/api/nonexistent-route-xyz");
+
+    expect(fullRes.status).toBe(404);
+    expect(hackathonRes.status).toBe(404);
+
+    const requiredKeys = ["code", "path", "requestId", "message", "error", "timestamp"];
+    for (const key of requiredKeys) {
+      expect(fullRes.body).toHaveProperty(key);
+      expect(hackathonRes.body).toHaveProperty(key);
+    }
+
+    expect(fullRes.body.code).toBe("NOT_FOUND");
+    expect(hackathonRes.body.code).toBe("NOT_FOUND");
+    expect(fullRes.body.requestId).toBeDefined();
+    expect(hackathonRes.body.requestId).toBeDefined();
+  });
+
+  it("400 validation error returns identical JSON keys and requestId on both entrypoints", async () => {
+    const fullRes = await request(fullApp).post("/api/auth/challenge").send({});
+    const hackathonRes = await request(hackathonApp).post("/api/auth/challenge").send({});
+
+    expect(fullRes.status).toBe(400);
+    expect(hackathonRes.status).toBe(400);
+
+    const fullKeys = Object.keys(fullRes.body).sort();
+    const hackathonKeys = Object.keys(hackathonRes.body).sort();
+
+    expect(fullKeys).toEqual(hackathonKeys);
+    expect(fullRes.body.requestId).toBeDefined();
+    expect(hackathonRes.body.requestId).toBeDefined();
+    expect(fullRes.body.code).toBe("VALIDATION_ERROR");
+    expect(hackathonRes.body.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("500 internal error returns identical JSON keys and requestId on both entrypoints", async () => {
+    const errorAppFull = express();
+    errorAppFull.use((req, _res, next) => { (req as any).requestId = "req-full-500"; next(); });
+    errorAppFull.get("/err", () => { throw new Error("crash"); });
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    errorAppFull.use(require("../middleware/errorHandler").errorHandler);
+
+    const errorAppHackathon = express();
+    errorAppHackathon.use((req, _res, next) => { (req as any).requestId = "req-hack-500"; next(); });
+    errorAppHackathon.get("/err", () => { throw new Error("crash"); });
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    errorAppHackathon.use(require("../middleware/errorHandler.middleware").errorHandler);
+
+    const fullRes = await request(errorAppFull).get("/err");
+    const hackathonRes = await request(errorAppHackathon).get("/err");
+
+    expect(fullRes.status).toBe(500);
+    expect(hackathonRes.status).toBe(500);
+
+    expect(fullRes.body.code).toBe("INTERNAL_SERVER_ERROR");
+    expect(hackathonRes.body.code).toBe("INTERNAL_SERVER_ERROR");
+    expect(fullRes.body.requestId).toBe("req-full-500");
+    expect(hackathonRes.body.requestId).toBe("req-hack-500");
+    expect(Object.keys(fullRes.body).sort()).toEqual(Object.keys(hackathonRes.body).sort());
   });
 });

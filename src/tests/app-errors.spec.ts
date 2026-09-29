@@ -23,10 +23,11 @@ describe('hackathon app error handling', () => {
     const res = await request(app).get('/api/does-not-exist');
 
     expect(res.status).toBe(404);
-    expect(res.body).toEqual({
-      error: 'Not Found',
-      path: '/api/does-not-exist',
-    });
+    expect(res.body.error).toBe('NotFoundError');
+    expect(res.body.code).toBe('NOT_FOUND');
+    expect(res.body.path).toBe('/api/does-not-exist');
+    expect(res.body.requestId).toBeDefined();
+    expect(res.body.timestamp).toBeDefined();
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 
@@ -41,7 +42,7 @@ describe('hackathon app error handling', () => {
     const res = await request(app).get('/api/force-error');
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toBe('Error');
+    expect(res.body.error).toBe('AppError');
     expect(res.body.message).toBe('forced failure');
   });
 });

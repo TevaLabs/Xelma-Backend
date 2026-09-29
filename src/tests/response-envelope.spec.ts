@@ -30,7 +30,8 @@ jest.mock('@prisma/client', () => ({
 jest.mock('../lib/redis', () => ({
   invalidateNamespace: jest.fn(),
   invalidateLeaderboardSortedSet: jest.fn(),
-  checkRedisHealth: jest.fn().mockResolvedValue(true),
+  checkRedisHealth: jest.fn().mockResolvedValue({ status: 'healthy', durationMs: 0 }),
+  isRedisCacheEnabled: jest.fn().mockReturnValue(false),
   getCache: jest.fn(),
   setCache: jest.fn(),
   deleteCache: jest.fn(),
@@ -234,6 +235,7 @@ jest.mock('../middleware/auth.middleware', () => ({
   authenticateUser: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireOracle: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireMetricsAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   verifyStellarAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   bindAuthenticatedWallet: (_req: unknown, _res: unknown, next: () => void) => next(),
   optionalAuthentication: (_req: unknown, _res: unknown, next: () => void) => next(),

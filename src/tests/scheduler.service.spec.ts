@@ -163,6 +163,10 @@ describeDb("SchedulerService", () => {
   // ── start() ─────────────────────────────────────────────────────────────────
 
   describe("start()", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
     afterEach(() => {
       schedulerService.stop();
       delete process.env.AUTO_RESOLVE_ENABLED;
@@ -172,7 +176,7 @@ describeDb("SchedulerService", () => {
     it("does not schedule tasks when AUTO_RESOLVE_ENABLED is not set", () => {
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(6);
+      expect(cron.schedule).toHaveBeenCalledTimes(7);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),
@@ -204,7 +208,7 @@ describeDb("SchedulerService", () => {
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(6);
+      expect(cron.schedule).toHaveBeenCalledTimes(7);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),
@@ -231,12 +235,12 @@ describeDb("SchedulerService", () => {
       );
     });
 
-    it('schedules exactly seven tasks when AUTO_RESOLVE_ENABLED is "true"', () => {
+    it('schedules exactly eight tasks when AUTO_RESOLVE_ENABLED is "true"', () => {
       process.env.AUTO_RESOLVE_ENABLED = "true";
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(7);
+      expect(cron.schedule).toHaveBeenCalledTimes(8);
     });
 
     it("schedules the payout reconciliation job at the default 5-minute cadence", () => {

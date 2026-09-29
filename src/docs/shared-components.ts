@@ -50,8 +50,24 @@ export const sharedComponents = {
           description: 'Machine-readable error code for programmatic handling',
           example: 'VALIDATION_ERROR',
         },
+        path: {
+          type: 'string',
+          description: 'Request path that resulted in the error',
+          example: '/api/bets/claim',
+        },
+        requestId: {
+          type: 'string',
+          description: 'Unique request correlation ID',
+          example: '12345678-1234-1234-1234-123456789012',
+        },
+        timestamp: {
+          type: 'string',
+          format: 'date-time',
+          description: 'ISO 8601 timestamp of error occurrence',
+          example: '2026-09-25T10:00:00.000Z',
+        },
       },
-      required: ['error', 'message', 'code'],
+      required: ['error', 'message', 'code', 'path', 'requestId', 'timestamp'],
     },
     MoneyAmount: {
       type: 'string',

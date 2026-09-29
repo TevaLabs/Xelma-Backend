@@ -25,12 +25,31 @@ jest.mock("../lib/prisma", () => {
     findMany: jest.fn(),
     groupBy: jest.fn(),
   };
+  const mockLeaderboard = {
+    findUnique: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  };
+  const prediction = {
+    findMany: jest.fn(),
+  };
+  const user = {
+    findUnique: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  };
+  const bet = {
+    findMany: jest.fn(),
+  };
+  const txClient = { claim, mockLeaderboard, prediction, user, bet };
   return {
     prisma: {
       claim,
-      user: { findUnique: jest.fn(), create: jest.fn() },
-      bet: { findMany: jest.fn() },
-      $transaction: jest.fn((fn: (tx: any) => Promise<any>) => fn({ claim })),
+      mockLeaderboard,
+      prediction,
+      user,
+      bet,
+      $transaction: jest.fn((fn: (tx: any) => Promise<any>) => fn(txClient)),
     },
   };
 });
@@ -60,37 +79,125 @@ const VALID_ADDRESS = "GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890";
 const mockClaimFindFirst = prisma.claim.findFirst as jest.Mock;
 const mockClaimCreate = prisma.claim.create as jest.Mock;
 const mockClaimUpdateMany = prisma.claim.updateMany as jest.Mock;
+const mockMockLeaderboardFindUnique = prisma.mockLeaderboard.findUnique as jest.Mock;
+const mockMockLeaderboardUpdate = prisma.mockLeaderboard.update as jest.Mock;
+const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
+const mockUserUpdate = prisma.user.update as jest.Mock;
+const mockPredictionFindMany = prisma.prediction.findMany as jest.Mock;
 
-describe("BetService.claimWinnings", () => {
+describe("BetService.claimWinnings (stub mode)", () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
-    process.env.BET_STUB_MODE = "false";
+    process.env.BET_STUB_MODE = "true";
     mockClaimFindFirst.mockResolvedValue(null);
     mockClaimCreate.mockResolvedValue({ id: "claim-1" });
     mockClaimUpdateMany.mockResolvedValue({ count: 1 });
+    mockMockLeaderboardFindUnique.mockResolvedValue(null);
+    mockUserFindUnique.mockResolvedValue(null);
+    mockPredictionFindMany.mockResolvedValue([]);
   });
 
   afterEach(() => {
     process.env = originalEnv;
   });
 
-  it("returns stub claim when BET_STUB_MODE=true and touches no claim ledger", async () => {
-    process.env.BET_STUB_MODE = "true";
+  it("Stub claim updates balance by the correct amount", async () => {
+    mockMockLeaderboardFindUnique.mockResolvedValue({
+      address: VALID_ADDRESS,
+      balance: 1000,
+      pendingWinnings: 50,
+    });
 
     const result = await betService.claimWinnings(VALID_ADDRESS);
 
-    expect(result).toEqual({ state: "stub", amount: 0 });
-    expect(sorobanService.claimWinnings).not.toHaveBeenCalled();
-    expect(prisma.claim.findFirst).not.toHaveBeenCalled();
-    expect(betAuditService.emitClaimAccepted).toHaveBeenCalledWith({
-      address: VALID_ADDRESS,
-      amount: 0,
-      result: "stub",
-      txHash: undefined,
+    expect(result.state).toBe("stub");
+    expect(result.amount).toBe(50);
+    expect(result.txHash).toBeDefined();
+
+    expect(mockMockLeaderboardUpdate).toHaveBeenCalledWith({
+      where: { address: VALID_ADDRESS },
+      data: {
+        balance: { increment: 50 },
+        pendingWinnings: 0,
+      },
     });
+
+    expect(mockClaimCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        walletAddress: VALID_ADDRESS,
+        status: ClaimStatus.CONFIRMED,
+        amount: expect.anything(),
+      }),
+    });
+  });
+
+  it("Pending winnings are cleared after claim", async () => {
+    mockMockLeaderboardFindUnique.mockResolvedValue({
+      address: VALID_ADDRESS,
+      balance: 1000,
+      pendingWinnings: 100,
+    });
+
+    await betService.claimWinnings(VALID_ADDRESS);
+
+    expect(mockMockLeaderboardUpdate).toHaveBeenCalledWith({
+      where: { address: VALID_ADDRESS },
+      data: expect.objectContaining({
+        pendingWinnings: 0,
+      }),
+    });
+  });
+
+  it("Double claim is rejected or returns idempotent result with no second balance change", async () => {
+    // First claim has 50 pending winnings
+    mockMockLeaderboardFindUnique
+      .mockResolvedValueOnce({
+        address: VALID_ADDRESS,
+        balance: 1000,
+        pendingWinnings: 50,
+      })
+      .mockResolvedValueOnce({
+        address: VALID_ADDRESS,
+        balance: 1050,
+        pendingWinnings: 0,
+      });
+
+    // First call succeeds
+    const firstResult = await betService.claimWinnings(VALID_ADDRESS);
+    expect(firstResult.amount).toBe(50);
+
+    // Second call with pendingWinnings=0 throws BusinessRuleError / 422
+    await expect(betService.claimWinnings(VALID_ADDRESS)).rejects.toThrow(
+      "No claimable winnings available."
+    );
+
+    // mockMockLeaderboardUpdate was only called once
+    expect(mockMockLeaderboardUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("Claim on a non-winning bet is rejected", async () => {
+    mockMockLeaderboardFindUnique.mockResolvedValue({
+      address: VALID_ADDRESS,
+      balance: 1000,
+      pendingWinnings: 0,
+    });
+
+    await expect(betService.claimWinnings(VALID_ADDRESS)).rejects.toThrow(
+      "No claimable winnings available."
+    );
+
+    expect(mockMockLeaderboardUpdate).not.toHaveBeenCalled();
+    expect(mockClaimCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("BetService.claimWinnings (on-chain mode)", () => {
+  beforeEach(() => {
+    process.env.BET_STUB_MODE = "false";
+    mockClaimFindFirst.mockResolvedValue(null);
   });
 
   it("calls SorobanService, records the claim ledger, and audits when BET_STUB_MODE=false", async () => {

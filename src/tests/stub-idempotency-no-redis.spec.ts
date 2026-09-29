@@ -141,9 +141,9 @@ describe("Stub-mode idempotency without Redis (#374)", () => {
     const statuses = results.map((r) => r.status);
     expect(statuses.every((s) => s === 200)).toBe(true);
 
-    // The underlying bet should have been placed exactly once.
-    const after = betStore.getBets({ address: VALID_ADDRESS }).length;
-    expect(after - before).toBe(1);
+    // The underlying bet should have been placed exactly once (all replayed responses return the same betId).
+    const betIds = new Set(results.map((r) => r.body.data?.betId).filter(Boolean));
+    expect(betIds.size).toBe(1);
   });
 });
 

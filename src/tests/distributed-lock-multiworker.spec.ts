@@ -256,8 +256,10 @@ describe('Distributed lock — multi-worker safety', () => {
                   if (i === 2) {
                      // Another replica takes the key, as it would after a stall.
                      mockRedis.steal(KEY('stolen-job'), 'other-instance');
+                     await sleep(150);
+                  } else {
+                     await sleep(40);
                   }
-                  await sleep(40);
                }
                return 'completed';
             },
