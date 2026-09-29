@@ -152,6 +152,12 @@ const FULL_FEATURES: AppFeatures = {
  * Wallet auth is shared with the full app so clients can obtain JWTs without
  * switching servers (#400). No predictions/education/admin surface. Rate
  * limiting is applied globally instead of per-route.
+ *
+ * #439: `versionedAlias` is on so clients written against the documented
+ * `/api/v1/*` base path work unchanged against hackathon/demo deployments.
+ * The alias mirrors exactly the routes this app serves — flag-gated
+ * production-only surfaces (predictions, education, admin, …) stay absent
+ * under both prefixes, and the parity registry checks the mirror.
  */
 const HACKATHON_FEATURES: AppFeatures = {
   auth: true,
@@ -160,7 +166,7 @@ const HACKATHON_FEATURES: AppFeatures = {
   errorCatalog: false,
   adminRoutes: false,
   corsDiagnostics: Boolean(process.env.ENABLE_CORS_DIAGNOSTICS),
-  versionedAlias: false,
+  versionedAlias: true,
   deprecationHeaders: false,
   globalApiRateLimit: true,
   platformStats: true,
@@ -356,6 +362,24 @@ export function createApp(options: CreateAppOptions = {}): Application {
   }
   mountApiRoutes(apiRouter, mode, features);
   app.use('/api', apiRouter);
+
+  // #439: keep the bare `/api/v1` and `/api/v1/health` readiness probes
+  // working in the hackathon app (the full app serves /health off-prefix and
+  // deprecation-redirects the legacy tree instead). Mounted after `/api` so
+  // the primary router wins any overlap; these two paths are additive.
+  if (mode === 'hackathon' && features.versionedAlias) {
+    app.get(['/api/v1', '/api/v1/health'], (_req: Request, res: Response) => {
+      res.json({
+        success: true,
+        data: {
+          status: 'ok',
+          message: 'Xelma hackathon API is running',
+          version: 'v1',
+          timestamp: Date.now(),
+        },
+      });
+    });
+  }
 
   if (mode === 'full') {
     app.use('/metrics', metricsRoutes);

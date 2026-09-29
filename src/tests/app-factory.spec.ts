@@ -70,7 +70,9 @@ describe("app factory", () => {
       expect(features.adminRoutes).toBe(false);
       expect(features.corsDiagnostics).toBe(false);
       expect(features.errorCatalog).toBe(false);
-      expect(features.versionedAlias).toBe(false);
+      // #439: the hackathon app mirrors its routes under /api/v1 so clients
+      // can use the documented base path against demo deployments.
+      expect(features.versionedAlias).toBe(true);
       expect(features.platformStats).toBe(true);
       expect(features.globalApiRateLimit).toBe(true);
     });
@@ -203,6 +205,30 @@ describe("app factory", () => {
       ];
 
       expect(routes.some((key) => key.startsWith("POST /api/v1/auth"))).toBe(false);
+    });
+
+    it("#439: mirrors the hackathon route set under /api/v1", () => {
+      const routes = pathsOf(createApp({ mode: "hackathon" }));
+
+      expect(routes.has("POST /api/v1/auth/challenge")).toBe(true);
+      expect(routes.has("POST /api/v1/auth/connect")).toBe(true);
+      expect(routes.has("GET /api/v1/prices")).toBe(true);
+      expect(routes.has("POST /api/v1/bets/up-down")).toBe(true);
+      expect(routes.has("GET /api/v1/rounds")).toBe(true);
+      expect(routes.has("GET /api/v1/tournaments")).toBe(true);
+
+      // Flag-gated production surfaces stay absent under the versioned
+      // prefix too — the alias mirrors, it does not add.
+      expect(routes.has("POST /api/v1/predictions/submit")).toBe(false);
+      expect(routes.has("GET /api/v1/admin/dead-letter")).toBe(false);
+    });
+
+    it("#439: still drops the /api/v1 tree when versionedAlias is overridden off", () => {
+      const routes = [
+        ...pathsOf(createApp({ mode: "hackathon", features: { versionedAlias: false } })),
+      ];
+
+      expect(routes.some((key) => key.includes("/api/v1/"))).toBe(false);
     });
   });
 

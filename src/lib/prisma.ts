@@ -44,6 +44,111 @@ export const prisma = (() => {
         updateMany: async () => ({ count: 0 }) as any,
         // Add other model mocks if needed.
       },
+      // #664: authChallenge stub with the same one-time/TTL/atomic-consume
+      // semantics the full app enforces via Prisma's updateMany. Without it,
+      // any unit test exercising the auth flow crashes on `authChallenge`
+      // instead of getting the production-shaped 401 behaviour, and a
+      // signature replay could mint multiple JWTs in mock mode.
+      authChallenge: (() => {
+        // Keyed by the challenge string — the only unique lookup the auth
+        // routes perform (challenge text == primary key in the schema).
+        const store = new Map<
+          string,
+          {
+            id: string;
+            challenge: string;
+            walletAddress: string;
+            expiresAt: Date;
+            isUsed: boolean;
+            usedAt: Date | null;
+            createdAt: Date;
+          }
+        >();
+        let nextId = 1;
+
+        const snapshot = (row: (typeof store) extends Map<string, infer R> ? R : never) =>
+          ({ ...row }) as any;
+
+        return {
+          create: async ({ data }: any) => {
+            const row = {
+              id: `challenge-${nextId++}`,
+              usedAt: null,
+              createdAt: new Date(),
+              ...data,
+            };
+            store.set(row.challenge, row);
+            return snapshot(row);
+          },
+          findUnique: async ({ where }: any) => {
+            const row = store.get(where?.challenge);
+            return row ? snapshot(row) : null;
+          },
+          findMany: async ({ where }: any = {}) =>
+            Array.from(store.values())
+              .filter((row) =>
+                Object.entries(where ?? {}).every(([key, condition]) => {
+                  // Flat equality + `{ not: x }` shapes used by the routes.
+                  if (
+                    condition &&
+                    typeof condition === 'object' &&
+                    'not' in (condition as Record<string, unknown>)
+                  ) {
+                    return (row as any)[key] !== (condition as any).not;
+                  }
+                  return (row as any)[key] === condition;
+                }),
+              )
+              .map(snapshot),
+          /**
+           * Atomic consume: only rows matching challenge + wallet + unused +
+           * unexpired are flipped to used, mirroring the SQL the real client
+           * runs. Two concurrent calls can never both report count=1 for the
+           * same row because the second call observes isUsed=true.
+           */
+          updateMany: async ({ where, data }: any) => {
+            let count = 0;
+            for (const row of store.values()) {
+              const matches =
+                (where?.challenge === undefined || row.challenge === where.challenge) &&
+                (where?.walletAddress === undefined || row.walletAddress === where.walletAddress) &&
+                (where?.isUsed === undefined || row.isUsed === where.isUsed) &&
+                (!where?.expiresAt?.gt || row.expiresAt > where.expiresAt.gt);
+              if (!matches) continue;
+              if (data?.isUsed !== undefined) row.isUsed = data.isUsed;
+              if (data?.usedAt !== undefined) row.usedAt = data.usedAt;
+              else if (data?.isUsed === true) row.usedAt = new Date();
+              count += 1;
+            }
+            return { count };
+          },
+          deleteMany: async ({ where }: any = {}) => {
+            let count = 0;
+            for (const [key, row] of store.entries()) {
+              const matches = Object.entries(where ?? {}).every(
+                ([key2, condition]: [string, any]) => {
+                  if (key2 === 'usedAt' && condition?.lt) {
+                    return row.usedAt !== null && row.usedAt < condition.lt;
+                  }
+                  if (key2 === 'expiresAt' && condition?.lt) {
+                    return row.expiresAt < condition.lt;
+                  }
+                  return (row as any)[key2] === condition;
+                },
+              );
+              if (matches) {
+                store.delete(key);
+                count += 1;
+              }
+            }
+            return { count };
+          },
+          /** Test helper: purge all challenges between tests. */
+          _clear: async () => {
+            store.clear();
+          },
+        };
+      })(),
       // #391: lightweight in-memory stubs for the hackathon-data models so
       // unit tests (NODE_ENV=test, no real DATABASE_URL) exercise the same
       // Prisma-shaped API as production without needing a live database.
@@ -126,6 +231,37 @@ export const prisma = (() => {
       user: {
         findUnique: async () => null,
         findFirst: async () => null,
+        // #664: create/update so the auth connect flow can mint a JWT for a
+        // first-time wallet without a database, matching Prisma's return
+        // shape (the full created/updated row).
+        create: async ({ data }: any) => ({
+          id: 'mock-user-1',
+          publicKey: data.walletAddress ?? null,
+          role: 'USER',
+          wins: 0,
+          streak: 0,
+          virtualBalance: data.virtualBalance ?? 1000,
+          lastLoginAt: data.lastLoginAt ?? new Date(),
+          createdAt: new Date(),
+          ...data,
+        }),
+        update: async ({ data }: any) => ({
+          id: 'mock-user-1',
+          walletAddress: 'mock-user-wallet',
+          publicKey: 'mock-user-wallet',
+          role: 'USER',
+          wins: 0,
+          streak: 0,
+          virtualBalance: 1000,
+          createdAt: new Date(),
+          lastLoginAt: new Date(),
+          ...data,
+        }),
+      },
+      // #664: signup/daily-bonus ledger entries written by the connect flow.
+      transaction: {
+        create: async ({ data }: any) => ({ id: 'mock-txn-1', createdAt: new Date(), ...data }),
+        findMany: async () => [],
       },
       // Add a generic $queryRaw mock for connectivity checks.
       $queryRaw: async () => null,

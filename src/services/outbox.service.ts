@@ -22,6 +22,10 @@
  *    d. On failure: increments `attempts`; marks FAILED once the cap is
  *       reached and escalates to the existing FailedDispatch DLQ so an
  *       operator can replay it via `/api/admin/dead-letter`.
+ *    e. On an *unknown* `eventType` (Issue #668): marks FAILED immediately,
+ *       records a DLQ entry (payload + type + error), increments the
+ *       `outbox_unknown_event_type` metric, and continues with the next row
+ *       — a single bad event can no longer stall the dispatcher.
  *
  * ## Env vars
  * - `OUTBOX_POLL_INTERVAL_SECONDS` – how often the poller runs (default 10).
@@ -33,6 +37,7 @@ import { OutboxEventStatus, OutboxEventType, DispatchChannel } from '@prisma/cli
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
 import deadLetterQueueService from './dead-letter-queue.service';
+import { outboxUnknownEventTypeTotal } from '../metrics/application.metrics';
 
 // ─── tunables ────────────────────────────────────────────────────────────────
 
@@ -122,6 +127,40 @@ export interface BetFailedOutboxPayload {
   correlationId?: string;
 }
 
+// ─── known event catalog (Issue #668) ─────────────────────────────────────────
+
+/**
+ * Typed catalog of every `OutboxEventType` the dispatcher knows how to
+ * dispatch. Derived from the Prisma enum so the two can never drift at the
+ * type level; the `default:` branch in {@link OutboxService.dispatch} is the
+ * runtime guard for an enum value that was added in one PR without updating
+ * the switch below.
+ *
+ * When you extend `OutboxEventType` in `prisma/schema.prisma`:
+ *   1. Add the payload interface + dispatch handler to
+ *      {@link OutboxDispatchHandlers} and the `switch` in `dispatch`.
+ *   2. Extend `KNOWN_OUTBOX_EVENTS` so the compiler forces you to wire the
+ *      new member into every consumer of this catalog.
+ * If you skip step 1, the row is no longer dispatched — it is routed to the
+ * DLQ with an `outbox_unknown_event_type` metric bump instead of stalling
+ * the whole notification/websocket fan-out (Issue #668).
+ */
+export const KNOWN_OUTBOX_EVENTS = [
+  OutboxEventType.NOTIFICATION_CREATE,
+  OutboxEventType.WEBSOCKET_EMIT,
+  OutboxEventType.BET_ACCEPTED,
+  OutboxEventType.BET_CONFIRMED,
+  OutboxEventType.BET_RESOLVED,
+  OutboxEventType.BET_FAILED,
+] as const;
+
+export type KnownOutboxEvent = (typeof KNOWN_OUTBOX_EVENTS)[number];
+
+/** Runtime narrowing helper: is this event type in the known catalog? */
+export function isKnownOutboxEvent(eventType: string): eventType is KnownOutboxEvent {
+  return (KNOWN_OUTBOX_EVENTS as readonly string[]).includes(eventType);
+}
+
 // ─── dispatch handlers (injected so the service stays testable) ───────────────
 
 export interface OutboxDispatchHandlers {
@@ -136,6 +175,16 @@ export interface OutboxDispatchHandlers {
 // ─── truncation helper (mirrors DLQ) ─────────────────────────────────────────
 
 const MAX_ERROR_LEN = 1000;
+
+/**
+ * Best-effort next attempt value for rows we mark FAILED outside the normal
+ * retry ladder (Issue #668 unknown-event routing). Mirrors `row.attempts + 1`
+ * but tolerates a malformed/null counter from a bad row.
+ */
+function nextAttemptSafe(attempts: number | null | undefined): number {
+  const n = typeof attempts === 'number' && Number.isFinite(attempts) ? attempts : 0;
+  return n + 1;
+}
 
 function truncateError(err: unknown): string {
   const raw =
@@ -159,6 +208,8 @@ export interface ProcessOutboxResult {
   processed: number;
   failed: number;
   escalated: number;
+  /** Rows whose `eventType` was not in the catalog; routed to the DLQ. */
+  unknown: number;
 }
 
 class OutboxService {
@@ -175,7 +226,7 @@ class OutboxService {
     batchSize: number = getOutboxBatchSize(),
     maxAttempts: number = getOutboxMaxAttempts(),
   ): Promise<ProcessOutboxResult> {
-    const result: ProcessOutboxResult = { processed: 0, failed: 0, escalated: 0 };
+    const result: ProcessOutboxResult = { processed: 0, failed: 0, escalated: 0, unknown: 0 };
 
     const rows = await prisma.outboxEvent.findMany({
       where: { status: OutboxEventStatus.PENDING },
@@ -217,6 +268,41 @@ class OutboxService {
         result.processed += 1;
         logger.debug(`Outbox: dispatched event ${row.id} (${row.eventType})`);
       } catch (err) {
+        // Issue #668: an unknown event type must not throw and stall the
+        // dispatcher — one bad row should never block notifications and
+        // websocket fan-out for everyone. Route it to the DLQ immediately
+        // (no retry loop; the error is deterministic, not transient) and
+        // keep processing the remaining rows.
+        if (!isKnownOutboxEvent(row.eventType)) {
+          await prisma.outboxEvent.update({
+            where: { id: row.id },
+            data: {
+              status: OutboxEventStatus.FAILED,
+              attempts: nextAttemptSafe(row.attempts),
+              lastError: truncateError(err),
+              updatedAt: new Date(),
+            },
+          });
+
+          result.failed += 1;
+          result.unknown += 1;
+
+          outboxUnknownEventTypeTotal.inc({ eventType: String(row.eventType) });
+
+          await deadLetterQueueService.record({
+            channel: DispatchChannel.WEBSOCKET_EMIT,
+            eventName: `unknown:${row.eventType}`,
+            userId: null,
+            payload: row.payload,
+            error: err,
+          });
+
+          logger.warn(
+            `Outbox: unknown event type "${row.eventType}" for event ${row.id}; routed to DLQ and continuing`,
+          );
+          continue;
+        }
+
         const nextAttempts = row.attempts + 1;
         const exhausted = nextAttempts >= maxAttempts;
 
@@ -259,6 +345,10 @@ class OutboxService {
 
   /**
    * Dispatch a single outbox row to the appropriate handler.
+   *
+   * Throws on an unknown `eventType` (Issue #668); `processOutbox` catches
+   * that, routes the row to the DLQ with an `outbox_unknown_event_type`
+   * metric bump, and moves on to the next row instead of rethrowing.
    */
   private async dispatch(
     row: { id: string; eventType: OutboxEventType; payload: unknown },

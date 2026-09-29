@@ -6,6 +6,8 @@
  *   - Failed dispatches increment `attempts` and reset to PENDING for retry.
  *   - Once `maxAttempts` is exhausted the row is marked FAILED and escalated
  *     to the DLQ so an operator can replay it.
+ *   - Unknown `eventType` values (Issue #668) are routed to the DLQ with an
+ *     `outbox_unknown_event_type` metric bump and the loop continues.
  *   - `cleanupProcessed` only deletes PROCESSED rows older than the cutoff.
  *   - The poller skips rows that were already claimed by another instance
  *     (updateMany returns count=0).
@@ -39,6 +41,15 @@ jest.mock('../services/dead-letter-queue.service', () => ({
   default: { record: (...args: any[]) => mockDlqRecord(...args) },
 }));
 
+// ─── mock metrics (Issue #668) ───────────────────────────────────────────────
+
+const mockUnknownMetricInc: any = jest.fn();
+
+jest.mock('../metrics/application.metrics', () => ({
+  __esModule: true,
+  outboxUnknownEventTypeTotal: { inc: (...args: any[]) => mockUnknownMetricInc(...args) },
+}));
+
 // ─── mock logger ─────────────────────────────────────────────────────────────
 
 jest.mock('../utils/logger', () => ({
@@ -63,6 +74,10 @@ jest.mock('@prisma/client', () => ({
   OutboxEventType: {
     NOTIFICATION_CREATE: 'NOTIFICATION_CREATE',
     WEBSOCKET_EMIT: 'WEBSOCKET_EMIT',
+    BET_ACCEPTED: 'BET_ACCEPTED',
+    BET_CONFIRMED: 'BET_CONFIRMED',
+    BET_RESOLVED: 'BET_RESOLVED',
+    BET_FAILED: 'BET_FAILED',
   },
   DispatchChannel: {
     NOTIFICATION_CREATE: 'NOTIFICATION_CREATE',
@@ -71,6 +86,7 @@ jest.mock('@prisma/client', () => ({
 }));
 
 import outboxService from '../services/outbox.service';
+import { KNOWN_OUTBOX_EVENTS, isKnownOutboxEvent } from '../services/outbox.service';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -97,6 +113,10 @@ function makeHandlers(overrides: Partial<any> = {}): any {
   return {
     notificationCreate: jest.fn().mockResolvedValue({ id: 'notif-1' }),
     websocketEmit: jest.fn(),
+    betAccepted: jest.fn().mockResolvedValue({ id: 'bet-1' }),
+    betConfirmed: jest.fn().mockResolvedValue({ id: 'bet-1' }),
+    betResolved: jest.fn().mockResolvedValue({ id: 'bet-1' }),
+    betFailed: jest.fn().mockResolvedValue({ id: 'bet-1' }),
     ...overrides,
   };
 }
@@ -109,13 +129,103 @@ describe('OutboxService', () => {
     mockDlqRecord.mockResolvedValue({ id: 'dlq-1' });
   });
 
+  describe('known event catalog (Issue #668)', () => {
+    it('contains exactly the dispatchable event types', () => {
+      expect([...KNOWN_OUTBOX_EVENTS].sort()).toEqual([
+        'BET_ACCEPTED',
+        'BET_CONFIRMED',
+        'BET_FAILED',
+        'BET_RESOLVED',
+        'NOTIFICATION_CREATE',
+        'WEBSOCKET_EMIT',
+      ]);
+    });
+
+    it('isKnownOutboxEvent accepts known and rejects unknown types', () => {
+      expect(isKnownOutboxEvent('NOTIFICATION_CREATE')).toBe(true);
+      expect(isKnownOutboxEvent('BET_RESOLVED')).toBe(true);
+      expect(isKnownOutboxEvent('TOTALLY_NEW_EVENT')).toBe(false);
+      expect(isKnownOutboxEvent('')).toBe(false);
+    });
+  });
+
+  describe('unknown event routing (Issue #668)', () => {
+    it('routes an unknown eventType to the DLQ without stalling the loop', async () => {
+      const rows = [
+        makeRow({ id: 'evt-good', eventType: 'NOTIFICATION_CREATE' }),
+        makeRow({ id: 'evt-unknown', eventType: 'MYSTERY_EVENT' }),
+        makeRow({ id: 'evt-after', eventType: 'WEBSOCKET_EMIT' }),
+      ];
+      mockFindMany.mockResolvedValue(rows);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+      mockUpdate.mockResolvedValue({});
+
+      const handlers = makeHandlers();
+      const result = await outboxService.processOutbox(handlers, 50, 3);
+
+      // Known events before and after the bad row are still dispatched —
+      // the unknown row did not stall the loop.
+      expect(result).toEqual({ processed: 2, failed: 1, escalated: 0, unknown: 1 });
+      expect(handlers.notificationCreate).toHaveBeenCalledTimes(1);
+      expect(handlers.websocketEmit).toHaveBeenCalledTimes(1);
+
+      // Bad row marked FAILED deterministically (no retry ladder).
+      const failUpdate = mockUpdate.mock.calls.find(
+        (call: any[]) => call[0].where?.id === 'evt-unknown',
+      );
+      expect(failUpdate).toBeDefined();
+      expect(failUpdate![0].data.status).toBe('FAILED');
+      expect(failUpdate![0].data.attempts).toBe(1);
+      expect(String(failUpdate![0].data.lastError)).toContain('MYSTERY_EVENT');
+
+      // DLQ record carries payload + type + error.
+      expect(mockDlqRecord).toHaveBeenCalledTimes(1);
+      const dlqArgs: any = mockDlqRecord.mock.calls[0][0];
+      expect(dlqArgs.eventName).toBe('unknown:MYSTERY_EVENT');
+      expect(dlqArgs.payload).toEqual(rows[1].payload);
+      expect(String(dlqArgs.error)).toContain('MYSTERY_EVENT');
+    });
+
+    it('increments the outbox_unknown_event_type metric', async () => {
+      mockFindMany.mockResolvedValue([
+        makeRow({ id: 'evt-x', eventType: 'CATALOG_MISS' }),
+      ]);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+      mockUpdate.mockResolvedValue({});
+
+      await outboxService.processOutbox(makeHandlers(), 50, 3);
+
+      expect(mockUnknownMetricInc).toHaveBeenCalledTimes(1);
+      expect(mockUnknownMetricInc).toHaveBeenCalledWith({ eventType: 'CATALOG_MISS' });
+    });
+
+    it('does not rethrow when every row has an unknown type', async () => {
+      mockFindMany.mockResolvedValue([
+        makeRow({ id: 'evt-bad-1', eventType: 'NOPE_1' }),
+        makeRow({ id: 'evt-bad-2', eventType: 'NOPE_2' }),
+      ]);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+      mockUpdate.mockResolvedValue({});
+
+      const handlers = makeHandlers();
+
+      await expect(outboxService.processOutbox(handlers, 50, 3)).resolves.toEqual({
+        processed: 0,
+        failed: 2,
+        escalated: 0,
+        unknown: 2,
+      });
+      expect(mockDlqRecord).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('processOutbox', () => {
     it('returns zero counts when there are no pending rows', async () => {
       mockFindMany.mockResolvedValue([]);
 
       const result = await outboxService.processOutbox(makeHandlers());
 
-      expect(result).toEqual({ processed: 0, failed: 0, escalated: 0 });
+      expect(result).toEqual({ processed: 0, failed: 0, escalated: 0, unknown: 0 });
       expect(mockUpdateMany).not.toHaveBeenCalled();
     });
 
@@ -128,7 +238,7 @@ describe('OutboxService', () => {
       const handlers = makeHandlers();
       const result = await outboxService.processOutbox(handlers, 50, 3);
 
-      expect(result).toEqual({ processed: 1, failed: 0, escalated: 0 });
+      expect(result).toEqual({ processed: 1, failed: 0, escalated: 0, unknown: 0 });
 
       // Claim step
       expect(mockUpdateMany).toHaveBeenCalledWith({
@@ -175,7 +285,7 @@ describe('OutboxService', () => {
       const handlers = makeHandlers();
       const result = await outboxService.processOutbox(handlers, 50, 3);
 
-      expect(result).toEqual({ processed: 0, failed: 0, escalated: 0 });
+      expect(result).toEqual({ processed: 0, failed: 0, escalated: 0, unknown: 0 });
       expect(handlers.notificationCreate).not.toHaveBeenCalled();
       expect(mockUpdate).not.toHaveBeenCalled();
     });
@@ -192,7 +302,7 @@ describe('OutboxService', () => {
 
       const result = await outboxService.processOutbox(handlers, 50, 3);
 
-      expect(result).toEqual({ processed: 0, failed: 1, escalated: 0 });
+      expect(result).toEqual({ processed: 0, failed: 1, escalated: 0, unknown: 0 });
 
       const updateArgs: any = mockUpdate.mock.calls[0][0];
       expect(updateArgs.data.status).toBe('PENDING');
@@ -216,7 +326,7 @@ describe('OutboxService', () => {
 
       const result = await outboxService.processOutbox(handlers, 50, 3);
 
-      expect(result).toEqual({ processed: 0, failed: 1, escalated: 1 });
+      expect(result).toEqual({ processed: 0, failed: 1, escalated: 1, unknown: 0 });
 
       const updateArgs: any = mockUpdate.mock.calls[0][0];
       expect(updateArgs.data.status).toBe('FAILED');
@@ -275,7 +385,7 @@ describe('OutboxService', () => {
 
       const result = await outboxService.processOutbox(handlers, 50, 3);
 
-      expect(result).toEqual({ processed: 2, failed: 1, escalated: 1 });
+      expect(result).toEqual({ processed: 2, failed: 1, escalated: 1, unknown: 0 });
     });
 
     it('truncates long error messages to 1000 chars', async () => {
