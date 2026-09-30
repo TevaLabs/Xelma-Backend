@@ -35,6 +35,7 @@ the entrypoint map and the checklist for adding new routes.
 - [ ] Added or updated tests covering the change.
 - [ ] `npm run lint` and `npm test` pass locally.
 - [ ] Updated docs (README, OpenAPI annotations, `docs/`) where behavior changed.
+- [ ] If you changed routes or OpenAPI annotations, ran `npm run docs:generate` and committed the refreshed `docs/openapi.json` and `docs/postman-collection.json` (CI enforces this via `npm run docs:verify`).
 
 ## Notes for reviewers
 
