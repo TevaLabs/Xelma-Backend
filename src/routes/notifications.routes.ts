@@ -203,6 +203,8 @@ router.patch(
   authenticateUser,
   (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
+      // Deliberately ignore any body userId. Tenant identity always comes from
+      // the verified JWT, preventing cross-user IDOR updates.
       const userId = req.user.userId;
       const count = await notificationService.markAllAsRead(userId);
       res.json({

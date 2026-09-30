@@ -8,6 +8,7 @@ import logger from '../utils/logger';
 import { asyncHandler } from '../middleware/errorHandler.middleware';
 import { sendSuccess } from '../utils/response';
 import config from '../config';
+import { setNoStore } from '../utils/http-cache';
 
 const router = Router();
 
@@ -125,6 +126,7 @@ async function checkOracle(): Promise<{
 router.get(
   '/',
   asyncHandler(async (_req: Request, res: Response) => {
+    setNoStore(res);
     const startTime = Date.now();
 
     const [database, redis, soroban, oracle] = await Promise.all([
@@ -190,6 +192,7 @@ function isRedisConfigured(): boolean {
  *              the service is still serving requests
  */
 router.get('/health', asyncHandler(async (_req: Request, res: Response) => {
+  setNoStore(res);
   const startTime = Date.now();
   const isMockMode = config.app.dataMode === 'mock';
   const sorobanReady = sorobanService.isReady();

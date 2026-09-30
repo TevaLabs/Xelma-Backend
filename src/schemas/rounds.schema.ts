@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stakeAmountSchema } from '../utils/max-stake.util';
 
 export const priceRangeSchema = z.object({
   min: z.number(),
@@ -71,6 +72,6 @@ export const createPriceRangeSchema = z.object({
 
 export const submitLegendsPredictionSchema = z.object({
   roundId: z.string().uuid(),
-  amount: z.number().positive(),
+  amount: stakeAmountSchema(),
   priceRange: userPriceRangeSchema,
 });

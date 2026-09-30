@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getPrices } from '../services/priceService';
 import { sendSuccess, sendError } from '../utils/response';
 import priceOracle from '../services/oracle';
+import { setPublicCache } from '../utils/http-cache';
 
 const router = Router();
 
@@ -84,8 +85,10 @@ export const legacyXlmPriceRouter = Router();
 router.get('/prices', async (_req: Request, res: Response) => {
   try {
     const snapshot = await getPrices();
+    setPublicCache(res, 30);
     sendSuccess(res, snapshot);
   } catch (error) {
+    setPublicCache(res, 30);
     sendError(
       res,
       error instanceof Error
@@ -142,6 +145,7 @@ router.get('/prices', async (_req: Request, res: Response) => {
  *               timestamp: '2026-07-29T12:00:05.000Z'
  */
 legacyXlmPriceRouter.get('/price', (_req: Request, res: Response) => {
+  setPublicCache(res, 30);
   const price = priceOracle.getPriceString();
   const lastUpdatedAt = priceOracle.getLastUpdatedAt();
   res.json({

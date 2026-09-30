@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { getRepositories } from "../repositories";
 import { sendSuccess, sendError } from "../utils/response";
 import logger from "../utils/logger";
+import { setPublicCache } from "../utils/http-cache";
 
 const router = Router();
 
@@ -56,8 +57,10 @@ const router = Router();
 router.get("/", async (_req: Request, res: Response) => {
   try {
     const stats = await getRepositories().stats.getPlatformStats();
+    setPublicCache(res, 30);
     return sendSuccess(res, stats);
   } catch (err) {
+    setPublicCache(res, 30);
     logger.error("[GET /api/stats] Unexpected error:", {
       error: err instanceof Error ? err.message : String(err),
     });

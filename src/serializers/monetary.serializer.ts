@@ -73,6 +73,23 @@ export function serializePrediction<T extends object>(prediction: T): T {
 export function serializeRound<T extends object>(round: T): T {
   const out = { ...round } as Record<string, unknown>;
 
+  // Keep timer clients on server time. `endTime` is the canonical persisted
+  // close/lock boundary; clamp the derived value so clock skew never yields a
+  // negative countdown.
+  const endTime = out.endTime;
+  const endDate = endTime instanceof Date
+    ? endTime
+    : typeof endTime === "string"
+      ? new Date(endTime)
+      : null;
+  if (endDate && !Number.isNaN(endDate.getTime())) {
+    const endIso = endDate.toISOString();
+    out.bettingClosesAt = endIso;
+    out.lockAt = endIso;
+    out.resolveAt = out.resolvedAt ?? null;
+    out.secondsRemaining = Math.max(0, Math.ceil((endDate.getTime() - Date.now()) / 1000));
+  }
+
   serializeExisting(out, "startPrice", false);
   serializeExisting(out, "currentPrice", false);
   serializeExisting(out, "endPrice", true);
