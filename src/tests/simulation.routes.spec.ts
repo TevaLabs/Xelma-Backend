@@ -1,9 +1,10 @@
 /**
- * Route-level tests for POST /api/rounds/:id/simulate (Issue #553).
+ * Route-level tests for POST /api/rounds/:id/simulate (Issue #553, #667).
  *
- * Verifies the ENABLE_SIMULATION master-switch behavior (403 in EVERY
- * environment when the flag is off, not just production) and the ADMIN
- * bearer-token requirement when the flag is on.
+ * Verifies the ENABLE_SIMULATION master-switch behavior — when the flag is off
+ * the endpoint is NOT DISCOVERABLE (404 with the same payload as an unknown
+ * path, in EVERY environment, not just production) — plus the ADMIN
+ * bearer-token requirement and the Zod body validation when the flag is on.
  *
  * Uses a mocked config module so the flag can be flipped between requests,
  * and a mocked simulation service so no database is required.
@@ -66,6 +67,12 @@ jest.mock("../config", () => ({
       dataStore: "postgres",
       enableSimulation: mockConfigState.enableSimulation,
       enableMultiplayerSocial: false,
+      metricsScrapeToken: "",
+      socketDemoMode: false,
+      // Required by the module-level logger call in src/index.ts:
+      //   logger.info(`Safety profile: ${config.app.safetyProfile.toUpperCase()}`)
+      // Without it every buildApp() in this file throws before a request is made.
+      safetyProfile: "demo",
     },
     jwt: {
       secret: "test-jwt-secret-for-mock",
@@ -145,8 +152,8 @@ describe("POST /api/rounds/:id/simulate - ENABLE_SIMULATION flag and auth (Issue
     return createApp();
   }
 
-  describe("flag OFF (ENABLE_SIMULATION=false) - locked down in every environment", () => {
-    it("returns 403 in a non-production environment (nodeEnv=test) without calling the service", async () => {
+  describe("flag OFF (ENABLE_SIMULATION=false) - the route is not discoverable", () => {
+    it("returns 404 in a non-production environment (nodeEnv=test) without calling the service", async () => {
       app = await buildApp(false);
       mockSimulateRound.mockResolvedValue(makeSimulationResult());
 
@@ -154,13 +161,11 @@ describe("POST /api/rounds/:id/simulate - ENABLE_SIMULATION flag and auth (Issue
         .post("/api/rounds/round-sim-1/simulate")
         .send({ finalPrice: 55000 });
 
-      expect(res.status).toBe(403);
-      expect(res.body.success).toBe(false);
-      expect(res.body.error).toMatch(/ENABLE_SIMULATION=true/);
+      expect(res.status).toBe(404);
       expect(mockSimulateRound).not.toHaveBeenCalled();
     });
 
-    it("returns 403 even with a valid ADMIN token - the flag gate runs before auth", async () => {
+    it("returns 404 even with a valid ADMIN token - the flag gate runs before auth", async () => {
       app = await buildApp(false);
       mockUserFindUnique.mockResolvedValue({
         id: ADMIN_ID,
@@ -173,9 +178,43 @@ describe("POST /api/rounds/:id/simulate - ENABLE_SIMULATION flag and auth (Issue
         .set("Authorization", `Bearer ${adminToken}`)
         .send({ finalPrice: 55000 });
 
-      expect(res.status).toBe(403);
-      expect(res.body.success).toBe(false);
+      expect(res.status).toBe(404);
       expect(mockSimulateRound).not.toHaveBeenCalled();
+    });
+
+    it("does not leak the flag: the response is the generic unknown-route 404", async () => {
+      app = await buildApp(false);
+
+      const disabled = await request(app)
+        .post("/api/rounds/round-sim-1/simulate")
+        .send({ finalPrice: 55000 });
+
+      const unknown = await request(app)
+        .post("/api/rounds/round-sim-1/not-a-real-route")
+        .send({ finalPrice: 55000 });
+
+      // Same status and same envelope as a path that never existed. The only
+      // difference is the echoed path, which is exactly what distinguishes two
+      // arbitrary unknown paths from each other too.
+      expect(disabled.status).toBe(404);
+      expect(disabled.status).toBe(unknown.status);
+      expect(Object.keys(disabled.body).sort()).toEqual(
+        Object.keys(unknown.body).sort(),
+      );
+      expect(disabled.body.error).toBe(
+        "Route POST /api/rounds/round-sim-1/simulate not found",
+      );
+      expect(unknown.body.error).toBe(
+        "Route POST /api/rounds/round-sim-1/not-a-real-route not found",
+      );
+
+      // The old 403 body said "Simulation is disabled. Set ENABLE_SIMULATION=true
+      // to enable this QA endpoint." — i.e. it told callers how to unlock it.
+      const body = JSON.stringify(disabled.body);
+      expect(body).not.toMatch(/ENABLE_SIMULATION/);
+      expect(body).not.toMatch(/[Ss]imulation is disabled/);
+      expect(body).not.toMatch(/[Ss]imulation/);
+      expect(body).not.toMatch(/admin/i);
     });
   });
 
@@ -251,6 +290,55 @@ describe("POST /api/rounds/:id/simulate - ENABLE_SIMULATION flag and auth (Issue
 
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/finalPrice is required/);
+      expect(mockSimulateRound).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when finalPrice is not a positive number (Zod)", async () => {
+      app = await buildApp(true);
+      mockUserFindUnique.mockResolvedValue({
+        id: ADMIN_ID,
+        walletAddress: "GADMIN_SIM_TEST_AAAAAAAAAAAAAAAAA",
+        role: "ADMIN",
+      });
+
+      for (const finalPrice of [-1, 0, "not-a-number"]) {
+        const res = await request(app)
+          .post("/api/rounds/round-sim-1/simulate")
+          .set("Authorization", `Bearer ${adminToken}`)
+          .send({ finalPrice });
+
+        expect(res.status).toBe(400);
+        expect(JSON.stringify(res.body)).toMatch(/finalPrice/);
+      }
+      expect(mockSimulateRound).not.toHaveBeenCalled();
+    });
+
+    it("accepts a numeric string finalPrice and passes the raw value to the service", async () => {
+      app = await buildApp(true);
+      mockUserFindUnique.mockResolvedValue({
+        id: ADMIN_ID,
+        walletAddress: "GADMIN_SIM_TEST_AAAAAAAAAAAAAAAAA",
+        role: "ADMIN",
+      });
+      mockSimulateRound.mockResolvedValue(makeSimulationResult());
+
+      const res = await request(app)
+        .post("/api/rounds/round-sim-1/simulate")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ finalPrice: "55000" });
+
+      expect(res.status).toBe(200);
+      expect(mockSimulateRound).toHaveBeenCalledWith("round-sim-1", "55000");
+    });
+
+    it("validates the body after auth: an unauthenticated bad body still gets 401, not 400", async () => {
+      app = await buildApp(true);
+
+      const res = await request(app)
+        .post("/api/rounds/round-sim-1/simulate")
+        .send({ finalPrice: -1 });
+
+      expect(res.status).toBe(401);
       expect(mockSimulateRound).not.toHaveBeenCalled();
     });
 

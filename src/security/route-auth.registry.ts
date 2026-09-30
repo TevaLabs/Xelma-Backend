@@ -45,7 +45,7 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   // Rounds
   { method: "POST", path: "/api/rounds/start", auth: RouteAuthLevel.ADMIN },
   { method: "GET", path: "/api/rounds/:id", auth: RouteAuthLevel.PUBLIC },
-  { method: "POST", path: "/api/rounds/:id/simulate", auth: RouteAuthLevel.ADMIN, notes: "QA-only; gated by ENABLE_SIMULATION (403 when off, even outside production)" },
+  { method: "POST", path: "/api/rounds/:id/simulate", auth: RouteAuthLevel.ADMIN, notes: "QA-only; gated by ENABLE_SIMULATION (404 when off, in every environment, so the route is not discoverable)" },
   { method: "POST", path: "/api/rounds/:id/resolve", auth: RouteAuthLevel.ORACLE },
 
   // Round-scoped bets (JWT required — wallet bound from token, same

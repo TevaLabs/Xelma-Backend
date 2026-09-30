@@ -1199,7 +1199,7 @@
     "/api/rounds/{id}/simulate": {
       "post": {
         "summary": "Simulate a round resolution (Non-Production QA Endpoint)",
-        "description": "Simulates payout distribution for a round WITHOUT placing real bets or mutating the round. This is a QA/admin-only endpoint and must not be enabled on production builds. It is gated by the ENABLE_SIMULATION environment variable (default: false): when the flag is off the route returns 403 in EVERY environment, including development and test. When the flag is on, the caller must present an ADMIN bearer token (`Authorization: Bearer <JWT>`).\n",
+        "description": "Simulates payout distribution for a round WITHOUT placing real bets or mutating the round. This is a QA/admin-only endpoint and must not be enabled on production builds.\nGated by the ENABLE_SIMULATION environment variable (default: false). When the flag is off the endpoint is not discoverable: it answers 404, with the same body as any unknown path, in EVERY environment including development and test. When the flag is on, the caller must present an ADMIN bearer token (`Authorization: Bearer <JWT>`) and the body is validated against a Zod schema (`finalPrice` must be a positive number or numeric string).\n",
         "tags": [
           "rounds"
         ],
@@ -1228,7 +1228,7 @@
                 "properties": {
                   "finalPrice": {
                     "type": "number",
-                    "description": "Hypothetical final price used to compute winners"
+                    "description": "Hypothetical final price used to compute winners. Must be a positive number (numeric strings are accepted too).\n"
                   }
                 },
                 "required": [
@@ -1338,16 +1338,16 @@
             }
           },
           "400": {
-            "description": "Validation error - finalPrice missing"
+            "description": "Validation error - the request body failed schema validation (missing finalPrice, or a non-positive / non-numeric value)\n"
           },
           "401": {
             "description": "Unauthorized - missing or invalid bearer token"
           },
           "403": {
-            "description": "Forbidden - simulation disabled (ENABLE_SIMULATION=false) or caller is not an admin"
+            "description": "Forbidden - caller is not an admin (only reachable when ENABLE_SIMULATION=true)"
           },
           "404": {
-            "description": "Round not found"
+            "description": "Round not found, OR the endpoint is not exposed because ENABLE_SIMULATION=false (indistinguishable from an unknown path)\n"
           }
         }
       }
