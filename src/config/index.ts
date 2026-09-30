@@ -80,6 +80,9 @@ export interface StellarConfig {
 
 export interface SocketConfig {
   clientUrl: string;
+  pingInterval: number;
+  pingTimeout: number;
+  connectTimeout: number;
 }
 
 export interface OracleConfig {
@@ -283,6 +286,21 @@ function buildConfig(): Config {
 
   const socket: SocketConfig = {
     clientUrl: app.clientUrl,
+    pingInterval: v.positiveInt(
+      env.SOCKET_PING_INTERVAL,
+      "SOCKET_PING_INTERVAL",
+      25000,
+    ),
+    pingTimeout: v.positiveInt(
+      env.SOCKET_PING_TIMEOUT,
+      "SOCKET_PING_TIMEOUT",
+      20000,
+    ),
+    connectTimeout: v.positiveInt(
+      env.SOCKET_CONNECT_TIMEOUT,
+      "SOCKET_CONNECT_TIMEOUT",
+      45000,
+    ),
   };
 
   const oracle: OracleConfig = {
