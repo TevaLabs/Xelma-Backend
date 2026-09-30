@@ -502,6 +502,44 @@ TOURNAMENT_INVALID_STATE` rather than mutating state.
 - Rate-limit hits are recorded for the admin metrics dashboard (`GET /api/admin/metrics/rate-limits`)
 - **Multi-instance:** when `REDIS_URL` is set, every limiter stores its counters in a shared Redis store so throttles hold across replicas (Issue #520). Each limiter gets its own key prefix (`xelma:rl:<limiter>:`); when Redis is unreachable the default policy falls back to a per-process window (see `RATE_LIMIT_REDIS_FAIL_OPEN`). With no `REDIS_URL` configured the limiters use express-rate-limit's in-process store, so local single-node development is unchanged. See [docs/multi-instance-deployment.md](docs/multi-instance-deployment.md).
 
+#### **Rate-Limit Metrics (`rate-limit-metrics.service.ts`)**
+
+Rate-limit hits are persisted through a pluggable backend so the admin dashboard
+(`GET /api/admin/metrics/rate-limits`) keeps working in hackathon/demo mode where
+no database is wired up (Issue #665).
+
+| Backend  | Selected when                                                                | Storage                                   |
+| -------- | ---------------------------------------------------------------------------- | ----------------------------------------- |
+| `memory` | `DATA_MODE=mock`, `DATA_STORE=memory`, or `RATE_LIMIT_METRICS_BACKEND=memory` | Bounded in-process buffer (default 5000)  |
+| `prisma` | Full mode (default)                                                          | `RateLimitMetric` Postgres table          |
+
+The service also degrades a failing Prisma backend to memory at runtime, so a
+dropped database never leaves the operator charts silently empty.
+
+**Interface**
+
+- `increment(route, status, context?)` — record one hit for a rate-limiter name
+  (e.g. `auth/connect`) and HTTP status (429 for throttles).
+- `snapshot()` — compact, backend-independent view used for diagnostics:
+
+```ts
+{
+  backend: 'memory',            // 'memory' | 'prisma'
+  generatedAt: '2026-09-30T10:00:00.000Z',
+  totalEvents: 12,
+  routes: [{ route: 'auth/connect', status: 429, hits: 12 }],
+  categories: [{ category: 'auth', hits: 12, uniqueKeys: 2, topEndpoints: [...] }],
+}
+```
+
+- `getSummary(limit?)` — `GET /api/admin/metrics/rate-limits` payload
+  (`backend`, `topEndpoints`, `topAbusers`, `recentEvents`, `suspiciousActivity`).
+- `getSuspiciousActivity(limit?)` — auth/prediction/chat abuse heuristics.
+- `clearOldMetrics(days?)` — retention for the active backend.
+
+Configuration: `RATE_LIMIT_METRICS_BACKEND` (`memory` | `prisma`, optional
+override) and `RATE_LIMIT_METRICS_MEMORY_MAX` (buffer cap, default `5000`).
+
 #### **Route Authorization Registry (`src/security/route-auth.registry.ts`)**
 
 - Canonical list of API routes and required auth levels (`public`, `authenticated`, `admin`, `oracle`)

@@ -34,6 +34,10 @@ const router = Router();
  *             schema:
  *               type: object
  *               properties:
+ *                 backend:
+ *                   type: string
+ *                   enum: [memory, prisma]
+ *                   description: Storage backend serving these metrics (Issue #665)
  *                 topEndpoints:
  *                   type: array
  *                   items:
@@ -69,6 +73,9 @@ const router = Router();
  *                         type: string
  *                       userId:
  *                         type: string
+ *                       status:
+ *                         type: integer
+ *                         description: HTTP status recorded with the hit (429 for throttles)
  *                       timestamp:
  *                         type: string
  *                         format: date-time

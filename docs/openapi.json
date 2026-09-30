@@ -2998,6 +2998,14 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "backend": {
+                      "type": "string",
+                      "enum": [
+                        "memory",
+                        "prisma"
+                      ],
+                      "description": "Storage backend serving these metrics (Issue"
+                    },
                     "topEndpoints": {
                       "type": "array",
                       "items": {
@@ -3048,6 +3056,10 @@
                           },
                           "userId": {
                             "type": "string"
+                          },
+                          "status": {
+                            "type": "integer",
+                            "description": "HTTP status recorded with the hit (429 for throttles)"
                           },
                           "timestamp": {
                             "type": "string",

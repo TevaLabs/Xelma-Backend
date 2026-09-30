@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "@jest/globals";
 import { RateLimitMetricsService } from "../services/rate-limit-metrics.service";
+import { MemoryRateLimitMetricsBackend } from "../services/rate-limit-metrics.backends";
 
 const mockFindMany = jest.fn();
 const mockCreate = jest.fn();
@@ -17,67 +18,44 @@ jest.mock("../lib/prisma", () => ({
   },
 }));
 
-describe("RateLimitMetricsService.getSuspiciousActivity", () => {
-  const service = new RateLimitMetricsService();
+describe("RateLimitMetricsService (Prisma backend)", () => {
+  let service: RateLimitMetricsService;
 
   beforeEach(() => {
+    service = new RateLimitMetricsService();
     jest.clearAllMocks();
-    service.resetInMemoryStore();
+  });
+
+  it("uses the Prisma backend by default in full mode", () => {
+    expect(service.backendKind).toBe("prisma");
   });
 
   it("groups monitored categories and flags repeat offenders", async () => {
     const now = new Date();
-    mockFindMany.mockResolvedValue([
-      {
+    mockFindMany.mockResolvedValue(
+      Array.from({ length: 5 }, () => ({
         endpoint: "auth/connect",
         key: "ip-1",
         userId: null,
         ip: "1.2.3.4",
         timestamp: now,
-      },
-      {
-        endpoint: "auth/connect",
-        key: "ip-1",
-        userId: null,
-        ip: "1.2.3.4",
-        timestamp: now,
-      },
-      {
-        endpoint: "auth/connect",
-        key: "ip-1",
-        userId: null,
-        ip: "1.2.3.4",
-        timestamp: now,
-      },
-      {
-        endpoint: "auth/connect",
-        key: "ip-1",
-        userId: null,
-        ip: "1.2.3.4",
-        timestamp: now,
-      },
-      {
-        endpoint: "auth/connect",
-        key: "ip-1",
-        userId: null,
-        ip: "1.2.3.4",
-        timestamp: now,
-      },
-      {
-        endpoint: "chat/message",
-        key: "user-1",
-        userId: "user-1",
-        ip: "127.0.0.1",
-        timestamp: now,
-      },
-      {
-        endpoint: "prediction/batch-submit",
-        key: "user-2",
-        userId: "user-2",
-        ip: "127.0.0.1",
-        timestamp: now,
-      },
-    ]);
+      })).concat([
+        {
+          endpoint: "chat/message",
+          key: "user-1",
+          userId: "user-1",
+          ip: "127.0.0.1",
+          timestamp: now,
+        },
+        {
+          endpoint: "prediction/batch-submit",
+          key: "user-2",
+          userId: "user-2",
+          ip: "127.0.0.1",
+          timestamp: now,
+        },
+      ]),
+    );
 
     const result = await service.getSuspiciousActivity(5);
 
@@ -94,67 +72,73 @@ describe("RateLimitMetricsService.getSuspiciousActivity", () => {
       category: "auth",
     });
   });
-});
 
-describe("RateLimitMetricsService in-memory fallback", () => {
-  let service: RateLimitMetricsService;
-
-  beforeEach(() => {
-    service = new RateLimitMetricsService();
-    service.resetInMemoryStore();
-    jest.clearAllMocks();
-  });
-
-  it("records hits to both Prisma and in-memory store when Prisma is available", async () => {
+  it("writes each increment to Prisma exactly once (no double counting)", async () => {
     mockCreate.mockResolvedValue({});
-    mockGroupBy.mockResolvedValue([]);
-    mockFindMany.mockResolvedValue([]);
-
-    await service.recordHit({ endpoint: "auth/connect", key: "ip-1", ip: "1.2.3.4", userId: null });
-
-    expect(mockCreate).toHaveBeenCalledTimes(1);
-    const summary = await service.getSummary(10);
-    expect(summary.recentEvents.length).toBeGreaterThanOrEqual(1);
-    expect(summary.recentEvents[0].endpoint).toBe("auth/connect");
-  });
-
-  it("records hits in memory when Prisma throws", async () => {
-    mockCreate.mockRejectedValue(new Error("relation does not exist"));
-    mockGroupBy.mockResolvedValue([]);
-    mockFindMany.mockResolvedValue([]);
+    mockGroupBy.mockResolvedValue([{ endpoint: "auth/connect", _count: { id: 1 } }]);
+    mockFindMany.mockResolvedValue([
+      {
+        endpoint: "auth/connect",
+        key: "ip-1",
+        ip: "1.2.3.4",
+        userId: null,
+        timestamp: new Date(),
+      },
+    ]);
 
     await service.recordHit({ endpoint: "auth/connect", key: "ip-1", ip: "1.2.3.4" });
 
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        endpoint: "auth/connect",
+        key: "ip-1",
+        ip: "1.2.3.4",
+      }),
+    });
+
     const summary = await service.getSummary(10);
-    expect(summary.recentEvents.length).toBeGreaterThanOrEqual(1);
+    // Summaries come solely from the mocked Prisma rows — the record is not
+    // duplicated by a shadow in-memory copy.
+    expect(summary.backend).toBe("prisma");
+    expect(summary.recentEvents).toHaveLength(1);
+    expect(summary.recentEvents[0].endpoint).toBe("auth/connect");
+    expect(summary.topEndpoints).toEqual([{ endpoint: "auth/connect", hits: 1 }]);
+  });
+
+  it("clears old metrics through Prisma and returns the deleted count", async () => {
+    mockDeleteMany.mockResolvedValue({ count: 3 });
+
+    const deleted = await service.clearOldMetrics(7);
+
+    expect(deleted).toBe(3);
+    expect(mockDeleteMany).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("RateLimitMetricsService fallback to memory", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("degrades to the in-memory backend when a Prisma write fails", async () => {
+    mockCreate.mockRejectedValue(new Error("relation does not exist"));
+    const service = new RateLimitMetricsService();
+
+    await service.recordHit({ endpoint: "auth/connect", key: "ip-1", ip: "1.2.3.4" });
+
+    expect(service.backendKind).toBe("memory");
+
+    const summary = await service.getSummary(10);
+    expect(summary.backend).toBe("memory");
+    expect(summary.recentEvents).toHaveLength(1);
     expect(summary.recentEvents[0].endpoint).toBe("auth/connect");
   });
 
-  it("returns summary from in-memory records when Prisma findMany throws", async () => {
-    mockGroupBy.mockRejectedValue(new Error("connection refused"));
-    mockFindMany.mockRejectedValue(new Error("connection refused"));
-
-    // Pre-populate in-memory store via recordHit (which also tries Prisma)
+  it("flags suspicious actors from degraded in-memory records", async () => {
     mockCreate.mockRejectedValue(new Error("connection refused"));
-    await service.recordHit({ endpoint: "chat/message", key: "user-1", ip: "127.0.0.1", userId: "user-1" });
-    await service.recordHit({ endpoint: "chat/message", key: "user-1", ip: "127.0.0.1", userId: "user-1" });
-    await service.recordHit({ endpoint: "auth/connect", key: "ip-2", ip: "10.0.0.1" });
+    const service = new RateLimitMetricsService();
 
-    const summary = await service.getSummary(10);
-
-    // Top endpoints should include chat/message and auth/connect
-    const endpoints = summary.topEndpoints.map((e) => e.endpoint);
-    expect(endpoints).toContain("chat/message");
-    expect(endpoints).toContain("auth/connect");
-    expect(summary.topEndpoints.find((e) => e.endpoint === "chat/message")?.hits).toBe(2);
-  });
-
-  it("flags suspicious actors from in-memory records when Prisma is unavailable", async () => {
-    mockFindMany.mockRejectedValue(new Error("connection refused"));
-    mockGroupBy.mockRejectedValue(new Error("connection refused"));
-
-    mockCreate.mockRejectedValue(new Error("connection refused"));
-    // Record 6 hits from the same key to exceed the threshold of 5
     for (let i = 0; i < 6; i++) {
       await service.recordHit({ endpoint: "auth/connect", key: "bad-actor", ip: "1.2.3.4" });
     }
@@ -166,39 +150,28 @@ describe("RateLimitMetricsService in-memory fallback", () => {
     expect(result.flaggedActors[0].category).toBe("auth");
   });
 
-  it("clears old in-memory records", async () => {
-    mockCreate.mockRejectedValue(new Error("no db"));
-    mockDeleteMany.mockRejectedValue(new Error("no db"));
-    mockGroupBy.mockResolvedValue([]);
-    mockFindMany.mockResolvedValue([]);
+  it("degrades to memory when a Prisma read fails", async () => {
+    mockGroupBy.mockRejectedValue(new Error("connection refused"));
+    mockFindMany.mockRejectedValue(new Error("connection refused"));
+    const service = new RateLimitMetricsService();
 
-    // recordHit stores in memory even when Prisma fails
-    await service.recordHit({ endpoint: "test", key: "k" });
-
-    // Clear with 1 day should remove the record we just made (it's younger than 1 day)
-    const deleted = await service.clearOldMetrics(1);
-    expect(deleted).toBe(0);
-
-    // Clear with 0 days removes records older than now; the record was just created
-    // so it should not be deleted either. Use a negative offset to force-delete.
-    const deleted2 = await service.clearOldMetrics(-1);
-    expect(deleted2).toBeGreaterThanOrEqual(1);
-
-    // Subsequent summary should have no recent events
     const summary = await service.getSummary(10);
-    expect(summary.recentEvents).toHaveLength(0);
+
+    expect(service.backendKind).toBe("memory");
+    expect(summary.backend).toBe("memory");
+    expect(summary.topEndpoints).toEqual([]);
   });
 
-  it("merges in-memory and Prisma records in summary", async () => {
-    mockCreate.mockResolvedValue({});
-    mockGroupBy.mockResolvedValue([]);
-    mockFindMany.mockResolvedValue([]);
+  it("clears old records from the in-memory backend", async () => {
+    const service = new RateLimitMetricsService(new MemoryRateLimitMetricsBackend());
+    const oldDate = new Date();
+    oldDate.setDate(oldDate.getDate() - 10);
 
-    // Record one hit via service (goes to both memory and Prisma)
-    await service.recordHit({ endpoint: "auth/connect", key: "ip-1", ip: "1.2.3.4" });
+    await service.increment("test/route", 429, { key: "k", timestamp: oldDate });
+    await service.increment("test/route", 429, { key: "k" });
 
-    // Also manually push an in-memory-only record (simulating Prisma failure)
+    expect(await service.clearOldMetrics(7)).toBe(1);
     const summary = await service.getSummary(10);
-    expect(summary.recentEvents.length).toBeGreaterThanOrEqual(1);
+    expect(summary.recentEvents).toHaveLength(1);
   });
 });
