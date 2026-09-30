@@ -90,7 +90,7 @@ describe("mapSorobanRoundToFrontendCards", () => {
     start_ledger: 100,
     bet_end_ledger: 200,
     end_ledger: 300,
-  } as any;
+  } as const;
 
   it("maps a live Soroban round into a frontend card", () => {
     const cards = mapSorobanRoundToFrontendCards(liveRound);
