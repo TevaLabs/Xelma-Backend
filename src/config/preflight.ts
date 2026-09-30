@@ -22,8 +22,24 @@
 
 import { execSync } from 'child_process';
 import logger from '../utils/logger';
+import {
+  BindingsValidationResult,
+  resolveBindingsPolicy,
+  validateVendoredBindings,
+} from '../utils/bindings-validator';
 export type RuntimeMode = 'hackathon' | 'full';
 export type SafetyProfile = 'production' | 'demo';
+
+/**
+ * Injectable dependencies so the vendored-bindings gate can be exercised by
+ * unit tests without touching the real vendor/ tree or the filesystem.
+ */
+export interface PreflightOptions {
+  /** Working directory used to locate vendor/xelma-bindings + bindings.pin.json. */
+  cwd?: string;
+  /** Override the vendor validator (defaults to validateVendoredBindings). */
+  validateBindings?: (cwd?: string) => BindingsValidationResult;
+}
 
 export interface PreflightResult {
   ok: boolean;
@@ -222,11 +238,53 @@ function checkProductionSafetyProfile(
 }
 
 /**
+ * Fail-closed gate for the vendored @tevalabs/xelma-bindings package.
+ *
+ * In live Soroban mode a missing or drifted vendor would otherwise surface as
+ * an opaque `Cannot find module` (or a call to a method the contract no longer
+ * exports) on the first bet — after the process has already accepted traffic.
+ * When the policy is `strict` an invalid vendor is a hard preflight error, and
+ * the message includes the validator's error list plus the remediation steps.
+ *
+ * `BINDINGS_CHECK=off` disables it; stub/demo/test environments resolve to
+ * `warn` and are only logged by src/index.ts.
+ */
+function checkVendoredBindings(
+  env: NodeJS.ProcessEnv,
+  options: PreflightOptions,
+): string[] {
+  const policy = resolveBindingsPolicy(env);
+  if (policy !== 'strict') return [];
+
+  const validate = options.validateBindings ?? validateVendoredBindings;
+  let result: BindingsValidationResult;
+  try {
+    result = validate(options.cwd);
+  } catch (e) {
+    return [
+      `Vendored @tevalabs/xelma-bindings could not be validated in live Soroban mode: ` +
+        `${(e as Error).message}`,
+    ];
+  }
+
+  if (result.ok) return [];
+
+  return [
+    `Vendored @tevalabs/xelma-bindings failed validation in live Soroban mode ` +
+      `(contract configured and BET_STUB_MODE is off). Refusing to serve traffic with ` +
+      `a broken contract client.`,
+    ...result.errors.map((error) => `  - ${error}`),
+    ...result.remediation.map((step) => `  - ${step}`),
+  ];
+}
+
+/**
  * Run all preflight checks against the supplied environment.
  * Does NOT call process.exit — callers decide what to do with the result.
  */
 export function runPreflightChecks(
   env: NodeJS.ProcessEnv = process.env,
+  options: PreflightOptions = {},
 ): PreflightResult {
   const mode: RuntimeMode = detectMode(env);
   const safetyProfile: SafetyProfile = detectSafetyProfile(env);
@@ -238,6 +296,7 @@ export function runPreflightChecks(
     ...checkDatabaseUrl(env, mode),
     ...checkJwtSecretStrength(env, mode),
     ...checkProductionSafetyProfile(env, safetyProfile),
+    ...checkVendoredBindings(env, options),
   ];
 
   const warnings: string[] = [...checkRedisIfConfigured(env)];
@@ -306,8 +365,9 @@ function setupGuide(mode: RuntimeMode, safetyProfile: SafetyProfile): string[] {
  */
 export function assertPreflightOrExit(
   env: NodeJS.ProcessEnv = process.env,
+  options: PreflightOptions = {},
 ): void {
-  const result = runPreflightChecks(env);
+  const result = runPreflightChecks(env, options);
 
   if (result.warnings.length > 0) {
     for (const w of result.warnings) {

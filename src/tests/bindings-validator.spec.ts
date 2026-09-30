@@ -16,6 +16,7 @@ import path from "path";
 import {
   BINDINGS_PACKAGE_NAME,
   formatBindingsReport,
+  isLiveSorobanMode,
   loadBindingsPin,
   resolveBindingsPolicy,
   validateVendoredBindings,
@@ -437,6 +438,18 @@ describe("loadBindingsPin", () => {
   });
 });
 
+describe("isLiveSorobanMode (#629)", () => {
+  it("is true only when a contract is configured and stub mode is off", () => {
+    expect(isLiveSorobanMode({ SOROBAN_CONTRACT_ID: "C123" })).toBe(true);
+    expect(isLiveSorobanMode({ CONTRACT_ID: "C123" })).toBe(true);
+    expect(
+      isLiveSorobanMode({ SOROBAN_CONTRACT_ID: "C123", BET_STUB_MODE: "true" }),
+    ).toBe(false);
+    expect(isLiveSorobanMode({ BET_STUB_MODE: "false" })).toBe(false);
+    expect(isLiveSorobanMode({})).toBe(false);
+  });
+});
+
 describe("resolveBindingsPolicy", () => {
   it("honours an explicit BINDINGS_CHECK override", () => {
     expect(resolveBindingsPolicy({ BINDINGS_CHECK: "off" })).toBe("off");
@@ -465,7 +478,18 @@ describe("resolveBindingsPolicy", () => {
     ).toBe("strict");
   });
 
-  it("only warns for API-only, stubbed, and non-production deployments", () => {
+  it("is strict in any live Soroban mode, regardless of NODE_ENV (#629)", () => {
+    // Contract configured + stub off is live: a broken vendor would crash on
+    // the first money path, so the process must not boot.
+    expect(
+      resolveBindingsPolicy({ NODE_ENV: "development", SOROBAN_CONTRACT_ID: "C123" }),
+    ).toBe("strict");
+    expect(
+      resolveBindingsPolicy({ NODE_ENV: "staging", CONTRACT_ID: "C123" }),
+    ).toBe("strict");
+  });
+
+  it("only warns for API-only, stubbed, and test deployments", () => {
     expect(resolveBindingsPolicy({ NODE_ENV: "production" })).toBe("warn");
     expect(
       resolveBindingsPolicy({
@@ -474,9 +498,15 @@ describe("resolveBindingsPolicy", () => {
         BET_STUB_MODE: "true",
       }),
     ).toBe("warn");
+    // Tests map the bindings package to a mock and never serve traffic.
     expect(
-      resolveBindingsPolicy({ NODE_ENV: "development", SOROBAN_CONTRACT_ID: "C123" }),
+      resolveBindingsPolicy({ NODE_ENV: "test", SOROBAN_CONTRACT_ID: "C123" }),
     ).toBe("warn");
+    expect(
+      resolveBindingsPolicy({ SOROBAN_CONTRACT_ID: "C123", JEST_WORKER_ID: "1" }),
+    ).toBe("warn");
+    // No contract => Soroban disabled entirely.
     expect(resolveBindingsPolicy({})).toBe("warn");
+    expect(resolveBindingsPolicy({ BET_STUB_MODE: "false" })).toBe("warn");
   });
 });

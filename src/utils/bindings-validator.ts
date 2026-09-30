@@ -483,14 +483,28 @@ export function validateVendoredBindings(
 }
 
 /**
+ * True when the process will actually call Soroban on a money path: a contract
+ * is configured and bets/resolution are not stubbed out.
+ *
+ * This is the condition under which a missing or drifted vendor turns into an
+ * opaque `Cannot find module` crash on the first bet rather than a boot
+ * failure, so both startup (`src/config/preflight.ts`) and the runtime policy
+ * below key off it.
+ */
+export function isLiveSorobanMode(env: NodeJS.ProcessEnv = process.env): boolean {
+  const hasContract = Boolean(env.SOROBAN_CONTRACT_ID || env.CONTRACT_ID);
+  const stubMode = env.BET_STUB_MODE === "true";
+  return hasContract && !stubMode;
+}
+
+/**
  * Startup enforcement level.
  *
  * `BINDINGS_CHECK` (off|warn|strict) always wins. Otherwise the check is
- * strict exactly when a broken vendor would take down real money paths —
- * a production boot with a contract configured and on-chain bets enabled, or
- * any deployment that has opted into fail-closed Soroban behaviour. Every
- * other environment (local dev, tests, API-only deployments that never touch
- * Soroban) only warns, so a missing vendor never blocks them.
+ * strict exactly when a broken vendor would take down real money paths — i.e.
+ * live Soroban mode (a contract configured with `BET_STUB_MODE` off). Stub,
+ * demo, API-only and test environments never call the contract, so a missing
+ * vendor only warns there and they still boot.
  */
 export function resolveBindingsPolicy(
   env: NodeJS.ProcessEnv = process.env,
@@ -500,11 +514,13 @@ export function resolveBindingsPolicy(
     return explicit;
   }
 
-  const hasContract = Boolean(env.SOROBAN_CONTRACT_ID || env.CONTRACT_ID);
-  const stubMode = env.BET_STUB_MODE === "true";
+  // Tests never serve production traffic and run against a mapped bindings
+  // mock, so a bad vendor must not stop the test runner from booting the app.
+  const isTestEnv =
+    env.NODE_ENV === "test" || Boolean(env.JEST_WORKER_ID);
+  if (isTestEnv) return "warn";
 
-  if (env.SOROBAN_FAIL_CLOSED === "true" && hasContract) return "strict";
-  if (env.NODE_ENV === "production" && hasContract && !stubMode) return "strict";
+  if (isLiveSorobanMode(env)) return "strict";
   return "warn";
 }
 

@@ -8,6 +8,7 @@ import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
+import { withSpan } from '../observability/tracing';
 
 export interface UpDownBetInput {
   address: string;
@@ -146,7 +147,17 @@ export class BetService {
 
       if (!stubMode) {
         try {
-          chainResult = await sorobanService.placeBet(input.address, input.amount, input.side);
+          chainResult = await withSpan(
+            'bet.place.up-down',
+            {
+              requestId,
+              'bet.address': input.address,
+              'bet.amount': input.amount,
+              'bet.side': input.side,
+              'bet.round_id': input.roundId,
+            },
+            () => sorobanService.placeBet(input.address, input.amount, input.side),
+          );
           txHash = chainResult.txHash;
 
           if (txHash) {
@@ -288,7 +299,22 @@ export class BetService {
 
       if (!stubMode) {
         try {
-          chainResult = await sorobanService.placePrecisionBet(input.address, input.amount, input.predictedPrice);
+          chainResult = await withSpan(
+            'bet.place.precision',
+            {
+              requestId,
+              'bet.address': input.address,
+              'bet.amount': input.amount,
+              'bet.predicted_price': input.predictedPrice,
+              'bet.round_id': input.roundId,
+            },
+            () =>
+              sorobanService.placePrecisionBet(
+                input.address,
+                input.amount,
+                input.predictedPrice,
+              ),
+          );
           txHash = chainResult.txHash;
 
           if (txHash) {
@@ -724,7 +750,11 @@ export class BetService {
         };
       } else {
         try {
-          result = await sorobanService.claimWinnings(address);
+          result = await withSpan(
+            'bet.claim',
+            { requestId, 'bet.address': address },
+            () => sorobanService.claimWinnings(address),
+          );
           await this.recordClaimSubmission(address, result, openClaim?.id ?? null);
           payoutClaimsSubmittedTotal.inc({ source: 'user' });
         } catch (error) {
