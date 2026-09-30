@@ -109,8 +109,8 @@
         "properties": {
           "walletAddress": {
             "type": "string",
-            "description": "Stellar wallet public key (G...)",
-            "example": "GBRPYHIL2C2V3F5YQZ4H6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B"
+            "description": "Stellar wallet public key (G...). Must decode as a valid Ed25519 StrKey.",
+            "example": "GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN"
           }
         },
         "required": [
@@ -120,10 +120,21 @@
       },
       "AuthChallengeResponse": {
         "type": "object",
+        "description": "SEP-10-style challenge. `challenge` is a human-readable message that includes Domain and Home Domain for wallet UX / anti-phishing. `domain`/`homeDomain` duplicate the embedded domains for convenience. Legacy `xelma_auth_*` challenges are still accepted on verify for backward compatibility.",
         "properties": {
           "challenge": {
             "type": "string",
-            "example": "random-challenge-string"
+            "example": "Xelma Authentication\nDomain: xelma.io\nHome Domain: xelma.io\nAddress: GBRPYHIL2C2V3F5YQZ4H6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B\nNonce: ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12\nIssued At: 2026-09-01T00:00:00.000Z\nVersion: 1\nTimestamp: 1725148800000"
+          },
+          "domain": {
+            "type": "string",
+            "example": "xelma.io",
+            "description": "SEP-10 web_auth_domain style"
+          },
+          "homeDomain": {
+            "type": "string",
+            "example": "xelma.io",
+            "description": "SEP-10 home_domain style"
           },
           "expiresAt": {
             "type": "string",
@@ -141,7 +152,8 @@
         "properties": {
           "walletAddress": {
             "type": "string",
-            "description": "Stellar wallet public key (G...)"
+            "description": "Stellar wallet public key (G...)",
+            "example": "GDRHOLGIIVOGHNURCNVVGUXBUJCVTSKH2V7ACB4E4ZOR7KC3XGIBK5CT"
           },
           "challenge": {
             "type": "string",
@@ -1137,6 +1149,58 @@
         }
       }
     },
+    "/api/rounds/{id}/bet": {
+      "post": {
+        "summary": "Place a bet on a specific round",
+        "description": "Round-scoped bet placement. The body shape selects the bet kind: a `side` places an UP/DOWN bet, a `predictedPrice` places a Precision bet. Runs through the same BetService execution path as `/api/bets/*`, so `BET_STUB_MODE` decides between recording a stub bet and submitting to Soroban, and on-chain failures surface as structured errors.\n",
+        "tags": [
+          "rounds"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bet recorded (stub) or placed on-chain"
+          },
+          "400": {
+            "description": "Validation error, or round mode does not match the bet kind"
+          },
+          "401": {
+            "description": "Missing or invalid JWT"
+          },
+          "403": {
+            "description": "Wallet address mismatch"
+          },
+          "404": {
+            "description": "Round not found"
+          },
+          "409": {
+            "description": "Idempotency key conflict"
+          }
+        }
+      }
+    },
     "/api/rounds/{id}/resolve": {
       "post": {
         "summary": "Resolve a round with the final price",
@@ -1264,7 +1328,7 @@
                       ]
                     },
                     "startPrice": {
-                      "type": "number"
+                      "$ref": "#/components/schemas/MoneyAmount"
                     },
                     "winningSide": {
                       "type": "string",
@@ -1296,10 +1360,10 @@
                             "nullable": true
                           },
                           "payout": {
-                            "type": "number"
+                            "$ref": "#/components/schemas/MoneyAmount"
                           },
                           "amount": {
-                            "type": "number"
+                            "$ref": "#/components/schemas/MoneyAmount"
                           },
                           "side": {
                             "type": "string",
@@ -1696,9 +1760,14 @@
     "/metrics": {
       "get": {
         "summary": "Prometheus metrics",
-        "description": "Returns all application and process metrics in Prometheus text format. Scrape this endpoint with a Prometheus instance.\n",
+        "description": "Returns all application and process metrics in Prometheus text format. Scrape this endpoint with a Prometheus instance. Requires an admin JWT or a valid METRICS_SCRAPE_TOKEN in production. Outside production, anonymous scrape is allowed as long as METRICS_SCRAPE_TOKEN is unset.\n",
         "tags": [
           "Observability"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "responses": {
           "200": {
@@ -1710,6 +1779,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         }
       }
@@ -2614,7 +2689,7 @@
     "/api/auth/challenge": {
       "post": {
         "summary": "Request a wallet authentication challenge",
-        "description": "Step 1 of wallet authentication. Returns a one-time challenge string for the wallet to sign.\\n\nRate limit: **10 requests per 15 minutes per IP**. On limit, responds with **429**.\n",
+        "description": "Step 1 of wallet authentication. Returns a SEP-10-style one-time challenge string for the wallet to sign.\nThe challenge is a human-readable message that **includes `Domain` and `Home Domain` fields** (SEP-10 `web_auth_domain` / `home_domain` style) so wallets can display the requesting origin and users can spot phishing.\nSign the *exact* `challenge` string (UTF-8 bytes) with the Stellar account's ed25519 key; the server verifies the signature and the embedded domain binding. Legacy `xelma_auth_*` challenges are still accepted on `/connect`/`/verify` for backward compatibility — see migration notes below.\\n\nRate limit: **10 requests per 15 minutes per IP**. On limit, responds with **429**.\n\n**Migration / backward compatibility:**\n- New clients: treat `challenge` as an opaque UTF-8 string (may contain newlines) and sign `Buffer.from(challenge,'utf8')`.\n- Old clients that expected `challenge` to match `/^xelma_auth_/` will need to update — they should not parse or trim the challenge, just sign it verbatim. Stored legacy challenges continue to verify.\n- `domain` and `homeDomain` are also returned as top-level fields for clients that want to show the origin without parsing the message.\n",
         "tags": [
           "auth"
         ],
@@ -2626,7 +2701,7 @@
                 "$ref": "#/components/schemas/AuthChallengeRequest"
               },
               "example": {
-                "walletAddress": "GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX"
+                "walletAddress": "GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN"
               }
             }
           }
@@ -2640,7 +2715,9 @@
                   "$ref": "#/components/schemas/AuthChallengeResponse"
                 },
                 "example": {
-                  "challenge": "random-challenge-string",
+                  "challenge": "Xelma Authentication\nDomain: xelma.io\nHome Domain: xelma.io\nAddress: GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\nNonce: ab12... \nIssued At: 2026-09-01T00:00:00.000Z\nVersion: 1\nTimestamp: 1725148800000",
+                  "domain": "xelma.io",
+                  "homeDomain": "xelma.io",
                   "expiresAt": "2026-01-29T00:00:00.000Z"
                 }
               }
@@ -2696,7 +2773,7 @@
         "x-codeSamples": [
           {
             "lang": "cURL",
-            "source": "curl -X POST \"$API_BASE_URL/api/auth/challenge\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"walletAddress\":\"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\"}'\n"
+            "source": "curl -X POST \"$API_BASE_URL/api/auth/challenge\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"walletAddress\":\"GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN\"}'\n"
           }
         ]
       }
@@ -2704,7 +2781,7 @@
     "/api/auth/connect": {
       "post": {
         "summary": "Verify signature and authenticate wallet",
-        "description": "Step 2 of wallet authentication. Verifies the signature for the challenge and returns a JWT.\\n\nRate limit: **5 requests per 15 minutes per IP**. On limit, responds with **429**.\n",
+        "description": "Step 2 of wallet authentication. Verifies the signature for the challenge and returns a JWT.\nThe `challenge` must be the exact UTF-8 string returned from `/challenge` (including any `Domain`/`Home Domain` lines). The server checks the ed25519 signature **and** that the challenge's embedded `Domain`/`Home Domain` match the server's `AUTH_DOMAIN`/`HOME_DOMAIN` (anti-phishing). Legacy `xelma_auth_*` challenges skip the domain check for backward compatibility.\\n\nRate limit: **5 requests per 15 minutes per IP**. On limit, responds with **429**.\n",
         "tags": [
           "auth"
         ],
@@ -2717,7 +2794,7 @@
               },
               "example": {
                 "walletAddress": "GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX",
-                "challenge": "random-challenge-string",
+                "challenge": "Xelma Authentication\nDomain: xelma.io\nHome Domain: xelma.io\n...",
                 "signature": "base64-or-hex-signature"
               }
             }
@@ -2761,6 +2838,12 @@
                       "error": "Authentication Error",
                       "message": "Challenge has expired. Please request a new one."
                     }
+                  },
+                  "domainMismatch": {
+                    "value": {
+                      "error": "Authentication Error",
+                      "message": "Invalid signature"
+                    }
                   }
                 }
               }
@@ -2795,7 +2878,7 @@
         "x-codeSamples": [
           {
             "lang": "cURL",
-            "source": "curl -X POST \"$API_BASE_URL/api/auth/connect\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"walletAddress\":\"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\"challenge\":\"random-challenge-string\",\"signature\":\"base64-or-hex-signature\"}'\n"
+            "source": "curl -X POST \"$API_BASE_URL/api/auth/connect\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"walletAddress\":\"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\"challenge\":\"Xelma Authentication\\nDomain: xelma.io\\n...\",\"signature\":\"base64-or-hex-signature\"}'\n"
           }
         ]
       }
@@ -2857,6 +2940,31 @@
             "source": "curl -X POST \"$API_BASE_URL/api/auth/refresh\" \\\n  -H \"Authorization: Bearer YOUR_EXPIRED_OR_CURRENT_JWT\"\n"
           }
         ]
+      }
+    },
+    "/api/admin/runtime-flags": {
+      "get": {
+        "summary": "Inspect safe runtime feature flags",
+        "description": "Returns the non-secret runtime flags for operators. Admin only.",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Safe runtime flag matrix"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Admin access required"
+          }
+        }
       }
     },
     "/api/admin/metrics/rate-limits": {
@@ -3065,9 +3173,14 @@
     "/api/admin/metrics/metrics": {
       "get": {
         "summary": "Scrape Prometheus metrics",
-        "description": "Returns standard flat text representations of all registered metrics.",
+        "description": "Returns standard flat text representations of all registered metrics.\nRequires an admin JWT or a valid METRICS_SCRAPE_TOKEN, matching the\npublic /metrics scrape endpoint.\n",
         "tags": [
           "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "responses": {
           "200": {
@@ -3079,6 +3192,52 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/metrics/payout-reconciliation": {
+      "get": {
+        "summary": "Payout claim ledger summary",
+        "description": "Returns current payout-claim counts by status so operators can see\nstuck pending winnings (PENDING/SUBMITTED/FAILED) and claims flagged\nNEEDS_MANUAL_REVIEW by the payout reconciliation worker (Issue #492).\nAdmin only. Prometheus counters are scraped from /api/admin/metrics/metrics.\n",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payout claim counts by status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "summary": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         }
       }
