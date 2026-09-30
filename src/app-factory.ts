@@ -63,7 +63,7 @@ import { securityHeadersMiddleware } from './middleware/securityHeaders.middlewa
 import { notFoundHandler } from './middleware/notFound';
 import { errorHandler as hackathonErrorHandler } from './middleware/errorHandler';
 import { errorHandler as fullErrorHandler } from './middleware/errorHandler.middleware';
-import { getHttpCorsOrigins } from './utils/cors';
+import { getHttpCorsOrigins, corsCredentials } from './utils/cors';
 import { swaggerSpec } from './docs/openapi';
 import { hackathonSwaggerSpec } from './docs/hackathon-openapi';
 import config from './config';
@@ -199,12 +199,13 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
     app.use(express.urlencoded({ extended: true, limit: jsonLimit }));
   }
 
+  const httpOrigins = getHttpCorsOrigins();
   app.use(
     cors({
-      origin: getHttpCorsOrigins(),
+      origin: httpOrigins,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
-      credentials: true,
+      credentials: corsCredentials(httpOrigins),
     }),
   );
 

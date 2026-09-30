@@ -88,3 +88,51 @@ describe("getHttpCorsOrigins", () => {
     ]);
   });
 });
+
+// #708 — credentials must never be true when the origin is a wildcard
+describe("corsCredentials", () => {
+  it("returns false when origins is the wildcard boolean true", () => {
+    jest.resetModules();
+    const { corsCredentials } = require("../utils/cors");
+    expect(corsCredentials(true)).toBe(false);
+  });
+
+  it("returns false when origins is the wildcard string '*'", () => {
+    jest.resetModules();
+    const { corsCredentials } = require("../utils/cors");
+    expect(corsCredentials("*")).toBe(false);
+  });
+
+  it("returns true for an explicit origin string", () => {
+    jest.resetModules();
+    const { corsCredentials } = require("../utils/cors");
+    expect(corsCredentials("https://app.example.com")).toBe(true);
+  });
+
+  it("returns true for an explicit origin array", () => {
+    jest.resetModules();
+    const { corsCredentials } = require("../utils/cors");
+    expect(corsCredentials(["https://app.example.com", "https://staging.example.com"])).toBe(true);
+  });
+
+  it("development wildcard (CLIENT_URL unset) disables credentials", () => {
+    const originalEnv = process.env;
+    process.env = { ...originalEnv, NODE_ENV: "development", CLIENT_URL: undefined, ALLOWED_ORIGINS: undefined };
+    jest.resetModules();
+    const { getCorsOrigins, corsCredentials } = require("../utils/cors");
+    const origins = getCorsOrigins();
+    expect(origins).toBe(true);
+    expect(corsCredentials(origins)).toBe(false);
+    process.env = originalEnv;
+  });
+
+  it("production explicit origin enables credentials", () => {
+    const originalEnv = process.env;
+    process.env = { ...originalEnv, NODE_ENV: "production", CLIENT_URL: "https://app.example.com", ALLOWED_ORIGINS: undefined };
+    jest.resetModules();
+    const { getCorsOrigins, corsCredentials } = require("../utils/cors");
+    const origins = getCorsOrigins();
+    expect(corsCredentials(origins)).toBe(true);
+    process.env = originalEnv;
+  });
+});
