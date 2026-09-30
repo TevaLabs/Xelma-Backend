@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { z } from "zod";
 import { validate } from "../middleware/validate.middleware";
 import {
   verifyStellarAuth,
@@ -30,9 +31,29 @@ import {
 } from "../utils/errors";
 import { serializeBet } from "../serializers/monetary.serializer";
 import { prisma } from "../lib/prisma";
-import { executeBet } from "./bet-execution";
+import {
+  executeBet,
+  type BetResponseData,
+} from "./bet-execution";
 
 const router = Router();
+
+/** Validated claim request body (from the existing claimWinningsSchema). */
+type ClaimWinningsBody = z.infer<typeof claimWinningsSchema>;
+
+/**
+ * Response envelope cached for `Idempotency-Key` replays on `/api/bets/claim`.
+ * Typing the store/replay boundary keeps the first response shape pinned to
+ * what this route actually produces.
+ */
+interface ClaimResponseBody {
+  success: true;
+  message: string;
+  state: string;
+  amount: number;
+  txHash?: string;
+  requestId?: string;
+}
 
 /**
  * @swagger
@@ -67,12 +88,12 @@ router.post(
   bindAuthenticatedWallet,
   betRateLimiter,
   validate(upDownBetSchema),
-  (async (req: any, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     await executeBet(req, res, next, {
       kind: "up-down",
       endpoint: "/api/bets/up-down",
     });
-  }) as any,
+  },
 );
 
 /**
@@ -108,12 +129,12 @@ router.post(
   bindAuthenticatedWallet,
   betRateLimiter,
   validate(precisionBetSchema),
-  (async (req: any, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     await executeBet(req, res, next, {
       kind: "precision",
       endpoint: "/api/bets/precision",
     });
-  }) as any,
+  },
 );
 
 /**
@@ -174,13 +195,10 @@ router.post(
           );
         }
 
-        const lockResult = await acquireIdempotencyLock(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          24
-        );
+        const lockResult = await acquireIdempotencyLock<
+          ClaimWinningsBody,
+          ClaimResponseBody
+        >(userId, endpoint, idempotencyKey, req.body, 24);
 
         if (lockResult.isIdempotent && lockResult.cachedResponse) {
           return res
@@ -205,9 +223,9 @@ router.post(
         lockAcquired = !!lockResult.lockAcquired;
       }
 
-      const requestId = (req as any).requestId as string | undefined;
+      const requestId = req.requestId;
       const result = await betService.claimWinnings(req.body.address, idempotencyKey, requestId);
-      const responseBody = {
+      const responseBody: ClaimResponseBody = {
         success: true,
         message:
           result.state === "stub"
@@ -220,7 +238,7 @@ router.post(
       };
 
       if (idempotencyKey && lockAcquired) {
-        await storeIdempotencyResult(
+        await storeIdempotencyResult<ClaimWinningsBody, ClaimResponseBody>(
           userId,
           endpoint,
           idempotencyKey,
@@ -247,7 +265,7 @@ router.post(
       } else {
         await execute();
       }
-    } catch (error: any) {
+    } catch (error) {
       if (idempotencyKey && lockAcquired) {
         await releaseIdempotencyLock(userId, endpoint, idempotencyKey);
       }
@@ -390,7 +408,7 @@ router.get(
     } catch (error) {
       next(error);
     }
-  }) as any
+  })
 );
 
 export default router;
