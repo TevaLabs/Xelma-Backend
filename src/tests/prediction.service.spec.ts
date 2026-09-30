@@ -25,7 +25,7 @@ jest.mock("../lib/prisma", () => {
 
 jest.mock("../services/soroban.service", () => ({
   __esModule: true,
-  default: { placeBet: jest.fn().mockResolvedValue(undefined) },
+  default: { placeBet: jest.fn().mockResolvedValue({ txHash: 'mock-tx-hash' }) },
 }));
 
 import { PredictionService as _PS } from "../services/prediction.service";
@@ -75,12 +75,13 @@ describe("PredictionService (Issue #78)", () => {
       });
 
       it("should throw when user already has a prediction for the round", async () => {
+        mockUserFindUnique.mockResolvedValue({ id: userId, walletAddress: "GVALID", balance: 1000 });
         mockRoundFindUnique.mockResolvedValue({
           id: roundId,
           mode: "UP_DOWN",
           status: "ACTIVE",
         });
-        mockPredictionFindUnique.mockResolvedValue({ id: "existing-pred" });
+        mockPredictionFindUnique.mockResolvedValue({ id: "existing-pred", chainStatus: "CONFIRMED" });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, "UP")

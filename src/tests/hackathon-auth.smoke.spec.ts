@@ -193,7 +193,9 @@ jest.mock('../metrics/application.metrics', () => {
 });
 
 jest.mock('../middleware/auth.middleware', () => ({
-  authenticateUser: (_req: unknown, _res: unknown, next: () => void) => next(),
+  __esModule: true,
+  requireMetricsAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+    authenticateUser: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireOracle: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireMetricsAuth: (_req: unknown, _res: unknown, next: () => void) => next(),

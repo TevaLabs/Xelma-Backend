@@ -1,3 +1,6 @@
+/**
+ * @group integration
+ */
 import { describe, it, expect, beforeAll, afterEach, beforeEach } from "@jest/globals";
 import request from "supertest";
 import { Express } from "express";

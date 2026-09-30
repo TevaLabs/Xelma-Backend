@@ -172,7 +172,7 @@ describeDb("SchedulerService", () => {
     it("does not schedule tasks when AUTO_RESOLVE_ENABLED is not set", () => {
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(6);
+      expect(cron.schedule).toHaveBeenCalledTimes(7);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),
@@ -204,7 +204,7 @@ describeDb("SchedulerService", () => {
 
       schedulerService.start();
 
-      expect(cron.schedule).toHaveBeenCalledTimes(6);
+      expect(cron.schedule).toHaveBeenCalledTimes(7);
       expect(cron.schedule).toHaveBeenCalledWith(
         "0 2 * * *",
         expect.any(Function),

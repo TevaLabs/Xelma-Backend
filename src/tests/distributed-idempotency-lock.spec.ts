@@ -8,6 +8,7 @@ import {
 import { ErrorCode } from "../utils/errors";
 
 jest.mock("../lib/redis", () => ({
+  isRedisConfigured: () => true,
   getConnectedRedisClient: jest.fn(),
 }));
 
