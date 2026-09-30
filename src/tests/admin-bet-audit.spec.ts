@@ -10,7 +10,7 @@ import { createApp } from "../index";
 jest.mock("../lib/prisma", () => ({
   prisma: {
     user: { findUnique: jest.fn() },
-    auditLog: { create: jest.fn() },
+    auditLog: { create: jest.fn(), findMany: jest.fn() },
   },
 }));
 
@@ -28,7 +28,7 @@ const mockPrisma = prisma as any;
 const TEST_JWT_SECRET = "admin-bet-audit-test-jwt-secret-2026-x";
 process.env.JWT_SECRET = TEST_JWT_SECRET;
 
-describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
+describe("Admin Bet-Audit Endpoint (Issue #426 & #651)", () => {
   let app: Express;
   const ADMIN_ADDRESS = "GADMIN_TEST_AAAAAAAAAAAAAAAAAAAAAAAA";
   const USER_ADDRESS = "GUSER_TEST_BBBBBBBBBBBBBBBBBBBBBBBBBBBB";
@@ -84,6 +84,7 @@ describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
 
   afterEach(() => {
     betAuditService.clear();
+    delete process.env.BET_AUDIT_STORAGE;
   });
 
   it("returns 200 with events for admin users", async () => {
@@ -108,6 +109,13 @@ describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
 
   it("returns 401 when no token is provided", async () => {
     const res = await request(app).get("/api/admin/bet-audit");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 401 for invalid or malformed bearer token", async () => {
+    const res = await request(app)
+      .get("/api/admin/bet-audit")
+      .set("Authorization", "Bearer invalid-token-value");
     expect(res.status).toBe(401);
   });
 
@@ -153,6 +161,49 @@ describe("Admin Bet-Audit Endpoint (Issue #426)", () => {
     txHashEvents.forEach((event: any) => {
       expect(event.txHash).toMatch(/^\w{8}\.\.\.$/);
     });
+  });
+
+  it("supports DB storage mode query contract via endpoint (DRIPS #651)", async () => {
+    process.env.BET_AUDIT_STORAGE = "database";
+
+    mockPrisma.auditLog.findMany.mockResolvedValue([
+      {
+        id: "audit-db-route-1",
+        eventType: "BET_ACCEPTED",
+        severity: "info",
+        message: "Bet accepted: UP_DOWN UP",
+        outcome: "success",
+        actorType: "user",
+        walletAddress: USER_ADDRESS,
+        resourceType: "bet",
+        resourceId: "bet-100",
+        metadata: {
+          betId: "bet-100",
+          amount: 100,
+          side: "UP",
+          mode: "UP_DOWN",
+          result: "on-chain-success",
+          txHash: "0x1234567890abcdef1234567890abcdef",
+        },
+        timestamp: new Date(),
+      },
+    ]);
+
+    const res = await request(app)
+      .get("/api/admin/bet-audit")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.events).toHaveLength(1);
+
+    const event = res.body.events[0];
+    expect(event.event).toBe("BET_ACCEPTED");
+    expect(event.address).toBe(USER_ADDRESS);
+    expect(event.amount).toBe(100);
+    expect(event.side).toBe("UP");
+    expect(event.mode).toBe("UP_DOWN");
+    expect(event.result).toBe("on-chain-success");
+    expect(event.txHash).toBe("0x123456...");
   });
 
   it("returns 500 when service throws", async () => {

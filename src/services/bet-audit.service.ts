@@ -315,13 +315,14 @@ class BetAuditService {
    }
 
    /**
-    * Query in-memory audit events with optional filtering and redaction.
+    * Query audit events (from DB in database mode or in-memory array in memory mode)
+    * with optional filtering and redaction.
     *
     * @param address - optional wallet address to filter on
     * @param limit   - maximum number of events to return (default 50)
     * @param redact  - when true, mask sensitive fields like txHash
     */
-   queryEvents({
+   async queryEvents({
      address,
      limit = 50,
      redact = true,
@@ -329,7 +330,70 @@ class BetAuditService {
      address?: string;
      limit?: number;
      redact?: boolean;
-   } = {}): BetAuditEvent[] {
+   } = {}): Promise<BetAuditEvent[]> {
+     if (this.storageMode === "database") {
+       try {
+         const logs = await prisma.auditLog.findMany({
+           where: {
+             eventType: { in: ["BET_ACCEPTED", "BET_FAILED", "BET_RECONCILED", "CLAIM_ACCEPTED"] },
+             ...(address ? { walletAddress: address } : {}),
+           },
+           orderBy: { timestamp: "desc" },
+           take: limit,
+         });
+
+         let events: BetAuditEvent[] = logs.map((log) => {
+           const metadata = (log.metadata as Record<string, any>) || {};
+           return {
+             event: log.eventType as BetAuditEventName,
+             roundId: metadata.roundId ?? undefined,
+             betId: metadata.betId ?? undefined,
+             address: log.walletAddress || "",
+             amount: metadata.amount ?? 0,
+             side: metadata.side ?? undefined,
+             mode: metadata.mode ?? undefined,
+             result: metadata.result ?? "",
+             status: metadata.status ?? undefined,
+             txHash: metadata.txHash ?? undefined,
+             requestId: metadata.requestId ?? log.requestId ?? undefined,
+             correlationId: metadata.correlationId ?? undefined,
+             failureReason: metadata.failureReason ?? undefined,
+             createdAt: log.timestamp
+               ? new Date(log.timestamp).toISOString()
+               : new Date().toISOString(),
+           };
+         });
+
+         if (redact) {
+           events = events.map((event) => ({
+             ...event,
+             txHash: event.txHash
+               ? `${event.txHash.slice(0, 8)}...`
+               : undefined,
+           }));
+         }
+
+         return events;
+       } catch (error) {
+         logger.error("Failed to query audit events from database", {
+           error: error instanceof Error ? error.message : String(error),
+         });
+         return this.queryMemoryEvents({ address, limit, redact });
+       }
+     }
+
+     return this.queryMemoryEvents({ address, limit, redact });
+   }
+
+   private queryMemoryEvents({
+     address,
+     limit = 50,
+     redact = true,
+   }: {
+     address?: string;
+     limit?: number;
+     redact?: boolean;
+   }): BetAuditEvent[] {
      let filtered = [...this.events];
 
      if (address) {

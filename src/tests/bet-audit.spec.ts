@@ -34,6 +34,7 @@ jest.mock("../lib/prisma", () => ({
   prisma: {
     auditLog: {
       create: jest.fn().mockResolvedValue({ id: "audit-123" }),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     bet: {
       create: jest.fn().mockImplementation((args: any) => Promise.resolve({ id: "bet-1", ...args.data, createdAt: new Date(), updatedAt: new Date() })),
@@ -96,6 +97,7 @@ import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
 
 const mockAuditLogCreate = prisma.auditLog.create as any;
+const mockAuditLogFindMany = prisma.auditLog.findMany as any;
 
 const VALID_ADDRESS = "GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890";
 
@@ -381,6 +383,154 @@ describe("BetAuditService", () => {
     it('should return "memory" for unknown env var values', () => {
       process.env.BET_AUDIT_STORAGE = "unknown";
       expect(betAuditService.storageMode).toBe("memory");
+    });
+  });
+
+  // --------------------------------------------------------------
+  // DRIPS Issue #651: Memory vs DB Storage Mode Contract Tests
+  // --------------------------------------------------------------
+  describe("DRIPS #651: Memory vs DB storage mode query contract", () => {
+    const testBetParams = {
+      address: VALID_ADDRESS,
+      amount: 150,
+      side: "UP" as const,
+      mode: "UP_DOWN" as const,
+      result: "on-chain-success",
+      txHash: "0x1234567890abcdef1234567890abcdef",
+      betId: "bet-contract-test-1",
+      status: "CONFIRMED" as const,
+      requestId: "req-12345",
+    };
+
+    let originalStorage: string | undefined;
+
+    beforeEach(() => {
+      originalStorage = process.env.BET_AUDIT_STORAGE;
+      betAuditService.clear();
+      jest.clearAllMocks();
+    });
+
+    afterEach(() => {
+      if (originalStorage !== undefined) {
+        process.env.BET_AUDIT_STORAGE = originalStorage;
+      } else {
+        delete process.env.BET_AUDIT_STORAGE;
+      }
+    });
+
+    it("memory mode query contract exposes required fields (txHash, mode, result)", async () => {
+      process.env.BET_AUDIT_STORAGE = "memory";
+
+      betAuditService.emitBetAccepted(testBetParams);
+
+      const unredactedEvents = await betAuditService.queryEvents({ redact: false });
+      expect(unredactedEvents).toHaveLength(1);
+      const record = unredactedEvents[0];
+
+      expect(record.event).toBe("BET_ACCEPTED");
+      expect(record.address).toBe(testBetParams.address);
+      expect(record.amount).toBe(testBetParams.amount);
+      expect(record.side).toBe(testBetParams.side);
+      expect(record.mode).toBe("UP_DOWN");
+      expect(record.result).toBe("on-chain-success");
+      expect(record.txHash).toBe("0x1234567890abcdef1234567890abcdef");
+      expect(record.betId).toBe(testBetParams.betId);
+      expect(record.status).toBe(testBetParams.status);
+      expect(record.requestId).toBe(testBetParams.requestId);
+      expect(record.createdAt).toBeDefined();
+
+      const redactedEvents = await betAuditService.queryEvents({ redact: true });
+      expect(redactedEvents[0].txHash).toBe("0x123456...");
+      expect(redactedEvents[0].mode).toBe("UP_DOWN");
+      expect(redactedEvents[0].result).toBe("on-chain-success");
+    });
+
+    it("DB mode query contract exposes identical required fields (txHash, mode, result)", async () => {
+      process.env.BET_AUDIT_STORAGE = "database";
+
+      const createdAuditLogs: any[] = [];
+      mockAuditLogCreate.mockImplementation(async (args: any) => {
+        const entry = {
+          id: "audit-db-1",
+          ...args.data,
+        };
+        createdAuditLogs.push(entry);
+        return entry;
+      });
+
+      mockAuditLogFindMany.mockImplementation(async (args: any) => {
+        let logs = [...createdAuditLogs];
+        if (args?.where?.walletAddress) {
+          logs = logs.filter((l) => l.walletAddress === args.where.walletAddress);
+        }
+        if (args?.take) {
+          logs = logs.slice(0, args.take);
+        }
+        return logs;
+      });
+
+      betAuditService.emitBetAccepted(testBetParams);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const unredactedEvents = await betAuditService.queryEvents({ redact: false });
+      expect(unredactedEvents).toHaveLength(1);
+      const record = unredactedEvents[0];
+
+      expect(record.event).toBe("BET_ACCEPTED");
+      expect(record.address).toBe(testBetParams.address);
+      expect(record.amount).toBe(testBetParams.amount);
+      expect(record.side).toBe(testBetParams.side);
+      expect(record.mode).toBe("UP_DOWN");
+      expect(record.result).toBe("on-chain-success");
+      expect(record.txHash).toBe("0x1234567890abcdef1234567890abcdef");
+      expect(record.betId).toBe(testBetParams.betId);
+      expect(record.status).toBe(testBetParams.status);
+      expect(record.requestId).toBe(testBetParams.requestId);
+      expect(record.createdAt).toBeDefined();
+
+      const redactedEvents = await betAuditService.queryEvents({ redact: true });
+      expect(redactedEvents[0].txHash).toBe("0x123456...");
+      expect(redactedEvents[0].mode).toBe("UP_DOWN");
+      expect(redactedEvents[0].result).toBe("on-chain-success");
+    });
+
+    it("verifies contract equivalence between memory mode and DB mode query output", async () => {
+      // 1. Emit in memory mode
+      process.env.BET_AUDIT_STORAGE = "memory";
+      betAuditService.clear();
+      betAuditService.emitBetAccepted(testBetParams);
+      const memoryResult = (await betAuditService.queryEvents({ redact: true }))[0];
+
+      // 2. Emit in DB mode
+      process.env.BET_AUDIT_STORAGE = "database";
+      betAuditService.clear();
+      const createdAuditLogs: any[] = [];
+      mockAuditLogCreate.mockImplementation(async (args: any) => {
+        const entry = {
+          id: "audit-db-2",
+          ...args.data,
+        };
+        createdAuditLogs.push(entry);
+        return entry;
+      });
+      mockAuditLogFindMany.mockImplementation(async () => createdAuditLogs);
+
+      betAuditService.emitBetAccepted(testBetParams);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const dbResult = (await betAuditService.queryEvents({ redact: true }))[0];
+
+      // Assert contract fields match exactly across storage modes
+      expect(Object.keys(dbResult).sort()).toEqual(Object.keys(memoryResult).sort());
+      expect(dbResult.event).toBe(memoryResult.event);
+      expect(dbResult.address).toBe(memoryResult.address);
+      expect(dbResult.amount).toBe(memoryResult.amount);
+      expect(dbResult.side).toBe(memoryResult.side);
+      expect(dbResult.mode).toBe(memoryResult.mode);
+      expect(dbResult.result).toBe(memoryResult.result);
+      expect(dbResult.txHash).toBe(memoryResult.txHash);
+      expect(dbResult.betId).toBe(memoryResult.betId);
+      expect(dbResult.status).toBe(memoryResult.status);
     });
   });
 });
