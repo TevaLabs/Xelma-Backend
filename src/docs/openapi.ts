@@ -131,6 +131,66 @@ export const swaggerSpec = swaggerJSDoc({
           additionalProperties: false,
         },
 
+        UpdateProfileRequest: {
+          type: 'object',
+          description:
+            'PATCH /api/user/profile body. At least one field must be provided. Unknown keys are rejected with 400 — preferences is a closed contract (Issue #704).',
+          properties: {
+            nickname: {
+              type: 'string',
+              description: 'Public display name; 2–30 chars of letters, digits, underscores, dots, or hyphens.',
+              minLength: 2,
+              maxLength: 30,
+              example: 'stellarexample',
+            },
+            avatarUrl: {
+              type: 'string',
+              format: 'uri',
+              description: 'HTTPS avatar image URL, at most 500 characters.',
+              maxLength: 500,
+              example: 'https://cdn.example.com/avatar.png',
+            },
+            preferences: {
+              $ref: '#/components/schemas/UserPreferences',
+            },
+          },
+          additionalProperties: false,
+          minProperties: 1,
+        },
+        UserPreferences: {
+          type: 'object',
+          description:
+            'Explicit, closed preferences object persisted with the user profile. Unknown keys are rejected with 400.',
+          properties: {
+            theme: {
+              type: 'string',
+              enum: ['light', 'dark', 'system'],
+              description: 'UI color theme preference.',
+            },
+            notifications: {
+              type: 'boolean',
+              description: 'Master toggle for in-app notifications.',
+            },
+            language: {
+              type: 'string',
+              description: 'BCP 47 language code, e.g. "en" or "en-US".',
+              minLength: 2,
+              maxLength: 10,
+              example: 'en',
+            },
+          },
+          additionalProperties: false,
+        },
+        UpdatedProfile: {
+          type: 'object',
+          description: 'The persisted profile fields echoed back after a successful PATCH /api/user/profile.',
+          properties: {
+            nickname: { type: 'string', nullable: true },
+            avatarUrl: { type: 'string', nullable: true },
+            preferences: { $ref: '#/components/schemas/UserPreferences' },
+          },
+        },
+
         LeaderboardEntry: {
           type: 'object',
           properties: {

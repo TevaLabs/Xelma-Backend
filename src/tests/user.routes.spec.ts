@@ -306,4 +306,48 @@ describe("PATCH /api/user/profile — input validation (Issue #137)", () => {
 
     expect(res.status).toBe(401);
   });
+
+  // ── Preferences language constraint (Issue #704) ─────────────────────────
+
+  it("accepts a valid BCP 47 language code (en)", async () => {
+    mockUserUpdate.mockResolvedValue({
+      nickname: null,
+      avatarUrl: null,
+      preferences: { language: "en" },
+    });
+
+    const res = await request(app)
+      .patch("/api/user/profile")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ preferences: { language: "en" } });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("accepts a region-qualified BCP 47 language code (en-US)", async () => {
+    const res = await request(app)
+      .patch("/api/user/profile")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ preferences: { language: "en-US" } });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects language codes longer than 10 characters", async () => {
+    const res = await request(app)
+      .patch("/api/user/profile")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ preferences: { language: "abcdefghijk" } });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects language codes with invalid characters", async () => {
+    const res = await request(app)
+      .patch("/api/user/profile")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ preferences: { language: "en_US" } });
+
+    expect(res.status).toBe(400);
+  });
 });

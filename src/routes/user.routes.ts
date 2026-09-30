@@ -201,8 +201,57 @@ router.get(
 );
 
 /**
- * PATCH /api/user/profile
- * Update user preferences/profile
+ * @openapi
+ * /api/user/profile:
+ *   patch:
+ *     summary: Update the authenticated user's profile and preferences
+ *     description: |
+ *       Patch nickname, avatar URL, and preferences. Every field is optional,
+ *       but at least one must be provided.
+ *
+ *       `preferences` is a **closed contract**: unknown keys are rejected with
+ *       400 (`additionalProperties: false`), so a frontend cannot silently
+ *       persist arbitrary JSON blobs (Issue #704). Known keys and their
+ *       constraints:
+ *
+ *       - `theme`: one of `light`, `dark`, `system`
+ *       - `notifications`: boolean
+ *       - `language`: BCP 47 code, e.g. `en` or `en-US` (2-10 chars)
+ *
+ *       Route only exists on the default entrypoint (`npm run dev`).
+ *     tags:
+ *       - user
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UpdateProfileRequest'
+ *     responses:
+ *       200:
+ *         description: Updated profile fields
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 profile:
+ *                   $ref: '#/components/schemas/UpdatedProfile'
+ *       400:
+ *         description: |
+ *           Validation error - empty body, unknown top-level or preferences key,
+ *           invalid theme/language value, or constraint violation on a field.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Missing or invalid bearer token
  */
 router.patch(
   "/profile",
