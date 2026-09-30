@@ -92,3 +92,4 @@ After building, generate and serve OpenAPI docs:
 npm run docs:openapi     # Outputs to dist/openapi.json
 npm run dev              # Swagger UI available at /api-docs
 ```
+..
