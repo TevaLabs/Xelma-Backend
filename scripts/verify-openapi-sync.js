@@ -60,6 +60,7 @@ const ROUTE_FILE_PREFIXES = {
   'errors.routes.ts':                  '/api/errors',
   'admin-cors-diagnostics.routes.ts':  '/api/admin/cors-diagnostics',
   'admin-dead-letter.routes.ts':       '/api/admin/dead-letter',
+  'admin-runtime-flags.routes.ts':     '/api/admin/runtime-flags',
   'health.ts':                         '/health',
   'prices.ts':                         '/api',
 };

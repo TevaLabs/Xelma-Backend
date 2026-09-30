@@ -35,6 +35,12 @@ When `DATA_MODE=mock`, the config defaults `DATA_STORE` to `memory`.
 You can override it explicitly: `DATA_MODE=mock DATA_STORE=postgres` is valid.
 When `DATA_MODE=live`, `DATA_STORE` defaults to `postgres`.
 
+Rate-limit metrics follow the same derivation (Issue #665): the in-memory
+metrics backend is used when `DATA_MODE=mock` or `DATA_STORE=memory`, and the
+Prisma backend otherwise. Set `RATE_LIMIT_METRICS_BACKEND` to force one, and
+`RATE_LIMIT_METRICS_MEMORY_MAX` to cap the buffer. See
+[README → Rate-Limit Metrics](../README.md#rate-limit-metrics-rate-limit-metricsservicets).
+
 ---
 
 ## Flag-by-flag behavior matrix
