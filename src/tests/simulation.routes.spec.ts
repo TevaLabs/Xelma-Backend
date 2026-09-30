@@ -66,6 +66,8 @@ jest.mock("../config", () => ({
       dataStore: "postgres",
       enableSimulation: mockConfigState.enableSimulation,
       enableMultiplayerSocial: false,
+      socketDemoMode: false,
+      safetyProfile: "demo",
     },
     jwt: {
       secret: "test-jwt-secret-for-mock",

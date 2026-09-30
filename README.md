@@ -120,8 +120,7 @@ Xelma-Backend/
 â”‚   â”‚   â””â”€â”€ openapi.ts              # OpenAPI/Swagger configuration
 â”‚   â”‚
 â”‚   â”œâ”€â”€ scripts/
-â”‚   â”‚   â”œâ”€â”€ generate-openapi.ts     # Generate OpenAPI JSON
-â”‚   â”‚   â””â”€â”€ export-postman.ts       # Export Postman collection
+â”‚   â”‚   â””â”€â”€ generate-openapi.ts     # Generate OpenAPI JSON
 â”‚   â”‚
 â”‚   â””â”€â”€ tests/                      # Jest test suites
 â”‚       â”œâ”€â”€ education-tip.service.spec.ts
@@ -1093,8 +1092,16 @@ npm run docs:generate  # regenerates docs/openapi.json + docs/postman-collection
 
 After any route/JSDoc change, run `npm run docs:generate` and commit the refreshed
 collection. CI runs `npm run docs:verify`, which fails if the committed collection
-no longer matches the current spec (a folder, request, HTTP method, or URL was
-added, removed, or changed). `npm run check:postman` runs only that drift check.
+no longer matches the current spec. `npm run check:postman` runs only that drift
+check; `npm run docs:postman` regenerates just the collection.
+
+**Regeneration is deterministic.** `openapi-to-postmanv2` embeds run-specific
+noise (random item UUIDs, a random `_postman_id`, and faker-generated response
+examples) in its raw output. `scripts/verify-postman-sync.js` strips those fields
+and pins `info._postman_id`, so `docs/postman-collection.json` is a pure function
+of `docs/openapi.json`: regenerating an unchanged spec produces a byte-identical
+file, and `npm run check:postman` can therefore do an exact byte compare instead
+of a fuzzy structure check — which also catches response-schema drift.
 
 > **Why this exists:** Postman collections are large, mostly-boilerplate JSON, so
 drift is easy to miss by eye. A regenerated-and-committed artifact means consumers
@@ -1622,10 +1629,10 @@ At minimum, migration PRs should include:
 | `npm run db:migrate`            | Apply all committed Prisma migrations                                                                                                                                                                                  |
 | `npm run db:prepare`            | Generate the Prisma client, then run `db:migrate` (the one-command DB setup used by CI and deploys)                                                                                                                   |
 | `npm run docs:openapi`          | Generate OpenAPI JSON spec to `docs/openapi.json`                                                                                                                                                                     |
-| `npm run docs:postman`          | Regenerate the Postman collection (`docs/postman-collection.json`) from `docs/openapi.json` (no server or DB needed)                                                                                                  |
+| `npm run docs:postman`          | Deterministically regenerate the Postman collection (`docs/postman-collection.json`) from `docs/openapi.json` (no server or DB needed)                                                                                |
 | `npm run docs:generate`         | Regenerate both `docs/openapi.json` and `docs/postman-collection.json` from the current source                                                                                                                        |
-| `npm run docs:verify`           | Regenerate OpenAPI, verify required paths are documented, and check the Postman collection for drift (CI gate)                                                                                                       |
-| `npm run check:postman`         | Run only the Postman ↔ OpenAPI drift check                                                                                                                                                                            |
+| `npm run docs:verify`           | Regenerate OpenAPI, verify required paths are documented, and byte-compare the Postman collection for freshness (CI gate)                                                                                            |
+| `npm run check:postman`         | Run only the Postman ↔ OpenAPI freshness check (exact byte compare against the deterministic output)                                                                                                                  |
 | `npm run scorecard`             | Run the production-readiness scorecard                                                                                                                                                                                |
 | `npm run pr:publish`            | Push the fork branch and open/update a PR as **your** git/GitHub user, stripping Cursor co-author trailers                                                                                                            |
 
