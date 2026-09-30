@@ -25,6 +25,10 @@ import { validate } from "../middleware/validate.middleware";
 import { challengeSchema, connectSchema } from "../schemas/auth.schema";
 import { AuthenticationError, ErrorCode } from "../utils/errors";
 import { auditLogger } from "../utils/audit-logger";
+import {
+  CHALLENGE_EXAMPLE_PUBLIC_KEY,
+  CONNECT_EXAMPLE_PUBLIC_KEY,
+} from "../docs/strkey-fixtures";
 
 /**
  * Wallet auth challenge/connect/verify routes.
@@ -56,8 +60,8 @@ const router = Router();
  *           schema:
  *             $ref: '#/components/schemas/AuthChallengeRequest'
  *           example:
- *             # Cryptographically valid G... StrKey (see src/docs/strkey-fixtures.ts) so
- *             # consumers can paste it without tripping the wallet-format middleware.
+ *             # Cryptographically valid G... StrKey fixture (see src/docs/strkey-fixtures.ts)
+ *             # so consumers can paste it without tripping the wallet-format middleware.
  *             walletAddress: GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN
  *     responses:
  *       200:
@@ -197,7 +201,8 @@ router.post(
  *           schema:
  *             $ref: '#/components/schemas/AuthConnectRequest'
  *           example:
- *             walletAddress: GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX
+ *             # Cryptographically valid G... StrKey fixture (see src/docs/strkey-fixtures.ts)
+ *             walletAddress: GDRHOLGIIVOGHNURCNVVGUXBUJCVTSKH2V7ACB4E4ZOR7KC3XGIBK5CT
  *             challenge: "Xelma Authentication\nDomain: xelma.io\nHome Domain: xelma.io\n..."
  *             signature: base64-or-hex-signature
  *     responses:
@@ -246,7 +251,7 @@ router.post(
  *         source: |
  *           curl -X POST "$API_BASE_URL/api/auth/connect" \\
  *             -H "Content-Type: application/json" \\
- *             -d '{"walletAddress":"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX","challenge":"Xelma Authentication\nDomain: xelma.io\n...","signature":"base64-or-hex-signature"}'
+ *             -d '{"walletAddress":"GDRHOLGIIVOGHNURCNVVGUXBUJCVTSKH2V7ACB4E4ZOR7KC3XGIBK5CT","challenge":"Xelma Authentication\nDomain: xelma.io\n...","signature":"base64-or-hex-signature"}'
  */
 const connectHandler = async (
   req: Request,
