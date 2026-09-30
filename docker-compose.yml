@@ -51,8 +51,8 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      # Full mode (default) — health route lives at GET /health (root, outside /api).
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:${PORT:-3000}/health || exit 1"]
+      # Liveness health route lives at GET /healthz (zero-IO process check).
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:${PORT:-3000}/healthz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -71,12 +71,9 @@ services:
     environment:
       PORT: 3001
       API_MODE: hackathon
-      # Hackathon health route lives at GET /api/health.
-      # The entrypoint also sets HEALTHCHECK_PATH automatically when
-      # API_MODE=hackathon, but we set it here for the compose-level probe.
-      HEALTHCHECK_PATH: /api/health
+      HEALTHCHECK_PATH: /healthz
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/healthz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

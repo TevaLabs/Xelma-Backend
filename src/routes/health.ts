@@ -14,6 +14,24 @@ const router = Router();
 
 const HEALTH_TIMEOUT_MS = 3000;
 
+/**
+ * Pure in-process liveness handler.
+ * Zero I/O checks — does not query CoinGecko, Prisma, Redis, or Soroban.
+ * Used by process orchestrators (Render, Kubernetes, Docker) to verify process viability.
+ */
+export const livenessHandler = (_req: Request, res: Response): void => {
+  setNoStore(res);
+  sendSuccess(res, {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+};
+
+router.get('/healthz', livenessHandler);
+router.get('/liveness', livenessHandler);
+router.get('/live', livenessHandler);
+
 async function checkDatabase(): Promise<{
   status: string;
   durationMs: number;
@@ -123,42 +141,53 @@ async function checkOracle(): Promise<{
   }
 }
 
+const readinessHandler = asyncHandler(async (_req: Request, res: Response) => {
+  setNoStore(res);
+  const startTime = Date.now();
+
+  const [database, redis, soroban, oracle] = await Promise.all([
+    checkDatabase(),
+    checkRedis(),
+    checkSoroban(),
+    checkOracle(),
+  ]);
+
+  const services = { database, redis, soroban, oracle };
+
+  let overallStatus: 'healthy' | 'degraded' | 'unhealthy';
+  if (database.status === 'unhealthy') {
+    overallStatus = 'unhealthy';
+  } else if (
+    redis.status === 'degraded' ||
+    soroban.status === 'degraded' ||
+    oracle.status === 'degraded' ||
+    oracle.status === 'stale'
+  ) {
+    overallStatus = 'degraded';
+  } else {
+    overallStatus = 'healthy';
+  }
+
+  sendSuccess(res, {
+    status: overallStatus,
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    durationMs: Date.now() - startTime,
+    services,
+  });
+});
+
+router.get('/ready', readinessHandler);
+router.get('/readiness', readinessHandler);
+
 router.get(
   '/',
-  asyncHandler(async (_req: Request, res: Response) => {
-    setNoStore(res);
-    const startTime = Date.now();
-
-    const [database, redis, soroban, oracle] = await Promise.all([
-      checkDatabase(),
-      checkRedis(),
-      checkSoroban(),
-      checkOracle(),
-    ]);
-
-    const services = { database, redis, soroban, oracle };
-
-    let overallStatus: 'healthy' | 'degraded' | 'unhealthy';
-    if (database.status === 'unhealthy') {
-      overallStatus = 'unhealthy';
-    } else if (
-      redis.status === 'degraded' ||
-      soroban.status === 'degraded' ||
-      oracle.status === 'degraded' ||
-      oracle.status === 'stale'
-    ) {
-      overallStatus = 'degraded';
-    } else {
-      overallStatus = 'healthy';
+  asyncHandler(async (req: Request, res: Response, next) => {
+    if (req.query.liveness === 'true' || req.query.live === '1' || req.query.liveness === '1') {
+      livenessHandler(req, res);
+      return;
     }
-
-    sendSuccess(res, {
-      status: overallStatus,
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      durationMs: Date.now() - startTime,
-      services,
-    });
+    return readinessHandler(req, res, next);
   }),
 );
 

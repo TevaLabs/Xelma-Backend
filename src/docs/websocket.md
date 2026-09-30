@@ -47,13 +47,19 @@ On connect the server emits `server:hello` with the heartbeat configuration:
 interface ServerHelloPayload {
   socketId: string;
   pingInterval: number;   // 25_000 ms
-  pingTimeout: number;     // 10_000 ms
+  pingTimeout: number;     // 20_000 ms (configurable via SOCKET_PING_TIMEOUT)
   authenticated: boolean;
   userId?: string;
 }
 ```
 
 Clients that do not receive a server ping within `pingInterval + pingTimeout` ms should reconnect.
+
+#### Configurable Timeouts
+Operators can tune socket timeouts for high-latency or shaky networks via environment variables:
+- `SOCKET_PING_INTERVAL` (default: `25000` ms): How often the server sends engine pings.
+- `SOCKET_PING_TIMEOUT` (default: `20000` ms): Maximum delay for client pong response.
+- `SOCKET_CONNECT_TIMEOUT` (default: `45000` ms): Engine-level connection establishment timeout.
 
 ### 3. Token Expiry & Reconnect
 

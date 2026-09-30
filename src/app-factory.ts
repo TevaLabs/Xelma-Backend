@@ -40,7 +40,7 @@ import corsDiagnosticsRoutes from './routes/admin-cors-diagnostics.routes';
 import deadLetterRoutes from './routes/admin-dead-letter.routes';
 import betAuditRoutes from './routes/admin-bet-audit.routes';
 import runtimeFlagsRoutes from './routes/admin-runtime-flags.routes';
-import healthRoutes from './routes/health';
+import healthRoutes, { livenessHandler } from './routes/health';
 import statsRoutes from './routes/stats';
 import indexRoutes from './routes/index';
 import pricesRoutes, { legacyXlmPriceRouter } from './routes/prices';
@@ -323,6 +323,10 @@ export function createApp(options: CreateAppOptions = {}): Application {
     app.use('/api', apiRateLimiter);
     app.use('/api', writeRateLimiter);
   }
+
+  // Liveness probes (process up check with zero I/O, no DB/CoinGecko/Soroban)
+  app.get('/healthz', livenessHandler);
+  app.get('/liveness', livenessHandler);
 
   // Health probe. The full app serves it off the API prefix so uptime checks
   // are neither rate limited nor versioned; the hackathon app keeps it under

@@ -97,7 +97,7 @@ export const chatRateLimiter = new SocketRateLimiter(5, 60_000);
 // ---------------------------------------------------------------------------
 
 /** How often (ms) the server sends a ping to each connected client. */
-export const PING_INTERVAL = 25_000;
+export const PING_INTERVAL = config.socket?.pingInterval ?? 25_000;
 
 // ---------------------------------------------------------------------------
 // Token refresh / reconnect contract
@@ -125,7 +125,12 @@ export const AUTH_TOKEN_INVALID = 'AUTH_TOKEN_INVALID';
  * How long (ms) the server waits for a pong before treating the socket as
  * dead and forcibly disconnecting it.
  */
-export const PING_TIMEOUT = 10_000;
+export const PING_TIMEOUT = config.socket?.pingTimeout ?? 20_000;
+
+/**
+ * How long (ms) before connection establishment times out.
+ */
+export const CONNECT_TIMEOUT = config.socket?.connectTimeout ?? 45_000;
 
 /**
  * How often (ms) the application-level stale-connection checker runs.
@@ -294,8 +299,9 @@ export async function initializeSocket(
       DefaultEventsMap,
       import('./types/socket-events').SocketData
    >(httpServer, {
-      pingInterval: PING_INTERVAL,
-      pingTimeout: PING_TIMEOUT,
+      pingInterval: config.socket?.pingInterval ?? PING_INTERVAL,
+      pingTimeout: config.socket?.pingTimeout ?? PING_TIMEOUT,
+      connectTimeout: config.socket?.connectTimeout ?? CONNECT_TIMEOUT,
       cors: {
          origin: corsOrigins,
          methods: ['GET', 'POST'],
