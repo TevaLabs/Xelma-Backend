@@ -24,10 +24,12 @@ export interface MappedActiveRound {
   source: "soroban";
 }
 
+export type FrontendRoundMode = "updown" | "precision";
+
 export interface FrontendRoundCard {
   id: string;
   asset: string;
-  mode: string;
+  mode: FrontendRoundMode;
   status: string;
   startPrice: string;
   poolUp: string;
@@ -141,7 +143,7 @@ function buildMockFrontendCard(
   return serializeRound({
     id: `${asset.toLowerCase()}-round-${index + 1}`,
     asset,
-    mode: "updown",
+    mode: "updown" as const,
     status: "live",
     startPrice,
     poolUp: upPool,
@@ -183,10 +185,12 @@ function buildLiveFrontendCard(
   const downPool = toNumber(round.pool_down) / STROOP_SCALE;
   const totalPool = upPool + downPool;
 
+  const mode: FrontendRoundMode = mappedRound.mode === "LEGENDS" ? "precision" : "updown";
+
   return serializeRound({
     id: mappedRound.id,
     asset: "XLM",
-    mode: mappedRound.mode === "LEGENDS" ? "precision" : "updown",
+    mode,
     status: "live",
     startPrice,
     poolUp: upPool,
