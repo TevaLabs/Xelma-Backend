@@ -101,7 +101,7 @@ export function isLegalTournamentTransition(
   from: TournamentLifecycleStatus | TournamentStatus,
   to: TournamentLifecycleStatus,
 ): boolean {
-  return (TOURNAMENT_LIFECYCLE_TRANSITIONS[to] ?? []).includes(from as TournamentLifecycleStatus);
+  return (TOURNAMENT_LIFECYCLE_TRANSITIONS[to] ?? []).includes(from);
 }
 
 /**

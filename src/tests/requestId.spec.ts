@@ -53,7 +53,7 @@ describe('Request ID Tracing', () => {
       // Verify the request ID is a valid UUID if auto-generated
       const requestId = res.headers['x-request-id'];
       expect(requestId).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^[a-zA-Z0-9\-]+$/i
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^[a-zA-Z0-9-]+$/i
       );
     });
 

@@ -57,9 +57,14 @@ class PriceOracle {
     }
     this._running = true;
     this.publishHealthMetrics();
-    this.fetchPrice();
+    // Deliberately not awaited: the first tick is a warm-up and the interval
+    // below keeps polling independently. `fetchPrice` already swallows its own
+    // errors into the circuit-breaker/health-metrics path, so the promise
+    // cannot reject, but it is still handled explicitly so a future change
+    // cannot turn this into an unhandled rejection.
+    void this.fetchPrice();
     this.pollingInterval = setInterval(() => {
-      this.fetchPrice();
+      void this.fetchPrice();
     }, this.POLLING_INTERVAL);
     logger.info('Price Oracle polling started');
   }

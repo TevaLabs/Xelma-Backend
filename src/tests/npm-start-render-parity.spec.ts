@@ -18,7 +18,7 @@ function resolveEntrypoint(command: string): string {
 }
 
 function parseRenderServices(yaml: string): Record<string, string> {
-  const blocks = yaml.split(/\n(?=  - type: web)/).filter(block => block.includes('type: web'));
+  const blocks = yaml.split(/\n(?= {2}- type: web)/).filter(block => block.includes('type: web'));
   const services: Record<string, string> = {};
 
   for (const block of blocks) {

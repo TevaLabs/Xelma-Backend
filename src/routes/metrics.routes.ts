@@ -78,7 +78,7 @@ router.get('/', requirePublicMetricsAuth, async (_req: Request, res: Response) =
  *         description: Schema is outdated or database is unreachable.
  */
 router.get('/readiness', async (_req: Request, res: Response) => {
-  const payload = await checkSchemaReadiness(prisma as any);
+  const payload = await checkSchemaReadiness(prisma);
   const statusCode = payload.ready ? 200 : 503;
   res.status(statusCode).json(payload);
 });

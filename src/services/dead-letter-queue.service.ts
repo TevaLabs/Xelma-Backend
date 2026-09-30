@@ -50,8 +50,8 @@ export interface RetryHandlers {
   websocketEmit: (input: {
     eventName: string | null;
     userId: string | null;
-    payload: any;
-  }) => Promise<unknown> | unknown;
+    payload: unknown;
+  }) => unknown;
 }
 
 export interface RetryResult {
@@ -112,7 +112,7 @@ class DeadLetterQueueService {
           channel: input.channel,
           eventName: input.eventName ?? null,
           userId: input.userId ?? null,
-          payload: (input.payload ?? {}) as Prisma.InputJsonValue,
+          payload: input.payload ?? {},
           attempts: 1,
           status: DispatchStatus.PENDING,
           lastError: truncateError(input.error),
@@ -201,7 +201,7 @@ class DeadLetterQueueService {
         await handlers.websocketEmit({
           eventName: row.eventName,
           userId: row.userId,
-          payload: row.payload as any,
+          payload: row.payload,
         });
       }
       const resolved = await prisma.failedDispatch.update({

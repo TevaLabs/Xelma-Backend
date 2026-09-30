@@ -189,7 +189,9 @@ export async function retryOrThrow<T>(
    const result = await withRetry(operation, operationName, policy);
 
    if (!result.success) {
-      throw result.error;
+      // `error` is optional on the result union; throwing it verbatim would
+      // throw `undefined`, which Express's error handler cannot describe.
+      throw result.error ?? new Error(`Operation "${operationName}" failed`);
    }
 
    return result.data!;

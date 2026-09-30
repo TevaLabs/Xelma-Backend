@@ -284,7 +284,9 @@ class OutboxService {
         await handlers.betFailed(row.payload as BetFailedOutboxPayload);
         break;
       default:
-        throw new Error(`Unknown outbox event type: ${row.eventType}`);
+        throw new Error(
+          `Unknown outbox event type: ${String((row as { eventType: unknown }).eventType)}`
+        );
     }
   }
 

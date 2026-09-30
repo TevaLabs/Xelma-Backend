@@ -55,7 +55,7 @@ function isNumberTyped(schema: Record<string, unknown>): boolean {
 }
 
 function refsMoneyAmount(schema: Record<string, unknown>): boolean {
-  const ref = String(schema.$ref ?? "");
+  const ref = typeof schema.$ref === "string" ? schema.$ref : "";
   if (ref.endsWith("/MoneyAmount") || ref.endsWith("/NullableMoneyAmount")) return true;
   const allOf = schema.allOf;
   if (Array.isArray(allOf)) {

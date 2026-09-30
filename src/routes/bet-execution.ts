@@ -156,7 +156,7 @@ export async function executeBet(
       lockAcquired = !!lockResult.lockAcquired;
     }
 
-    const requestId = (req as any).requestId as string | undefined;
+    const requestId = req.requestId as string | undefined;
     const result = await placeBet(kind, req.body, roundId, idempotencyKey, requestId);
     operationCompleted = true;
 

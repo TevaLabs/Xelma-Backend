@@ -142,7 +142,6 @@ async function checkHealth() {
 
   // Treat "degraded" as a warning rather than a hard failure so a transient
   // DB blip does not permanently fail the pipeline.
-  const healthy    = status === 200 && body?.status === 'healthy';
   const degraded   = status === 503 && hasStatus;
 
   return {

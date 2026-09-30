@@ -67,7 +67,6 @@ import { getHttpCorsOrigins } from './utils/cors';
 import { swaggerSpec } from './docs/openapi';
 import { hackathonSwaggerSpec } from './docs/hackathon-openapi';
 import config from './config';
-import logger from './utils/logger';
 import { noStoreHeaders } from './utils/http-cache';
 
 export type AppMode = 'full' | 'hackathon';

@@ -106,7 +106,6 @@ maybeDescribe("RedisRateLimitStore with real Redis (Issue #520)", () => {
 });
 
 if (!REDIS_URL) {
-  // eslint-disable-next-line no-console
   console.warn(
     "[rate-limit-redis-store.integration.spec.ts] REDIS_URL not set - skipping shared rate-limit store test. " +
       "Run `docker compose up -d redis` and set REDIS_URL to enable it."

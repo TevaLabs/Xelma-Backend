@@ -27,8 +27,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run lint
+      # Two independent layers. `npm run lint` is `tsc --noEmit`: it answers
+      # "does this compile?". `npm run lint:eslint` answers "does this hold up
+      # to the static-analysis baseline" (unused vars, floating promises,
+      # `any` sprawl, security plugin best practices). Both must pass.
+      - name: Typecheck
         run: npm run lint
+
+      - name: ESLint
+        run: npm run lint:eslint
 
   scorecard:
     name: production-readiness scorecard

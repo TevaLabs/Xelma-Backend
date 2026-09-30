@@ -5,7 +5,7 @@ import notificationService from "./notification.service";
 import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
 import { ConflictError, ValidationError, ErrorCode } from "../utils/errors";
-import { RoundLifecycleOutcome, RoundStatus } from "../types/round.types";
+import { RoundLifecycleOutcome } from "../types/round.types";
 import roundLifecycleService from "./round-lifecycle.service";
 import { Decimal } from "@prisma/client/runtime/library";
 import { toDecimal, toNumber } from "../utils/decimal.util";
@@ -58,7 +58,7 @@ export class RoundService {
         startTime.getTime() + durationMinutes * 60 * 1000,
       );
 
-      let sorobanRoundId: string | null = null;
+      const sorobanRoundId: string | null = null;
 
       const startPriceDecimal = toDecimal(startPrice);
       const startPriceNumber = toNumber(startPriceDecimal);
@@ -97,7 +97,7 @@ export class RoundService {
           // bootstraps the machine rather than transitioning an existing row.
           // Every *transition* out of ACTIVE routes through the lifecycle
           // state machine (round-lifecycle.service).
-          status: "ACTIVE" as RoundStatus,
+          status: "ACTIVE",
           startTime,
           endTime,
           startPrice: startPriceDecimal,

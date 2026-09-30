@@ -1,5 +1,4 @@
 import { Prisma } from '@prisma/client';
-import type { RoundStatus as PrismaRoundStatus } from '@prisma/client';
 import { RoundStatus, RoundLifecycleOutcome } from '../types/round.types';
 import { prisma } from '../lib/prisma';
 import {
@@ -99,7 +98,7 @@ class RoundLifecycleService {
 
     // If the current status could never legally land on `toState`, reject
     // up front so we do not even attempt a doomed write.
-    if (!isLegalRoundTransition(existing.status as RoundStatus, toState)) {
+    if (!isLegalRoundTransition(existing.status, toState)) {
       roundTransitionFailuresTotal.inc({
         from: existing.status,
         to: toState,

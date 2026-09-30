@@ -159,6 +159,24 @@ export function serializeBet<T extends object>(bet: T): T {
   return out as T;
 }
 
+/**
+ * Renders a round identifier-ish field as a string.
+ *
+ * These fields arrive as `unknown` from a `Record<string, unknown>` payload,
+ * and are strings in practice. `String(x)` on an unexpected object would
+ * silently produce `"[object Object]"`, which would then be published to
+ * clients as a round id — so objects and `null`/`undefined` collapse to `""`
+ * rather than being stringified.
+ */
+function stringifyId(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
 export function serializeRoundUpdatePayload(round: Record<string, unknown>): RoundUpdatePayload {
   const startTime =
     typeof (round.startTime as { toISOString?: () => string })?.toISOString === "function"
@@ -174,15 +192,15 @@ export function serializeRoundUpdatePayload(round: Record<string, unknown>): Rou
       : (round.resolvedAt as string | null | undefined) ?? null;
 
   return {
-    id: String(round.id ?? ""),
-    mode: String(round.mode ?? ""),
-    status: String(round.status ?? ""),
+    id: stringifyId(round.id),
+    mode: stringifyId(round.mode),
+    status: stringifyId(round.status),
     startTime: (startTime as string | null | undefined) ?? null,
     endTime: (endTime as string | null | undefined) ?? null,
     startPrice: serializeNullableMoney(round.startPrice as MoneyInput),
     endPrice: serializeNullableMoney(round.endPrice as MoneyInput),
-    poolUp: serializeMoney((round.poolUp ?? 0) as MoneyInput),
-    poolDown: serializeMoney((round.poolDown ?? 0) as MoneyInput),
+    poolUp: serializeMoney(round.poolUp ?? 0),
+    poolDown: serializeMoney(round.poolDown ?? 0),
     priceRanges: serializePriceRanges(round.priceRanges),
     resolvedAt,
   };

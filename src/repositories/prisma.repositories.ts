@@ -39,8 +39,12 @@ export class PrismaStatsRepository implements StatsRepository {
     return getPlatformStats();
   }
 
-  async invalidateStatsCache(): Promise<void> {
-    const { invalidateStatsCache } = await import("../services/stats.service");
+  // `invalidateStatsCache` is synchronous (it clears a module-level cache
+  // holder). Declaring this `async` made it a silently-floating promise that
+  // resolved a microtask later than the caller assumed, so a write followed
+  // by a read could still serve the stale value. Keep it sync.
+  invalidateStatsCache(): void {
+    const { invalidateStatsCache } = require("../services/stats.service");
     invalidateStatsCache();
   }
 }

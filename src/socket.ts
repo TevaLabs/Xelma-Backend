@@ -1,7 +1,7 @@
 import { Server as HTTPServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import type { DefaultEventsMap } from 'socket.io/dist/typed-events';
-import { verifyToken, verifyTokenDetailed } from './utils/jwt.util';
+import { verifyTokenDetailed } from './utils/jwt.util';
 import { prisma } from './lib/prisma';
 import websocketService from './services/websocket.service';
 import chatService from './services/chat.service';
@@ -22,7 +22,6 @@ import type {
    AuthErrorPayload,
    RoomEventPayload,
    GenericErrorPayload,
-   ResumePayload,
    ChatSendPayload,
    ChatAckPayload,
    SessionCheckpointPayload,
@@ -43,6 +42,42 @@ function isAuthorizedPrivateRoomJoin(
    if (!socket.userId) return false;
    const expectedRoom = `user:${socket.userId}`;
    return room === expectedRoom;
+}
+
+/**
+ * `socket.join()` / `socket.leave()` are typed `Promise<void> | void` — they
+ * return a promise only under the cluster/Redis adapter and are synchronous
+ * with the in-memory adapter. The Socket.IO event handlers in this file are
+ * not async, so the returned value has to be handled explicitly; a rejected
+ * room operation (e.g. a Redis outage mid-broadcast) would otherwise become
+ * an unhandled rejection. These helpers keep the call sites readable and
+ * make the failure mode a logged warning rather than a crash.
+ */
+/** Narrows Socket.IO's `Promise<void> | void` return to a catchable promise, if any. */
+function asPromise(result: Promise<void> | void): Promise<void> | undefined {
+   return result && typeof result.catch === 'function' ? result : undefined;
+}
+
+function joinRoom(socket: AuthenticatedSocket, room: string): void {
+   const pending = asPromise(socket.join(room));
+   pending?.catch((error: unknown) =>
+      logger.warn('Failed to join socket room', {
+         room,
+         socketId: socket.id,
+         error: error instanceof Error ? error.message : String(error),
+      })
+   );
+}
+
+function leaveRoom(socket: AuthenticatedSocket, room: string): void {
+   const pending = asPromise(socket.leave(room));
+   pending?.catch((error: unknown) =>
+      logger.warn('Failed to leave socket room', {
+         room,
+         socketId: socket.id,
+         error: error instanceof Error ? error.message : String(error),
+      })
+   );
 }
 
 // Extended socket with walletAddress attached directly alongside SocketData
@@ -451,7 +486,7 @@ export async function initializeSocket(
       // -----------------------------------------------------------------------
 
       if (socket.userId) {
-         socket.join(`user:${socket.userId}`);
+         joinRoom(socket, `user:${socket.userId}`);
          logger.info(`Socket ${socket.id} auto-joined user:${socket.userId}`);
 
          if (!config.app.socketDemoMode) {
@@ -470,9 +505,9 @@ export async function initializeSocket(
                // client also receives the resume payload so it can update
                // local UI state without a round-trip.
                for (const room of resume.rooms) {
-                  socket.join(room);
+                  joinRoom(socket, room);
                }
-               socket.emit('session:resume', resume as ResumePayload);
+               socket.emit('session:resume', resume);
 
                // Issue #555: reconcile DB rooms against the adapter.
                // If a previous instance crashed between a DB write and an adapter
@@ -505,7 +540,7 @@ export async function initializeSocket(
          }
 
          const room = roundId ? `round:${roundId}` : 'round';
-         socket.join(room);
+         joinRoom(socket, room);
          logger.info(`Socket ${socket.id} joined room: ${room}`);
          const joinedPayload: RoomEventPayload = { room };
          socket.emit('room:joined', joinedPayload);
@@ -524,7 +559,7 @@ export async function initializeSocket(
          }
 
          const room = roundId ? `round:${roundId}` : 'round';
-         socket.leave(room);
+         leaveRoom(socket, room);
          logger.info(`Socket ${socket.id} left room: ${room}`);
          const leftPayload: RoomEventPayload = { room };
          socket.emit('room:left', leftPayload);
@@ -561,7 +596,7 @@ export async function initializeSocket(
             socket.emit('error', errPayload);
             return;
          }
-         socket.join('chat');
+         joinRoom(socket, 'chat');
          logger.info(`Socket ${socket.id} joined room: chat`);
          const joinedChat: RoomEventPayload = { room: 'chat' };
          socket.emit('room:joined', joinedChat);
@@ -570,7 +605,7 @@ export async function initializeSocket(
 
       // Leave chat room
       socket.on('leave:chat', () => {
-         socket.leave('chat');
+         leaveRoom(socket, 'chat');
          logger.info(`Socket ${socket.id} left room: chat`);
          const leftChat: RoomEventPayload = { room: 'chat' };
          socket.emit('room:left', leftChat);
@@ -697,13 +732,13 @@ export async function initializeSocket(
             return;
          }
 
-         socket.join(targetRoom);
+         joinRoom(socket, targetRoom);
          // Ack with generic 'notifications' for backwards-compat when joining own room;
          // if caller explicitly asked for a room name, echo that room so tests and
          // multi-room clients can correlate.
          const ackRoom =
             targetRoom === `user:${socket.userId}` ? 'notifications' : targetRoom;
-         const joinedNotif: RoomEventPayload = { room: ackRoom as any };
+         const joinedNotif: RoomEventPayload = { room: ackRoom };
          // Also emit the concrete room for clients that track exact rooms (useful for testing ACL denial)
          // To keep backwards-compat, we emit 'notifications' for the default case but the socket is
          // actually in `user:${userId}`; multi-node emit via websocket.service still targets `user:${userId}`.

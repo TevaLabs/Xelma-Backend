@@ -5,6 +5,7 @@ import { asyncHandler } from "../middleware/errorHandler.middleware";
 import {
   joinTournamentParamsSchema,
   tournamentListQuerySchema,
+  tournamentCreateSchema,
   TournamentListQuery,
 } from "../schemas/tournament.schema";
 import tournamentService from "../services/tournament.service";
@@ -132,6 +133,7 @@ router.get(
 router.post(
   "/",
   authenticateUser,
+  validate(tournamentCreateSchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const created = await tournamentService.createTournament(req.body);
     return sendSuccess(res, created);

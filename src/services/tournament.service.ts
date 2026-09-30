@@ -185,8 +185,8 @@ export class TournamentService {
   async listFromPrisma(query: TournamentListQuery) {
     const { limit, offset, mode, status } = query;
     const where: Prisma.TournamentWhereInput = {};
-    if (mode) where.mode = mode as GameMode;
-    if (status) where.status = status as TournamentStatus;
+    if (mode) where.mode = mode;
+    if (status) where.status = status;
 
     const [total, rows] = await Promise.all([
       prisma.tournament.count({ where }),
@@ -227,7 +227,7 @@ export class TournamentService {
     // Saga guard: only UPCOMING (announced) tournaments accept joins. An ACTIVE
     // tournament has already locked its roster, and a COMPLETED/CANCELLED one is
     // terminal — a clean, out-of-order rejection is better than a silent no-op.
-    this.assertJoinable(tournament.status as TournamentStatus);
+    this.assertJoinable(tournament.status);
 
     // Atomic join: capacity check + duplicate check + create + increment
     // all inside the same interactive transaction to prevent check-then-act races.
@@ -250,7 +250,7 @@ export class TournamentService {
 
       // Re-check the saga guard inside the transaction as well — status may have
       // changed between the outer read and the begin of this transaction.
-      this.assertJoinable(txTournament.status as TournamentStatus);
+      this.assertJoinable(txTournament.status);
 
       // Atomic capacity check — serialised by the row lock above so concurrent
       // requests see the latest count before deciding to join.
@@ -334,7 +334,7 @@ export class TournamentService {
       data: {
         name: input.name,
         description: input.description,
-        mode: input.mode as GameMode,
+        mode: input.mode,
         status: "UPCOMING",
         entryFee: toDecimal(input.entryFee),
         prizePool: toDecimal(input.prizePool),
@@ -379,7 +379,7 @@ export class TournamentService {
       throw new NotFoundError("Tournament not found");
     }
 
-    const from = current.status as TournamentStatus;
+    const from = current.status;
     if (!isLegalTournamentTransition(from, to)) {
       tournamentTransitionFailuresTotal.inc({ from, to });
       throw new TournamentInvalidStateError(from, to);

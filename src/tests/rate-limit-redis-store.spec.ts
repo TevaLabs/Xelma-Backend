@@ -108,8 +108,10 @@ describe("RedisRateLimitStore (Issue #520)", () => {
     const replicaA = makeStore({ prefix: "xelma:rl:shared:", client: sharedClient });
     const replicaB = makeStore({ prefix: "xelma:rl:shared:", client: sharedClient });
 
-    await replicaA.store.init({ windowMs: 60_000 } as any);
-    await replicaB.store.init({ windowMs: 60_000 } as any);
+    // `init` on the in-memory fake below returns void; awaiting it would be
+    // a no-op, so the call is made without `await`.
+    replicaA.store.init({ windowMs: 60_000 } as any);
+    replicaB.store.init({ windowMs: 60_000 } as any);
 
     const hit1 = await replicaA.store.increment("user-9");
     const hit2 = await replicaB.store.increment("user-9");

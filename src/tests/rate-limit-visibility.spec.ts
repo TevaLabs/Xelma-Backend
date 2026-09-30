@@ -243,8 +243,7 @@ describe('Rate Limit Visibility', () => {
     it.each(ADMIN_METRICS_ROUTES)(
       '$name ($method $path) returns 403 for a USER role',
       async ({ method, path }) => {
-        const response = await request(app)
-          [method](path)
+        const response = await request(app)[method](path)
           .set('Authorization', `Bearer ${userToken}`);
 
         expect(response.status).toBe(403);
@@ -254,8 +253,7 @@ describe('Rate Limit Visibility', () => {
     it.each(ADMIN_METRICS_ROUTES)(
       '$name ($method $path) returns 200 for an ADMIN role',
       async ({ method, path }) => {
-        const response = await request(app)
-          [method](path)
+        const response = await request(app)[method](path)
           .set('Authorization', `Bearer ${adminToken}`);
 
         expect(response.status).toBe(200);

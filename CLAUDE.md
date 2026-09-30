@@ -12,6 +12,8 @@ npm start                # Start production server (node dist/index.js)
 
 # Type checking & linting
 npm run lint             # tsc --noEmit (type-check only, no output)
+npm run lint:eslint      # ESLint (unused vars, floating promises, security plugin); CI gate
+npm run lint:fix         # eslint . --fix (auto-fix the fixable subset)
 
 # Testing
 npm test                 # Run all tests

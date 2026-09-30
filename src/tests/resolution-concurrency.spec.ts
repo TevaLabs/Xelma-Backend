@@ -31,7 +31,7 @@ const describeDb = shouldRunDbTests ? describe : describe.skip;
 
 describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
    let testRound: any;
-   let users: any[] = [];
+   const users: any[] = [];
 
    beforeAll(async () => {
       if (shouldRunDbTests) {

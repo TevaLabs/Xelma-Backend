@@ -156,7 +156,7 @@ class SimulationService {
         const payout = calculatePayout(toDecimal(p.amount), winningPool, losingPool);
         const payoutNum = toNumber(payout);
         totalPayout += payoutNum;
-        return { won: true, payout: payoutNum, amount: toNumber(p.amount), side: (p.side ?? null) as 'UP' | 'DOWN' | null };
+        return { won: true, payout: payoutNum, amount: toNumber(p.amount), side: p.side ?? null };
       }
       losers++;
       return { won: false, payout: 0, amount: toNumber(p.amount), side: (p.side ?? null) as 'UP' | 'DOWN' | null };

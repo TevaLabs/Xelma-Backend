@@ -131,8 +131,11 @@ class AuditLogger {
         break;
     }
 
-    // Persist to database (fire-and-forget, non-blocking)
-    this.persistToDatabase(event);
+    // Persist to database (fire-and-forget, non-blocking). `persistToDatabase`
+    // swallows its own errors so audit writes can never break the request path;
+    // `void` makes that fire-and-forget intent explicit to readers and to the
+    // `no-floating-promises` rule.
+    void this.persistToDatabase(event);
   }
 
   /**

@@ -320,7 +320,6 @@ describe("errorHandler via createApp routes", () => {
   let app: express.Express;
 
   beforeAll(() => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     app = require("../index").createApp();
   });
 

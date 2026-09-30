@@ -306,7 +306,10 @@ describe("validateVendoredBindings — commit pin", () => {
 describe("validateVendoredBindings — TypeScript surface", () => {
   it("fails when a required contract method disappears from the Client interface", () => {
     cwdRoot = makeVendor({
-      dts: DTS.replace(/    claim_winnings: \(\{ user \}: \{\n        user: string;\n    \}[^;]*;\n/, ""),
+      dts: DTS.replace(
+        / {4}claim_winnings: \(\{ user \}: \{\n {8}user: string;\n {4}\}, options\?: MethodOptions\) => Promise<AssembledTransaction<i128>>;/,
+        "",
+      ),
     });
     const result = validateVendoredBindings(cwdRoot);
     expect(result.ok).toBe(false);

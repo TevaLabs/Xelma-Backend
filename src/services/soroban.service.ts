@@ -300,15 +300,17 @@ export class SorobanService {
    */
   async createRound(
     startPrice: number | string | Decimal,
-    mode: RoundMode = 0 as RoundMode,
+    mode: RoundMode = 0,
   ): Promise<void> {
     await this.ensureInitialized();
     
     const result = await this.callWithBreaker("sorobanCreateRound", () =>
       withTimeout(
         async () => {
+        // `startPrice` can be a Prisma Decimal; interpolating one directly
+        // would log `Prisma.Decimal { ... }` instead of the value.
         logger.debug(
-          `Initiating Soroban createRound: price=${startPrice}, mode=${mode}`,
+          `Initiating Soroban createRound: price=${toDecimal(startPrice).toFixed()}, mode=${mode}`,
         );
 
         // Price scaled to 4 decimal places (e.g. 0.2297 → 2297)
@@ -499,8 +501,9 @@ export class SorobanService {
     const result = await this.callWithBreaker("sorobanResolveRound", () =>
       withTimeout(
         async () => {
+        // `finalPrice` can be a Prisma Decimal; see createRound above.
         logger.debug(
-          `Initiating Soroban resolveRound: finalPrice=${finalPrice}, roundId=${roundId}`,
+          `Initiating Soroban resolveRound: finalPrice=${toDecimal(finalPrice).toFixed()}, roundId=${roundId}`,
         );
 
         // Price scaled to 4 decimal places

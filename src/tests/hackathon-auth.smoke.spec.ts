@@ -277,7 +277,7 @@ async function postJson(
     body: JSON.stringify(body),
   });
   const text = await res.text();
-  let parsed: any = {};
+  let parsed: any;
   try {
     parsed = text ? JSON.parse(text) : {};
   } catch {

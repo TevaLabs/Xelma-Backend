@@ -1,9 +1,8 @@
-import { BetStatus, BetMode, OutboxEventType, Prisma } from '@prisma/client';
+import { BetStatus, BetMode, OutboxEventType } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
 import sorobanService, { TransactionStatus } from './soroban.service';
-import betService from './bet.service';
-import outboxService, { BetConfirmedOutboxPayload, BetFailedOutboxPayload } from './outbox.service';
+import { BetConfirmedOutboxPayload, BetFailedOutboxPayload } from './outbox.service';
 
 export interface ReconciliationResult {
   checked: number;

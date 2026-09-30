@@ -1,4 +1,4 @@
-import { NextFunction, Request, Response, Router } from "express";
+import { NextFunction, Response, Router } from "express";
 import { z } from "zod";
 import {
   authenticateUser,

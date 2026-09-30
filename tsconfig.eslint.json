@@ -1,0 +1,22 @@
+{
+  // Dedicated TypeScript program for ESLint (Issue #654).
+  //
+  // `tsconfig.json` intentionally excludes `src/tests/**` and `*.spec.ts` so
+  // `npm run build` does not compile them. ESLint, however, needs a single
+  // program that covers every file it lints — otherwise the type-aware rules
+  // (`no-floating-promises`, `no-misused-promises`, ...) fall back to
+  // `any`, or ESLint aborts with "file not found in project".
+  //
+  // This file therefore extends the production config and adds the test tree
+  // back in, with `noEmit` since ESLint never writes output.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // tsconfig.json pins rootDir to ./src so `npm run build` emits only the
+    // application. This program covers jest.config.ts, scripts/ and the repo
+    // root too, so the root has to widen to avoid TS6059.
+    "rootDir": "."
+  },
+  "include": ["src/**/*", "scripts/**/*", "jest.config.ts", "verify_enhancements.ts"],
+  "exclude": ["node_modules", "dist", "coverage", "vendor"]
+}

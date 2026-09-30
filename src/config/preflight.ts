@@ -20,7 +20,6 @@
  *  5. REDIS_URL (warning only)
  */
 
-import { execSync } from 'child_process';
 import logger from '../utils/logger';
 export type RuntimeMode = 'hackathon' | 'full';
 export type SafetyProfile = 'production' | 'demo';
@@ -98,7 +97,7 @@ function checkRequiredEnvVars(
   }
 
   return Object.entries(required)
-    .filter(([name]) => !env[name] || env[name]!.trim().length === 0)
+    .filter(([name]) => !env[name] || env[name].trim().length === 0)
     .map(([name, guidance]) => {
       const template = envTemplateForMode(mode);
       if (mode === 'hackathon' && name === 'JWT_SECRET') {

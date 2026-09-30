@@ -125,14 +125,14 @@ function parseDbUrl(url) {
 /**
  * Check if PostgreSQL is installed and accessible
  */
-function checkPostgres(dbConfig) {
+function checkPostgres() {
   logStep('1/6', 'Checking PostgreSQL installation...');
   
   try {
     const version = exec('psql --version', { silent: true });
     logSuccess(`PostgreSQL found: ${version.trim()}`);
     return true;
-  } catch (error) {
+  } catch {
     logError('PostgreSQL (psql) not found in PATH');
     logInfo('');
     logInfo('Installation instructions:');
@@ -160,7 +160,7 @@ function checkPostgresRunning(dbConfig) {
     exec(`psql "${pgUrl}" -c "SELECT 1" > /dev/null 2>&1`, { silent: true });
     logSuccess(`PostgreSQL server is running on ${host}:${port}`);
     return true;
-  } catch (error) {
+  } catch {
     logError(`Cannot connect to PostgreSQL server at ${host}:${port}`);
     logInfo('');
     logInfo('Troubleshooting:');
@@ -229,7 +229,7 @@ function runMigrations() {
     
     logSuccess('Migrations completed successfully');
     return true;
-  } catch (error) {
+  } catch {
     logError('Migration failed');
     logInfo('');
     logInfo('Troubleshooting:');
@@ -261,7 +261,7 @@ function seedDatabase() {
     exec('npx prisma db seed', { silent: false });
     logSuccess('Database seeded successfully');
     return true;
-  } catch (error) {
+  } catch {
     logWarning('Seeding failed (non-critical)');
     logInfo('You can seed manually later with: npx prisma db seed');
     return true; // Non-critical, don't fail the setup
@@ -271,11 +271,9 @@ function seedDatabase() {
 /**
  * Verify database setup
  */
-function verifySetup(dbConfig) {
+function verifySetup() {
   logStep('6/6', 'Verifying database setup...');
-  
-  const { database } = dbConfig;
-  
+
   try {
     // Check if we can query the database
     const { PrismaClient } = require('@prisma/client');
@@ -330,7 +328,7 @@ async function main() {
   
   // Check prerequisites
   if (!skipCheck) {
-    if (!checkPostgres(dbConfig)) {
+    if (!checkPostgres()) {
       process.exit(1);
     }
     
@@ -355,7 +353,7 @@ async function main() {
   seedDatabase();
   
   // Verify setup
-  verifySetup(dbConfig);
+  verifySetup();
 }
 
 // Run the script

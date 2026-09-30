@@ -10,6 +10,8 @@
     "start:hackathon": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "lint": "tsc --noEmit",
+    "lint:eslint": "node --max-old-space-size=6144 ./node_modules/eslint/bin/eslint.js . --max-warnings=365",
+    "lint:fix": "node --max-old-space-size=6144 ./node_modules/eslint/bin/eslint.js . --fix",
     "scorecard": "node scripts/production-readiness-scorecard.js",
     "check:bindings": "node scripts/install-bindings.js --check",
     "check:bindings:abi": "node dist/scripts/check-bindings.js",
@@ -22,7 +24,7 @@
     "test:load": "jest --testPathPattern=performance",
     "test:hackathon": "npx ts-node src/tests/hackathon.test.ts",
     "test:hackathon:http": "jest --selectProjects integration --testPathPattern=hackathon\\.http\\.spec\\.ts",
-    "ci": "npm run check:bindings && npm run lint && npm run build && npm run check:bindings:abi && npm run test:unit:coverage && npm run test:integration",
+    "ci": "npm run check:bindings && npm run lint && npm run lint:eslint && npm run build && npm run check:bindings:abi && npm run test:unit:coverage && npm run test:integration",
     "docs:openapi": "node dist/scripts/generate-openapi.js",
     "docs:postman": "node scripts/verify-postman-sync.js --write",
     "docs:generate": "npm run docs:openapi && npm run docs:postman",
@@ -66,6 +68,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jest": "^30.0.0",
@@ -77,6 +80,9 @@
     "@types/supertest": "^7.2.0",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
+    "eslint": "^10.11.0",
+    "eslint-plugin-security": "^4.1.0",
+    "globals": "^15.15.0",
     "jest": "^29.7.0",
     "openapi-to-postmanv2": "^6.1.0",
     "prisma": "^5.8.0",
@@ -85,6 +91,7 @@
     "swagger-ui-express": "^5.0.1",
     "ts-jest": "^29.4.11",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.71.0"
   }
 }

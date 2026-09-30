@@ -1,5 +1,5 @@
 import { OutboxEventType } from '@prisma/client';
-import type { PredictionSide, Prisma, PredictionChainStatus } from '@prisma/client';
+import type { PredictionSide, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { invalidateNamespace, invalidateLeaderboardSortedSet } from '../lib/redis';
 import { UserPriceRange } from '../types/round.types';

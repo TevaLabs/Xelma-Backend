@@ -114,7 +114,14 @@ export function loadBindingsPin(cwd: string = process.cwd()): BindingsPin {
   try {
     parsed = JSON.parse(fs.readFileSync(pinPath, "utf8"));
   } catch (e) {
-    throw new Error(`${BINDINGS_PIN_FILE} is not valid JSON: ${(e as Error).message}`);
+    // Attach the original parse error as `cause` so its position and stack are
+    // not lost when this surfaces through the error handler. The constructor
+    // is called via `Object.assign` because the repo targets ES2020, where
+    // `new Error(msg, { cause })` is not in the type definitions yet.
+    throw Object.assign(
+      new Error(`${BINDINGS_PIN_FILE} is not valid JSON: ${(e as Error).message}`),
+      { cause: e },
+    );
   }
 
   for (const key of REQUIRED_PIN_KEYS) {

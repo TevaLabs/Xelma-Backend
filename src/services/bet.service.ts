@@ -3,8 +3,8 @@ import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
 import sorobanService from './soroban.service';
 import betAuditService from './bet-audit.service';
-import outboxService, { BetAcceptedOutboxPayload, BetConfirmedOutboxPayload, BetResolvedOutboxPayload, BetFailedOutboxPayload } from './outbox.service';
-import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
+import { BetAcceptedOutboxPayload, BetConfirmedOutboxPayload, BetResolvedOutboxPayload, BetFailedOutboxPayload } from './outbox.service';
+import { toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
@@ -663,7 +663,12 @@ export class BetService {
     return user.id;
   }
 
-  private mapBet(bet: any): StoredBet {
+  /**
+   * An arrow-function property rather than a method: it is passed directly to
+   * `Array.prototype.map` in `getBets`, and a method reference would lose its
+   * `this` binding there.
+   */
+  private mapBet = (bet: any): StoredBet => {
     return {
       id: bet.id,
       userId: bet.userId,
@@ -682,7 +687,7 @@ export class BetService {
       createdAt: bet.createdAt,
       updatedAt: bet.updatedAt,
     };
-  }
+  };
 
   async claimWinnings(
     address: string,

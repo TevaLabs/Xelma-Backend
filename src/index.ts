@@ -141,7 +141,17 @@ export async function startServer(app: Express): Promise<ServerHandle> {
     oracleService.start();
     priceInterval = setInterval(() => {
       const price = priceOracle.getPriceString();
-      if (price !== null) websocketService.emitPriceUpdate('XLM', price);
+      // The broadcast is async and must not be left unhandled: an unhandled
+      // rejection inside a timer callback would crash the process.
+      if (price !== null) {
+        websocketService
+          .emitPriceUpdate('XLM', price)
+          .catch((error: unknown) =>
+            logger.error('Failed to emit price update', {
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+      }
     }, 5000);
   }
 

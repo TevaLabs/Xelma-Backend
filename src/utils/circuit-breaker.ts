@@ -148,7 +148,14 @@ export class CircuitBreaker {
 
     this.state = nextState;
     const timestamp = new Date(this.now()).toISOString();
-    const errorMessage = error instanceof Error ? error.message : error ? String(error) : undefined;
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+          ? error
+          : error === undefined
+            ? undefined
+            : JSON.stringify(error);
 
     circuitBreakerState.set({ breaker: this.options.name, state: previousState }, 0);
     circuitBreakerState.set({ breaker: this.options.name, state: nextState }, 1);

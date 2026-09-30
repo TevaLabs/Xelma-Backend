@@ -654,9 +654,13 @@ export class RedisRateLimitStore implements Store {
           storeKey,
           String(now),
           String(this.windowMs),
-        ])) as [number | string, number | string];
-        const totalHits = Number(reply[0]);
-        const resetAtMs = Number(reply[1]);
+        ]));
+        // The Lua script returns exactly two numeric strings, but node-redis
+        // types `sendCommand` as a `ReplyUnion` it cannot narrow from the
+        // command string alone, so the shape has to be asserted here.
+        const [rawHits, rawReset] = reply as unknown as [number | string, number | string];
+        const totalHits = Number(rawHits);
+        const resetAtMs = Number(rawReset);
         if (!Number.isFinite(totalHits) || !Number.isFinite(resetAtMs)) {
           throw new Error("Rate-limit store returned an unexpected reply from Redis");
         }

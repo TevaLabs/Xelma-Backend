@@ -57,6 +57,7 @@ const ROUTE_FILE_PREFIXES = {
   'notifications.routes.ts':           '/api/notifications',
   'tournaments.routes.ts':             '/api/tournaments',
   'admin-metrics.routes.ts':           '/api/admin/metrics',
+  'admin-runtime-flags.routes.ts':     '/api/admin/runtime-flags',
   'errors.routes.ts':                  '/api/errors',
   'admin-cors-diagnostics.routes.ts':  '/api/admin/cors-diagnostics',
   'admin-dead-letter.routes.ts':       '/api/admin/dead-letter',

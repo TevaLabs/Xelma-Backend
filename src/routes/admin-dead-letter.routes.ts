@@ -29,7 +29,10 @@ function buildRetryHandlers(): RetryHandlers {
       return notificationService.createNotificationForRetry(payload);
     },
     websocketEmit: ({ eventName, payload }) => {
-      websocketService.replayEmit(eventName, payload);
+      // The stored JSON payload is typed `unknown`; `replayEmit` validates
+      // that it carries a `room` and throws (bumping the DLQ attempt count)
+      // if the stored shape is unusable.
+      websocketService.replayEmit(eventName, payload as { room?: string; data?: unknown });
     },
   };
 }

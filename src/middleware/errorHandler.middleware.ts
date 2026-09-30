@@ -36,7 +36,7 @@ function fromPrismaError(err: PrismaClientKnownRequestError): AppError {
       );
     case 'P2002': {
       const fields = Array.isArray(err.meta?.target)
-        ? (err.meta!.target as string[]).join(', ')
+        ? (err.meta.target as string[]).join(', ')
         : 'field';
       return new AppError(`Unique constraint failed on: ${fields}`, 409, ErrorCode.CONFLICT);
     }
@@ -57,7 +57,6 @@ export function errorHandler(
   err: unknown,
   req: Request,
   res: Response,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _next: NextFunction,
 ): void {
   let appError: AppError;

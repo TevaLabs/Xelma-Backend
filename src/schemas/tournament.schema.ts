@@ -25,3 +25,27 @@ export const tournamentListQuerySchema = offsetPaginationSchema.extend({
 });
 
 export type TournamentListQuery = z.infer<typeof tournamentListQuerySchema>;
+
+/**
+ * Body for POST /api/tournaments (admin creates a tournament).
+ *
+ * Money fields arrive as strings on the wire (JSON has no decimal type) but
+ * numbers are tolerated for ergonomics; the service converts via `toDecimal`.
+ * Times arrive as ISO strings and are coerced to `Date` so the service's
+ * ordering check does not crash on raw strings.
+ */
+export const tournamentCreateSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    description: z.string().max(2000).optional(),
+    mode: tournamentModeSchema,
+    entryFee: z.union([z.string(), z.number()]),
+    prizePool: z.union([z.string(), z.number()]),
+    maxParticipants: z.number().int().min(1),
+    startTime: z.coerce.date(),
+    endTime: z.coerce.date(),
+    rounds: z.number().int().min(1),
+  })
+  .strict();
+
+export type TournamentCreateInput = z.infer<typeof tournamentCreateSchema>;

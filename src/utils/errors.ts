@@ -30,6 +30,17 @@ export enum ErrorCode {
   IDEMPOTENCY_KEY_CONFLICT = "IDEMPOTENCY_KEY_CONFLICT",
   CONTRACT_INVALID_STATE = "CONTRACT_INVALID_STATE",
   TOURNAMENT_INVALID_STATE = "TOURNAMENT_INVALID_STATE",
+
+  /**
+   * The persistence layer cannot serve this request in the current runtime
+   * mode — a model or operation with no `DATA_STORE=memory` stub (#662).
+   *
+   * Deliberately 501, not 500: nothing is broken, the request is well-formed,
+   * and the operation is simply not implemented in this mode. A client can
+   * distinguish "server bug, retry blindly" from "this deployment profile does
+   * not support this" and fall back to demo/mock data instead.
+   */
+  PERSISTENCE_UNAVAILABLE = "PERSISTENCE_UNAVAILABLE",
 }
 
 export interface ErrorDetail {
@@ -161,6 +172,28 @@ export class BackpressureError extends ExternalServiceError {
     super(message, ErrorCode.EXTERNAL_SERVICE_ERROR);
     this.name = "BackpressureError";
     this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+/**
+ * 501 – the requested persistence operation has no implementation in the
+ * active runtime mode.
+ *
+ * Raised by the `DATA_STORE=memory` data store (src/lib/memory-prisma.ts) when
+ * a model or query shape it does not implement is reached, so the DB-less
+ * hackathon demo degrades with an actionable, typed error instead of an opaque
+ * Prisma "engine is not connected" 500. See `docs/runtime-modes.md` for the
+ * supported subset.
+ */
+export class PersistenceUnavailableError extends AppError {
+  readonly unsupportedOperation?: string;
+
+  constructor(
+    message: string,
+    unsupportedOperation?: string,
+  ) {
+    super(message, 501, ErrorCode.PERSISTENCE_UNAVAILABLE);
+    this.unsupportedOperation = unsupportedOperation;
   }
 }
 
@@ -357,6 +390,17 @@ export const ERROR_CATALOG: readonly ErrorCatalogEntry[] = [
     description:
       "Tournament lifecycle request made out of order (e.g. locking a tournament " +
       "that is not UPCOMING, or settling one that never locked).",
+  },
+  {
+    code: ErrorCode.PERSISTENCE_UNAVAILABLE,
+    status: 501,
+    errorClass: "PersistenceUnavailableError",
+    description:
+      "This deployment profile does not persist that operation. In " +
+      "`DATA_STORE=memory` (the DB-less hackathon demo) only the subset of " +
+      "the Prisma API listed in docs/runtime-modes.md is implemented; " +
+      "everything else returns this instead of a generic 500. Retry against " +
+      "a `DATA_STORE=postgres` deployment, or fall back to mock data.",
   },
 ];
 

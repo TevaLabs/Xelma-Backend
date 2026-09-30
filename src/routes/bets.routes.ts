@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { asyncHandler } from "../middleware/errorHandler.middleware";
 import { validate } from "../middleware/validate.middleware";
 import {
   verifyStellarAuth,
@@ -378,19 +379,19 @@ router.get(
 router.get(
   "/:id",
   requireAdmin,
-  ((req: Request, res: Response, next: NextFunction) => {
-    try {
-      const bet = betService.getBet(req.params.id);
+  // `betService.getBet` is async (it reads Prisma), so the handler must be
+  // async. The previous version called it without `await`, so `bet` was
+  // always a Promise — truthy, so the 404 branch never fired, and
+  // `serializeBet` received a Promise instead of a bet.
+  asyncHandler(async (req: Request, res: Response) => {
+    const bet = await betService.getBet(req.params.id);
 
-      if (!bet) {
-        throw new NotFoundError(`Bet ${req.params.id} not found`);
-      }
-
-      res.json({ success: true, bet: serializeBet(bet as unknown as Record<string, unknown>) });
-    } catch (error) {
-      next(error);
+    if (!bet) {
+      throw new NotFoundError(`Bet ${req.params.id} not found`);
     }
-  }) as any
+
+    res.json({ success: true, bet: serializeBet(bet as unknown as Record<string, unknown>) });
+  })
 );
 
 export default router;

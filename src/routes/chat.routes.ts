@@ -5,7 +5,6 @@ import { chatMessageRateLimiter } from '../middleware/rateLimiter.middleware';
 import { validate } from '../middleware/validate.middleware';
 import { sendMessageSchema } from '../schemas/chat.schema';
 import { unifiedPaginationSchema } from '../schemas/pagination.schema';
-import { ValidationError } from '../utils/errors';
 
 const router = Router();
 

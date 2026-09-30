@@ -54,15 +54,15 @@ async function runTest() {
             console.log('📨 Event: round:started', data.id);
             events.push('round:started');
         });
-        socket.on('prediction:placed', (data) => {
+        socket.on('prediction:placed', () => {
             console.log('📨 Event: prediction:placed');
             events.push('prediction:placed');
         });
-        socket.on('price:update', (data) => {
+        socket.on('price:update', () => {
             // console.log('📨 Event: price:update', data.price); // Too spammy
             if (!events.includes('price:update')) events.push('price:update');
         });
-        socket.on('round:resolved', (data) => {
+        socket.on('round:resolved', () => {
             console.log('📨 Event: round:resolved');
             events.push('round:resolved');
         });
@@ -78,7 +78,7 @@ async function runTest() {
                 headers: { Authorization: `Bearer ${player.token}` }
             });
             console.error('❌ Failed: Player should not be able to start round');
-        } catch (error: any) {
+        } catch (error: unknown) {
             if (error.response?.status === 403) {
                 console.log('✅ Success: Player blocked from starting round (403)');
             } else {
@@ -160,7 +160,7 @@ async function runTest() {
         socket.disconnect();
         process.exit(0);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('\n❌ Test Failed:', error.message);
         if (error.response) {
             console.error('Response data:', error.response.data);

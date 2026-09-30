@@ -17,6 +17,7 @@ const integrationTestFiles = [
   "errorHandler.spec.ts",
   "hackathon-atomic-bets.spec.ts",
   "hackathon.http.spec.ts",
+  "hackathon-memory-persistence.spec.ts",
   "idempotency.spec.ts",
   "leaderboard-cache.spec.ts",
   "leaderboard.routes.spec.ts",

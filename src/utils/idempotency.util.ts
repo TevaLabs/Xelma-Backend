@@ -143,7 +143,11 @@ export async function checkIdempotency<TReq = unknown, TRes = unknown>(
    endpoint: string,
    idempotencyKey: string,
    requestBody: TReq,
-   config: IdempotencyConfig = {}
+   // Accepted for signature symmetry with the write-side helpers, but not
+   // read here: expiry is evaluated against the stored `expiresAt` rather
+   // than a locally configured TTL, so overriding it would be misleading.
+   // Prefixed with `_` to make that explicit.
+   _config: IdempotencyConfig = {}
 ): Promise<IdempotencyCheckResult<TRes>> {
    const requestHash = hashRequestBody(requestBody);
 

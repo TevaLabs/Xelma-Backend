@@ -16,14 +16,33 @@ type CacheMiddlewareOptions = {
   keyFn?: (req: Request) => string;
 };
 
+/**
+ * Renders one Express query value into the string used as a cache key.
+ *
+ * Express types query values as `string | ParsedQs | (string | ParsedQs)[]`,
+ * so anything non-string is a nested object. Stringifying one of those
+ * directly yields `"[object Object]"`, which would make distinct queries
+ * collide on the same cache entry — so objects are JSON-encoded instead.
+ */
+function queryValueToString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
 function serializeQuery(query: Request["query"]): string {
   const params = new URLSearchParams();
   for (const [key, rawValue] of Object.entries(query)) {
     if (rawValue === undefined) continue;
     if (Array.isArray(rawValue)) {
-      for (const value of rawValue) params.append(key, String(value));
+      for (const value of rawValue) {
+        params.append(key, queryValueToString(value));
+      }
     } else {
-      params.set(key, String(rawValue));
+      params.set(key, queryValueToString(rawValue));
     }
   }
   return params.toString();

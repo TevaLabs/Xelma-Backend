@@ -59,8 +59,14 @@ export class WebSocketService {
     WebSocketService.instance.emitRoundUpdate(round);
   }
 
-  static emitPriceUpdate(payload: { asset: string; price: number | string }): void {
-    WebSocketService.instance.emitPriceUpdate(payload.asset, payload.price);
+  /**
+   * Fire-and-forget price broadcast. The instance method is async (it may
+   * consult Prisma for the active round outside demo mode), so the returned
+   * promise is surfaced to the caller rather than dropped — an unhandled
+   * rejection here would otherwise take down the process.
+   */
+  static emitPriceUpdate(payload: { asset: string; price: number | string }): Promise<void> {
+    return WebSocketService.instance.emitPriceUpdate(payload.asset, payload.price);
   }
 
   /**
@@ -121,7 +127,7 @@ export class WebSocketService {
    */
   replayEmit(
     eventName: string | null,
-    payload: { room?: string; data?: any } | any,
+    payload: { room?: string; data?: unknown },
   ): void {
     if (!this.io) {
       throw new Error('WebSocket not initialized; cannot replay emit');
@@ -129,7 +135,7 @@ export class WebSocketService {
     if (!eventName) {
       throw new Error('Missing eventName for websocket replay');
     }
-    const room = payload?.room as string | undefined;
+    const room = payload?.room;
     const data = payload?.data;
     if (!room) {
       throw new Error('Missing room for websocket replay');

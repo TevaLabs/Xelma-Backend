@@ -24,7 +24,7 @@ const HTML_ENTITY_MAP: Record<string, string> = {
  * // Returns: '&lt;script&gt;alert(&quot;xss&quot;)&lt;&#x2F;script&gt;'
  */
 export function escapeHtml(text: string): string {
-  return text.replace(/[&<>"'\/]/g, (char) => HTML_ENTITY_MAP[char] || char);
+  return text.replace(/[&<>"'/]/g, (char) => HTML_ENTITY_MAP[char] || char);
 }
 
 /**

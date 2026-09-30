@@ -7,7 +7,7 @@ type ConversionResult = {
   result: boolean;
   reason?: string;
   output?: Array<{
-    type: 'collection' | string;
+    type: string;
     data: unknown;
   }>;
 };
@@ -19,7 +19,7 @@ function main() {
 
   if (!fs.existsSync(openApiPath)) {
     throw new Error(
-      `OpenAPI spec not found at ${openApiPath}. Run \"yarn docs:openapi\" first.`
+      `OpenAPI spec not found at ${openApiPath}. Run "npm run docs:openapi" first.`
     );
   }
 
@@ -28,15 +28,28 @@ function main() {
   converter.convert(
     { type: 'json', data: openapi },
     { schemaFaker: true, requestNameSource: 'Fallback' },
-    (err: unknown, conversionResult: any) => {
-      if (err) throw err;
+    (err: unknown, conversionResult?: ConversionResult) => {
+      // `convert` is callback-based, so a bare `throw` here escapes into the
+      // library's own stack and is swallowed — the process would exit 0 with
+      // a stale or missing collection. Reporting and exiting non-zero is the
+      // only way CI actually notices a failed sync.
+      if (err) {
+        logger.error('OpenAPI → Postman conversion failed', {
+          error: err instanceof Error ? err.message : JSON.stringify(err),
+        });
+        process.exit(1);
+      }
       if (!conversionResult?.result) {
-        throw new Error(conversionResult?.reason || 'OpenAPI → Postman conversion failed');
+        logger.error('OpenAPI → Postman conversion failed', {
+          reason: conversionResult?.reason ?? 'unknown',
+        });
+        process.exit(1);
       }
 
-      const collection = conversionResult.output?.find((o: any) => o.type === 'collection')?.data;
+      const collection = conversionResult.output?.find((o) => o.type === 'collection')?.data;
       if (!collection) {
-        throw new Error('Postman collection missing from conversion output');
+        logger.error('Postman collection missing from conversion output');
+        process.exit(1);
       }
 
       fs.mkdirSync(docsDir, { recursive: true });

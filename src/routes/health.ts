@@ -74,7 +74,6 @@ async function checkSoroban(): Promise<{
         retries: 1,
       },
     );
-    const healthData = health.data;
     return {
       status: health.data?.initialized ? 'healthy' : 'unavailable',
       durationMs: Date.now() - start,

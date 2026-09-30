@@ -31,12 +31,6 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-type RateLimitPolicy = {
-  windowMs: number;
-  max: number;
-  message: string;
-};
-
 /** Documented limits for operators, tests, and README. Demo defaults; override via env. */
 export const RATE_LIMIT_POLICIES = {
   api: {

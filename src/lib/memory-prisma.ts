@@ -1,21 +1,29 @@
 import { randomUUID } from "crypto";
 
+import { PersistenceUnavailableError } from "../utils/errors";
+
 /**
  * A Prisma-shaped, fully in-memory data store used when `DATA_STORE=memory`
  * (the DB-less hackathon demo mode). It supports the subset of the Prisma
  * Client API that hackathon-mounted routes actually call — see prisma.ts for
- * how this is wired in.
+ * how this is wired in, and `docs/runtime-modes.md` for the supported subset.
  *
  * This is NOT a general-purpose Prisma emulator: it implements exactly the
- * where/update/select/orderBy/cursor shapes used elsewhere in this codebase.
- * An operation this store doesn't understand throws a {@link MemoryDataStoreError}
- * instead of failing silently or crashing with an opaque TypeError, so gaps
- * surface immediately during development rather than as a random 500 later.
+ * where/update/select/orderBy/cursor/groupBy shapes used elsewhere in this
+ * codebase. An operation this store doesn't understand throws a
+ * {@link PersistenceUnavailableError} (HTTP 501, code
+ * `PERSISTENCE_UNAVAILABLE`) instead of failing silently or crashing with an
+ * opaque Prisma "engine is not connected" 500, so gaps surface immediately
+ * during development and remain actionable to API clients.
+ *
+ * Subclassed rather than aliased so every message carries the
+ * `[memory data store]` prefix that makes the origin obvious in demo-mode
+ * logs, while `instanceof PersistenceUnavailableError` still holds for callers
+ * that only know the public error taxonomy.
  */
-export class MemoryDataStoreError extends Error {
-  constructor(message: string) {
-    super(`[memory data store] ${message}`);
-    this.name = "MemoryDataStoreError";
+export class MemoryDataStoreError extends PersistenceUnavailableError {
+  constructor(message: string, unsupportedOperation?: string) {
+    super(`[memory data store] ${message}`, unsupportedOperation);
   }
 }
 
@@ -214,6 +222,49 @@ type OrderBySpec =
   | Record<string, "asc" | "desc">[]
   | undefined;
 
+/**
+ * `groupBy` ordering. Prisma allows both a plain column sort and an aggregate
+ * sort (`orderBy: { _count: { id: 'desc' } }`); rate-limit-metrics.service uses
+ * the latter, payout-reconciliation uses the former.
+ */
+type GroupOrderBySpec =
+  | OrderBySpec
+  | Record<string, Record<string, "asc" | "desc">>
+  | Record<string, Record<string, Record<string, "asc" | "desc">>>
+  | undefined;
+
+function sortGroupedRows(
+  rows: Record<string, unknown>[],
+  orderBy: GroupOrderBySpec,
+): Record<string, unknown>[] {
+  if (!orderBy) return rows;
+  return [...rows].sort((a, b) => {
+    for (const [column, spec] of Object.entries(
+      orderBy as Record<string, unknown>,
+    )) {
+      // `spec` is either a direction (`{ userId: 'asc' }`) or a nested
+      // aggregate sort (`{ _count: { id: 'desc' } }`).
+      const entries: [string, "asc" | "desc"][] =
+        typeof spec === "string" || typeof spec === "number"
+          ? [[column, spec as "asc" | "desc"]]
+          : (Object.entries(spec as Record<string, "asc" | "desc">) ?? []);
+
+      for (const [key, direction] of entries) {
+        const isAggregate = column === "_count" || column === "_max" || column === "_sum";
+        const aValue = isAggregate
+          ? ((a[column] ?? {}) as Record<string, unknown>)[key]
+          : a[column];
+        const bValue = isAggregate
+          ? ((b[column] ?? {}) as Record<string, unknown>)[key]
+          : b[column];
+        const cmp = toComparable(aValue) - toComparable(bValue);
+        if (cmp !== 0) return direction === "desc" ? -cmp : cmp;
+      }
+    }
+    return 0;
+  });
+}
+
 function sortRows<T extends Record<string, unknown>>(
   rows: T[],
   orderBy: OrderBySpec,
@@ -249,7 +300,7 @@ export class MemoryCollection<T extends Record<string, unknown>> {
 
   constructor(
     private readonly idField: string = "id",
-    private readonly defaults: () => Partial<T> = () => ({}) as Partial<T>,
+    private readonly defaults: () => Partial<T> = () => ({}),
     private readonly generateId: () => string | number = randomUUID,
   ) {}
 
@@ -272,8 +323,13 @@ export class MemoryCollection<T extends Record<string, unknown>> {
   }
 
   async create({ data }: { data: Partial<T> }): Promise<T> {
-    const id =
+    const rawId =
       (data as Record<string, unknown>)[this.idField] ?? this.generateId();
+    // Ids are strings (uuid) or integers (auto-increment) in the Prisma
+    // schema. Normalise anything else rather than letting an object id
+    // stringify to `"[object Object]"` and collide across rows.
+    const id =
+      typeof rawId === 'string' || typeof rawId === 'number' ? rawId : JSON.stringify(rawId);
     const now = new Date();
     const row = {
       ...this.defaults(),
@@ -293,6 +349,50 @@ export class MemoryCollection<T extends Record<string, unknown>> {
     const match = this.filtered(where)[0] ?? null;
     if (!match) return null;
     return applySelect(this.materialize(match), select) as T;
+  }
+
+  /**
+   * `findUniqueOrThrow` differs from `findUnique` only in the failure mode:
+   * a miss becomes a `MemoryDataStoreError` instead of `null`. Services use it
+   * where a miss is a genuine invariant violation (see
+   * `prediction.service.ts`, which re-reads a row it just wrote inside a
+   * transaction to pick up the committed value).
+   */
+  async findUniqueOrThrow({ where, select }: QueryArgs): Promise<T> {
+    const found = await this.findUnique({ where, select });
+    if (!found) {
+      throw new MemoryDataStoreError(
+        `no ${this.idField} matching ${JSON.stringify(where)}`,
+        "findUniqueOrThrow",
+      );
+    }
+    return found;
+  }
+
+  async findFirstOrThrow(args: QueryArgs): Promise<T> {
+    const found = await this.findFirst(args);
+    if (!found) {
+      throw new MemoryDataStoreError(
+        `no ${this.idField} matching ${JSON.stringify(args.where ?? {})}`,
+        "findFirstOrThrow",
+      );
+    }
+    return found;
+  }
+
+  /**
+   * Bulk insert. Returns the created rows in input order and a `count`, which
+   * is the shape Prisma's `createMany` resolves to.
+   */
+  async createMany({
+    data,
+  }: {
+    data: Partial<T>[];
+  }): Promise<{ count: number }> {
+    for (const row of data) {
+      await this.create({ data: row });
+    }
+    return { count: data.length };
   }
 
   async findFirst({ where, orderBy, select }: QueryArgs): Promise<T | null> {
@@ -403,30 +503,98 @@ export class MemoryCollection<T extends Record<string, unknown>> {
     return this.filtered(where).length;
   }
 
-  /** Scoped to the one groupBy shape used in this codebase: group by a single field, `_count`. */
-  async groupBy({
-    by,
-    _count,
-  }: {
+  /**
+   * Supports the three groupBy shapes this codebase actually issues:
+   *
+   * - `by: ['status'], _count: { status: true }` — reconciliation summaries
+   *   (`bet.service`, `payout-reconciliation.service`).
+   * - `by: ['userId'], where, _max: { resolvedAt: true }, orderBy, take` — the
+   *   unclaimed-winnings sweep, which needs the latest resolved bet per user.
+   * - `by: ['endpoint'], _count: { id: true }, orderBy: { _count: {...} }` —
+   *   rate-limit metric rankings.
+   *
+   * Any other aggregate (`_sum`, `_avg`, multi-key `_count`) is rejected with a
+   * {@link MemoryDataStoreError} rather than silently returning wrong numbers.
+   */
+  async groupBy(args: {
     by: string[];
-    _count: Record<string, boolean>;
+    where?: Record<string, unknown>;
+    _count?: Record<string, boolean>;
+    _max?: Record<string, boolean>;
+    _sum?: Record<string, boolean>;
+    _avg?: Record<string, boolean>;
+    _min?: Record<string, boolean>;
+    orderBy?: GroupOrderBySpec;
+    take?: number;
+    skip?: number;
   }): Promise<Record<string, unknown>[]> {
-    if (by.length !== 1) {
+    const { by, where, _count, _max, orderBy, take, skip = 0 } = args;
+
+    if (by.length === 0) {
       throw new MemoryDataStoreError(
-        "groupBy is only supported for a single field in memory mode",
+        "groupBy requires at least one field in `by`",
+        "groupBy",
       );
     }
-    const [field] = by;
-    const countField = Object.keys(_count)[0];
-    const groups = new Map<unknown, number>();
-    for (const row of this.rows.values()) {
-      const key = row[field];
-      groups.set(key, (groups.get(key) ?? 0) + 1);
+    if (!_count && !_max) {
+      throw new MemoryDataStoreError(
+        "groupBy in memory mode supports `_count` and `_max` only",
+        "groupBy",
+      );
     }
-    return Array.from(groups.entries()).map(([key, count]) => ({
-      [field]: key,
-      _count: { [countField]: count },
-    }));
+    const unsupported = (["_sum", "_avg", "_min"] as const).filter(
+      (agg) => args[agg] !== undefined,
+    );
+    if (unsupported.length > 0) {
+      throw new MemoryDataStoreError(
+        `groupBy aggregate ${unsupported.join(", ")} is not implemented in memory mode`,
+        "groupBy",
+      );
+    }
+
+    // Bucket rows by the composite key of the `by` fields.
+    const buckets = new Map<string, T[]>();
+    for (const row of this.filtered(where)) {
+      const key = JSON.stringify(by.map((field) => row[field] ?? null));
+      const bucket = buckets.get(key);
+      if (bucket) bucket.push(row);
+      else buckets.set(key, [row]);
+    }
+
+    const results = Array.from(buckets.values()).map((bucket) => {
+      const group: Record<string, unknown> = {};
+      for (const field of by) {
+        group[field] = bucket[0][field] ?? null;
+      }
+      if (_count) {
+        // Prisma reports the same number under every requested `_count` key.
+        const total = bucket.length;
+        group._count = Object.fromEntries(
+          Object.keys(_count).map((field) => [field, total]),
+        );
+      }
+      if (_max) {
+        group._max = Object.fromEntries(
+          Object.keys(_max).map((field) => [
+            field,
+            // Prisma's `_max` is `null` when no row in the group has a value
+            // (and `null` for SQL NULL), never `undefined` — match that so
+            // callers can rely on `?? null` handling.
+            bucket.reduce<unknown>((best, row) => {
+              if (row[field] === null || row[field] === undefined) return best;
+              if (best === null || best === undefined) return row[field];
+              return toComparable(row[field]) > toComparable(best)
+                ? row[field]
+                : best;
+            }, null),
+          ]),
+        );
+      }
+      return group;
+    });
+
+    const sorted = sortGroupedRows(results, orderBy);
+    return sorted.slice(skip, take !== undefined ? skip + take : undefined);
   }
 
   /** Direct read access for cross-collection relation resolution (e.g. `include`). */
@@ -540,6 +708,46 @@ const outboxEvents = new MemoryCollection("id", () => ({
   attempts: 0,
   lastError: null,
   processedAt: null,
+}));
+
+// Payout claims. Backed by bet.service (claim creation on bet placement) and
+// payout-reconciliation.service (the unclaimed-winnings sweep and the
+// by-status reconciliation summary). In memory mode the sweep runs against
+// this collection and its `_max` groupBy, so a demo still reconciles cleanly.
+const claims = new MemoryCollection("id", () => ({
+  userId: null,
+  amount: null,
+  status: "PENDING",
+  txHash: null,
+  attempts: 0,
+  lastError: null,
+  claimedAt: null,
+}));
+
+// Dead-letter queue for dispatches that exhausted MAX_OUTBOX_ATTEMPTS.
+const failedDispatches = new MemoryCollection("id", () => ({
+  eventName: null,
+  userId: null,
+  attempts: 1,
+  status: "PENDING",
+  lastError: "",
+  lastRetryAt: null,
+  resolvedAt: null,
+}));
+
+// Rate-limit hit telemetry backing GET /api/admin/metrics.
+const rateLimitMetrics = new MemoryCollection("id", () => ({
+  ip: null,
+  userId: null,
+  timestamp: new Date(),
+}));
+
+// Idempotency-key ledger. Present so a retried POST in the demo returns the
+// cached response instead of executing twice — the same guarantee the real
+// ledger gives in postgres mode, without a database.
+const idempotencyKeys = new MemoryCollection("id", () => ({
+  responseStatus: 200,
+  responseBody: null,
 }));
 
 // ---------------------------------------------------------------------------
@@ -663,14 +871,17 @@ function messageModel() {
 }
 
 function predictionModel() {
-  return {
+  // Prototype-chain delegate so the full MemoryCollection surface (create,
+  // deleteMany, groupBy, …) stays available on predictions; the overrides
+  // below only add include-handling for the chat/user history paths.
+  return Object.assign(Object.create(predictions), {
     findMany: async (args: QueryArgs & { include?: any } = {}) => {
       const rows = await predictions.findMany(args);
       return rows.map((row) => withRoundInclude(row, args.include));
     },
     findUnique: predictions.findUnique.bind(predictions),
     count: predictions.count.bind(predictions),
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +895,7 @@ const modelClients = {
   round: rounds,
   prediction: predictionModel(),
   bet: bets,
+  claim: claims,
   notification: notifications,
   userStats,
   message: messageModel(),
@@ -692,6 +904,9 @@ const modelClients = {
   multiplayerSession: multiplayerSessions,
   auditLog: auditLogs,
   outboxEvent: outboxEvents,
+  failedDispatch: failedDispatches,
+  rateLimitMetric: rateLimitMetrics,
+  idempotencyKey: idempotencyKeys,
   mockRound: mockRounds,
   mockLeaderboard,
   mockBet: mockBets,
@@ -707,6 +922,9 @@ export function createMemoryPrismaClient() {
   const client: Record<string, unknown> = {
     ...modelClients,
     $queryRaw: async () => [],
+    $executeRaw: async () => 0,
+    $queryRawUnsafe: async () => [],
+    $executeRawUnsafe: async () => 0,
     $disconnect: async () => undefined,
     $connect: async () => undefined,
     $transaction: async (arg: unknown) => {
@@ -718,6 +936,7 @@ export function createMemoryPrismaClient() {
       }
       throw new MemoryDataStoreError(
         "$transaction expects an array of promises or a callback in memory mode",
+        "$transaction",
       );
     },
   };
@@ -726,8 +945,13 @@ export function createMemoryPrismaClient() {
     get(target, prop, receiver) {
       if (prop in target) return Reflect.get(target, prop, receiver);
       if (typeof prop === "string" && !prop.startsWith("$")) {
+        // A 501 PERSISTENCE_UNAVAILABLE, not a raw Prisma "engine is not
+        // connected" 500. Clients can tell "this deployment profile does not
+        // support that" apart from "the server is broken".
         throw new MemoryDataStoreError(
-          `model "${prop}" has no in-memory stub — add one in src/lib/memory-prisma.ts`,
+          `model "${prop}" has no in-memory stub — add one in src/lib/memory-prisma.ts ` +
+            `(see the supported subset in docs/runtime-modes.md)`,
+          prop,
         );
       }
       return undefined;

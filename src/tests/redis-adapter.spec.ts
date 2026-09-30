@@ -139,7 +139,6 @@ maybeDescribe('Redis Socket.IO adapter - cross-node fanout (Issue #418)', () => 
 
 // Guard so CI output makes it obvious *why* this suite was skipped.
 if (!REDIS_URL) {
-  // eslint-disable-next-line no-console
   console.warn(
     '[redis-adapter.spec.ts] REDIS_URL not set - skipping Redis adapter integration test. ' +
       'Run `docker compose --profile full up -d redis` and set REDIS_URL to enable it.'

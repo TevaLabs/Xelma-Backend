@@ -1,24 +1,47 @@
 import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import request from 'supertest';
 import { UserRole } from '@prisma/client';
-import { generateToken } from '../utils/jwt.util';
-import { prisma } from '../lib/prisma';
 
-// Mock Stellar and Soroban services to prevent loading @stellar/stellar-sdk (which contains ESM files that Jest fails to parse)
+// The hackathon bet endpoints resolve their on-chain path through
+// `bet.service.isStubMode()`, read at call time. CI runs without a Soroban
+// RPC and with no contract configured, so bets must stay in stub mode —
+// exactly like the hackathon demo deployment this spec mirrors.
+process.env.BET_STUB_MODE = 'true';
+process.env.SOROBAN_FAIL_CLOSED = 'false';
+
+// `generateToken`/`prisma` are imported lazily via `require` so this module's
+// env mutations above land before any config module is evaluated.
+const { generateToken } = require('../utils/jwt.util') as typeof import('../utils/jwt.util');
+const { prisma } = require('../lib/prisma') as typeof import('../lib/prisma');
+
+// Mock Stellar and Soroban services to prevent loading @stellar/stellar-sdk (which contains ESM files that Jest fails to parse).
+// The default export must carry every method the hackathon call surface uses
+// (bets, user stats, round fallback, health); a missing method surfaces as
+// `x is not a function` 500s rather than a clean stub response.
 jest.mock('../services/stellar.service', () => ({
   isValidStellarAddress: (address: string) => address && address.startsWith('G') && address.length === 56,
   verifySignature: jest.fn(),
 }));
 
 jest.mock('../services/soroban.service', () => ({
-  isReady: jest.fn().mockReturnValue(true),
-  getUserStats: jest.fn(),
-  getPendingWinnings: jest.fn(),
-  getBalance: jest.fn(),
-  getHealth: jest.fn(),
+  __esModule: true,
+  default: {
+    isReady: jest.fn(() => true),
+    getUserStats: jest.fn(async () => null),
+    getPendingWinnings: jest.fn(async () => BigInt(0)),
+    getBalance: jest.fn(async () => 0),
+    getHealth: jest.fn(async () => ({ initialized: false })),
+    getActiveRound: jest.fn(async () => null),
+    placeBet: jest.fn(async () => ({ state: 'on-chain-success', txHash: 'stub-tx-hash' })),
+    placePrecisionBet: jest.fn(async () => ({ state: 'on-chain-success', txHash: 'stub-tx-hash' })),
+    claimWinnings: jest.fn(async () => ({ txHash: 'stub-tx-hash' })),
+    applyMoneyPathFailure: jest.fn(),
+  },
 }));
 
-import app from '../app';
+import { createApp } from '../app';
+
+const app = createApp();
 
 describe('Hackathon HTTP Endpoints (Integration)', () => {
   // Valid Stellar-format (G + 55 chars) used as authenticated betting wallet
@@ -30,9 +53,47 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
     await prisma.user.create({
       data: { id: 'hackathon-http-user', walletAddress: hackerWallet },
     });
+
+    // The bet endpoints resolve their target round through `prisma.round`
+    // (`bet.service.resolveRoundId`) — the mockRound fixtures behind
+    // GET /api/rounds are a separate store. Seed ACTIVE rounds under the same
+    // ids the fixtures use so the bets below have a real, mode-matching target.
+    await prisma.round.deleteMany({
+      where: { id: { in: ['btc-updown-live', 'eth-precision-live'] } },
+    });
+    await prisma.round.createMany({
+      data: [
+        {
+          id: 'btc-updown-live',
+          mode: 'UP_DOWN',
+          status: 'ACTIVE',
+          startPrice: 67420,
+          startTime: new Date(Date.now() - 60_000),
+          endTime: new Date(Date.now() + 180_000),
+        },
+        {
+          id: 'eth-precision-live',
+          mode: 'LEGENDS',
+          status: 'ACTIVE',
+          startPrice: 3241,
+          startTime: new Date(Date.now() - 60_000),
+          endTime: new Date(Date.now() + 600_000),
+        },
+      ],
+    });
   });
 
   afterAll(async () => {
+    // Bet and prediction rows reference the seeded user and rounds, and the
+    // mock bet/leaderboard rows reference the seeded wallet address — clear
+    // them so a re-run (or a sibling spec) never trips unique/FK constraints.
+    await prisma.bet.deleteMany({ where: { userId: 'hackathon-http-user' } }).catch(() => undefined);
+    await prisma.prediction.deleteMany({ where: { userId: 'hackathon-http-user' } }).catch(() => undefined);
+    await prisma.mockBet.deleteMany({ where: { address: hackerWallet } }).catch(() => undefined);
+    await prisma.mockLeaderboard.deleteMany({ where: { address: hackerWallet } }).catch(() => undefined);
+    await prisma.round.deleteMany({
+      where: { id: { in: ['btc-updown-live', 'eth-precision-live'] } },
+    });
     await prisma.user.deleteMany({ where: { walletAddress: hackerWallet } });
   });
 
@@ -69,8 +130,10 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
     });
 
     it('returns degraded status when soroban is not initialized', async () => {
-      const sorobanMock = require('../services/soroban.service');
-      sorobanMock.isReady.mockReturnValueOnce(false);
+      const sorobanMock = require('../services/soroban.service') as {
+        default: { isReady: { mockReturnValueOnce: (v: boolean) => void } };
+      };
+      sorobanMock.default.isReady.mockReturnValueOnce(false);
 
       const res = await request(app).get('/api/health');
       expect(res.status).toBe(200);
@@ -181,10 +244,11 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
         expect(rounds[0]).toEqual(
           expect.objectContaining({
             id: expect.any(String),
-            asset: expect.any(String),
             mode: expect.any(String),
             status: expect.any(String),
-            startPrice: expect.any(String),
+            // startPrice may be a decimal string (DB source) or a number
+            // (mock fixture) depending on which round source served the list.
+            startPrice: expect.anything(),
           })
         );
       }

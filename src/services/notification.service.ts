@@ -27,6 +27,22 @@ interface CreateNotificationInput {
   data?: any;
 }
 
+/**
+ * The raw Prisma row. Returned as-is by the single-notification methods;
+ * routes apply their own serialisation (`createdAt` is a `Date` on the row
+ * but a string on the wire), so these deliberately do not return
+ * {@link NotificationDto}.
+ */
+export interface NotificationRecord {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  data: unknown;
+  isRead: boolean;
+  createdAt: Date;
+}
+
 /** Serialised shape of a single notification row returned to callers. */
 export interface NotificationDto {
   id: string;
@@ -92,7 +108,7 @@ class NotificationService {
    */
   async createNotification(
     input: CreateNotificationInput,
-  ): Promise<any | null> {
+  ): Promise<NotificationRecord | null> {
     try {
       // Check user preferences first
       const shouldNotify = await this.checkPreference(input.userId, input.type);
@@ -265,8 +281,14 @@ class NotificationService {
     }
   }
 
-  /** Map a raw Prisma Notification row to the public DTO shape. */
-  private toDto(n: {
+  /**
+   * Map a raw Prisma Notification row to the public DTO shape.
+   *
+   * An arrow-function property rather than a method: it is passed directly to
+   * `Array.prototype.map` in the list endpoints, and a method reference would
+   * lose its `this` binding there.
+   */
+  private toDto = (n: {
     id: string;
     type: string;
     title: string;
@@ -274,7 +296,7 @@ class NotificationService {
     data: any;
     isRead: boolean;
     createdAt: Date;
-  }): NotificationDto {
+  }): NotificationDto => {
     return {
       id: n.id,
       type: n.type,
@@ -292,7 +314,7 @@ class NotificationService {
   async markAsRead(
     notificationId: string,
     userId: string,
-  ): Promise<any | null> {
+  ): Promise<NotificationRecord | null> {
     try {
       // Verify ownership before updating
       const notification = await prisma.notification.findUnique({
@@ -433,7 +455,7 @@ class NotificationService {
   async getNotification(
     notificationId: string,
     userId: string,
-  ): Promise<any | null> {
+  ): Promise<NotificationRecord | null> {
     try {
       const notification = await prisma.notification.findUnique({
         where: { id: notificationId },

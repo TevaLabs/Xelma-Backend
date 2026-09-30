@@ -20,7 +20,6 @@ describe('Auth Routes - Audit Integration', () => {
   let app: any;
   
   beforeAll(() => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     app = require('../index').createApp();
   });
 

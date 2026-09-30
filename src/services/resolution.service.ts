@@ -12,8 +12,6 @@ import {
    toDecimal,
    toNumber,
    decAdd,
-   decDiv,
-   decMul,
    decEq,
    decFixed,
 } from '../utils/decimal.util';
@@ -190,10 +188,14 @@ export class ResolutionService {
                },
                false, // do not websocket-emit here (done below after commit)
             );
+            // `lifecycleRound` is already typed as a round with its relation
+            // fields; re-attaching `predictions` only widens the payload the
+            // websocket emit receives, so the merge stays untyped rather than
+            // asserting the whole object to `any`.
             const updatedRound = {
                ...lifecycleRound,
                predictions: txRound.predictions,
-            } as any;
+            };
 
             logger.info(
                `Round resolved: ${roundId}, finalPrice=${finalPriceDec.toFixed(8)}`
