@@ -1,0 +1,69 @@
+name: Feature request
+description: Propose a new capability or improvement for the Xelma backend.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a feature! Keep it focused — one proposal per issue.
+
+        **Never include secrets, private keys, or tokens in this issue.**
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what is missing or painful today?
+      placeholder: I want to ... but the API currently ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: entrypoint
+    attributes:
+      label: Entrypoint
+      description: Where should this feature live? See `docs/architecture.md`.
+      options:
+        - dev (default — src/index.ts)
+        - dev:hackathon (mock/demo — src/app.ts)
+        - Both entrypoints
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-files
+    attributes:
+      label: Proposed files / endpoints
+      description: The files, routes, or schemas you expect this feature to touch.
+      placeholder: |
+        - src/routes/user.routes.ts (new GET /api/user/... endpoint)
+        - src/schemas/user.schema.ts
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checklist of testable outcomes a PR should satisfy.
+      placeholder: |
+        - [ ] Returns 400 on invalid input
+        - [ ] Covered by tests in src/tests/
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought of, and why this one is better.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions for similar proposals.
+          required: true
+        - label: This proposal does not require anyone to share secrets or credentials.
+          required: true
