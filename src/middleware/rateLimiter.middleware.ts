@@ -137,10 +137,36 @@ function createRateLimiter(opts: {
   });
 }
 
-// Baseline per-IP limit for all public `/api` traffic
+/**
+ * Paths exempt from the global API limiter (Issue #724).
+ *
+ * Load-balancer / uptime probes (Render, k8s liveness) hit these on a fixed
+ * schedule from a small set of IPs. Counting them against `api/general` lets a
+ * healthy process exhaust its own budget and start answering 429 to its own
+ * liveness probe, which the platform reads as "unhealthy" and restarts — a
+ * self-DoS. Liveness only reports that the process is up, so it is cheap and
+ * safe to exempt.
+ *
+ * Matching is on the exact pathname (query string ignored). Do NOT add an
+ * expensive readiness probe (e.g. a future `/api/health?ready=1`) here — it is
+ * meant to be limited.
+ */
+export const RATE_LIMIT_LIVENESS_SKIP_PATHS: readonly string[] = [
+  '/health',
+  '/api/health',
+];
+
+export function isLivenessSkipPath(req: Request): boolean {
+  const pathname = (req.originalUrl || req.path || '').split('?')[0];
+  return RATE_LIMIT_LIVENESS_SKIP_PATHS.includes(pathname);
+}
+
+// Baseline per-IP limit for all public `/api` traffic. Liveness probes are
+// skipped so health checks cannot 429 themselves to death (Issue #724).
 export const apiRateLimiter = createRateLimiter({
   ...RATE_LIMIT_POLICIES.api,
   name: 'api/general',
+  skip: isLivenessSkipPath,
 });
 
 // Stricter per-IP limit for mutation methods

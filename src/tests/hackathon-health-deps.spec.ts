@@ -35,6 +35,11 @@ const mockIsRedisCacheEnabled = jest.fn<boolean>();
 jest.mock('../lib/redis', () => ({
   checkRedisHealth: (...args: unknown[]) => mockCheckRedisHealth(...args),
   isRedisCacheEnabled: (...args: unknown[]) => mockIsRedisCacheEnabled(...args),
+  // The rate-limiter middleware reads these at import time; without them the
+  // module throws before the app is built. No Redis rate-limit store is used
+  // in these tests.
+  isRedisRateLimitConfigured: () => false,
+  RedisRateLimitStore: class {},
 }));
 
 // Mock config — provide all properties that downstream modules may access
@@ -240,5 +245,29 @@ describe('Hackathon health – optional dependency probes', () => {
     expect(res.status).toBe(200);
     expect(typeof res.body.data.durationMs).toBe('number');
     expect(res.body.data.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  // ── Liveness probes are exempt from the global API limiter (#724) ──────
+  describe('liveness rate-limit exemption (Issue #724)', () => {
+    it('never 429s liveness health checks, even past the API limit', async () => {
+      // The global `api/general` limiter defaults to 100 requests / minute.
+      // Without the skip, request 101 would be a 429 and a probe would read
+      // the process as unhealthy.
+      for (let i = 0; i < 105; i++) {
+        const res = await request(app).get('/api/health');
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it('still rate-limits non-liveness mutation routes', async () => {
+      // `writeRateLimiter` (20/min) is applied globally in hackathon mode and
+      // does not skip POST, so the 21st write must be rejected.
+      let lastStatus = 0;
+      for (let i = 0; i < 25; i++) {
+        const res = await request(app).post('/api/bets/up-down').send({});
+        lastStatus = res.status;
+      }
+      expect(lastStatus).toBe(429);
+    });
   });
 });
