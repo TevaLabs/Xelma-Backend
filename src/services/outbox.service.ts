@@ -27,7 +27,14 @@
  * - `OUTBOX_POLL_INTERVAL_SECONDS` – how often the poller runs (default 10).
  * - `OUTBOX_BATCH_SIZE`            – rows per poll cycle (default 50).
  * - `OUTBOX_MAX_ATTEMPTS`          – before escalating to DLQ (default 3).
+ * - `OUTBOX_RETRY_BASE_MS`         – first retry delay; doubles per attempt (default 1000).
+ * - `OUTBOX_RETRY_MAX_MS`          – cap on the exponential delay (default 60000).
+ * - `OUTBOX_RETRY_JITTER_RATIO`    – fractional jitter added to the delay (default 0.2).
  * - `OUTBOX_RETENTION_DAYS`        – days to keep PROCESSED rows (default 7).
+ *
+ * Retry safety (Issue #713): a failed row stores `nextAttemptAt`, so the next
+ * poll skips it until the backoff elapses instead of hammering a poison event
+ * (and Postgres) on every cron tick.
  */
 import { OutboxEventStatus, OutboxEventType, DispatchChannel } from '@prisma/client';
 import { prisma } from '../lib/prisma';
@@ -52,6 +59,52 @@ export function getOutboxMaxAttempts(): number {
   const raw = process.env.OUTBOX_MAX_ATTEMPTS;
   const n = raw ? parseInt(raw, 10) : NaN;
   return Number.isFinite(n) && n > 0 ? n : 3;
+}
+
+export function getOutboxRetryBaseMs(): number {
+  const raw = process.env.OUTBOX_RETRY_BASE_MS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 1000;
+}
+
+export function getOutboxRetryMaxMs(): number {
+  const raw = process.env.OUTBOX_RETRY_MAX_MS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 60_000;
+}
+
+export function getOutboxRetryJitterRatio(): number {
+  const raw = process.env.OUTBOX_RETRY_JITTER_RATIO;
+  const n = raw ? Number.parseFloat(raw) : NaN;
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : 0.2;
+}
+
+/**
+ * Exponential backoff with jitter and a hard cap (Issue #713).
+ *
+ * Attempt 1 → baseMs, attempt 2 → 2×baseMs, … capped at maxMs, plus up to
+ * `jitterRatio` of the window so a fleet of replicas does not retry in
+ * lockstep. Exported so the delay curve is unit-testable without a DB.
+ */
+export function computeOutboxBackoffMs(
+  attempt: number,
+  options: {
+    baseMs?: number;
+    maxMs?: number;
+    jitterRatio?: number;
+    random?: () => number;
+  } = {},
+): number {
+  const baseMs = options.baseMs ?? getOutboxRetryBaseMs();
+  const maxMs = options.maxMs ?? getOutboxRetryMaxMs();
+  const jitterRatio = options.jitterRatio ?? getOutboxRetryJitterRatio();
+  const random = options.random ?? Math.random;
+
+  const exponent = Math.max(1, Math.floor(attempt)) - 1;
+  const exponential = Math.min(maxMs, baseMs * 2 ** exponent);
+  const jitter = Math.floor(random() * exponential * jitterRatio);
+
+  return Math.min(maxMs, Math.max(1, exponential + jitter));
 }
 
 export function getOutboxRetentionDays(): number {
@@ -177,8 +230,14 @@ class OutboxService {
   ): Promise<ProcessOutboxResult> {
     const result: ProcessOutboxResult = { processed: 0, failed: 0, escalated: 0 };
 
+    const now = new Date();
     const rows = await prisma.outboxEvent.findMany({
-      where: { status: OutboxEventStatus.PENDING },
+      where: {
+        status: OutboxEventStatus.PENDING,
+        // Rows with a future `nextAttemptAt` are still backing off and must
+        // not be reselected yet (Issue #713).
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+      },
       orderBy: { createdAt: 'asc' },
       take: batchSize,
     });
@@ -210,6 +269,7 @@ class OutboxService {
           data: {
             status: OutboxEventStatus.PROCESSED,
             processedAt: new Date(),
+            nextAttemptAt: null,
             updatedAt: new Date(),
           },
         });
@@ -219,6 +279,9 @@ class OutboxService {
       } catch (err) {
         const nextAttempts = row.attempts + 1;
         const exhausted = nextAttempts >= maxAttempts;
+        const backoffMs = exhausted
+          ? 0
+          : computeOutboxBackoffMs(nextAttempts);
 
         await prisma.outboxEvent.update({
           where: { id: row.id },
@@ -226,6 +289,8 @@ class OutboxService {
             status: exhausted ? OutboxEventStatus.FAILED : OutboxEventStatus.PENDING,
             attempts: nextAttempts,
             lastError: truncateError(err),
+            // Nothing left to wait for once we escalate to the DLQ.
+            nextAttemptAt: exhausted ? null : new Date(Date.now() + backoffMs),
             updatedAt: new Date(),
           },
         });
@@ -247,9 +312,12 @@ class OutboxService {
           result.escalated += 1;
           logger.warn(`Outbox: event ${row.id} exhausted ${maxAttempts} attempts; escalated to DLQ`);
         } else {
-          logger.warn(`Outbox: dispatch failed for event ${row.id} (attempt ${nextAttempts}/${maxAttempts})`, {
-            error: err instanceof Error ? err.message : String(err),
-          });
+          logger.warn(
+            `Outbox: dispatch failed for event ${row.id} (attempt ${nextAttempts}/${maxAttempts}); retrying in ${backoffMs}ms`,
+            {
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
         }
       }
     }

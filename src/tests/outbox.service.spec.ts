@@ -70,7 +70,9 @@ jest.mock('@prisma/client', () => ({
   },
 }));
 
-import outboxService from '../services/outbox.service';
+import outboxService, {
+  computeOutboxBackoffMs,
+} from '../services/outbox.service';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -200,8 +202,40 @@ describe('OutboxService', () => {
       expect(typeof updateArgs.data.lastError).toBe('string');
       expect(updateArgs.data.lastError).toContain('db down');
 
+      // Backoff: the row is not eligible again until nextAttemptAt passes
+      // (Issue #713).
+      expect(updateArgs.data.nextAttemptAt).toBeInstanceOf(Date);
+      expect((updateArgs.data.nextAttemptAt as Date).getTime()).toBeGreaterThan(
+        Date.now() - 1,
+      );
+
       // DLQ not called yet — not exhausted
       expect(mockDlqRecord).not.toHaveBeenCalled();
+    });
+
+    it('only selects rows that are due for retry (Issue #713)', async () => {
+      mockFindMany.mockResolvedValue([]);
+
+      await outboxService.processOutbox(makeHandlers(), 50, 3);
+
+      const findArgs: any = mockFindMany.mock.calls[0][0];
+      expect(findArgs.where.status).toBe('PENDING');
+      expect(findArgs.where.OR).toEqual([
+        { nextAttemptAt: null },
+        { nextAttemptAt: { lte: expect.any(Date) } },
+      ]);
+    });
+
+    it('clears nextAttemptAt when a row is processed', async () => {
+      const row = makeRow();
+      mockFindMany.mockResolvedValue([row]);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+      mockUpdate.mockResolvedValue({ ...row, status: 'PROCESSED' });
+
+      await outboxService.processOutbox(makeHandlers(), 50, 3);
+
+      const updateArgs: any = mockUpdate.mock.calls[0][0];
+      expect(updateArgs.data.nextAttemptAt).toBeNull();
     });
 
     it('marks FAILED and escalates to DLQ when maxAttempts is reached', async () => {
@@ -221,6 +255,8 @@ describe('OutboxService', () => {
       const updateArgs: any = mockUpdate.mock.calls[0][0];
       expect(updateArgs.data.status).toBe('FAILED');
       expect(updateArgs.data.attempts).toBe(3);
+      // Exhausted rows go straight to the DLQ with no pending retry.
+      expect(updateArgs.data.nextAttemptAt).toBeNull();
 
       // DLQ escalation
       expect(mockDlqRecord).toHaveBeenCalledTimes(1);
@@ -293,6 +329,44 @@ describe('OutboxService', () => {
 
       const updateArgs: any = mockUpdate.mock.calls[0][0];
       expect(updateArgs.data.lastError.length).toBeLessThanOrEqual(1000);
+    });
+  });
+
+  describe('computeOutboxBackoffMs (Issue #713)', () => {
+    const fixedRandom = () => 0; // no jitter
+
+    it('grows exponentially from the configured base', () => {
+      expect(
+        computeOutboxBackoffMs(1, { baseMs: 1000, maxMs: 60000, jitterRatio: 0, random: fixedRandom }),
+      ).toBe(1000);
+      expect(
+        computeOutboxBackoffMs(2, { baseMs: 1000, maxMs: 60000, jitterRatio: 0, random: fixedRandom }),
+      ).toBe(2000);
+      expect(
+        computeOutboxBackoffMs(3, { baseMs: 1000, maxMs: 60000, jitterRatio: 0, random: fixedRandom }),
+      ).toBe(4000);
+    });
+
+    it('caps the delay at maxMs', () => {
+      expect(
+        computeOutboxBackoffMs(10, { baseMs: 1000, maxMs: 3000, jitterRatio: 0, random: fixedRandom }),
+      ).toBe(3000);
+    });
+
+    it('adds bounded jitter on top of the exponential delay', () => {
+      const delay = computeOutboxBackoffMs(1, {
+        baseMs: 1000,
+        maxMs: 60000,
+        jitterRatio: 0.2,
+        random: () => 1,
+      });
+      expect(delay).toBe(1200);
+    });
+
+    it('never returns a non-positive delay', () => {
+      expect(
+        computeOutboxBackoffMs(1, { baseMs: 1, maxMs: 1, jitterRatio: 0, random: fixedRandom }),
+      ).toBeGreaterThanOrEqual(1);
     });
   });
 

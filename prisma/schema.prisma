@@ -468,6 +468,8 @@ model FailedDispatch {
 ///   - `aggregateType` is a short label ("round", "prediction", â€¦).
 ///   - `payload` is the full data needed to reconstruct the dispatch.
 ///   - `attempts` starts at 0 and is incremented on each dispatch attempt.
+///   - `nextAttemptAt` is the earliest time a failed row may be retried
+///     (exponential backoff + jitter, Issue #713). Null means "eligible now".
 ///   - `processedAt` is set when status transitions to PROCESSED.
 ///   - Rows older than OUTBOX_RETENTION_DAYS (default 7) can be deleted.
 model OutboxEvent {
@@ -479,11 +481,13 @@ model OutboxEvent {
   status        OutboxEventStatus @default(PENDING)
   attempts      Int               @default(0)
   lastError     String?           @db.VarChar(1000)
+  nextAttemptAt DateTime?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
   processedAt   DateTime?
 
   @@index([status, createdAt])
+  @@index([status, nextAttemptAt])
   @@index([aggregateId])
   @@index([eventType])
 }
