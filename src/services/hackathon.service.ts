@@ -1,121 +1,35 @@
-import { toNumber, toDecimal } from '../utils/decimal.util';
 import { prisma } from '../lib/prisma';
-import { Decimal } from '@prisma/client/runtime/library';
-import { BusinessRuleError, ErrorCode } from '../utils/errors';
-import logger from '../utils/logger';
-
-export interface PlaceBetInput {
-  userId: string;
-  roundId: string;
-  amount: number;
-  side: 'UP' | 'DOWN';
-}
-
-export interface BetResult {
-  userId: string;
-  roundId: string;
-  amount: Decimal;
-  side: 'UP' | 'DOWN';
-  newBalance: Decimal;
-  poolUp: Decimal;
-  poolDown: Decimal;
-}
 
 export class HackathonService {
-  async placeBet(input: PlaceBetInput): Promise<BetResult>;
+  /**
+   * Place a bet on a hackathon `MockRound`.
+   *
+   * This is the single public `placeBet` contract. `PrismaRoundRepository`
+   * (used by the `/api/rounds/hackathon/*` routes) and every test call it with
+   * this positional signature.
+   *
+   * The whole bet runs inside one `prisma.$transaction`, so a failing step
+   * rolls back the rest:
+   *   1. lazily create the bettor's `MockLeaderboard` row when missing,
+   *   2. insert the `MockBet`,
+   *   3. debit the balance with an atomic `{ decrement }`,
+   *   4. credit the round pool (`poolUp`/`poolDown` for up-down rounds,
+   *      `totalPool` + `predictionCount` for precision rounds).
+   *
+   * @param roundId        `MockRound` id (e.g. `btc-updown-live`)
+   * @param address        Stellar address of the bettor
+   * @param amount         Amount to bet
+   * @param side           `UP`/`DOWN` for up-down rounds; omitted for precision rounds
+   * @param predictedPrice Predicted price for precision rounds
+   */
   async placeBet(
     roundId: string,
     address: string,
     amount: number,
     side?: 'UP' | 'DOWN',
     predictedPrice?: number,
-  ): Promise<void>;
-  async placeBet(
-    inputOrRoundId: PlaceBetInput | string,
-    address?: string,
-    amount?: number,
-    side?: 'UP' | 'DOWN',
-    predictedPrice?: number,
-  ): Promise<BetResult | void> {
-    if (typeof inputOrRoundId === 'string') {
-      return this.placeMockBet(inputOrRoundId, address!, amount!, side, predictedPrice);
-    }
-    return this.placeTransactionalBet(inputOrRoundId);
-  }
-
-  private async placeTransactionalBet(input: PlaceBetInput): Promise<BetResult> {
-    const { userId, roundId, amount, side } = input;
-    const decimalAmount = toDecimal(amount);
-
-    return prisma.$transaction(async (tx) => {
-      const round = await tx.round.findUnique({
-        where: { id: roundId },
-      });
-
-      if (!round) {
-        throw new BusinessRuleError(
-          'Round not found',
-          ErrorCode.NOT_FOUND,
-        );
-      }
-
-      if (round.status !== 'ACTIVE') {
-        throw new BusinessRuleError(
-          'Round is not active',
-          ErrorCode.ROUND_NOT_ACTIVE,
-        );
-      }
-
-      const user = await tx.user
-        .update({
-          where: {
-            id: userId,
-            virtualBalance: { gte: decimalAmount },
-          },
-          data: {
-            virtualBalance: { decrement: decimalAmount },
-          },
-        })
-        .catch((err: any) => {
-          if (err.code === 'P2025') {
-            throw new BusinessRuleError(
-              'Insufficient balance',
-              ErrorCode.INSUFFICIENT_FUNDS,
-            );
-          }
-          throw err;
-        });
-
-      if (side === 'UP') {
-        await tx.round.update({
-          where: { id: roundId },
-          data: { poolUp: { increment: decimalAmount } },
-        });
-      } else {
-        await tx.round.update({
-          where: { id: roundId },
-          data: { poolDown: { increment: decimalAmount } },
-        });
-      }
-
-      const updatedRound = await tx.round.findUnique({
-        where: { id: roundId },
-      });
-
-      logger.info(
-        `Hackathon bet placed: user=${userId}, round=${roundId}, side=${side}, amount=${toNumber(decimalAmount)}`,
-      );
-
-      return {
-        userId,
-        roundId,
-        amount: decimalAmount,
-        side,
-        newBalance: user.virtualBalance,
-        poolUp: updatedRound!.poolUp,
-        poolDown: updatedRound!.poolDown,
-      };
-    });
+  ): Promise<void> {
+    await this.placeMockBet(roundId, address, amount, side, predictedPrice);
   }
 
   async getRounds() {

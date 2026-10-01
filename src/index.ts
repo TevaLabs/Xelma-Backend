@@ -14,6 +14,7 @@ import {
   validateVendoredBindings,
 } from './utils/bindings-validator';
 import { formatResolvedSorobanConfigForLog, resolveSorobanEnvVars } from './config/env';
+import { resolveBetMode } from './config/bet-mode';
 import priceOracle from './services/oracle';
 import websocketService from './services/websocket.service';
 import schedulerService from './services/scheduler.service';
@@ -105,10 +106,20 @@ logger.info(
   }),
 );
 
-const betStubMode = process.env.BET_STUB_MODE === 'true';
-logger.info(`Bet mode: ${betStubMode ? 'STUB (no on-chain calls)' : 'ON-CHAIN (Soroban)'}`, {
-  BET_STUB_MODE: betStubMode,
+const betMode = resolveBetMode();
+logger.info(`Bet mode: ${betMode.mode === 'stub' ? 'STUB (no on-chain calls)' : 'ON-CHAIN (Soroban)'}`, {
+  mode: betMode.mode,
+  source: betMode.source,
+  missingSorobanConfig: betMode.missingConfig,
 });
+if (betMode.fellBackToStub) {
+  logger.warn(
+    'Required Soroban config is missing; defaulting to STUB mode. ' +
+      'Bets will be recorded locally without on-chain calls. ' +
+      'Set SOROBAN_CONTRACT_ID, SOROBAN_ADMIN_SECRET and SOROBAN_ORACLE_SECRET to enable on-chain bets.',
+    { missingSorobanConfig: betMode.missingConfig, nodeEnv: process.env.NODE_ENV ?? 'development' },
+  );
+}
 
 export function createApp(): Express {
   return createAppFromFactory({ mode: 'full' }) as Express;

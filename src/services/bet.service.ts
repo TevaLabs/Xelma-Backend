@@ -8,6 +8,7 @@ import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
+import { isBetStubMode } from '../config/bet-mode';
 
 export interface UpDownBetInput {
   address: string;
@@ -63,7 +64,9 @@ export interface BetQuery {
 
 export class BetService {
   private isStubMode(): boolean {
-    return process.env.BET_STUB_MODE === 'true';
+    // Single source of truth: explicit BET_STUB_MODE, or an automatic stub
+    // fallback in non-production when required Soroban config is missing.
+    return isBetStubMode();
   }
 
   /**
@@ -692,7 +695,7 @@ export class BetService {
     const requestId = explicitRequestId ?? getRequestId();
     let result: { state: string; amount: number; txHash?: string };
 
-    if (process.env.BET_STUB_MODE === 'true') {
+    if (this.isStubMode()) {
       logger.info('Claim winnings stub recorded', { address, idempotencyKey, requestId });
       result = { state: 'stub', amount: 0 };
     } else {
