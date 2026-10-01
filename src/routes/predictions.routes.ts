@@ -91,6 +91,45 @@ function buildSubmitPredictionResponse(prediction: PredictionRow) {
  *     responses:
  *       200:
  *         description: Prediction submitted
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: ValidationError
+ *               message: amount must be a positive number
+ *               code: VALIDATION_ERROR
+ *               path: /api/predictions/submit
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       401:
+ *         description: Missing or invalid JWT
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnauthorizedResponse'
+ *             example:
+ *               error: AuthenticationError
+ *               message: No token provided
+ *               code: AUTHENTICATION_ERROR
+ *               path: /api/predictions/submit
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       403:
+ *         description: Forbidden action
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ForbiddenResponse'
+ *             example:
+ *               error: ForbiddenError
+ *               message: You do not have permission to place predictions
+ *               code: FORBIDDEN
+ *               path: /api/predictions/submit
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
  *       409:
  *         description: Idempotency key reused with a different request body
  *         content:
@@ -101,6 +140,23 @@ function buildSubmitPredictionResponse(prediction: PredictionRow) {
  *               error: ConflictError
  *               message: Idempotency key reused with different request body
  *               code: IDEMPOTENCY_KEY_CONFLICT
+ *               path: /api/predictions/submit
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       429:
+ *         description: Too many prediction submissions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RateLimitResponse'
+ *             example:
+ *               error: Too Many Requests
+ *               message: Too many requests from this IP. Please slow down and try again shortly.
+ *               code: RATE_LIMIT_EXCEEDED
+ *               path: /api/predictions/submit
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *               retryAfter: 60
  */
 router.post(
    '/submit',
@@ -221,12 +277,59 @@ router.post(
  *     responses:
  *       200:
  *         description: Predictions processed
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: ValidationError
+ *               message: predictions array is required
+ *               code: VALIDATION_ERROR
+ *               path: /api/predictions/batch-submit
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       401:
+ *         description: Missing or invalid JWT
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnauthorizedResponse'
+ *             example:
+ *               error: AuthenticationError
+ *               message: No token provided
+ *               code: AUTHENTICATION_ERROR
+ *               path: /api/predictions/batch-submit
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *       403:
+ *         description: Forbidden action
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ForbiddenResponse'
+ *             example:
+ *               error: ForbiddenError
+ *               message: You do not have permission to place predictions
+ *               code: FORBIDDEN
+ *               path: /api/predictions/batch-submit
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
  *       429:
  *         description: Too many batch requests
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/RateLimitResponse'
+ *             example:
+ *               error: Too Many Requests
+ *               message: Too many batch requests from this IP. Please wait before submitting again.
+ *               code: RATE_LIMIT_EXCEEDED
+ *               path: /api/predictions/batch-submit
+ *               requestId: c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a
+ *               timestamp: '2026-09-28T12:00:00.000Z'
+ *               retryAfter: 60
  */
 router.post(
    '/batch-submit',

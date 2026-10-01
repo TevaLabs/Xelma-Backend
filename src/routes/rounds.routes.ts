@@ -207,14 +207,113 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
  *         description: Bet recorded (stub) or placed on-chain
  *       400:
  *         description: Validation error, or round mode does not match the bet kind
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ValidationErrorResponse'
+ *             examples:
+ *               ValidationError:
+ *                 summary: Invalid bet payload
+ *                 value:
+ *                   error: "ValidationError"
+ *                   message: "Amount must be a positive number"
+ *                   code: "VALIDATION_ERROR"
+ *                   path: "/api/rounds/round-123/bet"
+ *                   requestId: "c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a"
+ *                   timestamp: "2026-09-28T12:00:00.000Z"
+ *                   details:
+ *                     - field: "amount"
+ *                       message: "Amount must be greater than 0"
  *       401:
- *         description: Missing or invalid JWT
+ *         description: Missing or invalid authentication token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnauthorizedResponse'
+ *             examples:
+ *               MissingToken:
+ *                 summary: No bearer token provided
+ *                 value:
+ *                   error: "AuthenticationError"
+ *                   message: "No token provided"
+ *                   code: "AUTHENTICATION_ERROR"
+ *                   path: "/api/rounds/round-123/bet"
+ *                   requestId: "c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a"
+ *                   timestamp: "2026-09-28T12:00:00.000Z"
+ *               InvalidToken:
+ *                 summary: Expired or malformed bearer token
+ *                 value:
+ *                   error: "AuthenticationError"
+ *                   message: "Invalid or expired token"
+ *                   code: "AUTHENTICATION_ERROR"
+ *                   path: "/api/rounds/round-123/bet"
+ *                   requestId: "c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a"
+ *                   timestamp: "2026-09-28T12:00:00.000Z"
  *       403:
- *         description: Wallet address mismatch
+ *         description: Wallet address mismatch or forbidden action
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ForbiddenResponse'
+ *             examples:
+ *               WalletMismatch:
+ *                 summary: Authenticated wallet mismatch
+ *                 value:
+ *                   error: "ForbiddenError"
+ *                   message: "Authenticated wallet does not match the requested wallet"
+ *                   code: "FORBIDDEN"
+ *                   path: "/api/rounds/round-123/bet"
+ *                   requestId: "c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a"
+ *                   timestamp: "2026-09-28T12:00:00.000Z"
  *       404:
  *         description: Round not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             examples:
+ *               RoundNotFound:
+ *                 summary: Round not found
+ *                 value:
+ *                   error: "NotFoundError"
+ *                   message: "Round not found"
+ *                   code: "NOT_FOUND"
+ *                   path: "/api/rounds/round-123/bet"
+ *                   requestId: "c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a"
+ *                   timestamp: "2026-09-28T12:00:00.000Z"
  *       409:
- *         description: Idempotency key conflict
+ *         description: Idempotency conflict or round state conflict
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             examples:
+ *               IdempotencyConflict:
+ *                 summary: Request in flight with same idempotency key
+ *                 value:
+ *                   error: "ConflictError"
+ *                   message: "An identical request is currently being processed. Please retry shortly."
+ *                   code: "IDEMPOTENCY_CONFLICT"
+ *                   path: "/api/rounds/round-123/bet"
+ *                   requestId: "c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a"
+ *                   timestamp: "2026-09-28T12:00:00.000Z"
+ *       429:
+ *         description: Rate limit exceeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RateLimitResponse'
+ *             examples:
+ *               RateLimited:
+ *                 summary: Too many betting requests
+ *                 value:
+ *                   error: "RateLimitExceeded"
+ *                   message: "Too many betting requests, please slow down"
+ *                   code: "RATE_LIMIT_EXCEEDED"
+ *                   path: "/api/rounds/round-123/bet"
+ *                   requestId: "c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a"
+ *                   timestamp: "2026-09-28T12:00:00.000Z"
+ *                   retryAfter: 60
  */
 router.post(
   "/:id/bet",

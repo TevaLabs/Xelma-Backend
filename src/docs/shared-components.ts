@@ -37,21 +37,111 @@ export const sharedComponents = {
       properties: {
         error: {
           type: 'string',
-          description: 'Error class name (e.g. ValidationError, AuthenticationError, NotFoundError)',
-          example: 'ValidationError',
+          description: 'Error class name or textual summary (e.g. ValidationError, AuthenticationError, Too Many Requests)',
+          example: 'AuthenticationError',
         },
         message: {
           type: 'string',
           description: 'Human-readable description of the error',
-          example: 'walletAddress is required',
+          example: 'No token provided',
         },
         code: {
           type: 'string',
           description: 'Machine-readable error code for programmatic handling',
-          example: 'VALIDATION_ERROR',
+          example: 'AUTHENTICATION_ERROR',
+        },
+        path: {
+          type: 'string',
+          description: 'Request path that produced this error',
+          example: '/api/bets/up-down',
+        },
+        requestId: {
+          type: 'string',
+          description: 'Unique request correlation ID for tracing',
+          example: 'c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a',
+        },
+        timestamp: {
+          type: 'string',
+          format: 'date-time',
+          description: 'ISO-8601 timestamp of when the error occurred',
+          example: '2026-09-28T12:00:00.000Z',
+        },
+        retryAfter: {
+          type: 'integer',
+          description: 'Seconds until the client can retry (present on 429 and backpressure responses)',
+          example: 60,
         },
       },
       required: ['error', 'message', 'code'],
+    },
+    UnauthorizedResponse: {
+      allOf: [{ $ref: '#/components/schemas/ErrorResponse' }],
+      description: 'Returned when a request lacks a valid JWT bearer token.',
+      example: {
+        error: 'AuthenticationError',
+        message: 'No token provided',
+        code: 'AUTHENTICATION_ERROR',
+        path: '/api/bets/up-down',
+        requestId: 'c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a',
+        timestamp: '2026-09-28T12:00:00.000Z',
+      },
+    },
+    ForbiddenResponse: {
+      allOf: [{ $ref: '#/components/schemas/ErrorResponse' }],
+      description: 'Returned when the authenticated user does not have permission or wallet mismatch occurs.',
+      example: {
+        error: 'ForbiddenError',
+        message: 'Wallet address does not match authenticated user',
+        code: 'FORBIDDEN',
+        path: '/api/bets/up-down',
+        requestId: 'c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a',
+        timestamp: '2026-09-28T12:00:00.000Z',
+      },
+    },
+    RateLimitResponse: {
+      allOf: [{ $ref: '#/components/schemas/ErrorResponse' }],
+      description: 'Returned when the request rate limit has been exceeded.',
+      example: {
+        error: 'Too Many Requests',
+        message: 'Too many bet submissions from this IP. Please wait before placing another bet.',
+        code: 'RATE_LIMIT_EXCEEDED',
+        path: '/api/bets/up-down',
+        requestId: 'c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a',
+        timestamp: '2026-09-28T12:00:00.000Z',
+        retryAfter: 60,
+      },
+    },
+    ValidationErrorResponse: {
+      allOf: [{ $ref: '#/components/schemas/ErrorResponse' }],
+      description: 'Returned when request payload fails schema validation.',
+      properties: {
+        details: {
+          type: 'array',
+          description: 'Field-level validation error details.',
+          items: {
+            type: 'object',
+            properties: {
+              field: { type: 'string', example: 'amount' },
+              message: { type: 'string', example: 'amount must be greater than 0' },
+            },
+            required: ['field', 'message'],
+          },
+        },
+      },
+      example: {
+        error: 'ValidationError',
+        message: 'Invalid request payload',
+        code: 'VALIDATION_ERROR',
+        path: '/api/bets/up-down',
+        requestId: 'c2b4e891-6f34-4b5a-9a8c-2f9e4d5c6b7a',
+        timestamp: '2026-09-28T12:00:00.000Z',
+        details: [
+          {
+            field: 'amount',
+            message: 'amount must be a valid positive number',
+          },
+        ],
+      },
     },
     MoneyAmount: {
       type: 'string',

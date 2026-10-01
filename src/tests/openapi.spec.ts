@@ -22,17 +22,19 @@ const REQUIRED_OPERATIONS: RequiredOperation[] = [
   { path: "/api/auth/connect", method: "post", statuses: ["200", "400", "401", "429", "500"] },
 
   // Predictions — placement and reads (src/routes/predictions.routes.ts)
-  { path: "/api/predictions/submit", method: "post", statuses: ["200", "409"] },
-  { path: "/api/predictions/batch-submit", method: "post", statuses: ["200", "429"] },
+  { path: "/api/predictions/submit", method: "post", statuses: ["200", "400", "401", "403", "409", "429"] },
+  { path: "/api/predictions/batch-submit", method: "post", statuses: ["200", "400", "401", "403", "429"] },
   { path: "/api/predictions/user", method: "get", statuses: ["200"] },
   { path: "/api/predictions/round/{roundId}", method: "get", statuses: ["200"] },
 
   // Bets — stub/on-chain money movement (src/routes/bets.routes.ts)
-  { path: "/api/bets/up-down", method: "post", statuses: ["200", "400", "401"] },
-  { path: "/api/bets/precision", method: "post", statuses: ["200", "400", "401"] },
+  { path: "/api/bets/up-down", method: "post", statuses: ["200", "400", "401", "403", "429"] },
+  { path: "/api/bets/precision", method: "post", statuses: ["200", "400", "401", "403", "429"] },
+  { path: "/api/bets/claim", method: "post", statuses: ["200", "400", "401", "403", "409", "422", "429", "503"] },
 
   // Rounds — lifecycle and settlement (src/routes/rounds.routes.ts)
   { path: "/api/rounds/start", method: "post", statuses: ["200", "400", "401", "403", "409"] },
+  { path: "/api/rounds/{id}/bet", method: "post", statuses: ["200", "400", "401", "403", "404", "409", "429"] },
   { path: "/api/rounds/{id}/resolve", method: "post", statuses: ["200", "400", "401", "403"] },
   { path: "/api/rounds/{id}/simulate", method: "post", statuses: ["200", "400", "401", "403", "404"] },
 
@@ -68,6 +70,8 @@ const LEGACY_REQUIRED_OPERATIONS: Array<{ path: string; method: string }> = [
 
 describe("OpenAPI spec", () => {
   const paths = (swaggerSpec as { paths?: Record<string, Record<string, any>> }).paths ?? {};
+  const schemas = (swaggerSpec as { components?: { schemas?: Record<string, any> } })
+    .components?.schemas ?? {};
 
   it("documents every required auth, money-path, and operational route", () => {
     for (const { path, method } of REQUIRED_OPERATIONS) {
@@ -82,6 +86,92 @@ describe("OpenAPI spec", () => {
         if (!operation) throw new Error(`Missing OpenAPI operation: ${method.toUpperCase()} ${path}`);
         if (!operation.responses?.[status]) {
           throw new Error(`Missing OpenAPI response ${status}: ${method.toUpperCase()} ${path}`);
+        }
+      }
+    }
+  });
+
+  it("registers shared error response schemas with consistent envelopes", () => {
+    expect(schemas.BaseErrorResponse).toBeDefined();
+    expect(schemas.ErrorResponse).toBeDefined();
+    expect(schemas.UnauthorizedResponse).toBeDefined();
+    expect(schemas.ForbiddenResponse).toBeDefined();
+    expect(schemas.RateLimitResponse).toBeDefined();
+    expect(schemas.ValidationErrorResponse).toBeDefined();
+
+    // Verify properties on BaseErrorResponse
+    expect(schemas.BaseErrorResponse.properties?.error).toBeDefined();
+    expect(schemas.BaseErrorResponse.properties?.message).toBeDefined();
+    expect(schemas.BaseErrorResponse.properties?.code).toBeDefined();
+    expect(schemas.BaseErrorResponse.properties?.path).toBeDefined();
+    expect(schemas.BaseErrorResponse.properties?.requestId).toBeDefined();
+    expect(schemas.BaseErrorResponse.properties?.timestamp).toBeDefined();
+    expect(schemas.BaseErrorResponse.properties?.retryAfter).toBeDefined();
+
+    // Verify allOf composition for derived error responses
+    expect(schemas.UnauthorizedResponse.allOf?.[0]?.$ref).toBe('#/components/schemas/ErrorResponse');
+    expect(schemas.ForbiddenResponse.allOf?.[0]?.$ref).toBe('#/components/schemas/ErrorResponse');
+    expect(schemas.RateLimitResponse.allOf?.[0]?.$ref).toBe('#/components/schemas/ErrorResponse');
+    expect(schemas.ValidationErrorResponse.allOf?.[0]?.$ref).toBe('#/components/schemas/ErrorResponse');
+  });
+
+  it("documents 401, 403, and 429 error responses on all money POST routes with matching examples", () => {
+    const moneyRoutes = [
+      "/api/bets/up-down",
+      "/api/bets/precision",
+      "/api/bets/claim",
+      "/api/predictions/submit",
+      "/api/predictions/batch-submit",
+      "/api/rounds/{id}/bet",
+    ];
+
+    for (const route of moneyRoutes) {
+      const op = paths[route]?.post;
+      expect(op).toBeDefined();
+
+      // Check 401
+      const res401 = op.responses?.["401"];
+      expect(res401).toBeDefined();
+      const content401 = res401.content?.["application/json"];
+      expect(
+        content401?.schema?.$ref || content401?.schema?.properties?.error
+      ).toBeTruthy();
+
+      // Check 403
+      const res403 = op.responses?.["403"];
+      expect(res403).toBeDefined();
+      const content403 = res403.content?.["application/json"];
+      expect(
+        content403?.schema?.$ref || content403?.schema?.properties?.error
+      ).toBeTruthy();
+
+      // Check 429
+      const res429 = op.responses?.["429"];
+      expect(res429).toBeDefined();
+      const content429 = res429.content?.["application/json"];
+      expect(
+        content429?.schema?.$ref || content429?.schema?.properties?.error
+      ).toBeTruthy();
+
+      // Verify example structure if examples are provided
+      if (content401?.examples) {
+        for (const exampleKey of Object.keys(content401.examples)) {
+          const val = content401.examples[exampleKey].value;
+          expect(val.error).toBeDefined();
+          expect(val.message).toBeDefined();
+          expect(val.code).toBeDefined();
+          expect(val.requestId).toBeDefined();
+          expect(val.timestamp).toBeDefined();
+        }
+      }
+
+      if (content429?.examples) {
+        for (const exampleKey of Object.keys(content429.examples)) {
+          const val = content429.examples[exampleKey].value;
+          expect(val.error).toBeDefined();
+          expect(val.message).toBeDefined();
+          expect(val.code).toBeDefined();
+          expect(val.retryAfter).toBeDefined();
         }
       }
     }
@@ -110,13 +200,6 @@ describe("OpenAPI spec", () => {
   });
 
   it("auth examples use valid Stellar StrKey fixtures (not placeholder strings)", () => {
-    // WHY: a documented example that only *resembles* a Stellar address (a
-    // string that fails StrKey checksum validation) cannot be copy-pasted by
-    // consumers without hitting a 400. Every walletAddress shown in the auth
-    // docs must decode as a genuine Ed25519 G... public key.
-    const schemas = (swaggerSpec as { components?: { schemas?: Record<string, any> } })
-      .components?.schemas ?? {};
-
     const challengeExample = schemas.AuthChallengeRequest?.properties?.walletAddress?.example;
     const connectExample = schemas.AuthConnectRequest?.properties?.walletAddress?.example;
     const jwtExample = (swaggerSpec as Record<string, any>).paths?.["/api/auth/challenge"]?.post
