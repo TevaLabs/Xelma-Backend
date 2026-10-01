@@ -1,8 +1,15 @@
 import type { Round as SorobanRound } from "@tevalabs/xelma-bindings";
 import { RoundMode } from "@tevalabs/xelma-bindings";
-import { serializeMoney } from "./decimal.util";
+import {
+  serializeMoney,
+  serializeNullableMoney,
+  type MoneyInput,
+} from "./decimal.util";
 import { serializeRound } from "../serializers/monetary.serializer";
-import type { RoundListItem } from "../repositories/interfaces";
+import type {
+  RoundListItem,
+  RoundSource,
+} from "../repositories/interfaces";
 
 const PRICE_SCALE = 10_000;
 const STROOP_SCALE = 10_000_000;
@@ -104,22 +111,115 @@ export function mapSorobanActiveRound(round: SorobanRound): MappedActiveRound {
   };
 }
 
+/**
+ * Explicitly map a serialized round to the API contract (Issue #661).
+ *
+ * Every field is copied by name — no `as` cast — so adding a field to the
+ * source without adding it here is a visible omission rather than a silent
+ * type lie, and a source cannot smuggle internal columns (e.g. `userId`)
+ * into the public payload.
+ */
+function toRoundListItem(
+  input: Record<string, unknown>,
+  source: RoundSource,
+): RoundListItem {
+  const serialized = serializeRound({ ...input });
+
+  const item: RoundListItem = {
+    id: String(serialized.id ?? ""),
+    mode: String(serialized.mode ?? ""),
+    status: String(serialized.status ?? ""),
+    source,
+    startPrice: serializeMoney(serialized.startPrice as MoneyInput),
+  };
+
+  // Soroban on-chain fields.
+  if (serialized.sorobanRoundId !== undefined && serialized.sorobanRoundId !== null) {
+    item.sorobanRoundId = String(serialized.sorobanRoundId);
+  }
+  if (typeof serialized.startLedger === "number") {
+    item.startLedger = serialized.startLedger;
+  }
+  if (typeof serialized.betEndLedger === "number") {
+    item.betEndLedger = serialized.betEndLedger;
+  }
+  if (typeof serialized.endLedger === "number") {
+    item.endLedger = serialized.endLedger;
+  }
+  if (serialized.isSoroban !== undefined) {
+    item.isSoroban = Boolean(serialized.isSoroban);
+  }
+
+  // Money pools.
+  if (serialized.poolUp !== undefined) {
+    item.poolUp = serializeMoney(serialized.poolUp as MoneyInput);
+  }
+  if (serialized.poolDown !== undefined) {
+    item.poolDown = serializeMoney(serialized.poolDown as MoneyInput);
+  }
+  if (serialized.totalPool !== undefined) {
+    item.totalPool = serializeMoney(serialized.totalPool as MoneyInput);
+  }
+  if (serialized.endPrice !== undefined) {
+    item.endPrice = serializeNullableMoney(serialized.endPrice as MoneyInput);
+  }
+
+  // Database timestamps.
+  if (serialized.startTime !== undefined) {
+    item.startTime = serialized.startTime as string | Date;
+  }
+  if (serialized.endTime !== undefined) {
+    item.endTime = serialized.endTime as string | Date;
+  }
+  if (serialized.resolvedAt !== undefined) {
+    item.resolvedAt = serialized.resolvedAt as string | Date | null;
+  }
+  if (serialized.createdAt !== undefined) {
+    item.createdAt = serialized.createdAt as string | Date;
+  }
+  if (serialized.updatedAt !== undefined) {
+    item.updatedAt = serialized.updatedAt as string | Date;
+  }
+  if (serialized.priceRanges !== undefined) {
+    item.priceRanges = serialized.priceRanges;
+  }
+  if (typeof serialized.bettingClosesAt === "string") {
+    item.bettingClosesAt = serialized.bettingClosesAt;
+  }
+  if (typeof serialized.lockAt === "string") {
+    item.lockAt = serialized.lockAt;
+  }
+  if (serialized.resolveAt !== undefined) {
+    item.resolveAt = serialized.resolveAt as string | Date | null;
+  }
+  if (typeof serialized.secondsRemaining === "number") {
+    item.secondsRemaining = serialized.secondsRemaining;
+  }
+
+  // Mock seed fields.
+  if (serialized.asset !== undefined) {
+    item.asset = String(serialized.asset);
+  }
+  if (typeof serialized.predictionCount === "number") {
+    item.predictionCount = serialized.predictionCount;
+  }
+  if (serialized.closesAt !== undefined && serialized.closesAt !== null) {
+    item.closesAt = String(serialized.closesAt);
+  }
+
+  return item;
+}
+
 export function mapDatabaseActiveRound(
   round: Record<string, unknown>,
 ): RoundListItem {
-  return serializeRound({
-    ...round,
-    source: "database" as const,
-  }) as RoundListItem;
+  return toRoundListItem({ ...round }, "database");
 }
 
 export function mapMockActiveRound(
   round: Record<string, unknown>,
 ): RoundListItem {
-  return serializeRound({
-    ...round,
-    source: "mock" as const,
-  }) as RoundListItem;
+  return toRoundListItem({ ...round }, "mock");
 }
 
 const MOCK_ASSETS = [

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "@jest/globals";
 import { RoundMode } from "@tevalabs/xelma-bindings";
 import {
+  mapDatabaseActiveRound,
+  mapMockActiveRound,
   mapSorobanActiveRound,
   mapSorobanRoundToFrontendCards,
   resolveRoundMode,
@@ -64,6 +66,78 @@ describe("mapSorobanActiveRound", () => {
         end_ledger: 3,
       }),
     ).toThrow(/Unsupported Soroban round mode/);
+  });
+});
+
+describe("round list item mapping (Issue #661)", () => {
+  it("maps persisted round fields explicitly and drops internal columns", () => {
+    const mapped = mapDatabaseActiveRound({
+      id: "db-round-1",
+      mode: "UP_DOWN",
+      status: "ACTIVE",
+      startPrice: 0.5,
+      endPrice: null,
+      poolUp: 10,
+      poolDown: 20,
+      endTime: new Date("2026-01-01T00:00:00.000Z"),
+      userId: "internal-user-id",
+      resolvedAt: null,
+      createdAt: new Date("2025-12-01T00:00:00.000Z"),
+    });
+
+    expect(mapped).toMatchObject({
+      id: "db-round-1",
+      mode: "UP_DOWN",
+      status: "ACTIVE",
+      source: "database",
+      startPrice: "0.50000000",
+      poolUp: "10.00000000",
+      poolDown: "20.00000000",
+    });
+    expect(mapped.endPrice).toBeNull();
+    expect(mapped.endTime).toBeInstanceOf(Date);
+    expect(mapped).not.toHaveProperty("userId");
+  });
+
+  it("maps mock UP/DOWN and precision rounds to the same contract", () => {
+    const updown = mapMockActiveRound({
+      id: "btc-round-1",
+      asset: "BTC",
+      mode: "updown",
+      status: "live",
+      startPrice: 60000,
+      poolUp: 1800,
+      poolDown: 1400,
+      closesAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    expect(updown).toMatchObject({
+      id: "btc-round-1",
+      asset: "BTC",
+      mode: "updown",
+      status: "live",
+      source: "mock",
+      startPrice: "60000.00000000",
+      poolUp: "1800.00000000",
+      poolDown: "1400.00000000",
+      closesAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const precision = mapMockActiveRound({
+      id: "eth-round-1",
+      asset: "ETH",
+      mode: "precision",
+      status: "new",
+      startPrice: 3000,
+      totalPool: 2000,
+      predictionCount: 5,
+      closesAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    expect(precision.source).toBe("mock");
+    expect(precision.totalPool).toBe("2000.00000000");
+    expect(precision.predictionCount).toBe(5);
+    expect(precision.poolUp).toBeUndefined();
   });
 });
 

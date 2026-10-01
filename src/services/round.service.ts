@@ -1,4 +1,4 @@
-import { GameMode, Round } from "@prisma/client";
+import { GameMode, Prisma, Round } from "@prisma/client";
 import sorobanService from "./soroban.service";
 import websocketService from "./websocket.service";
 import notificationService from "./notification.service";
@@ -12,17 +12,30 @@ import { toDecimal, toNumber } from "../utils/decimal.util";
 import { roundsStartedTotal } from "../metrics/application.metrics";
 import config from "../config";
 import {
-  ActiveRoundSource,
   mapDatabaseActiveRound,
   mapMockActiveRound,
   mapSorobanActiveRound,
 } from "../utils/soroban-round.mapper";
 import { getMockRounds } from "../data/mockData";
-import type { RoundListItem } from "../repositories/interfaces";
+import type {
+  RoundListItem,
+  RoundListResponse,
+} from "../repositories/interfaces";
 
 interface LegendsPriceRange {
   min: number;
   max: number;
+}
+
+/**
+ * One row of {@link RoundService.getRoundsHistory}: a persisted round plus
+ * prediction aggregates. Money is reduced with Decimal (not native `+`) so a
+ * pile of Decimal amounts cannot be coerced into string concatenation.
+ */
+export interface RoundHistoryItem extends Round {
+  totalPredictions: number;
+  totalPool: string;
+  winnerCount: number;
 }
 
 export class RoundService {
@@ -186,10 +199,7 @@ export class RoundService {
    * gracefully to the next fallback. The source field tells callers which
    * backend produced the data.
    */
-  async getRoundsForApi(): Promise<{
-    source: ActiveRoundSource;
-    rounds: RoundListItem[];
-  }> {
+  async getRoundsForApi(): Promise<RoundListResponse> {
     if (config.app.roundsMockMode) {
       return { source: "mock", rounds: await this.getMockRoundsForApi() };
     }
@@ -244,10 +254,7 @@ export class RoundService {
    * @deprecated Use {@link getRoundsForApi} instead. Kept for backward
    * compatibility. Delegates to getRoundsForApi.
    */
-  async getActiveRoundsWithFallback(): Promise<{
-    source: ActiveRoundSource;
-    rounds: RoundListItem[];
-  }> {
+  async getActiveRoundsWithFallback(): Promise<RoundListResponse> {
     return this.getRoundsForApi();
   }
 
@@ -332,7 +339,7 @@ export class RoundService {
     mode?: "UP_DOWN" | "LEGENDS";
     status?: "RESOLVED" | "CANCELLED";
   }): Promise<{
-    rounds: any[];
+    rounds: RoundHistoryItem[];
     total: number;
     limit: number;
     offset: number;
@@ -342,7 +349,7 @@ export class RoundService {
       const offset = options.offset ?? 0;
 
       // Build where clause for historical rounds (RESOLVED or CANCELLED)
-      const where: any = {
+      const where: Prisma.RoundWhereInput = {
         status: {
           in: ["RESOLVED", "CANCELLED"],
         },
@@ -379,14 +386,14 @@ export class RoundService {
       });
 
       // Transform rounds to include aggregate stats
-      const roundsWithStats = rounds.map((round: any) => {
+      const roundsWithStats: RoundHistoryItem[] = rounds.map((round) => {
         const totalPredictions = round.predictions.length;
         const totalPool = round.predictions.reduce(
-          (sum: number, p: any) => sum + p.amount,
-          0,
+          (sum, p) => sum.plus(p.amount),
+          new Decimal(0),
         );
         const winnerCount = round.predictions.filter(
-          (p: any) => p.won === true,
+          (p) => p.won === true,
         ).length;
 
         // Remove predictions array and add aggregate stats
