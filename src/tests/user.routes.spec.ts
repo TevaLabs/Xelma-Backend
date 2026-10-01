@@ -219,6 +219,23 @@ describe("PATCH /api/user/profile — input validation (Issue #137)", () => {
     expect(res.status).toBe(400);
   });
 
+  it.each([
+    "javascript:alert(1)",
+    "https://169.254.169.254/latest/meta-data/",
+    "https://10.0.0.1/avatar.png",
+    "https://172.16.0.1/avatar.png",
+    "https://192.168.1.1/avatar.png",
+    "https://localhost/avatar.png",
+    "https://metadata.google.internal/computeMetadata/v1/",
+  ])("rejects unsafe avatarUrl target %s", async (avatarUrl) => {
+    const res = await request(app)
+      .patch("/api/user/profile")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ avatarUrl });
+
+    expect(res.status).toBe(400);
+  });
+
   // ── Preferences constraints ───────────────────────────────────────────────
 
   it("rejects unknown fields inside preferences", async () => {
