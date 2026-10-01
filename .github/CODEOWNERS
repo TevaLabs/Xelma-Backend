@@ -1,0 +1,26 @@
+# CODEOWNERS — https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# High-risk paths (money movement, on-chain calls, auth tokens, database
+# schema). GitHub automatically requests a review from the listed owners on
+# any pull request that touches them.
+#
+# This is ADVISORY until a repo admin enables "Require review from Code Owners"
+# in the branch protection rule / ruleset for `main` (Settings → Branches or
+# Settings → Rules → Rulesets). It cannot be turned on from a pull request.
+# See CONTRIBUTING.md → "Code owners".
+#
+# Paths are root-anchored and exact. There is deliberately no catch-all `*`
+# rule, so only these files require an owner review. In CODEOWNERS the last
+# matching line wins, so add broader patterns ABOVE these exact paths.
+
+# Money / on-chain
+/src/services/bet.service.ts          @josephchimebuka
+/src/services/prediction.service.ts   @josephchimebuka
+/src/services/resolution.service.ts   @josephchimebuka
+/src/services/soroban.service.ts      @josephchimebuka
+
+# Auth
+/src/utils/jwt.util.ts                @josephchimebuka
+
+# Database schema
+/prisma/schema.prisma                 @josephchimebuka
