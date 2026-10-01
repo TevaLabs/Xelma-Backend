@@ -100,19 +100,19 @@ describe("Leaderboard Routes", () => {
     mockUserStatsFindMany.mockImplementation(({ take, skip }: any) =>
       Promise.resolve(sampleStats.slice(skip, skip + take)),
     );
-    // First call: global count for totalUsers (no where clause)
-    // Second call: rank count for userPosition (has where.totalEarnings.gt)
     mockUserStatsCount.mockResolvedValue(3);
     mockUserStatsFindUnique.mockResolvedValue(null);
 
     const response = await request(app).get("/api/leaderboard");
 
     expect(response.status).toBe(200);
-    expect(response.body.leaderboard).toHaveLength(3);
-    expect(response.body.totalUsers).toBe(3);
-    expect(response.body.userPosition).toBeUndefined();
-    expect(response.body.lastUpdated).toBeDefined();
-    expect(response.body.leaderboard[0].rank).toBe(1);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.leaderboard).toHaveLength(3);
+    expect(response.body.data.totalUsers).toBe(3);
+    expect(response.body.data.userPosition).toBeUndefined();
+    expect(response.body.data.lastUpdated).toBeDefined();
+    expect(response.body.data.leaderboard[0].rank).toBe(1);
+    expect(response.body.data.leaderboard[0].address).toBeDefined();
   });
 
   it("should include authenticated user position when token is provided", async () => {
@@ -120,19 +120,19 @@ describe("Leaderboard Routes", () => {
       Promise.resolve(sampleStats.slice(skip, skip + take)),
     );
     mockUserStatsFindUnique.mockResolvedValue(sampleStats[1]);
-    // getUserPosition calls count first (rank), then getLeaderboard calls count (totalUsers)
     mockUserStatsCount
-      .mockResolvedValueOnce(1)   // rank: 1 user has higher earnings than u2 → rank=2
-      .mockResolvedValueOnce(3);  // totalUsers
+      .mockResolvedValueOnce(3)   // totalUsers in getLeaderboard
+      .mockResolvedValueOnce(1);  // rank in getUserPosition: 1 user has higher earnings than u2 → rank=2
 
     const response = await request(app)
       .get("/api/leaderboard")
       .set("Authorization", `Bearer ${userToken}`);
 
     expect(response.status).toBe(200);
-    expect(response.body.userPosition).toBeDefined();
-    expect(response.body.userPosition.userId).toBe("u2");
-    expect(response.body.userPosition.rank).toBe(2);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.userPosition).toBeDefined();
+    expect(response.body.data.userPosition.userId).toBe("u2");
+    expect(response.body.data.userPosition.rank).toBe(2);
   });
 
   it("should respect pagination and return the correct offset slice", async () => {
@@ -145,17 +145,18 @@ describe("Leaderboard Routes", () => {
     const response = await request(app).get("/api/leaderboard?limit=1&offset=1");
 
     expect(response.status).toBe(200);
-    expect(response.body.leaderboard).toHaveLength(1);
-    expect(response.body.leaderboard[0].userId).toBe("u2");
-    expect(response.body.leaderboard[0].rank).toBe(2);
-    expect(response.body.totalUsers).toBe(3);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.leaderboard).toHaveLength(1);
+    expect(response.body.data.leaderboard[0].userId).toBe("u2");
+    expect(response.body.data.leaderboard[0].rank).toBe(2);
+    expect(response.body.data.totalUsers).toBe(3);
   });
 
   it("should reject invalid limit parameter", async () => {
     const response = await request(app).get("/api/leaderboard?limit=1000");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe("ValidationError");
+    expect(response.body.code).toBe("VALIDATION_ERROR");
     // Zod v4 message format: "Too big: expected number to be <=500"
     expect(response.body.details[0].field).toBe("limit");
   });
@@ -164,7 +165,7 @@ describe("Leaderboard Routes", () => {
     const response = await request(app).get("/api/leaderboard?offset=-1");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe("ValidationError");
+    expect(response.body.code).toBe("VALIDATION_ERROR");
     // Zod v4 message format: "Too small: expected number to be >=0"
     expect(response.body.details[0].field).toBe("offset");
   });
@@ -176,7 +177,7 @@ describe("Leaderboard Routes", () => {
 
     expect(response.status).toBe(500);
     expect(response.body.message).toBe("Failed to fetch leaderboard");
-    expect(response.body.error).toBe("AppError");
+    expect(response.body.code).toBe("LEADERBOARD_FETCH_FAILED");
   });
 
   // -------------------------------------------------------------------------
@@ -194,11 +195,12 @@ describe("Leaderboard Routes", () => {
       const response = await request(app).get("/api/leaderboard?limit=2&offset=0");
 
       expect(response.status).toBe(200);
-      expect(response.body.pagination).toBeDefined();
-      expect(response.body.pagination.limit).toBe(2);
-      expect(response.body.pagination.offset).toBe(0);
-      expect(response.body.pagination.total).toBe(3);
-      expect(response.body.pagination.hasNextPage).toBe(true);
+      const pagination = response.body.meta?.pagination ?? response.body.data?.pagination;
+      expect(pagination).toBeDefined();
+      expect(pagination.limit).toBe(2);
+      expect(pagination.offset).toBe(0);
+      expect(pagination.total).toBe(3);
+      expect(pagination.hasNextPage).toBe(true);
     });
 
     it("hasNextPage is false on the last page", async () => {
@@ -211,7 +213,8 @@ describe("Leaderboard Routes", () => {
       const response = await request(app).get("/api/leaderboard?limit=10&offset=0");
 
       expect(response.status).toBe(200);
-      expect(response.body.pagination.hasNextPage).toBe(false);
+      const pagination = response.body.meta?.pagination ?? response.body.data?.pagination;
+      expect(pagination.hasNextPage).toBe(false);
     });
   });
 
@@ -239,11 +242,12 @@ describe("Leaderboard Routes", () => {
       const response = await request(app).get(`/api/leaderboard?limit=3&cursor=${cursor}`);
 
       expect(response.status).toBe(200);
-      expect(response.body.pagination).toBeDefined();
-      expect(response.body.pagination.hasNextPage).toBe(true);
-      expect(typeof response.body.pagination.nextCursor).toBe("string");
-      expect(response.body.totalUsers).toBeUndefined();
-      expect(response.body.pagination.offset).toBeUndefined();
+      const pagination = response.body.meta?.pagination ?? response.body.data?.pagination;
+      expect(pagination).toBeDefined();
+      expect(pagination.hasNextPage).toBe(true);
+      expect(typeof pagination.nextCursor).toBe("string");
+      expect(response.body.data.totalUsers).toBeUndefined();
+      expect(pagination.offset).toBeUndefined();
     });
 
     it("nextCursor is null on the last page", async () => {
@@ -255,8 +259,9 @@ describe("Leaderboard Routes", () => {
       const response = await request(app).get(`/api/leaderboard?limit=3&cursor=${cursor}`);
 
       expect(response.status).toBe(200);
-      expect(response.body.pagination.hasNextPage).toBe(false);
-      expect(response.body.pagination.nextCursor).toBeNull();
+      const pagination = response.body.meta?.pagination ?? response.body.data?.pagination;
+      expect(pagination.hasNextPage).toBe(false);
+      expect(pagination.nextCursor).toBeNull();
     });
 
     it("cursor mode ignores offset param", async () => {
@@ -270,7 +275,8 @@ describe("Leaderboard Routes", () => {
       );
 
       expect(response.status).toBe(200);
-      expect(response.body.pagination.offset).toBeUndefined();
+      const pagination = response.body.meta?.pagination ?? response.body.data?.pagination;
+      expect(pagination.offset).toBeUndefined();
     });
   });
 });
