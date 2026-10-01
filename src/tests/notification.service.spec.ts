@@ -39,6 +39,7 @@ jest.mock('../services/dead-letter-queue.service', () => ({
 }));
 
 import notificationService from '../services/notification.service';
+import { notificationsQuerySchema } from '../routes/notifications.routes';
 import { encodeCursor } from '../utils/pagination.util';
 
 const USER_ID = 'user-test-id';
@@ -284,6 +285,139 @@ describe('NotificationService — unit tests (Issue #527)', () => {
       expect(result.data).toHaveLength(2);
       expect(result.pagination.hasNextPage).toBe(true);
       expect(typeof result.pagination.nextCursor).toBe('string');
+    });
+  });
+
+  describe('Pagination boundaries (Issue #649)', () => {
+    it('returns an empty page envelope when the user has no notifications', async () => {
+      mockNotificationFindMany.mockResolvedValue([]);
+      mockNotificationCount.mockResolvedValue(0);
+
+      const result = await notificationService.getUserNotificationsOffset(USER_ID, 20, 0, false);
+
+      expect(result.data).toEqual([]);
+      expect(result.pagination).toEqual({
+        limit: 20,
+        offset: 0,
+        total: 0,
+        hasNextPage: false,
+      });
+    });
+
+    it('reports hasNextPage=false on the last offset page', async () => {
+      mockNotificationFindMany.mockResolvedValue([
+        {
+          id: 'n-21',
+          userId: USER_ID,
+          type: 'WIN',
+          title: 'Win 21',
+          message: 'Msg 21',
+          data: null,
+          isRead: false,
+          createdAt: new Date('2026-08-28T12:00:00.000Z'),
+        },
+      ]);
+      mockNotificationCount.mockResolvedValue(21);
+
+      const result = await notificationService.getUserNotificationsOffset(USER_ID, 20, 20, false);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.pagination).toEqual({
+        limit: 20,
+        offset: 20,
+        total: 21,
+        hasNextPage: false,
+      });
+    });
+
+    it('reports hasNextPage=true when the page ends before the total', async () => {
+      mockNotificationFindMany.mockResolvedValue([]);
+      mockNotificationCount.mockResolvedValue(21);
+
+      const result = await notificationService.getUserNotificationsOffset(USER_ID, 20, 0, false);
+
+      expect(result.pagination.hasNextPage).toBe(true);
+    });
+
+    it('returns an empty cursor page with no next cursor when the user has no rows', async () => {
+      mockNotificationFindMany.mockResolvedValue([]);
+
+      const result = await notificationService.getUserNotificationsCursor(USER_ID, 20, undefined, false);
+
+      expect(result.data).toEqual([]);
+      expect(result.pagination).toEqual({
+        limit: 20,
+        nextCursor: null,
+        hasNextPage: false,
+      });
+      // No cursor means no cursor clause is sent to the database.
+      const query = mockNotificationFindMany.mock.calls[0][0];
+      expect(query.cursor).toBeUndefined();
+      expect(query.skip).toBeUndefined();
+    });
+
+    it('returns nextCursor=null and hasNextPage=false on the last cursor page', async () => {
+      const lastPageRows = [
+        {
+          id: 'n-2',
+          userId: USER_ID,
+          type: 'LOSS',
+          title: 'Loss 2',
+          message: 'Msg 2',
+          data: null,
+          isRead: true,
+          createdAt: new Date('2026-08-28T11:59:00.000Z'),
+        },
+      ];
+      mockNotificationFindMany.mockResolvedValue(lastPageRows);
+
+      const result = await notificationService.getUserNotificationsCursor(USER_ID, 2, undefined, false);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.pagination.hasNextPage).toBe(false);
+      expect(result.pagination.nextCursor).toBeNull();
+    });
+
+    it('scopes cursor pages to the authenticated user and unread filter', async () => {
+      mockNotificationFindMany.mockResolvedValue([]);
+
+      await notificationService.getUserNotificationsCursor(USER_ID, 5, undefined, true);
+
+      expect(mockNotificationFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: USER_ID, isRead: false },
+          take: 6,
+        }),
+      );
+    });
+  });
+
+  describe('Query validation (Issue #649)', () => {
+    it('rejects limit below 1 and above 100 (⇒ 400 at the route layer)', () => {
+      expect(notificationsQuerySchema.safeParse({ limit: '0' }).success).toBe(false);
+      expect(notificationsQuerySchema.safeParse({ limit: '-1' }).success).toBe(false);
+      expect(notificationsQuerySchema.safeParse({ limit: '101' }).success).toBe(false);
+      expect(notificationsQuerySchema.safeParse({ limit: 'abc' }).success).toBe(false);
+    });
+
+    it('coerces valid query strings and defaults', () => {
+      const parsed = notificationsQuerySchema.parse({ limit: '20', offset: '40' });
+      expect(parsed).toEqual({ limit: 20, offset: 40, unreadOnly: false });
+
+      expect(notificationsQuerySchema.parse({})).toEqual({
+        limit: 20,
+        offset: 0,
+        unreadOnly: false,
+      });
+    });
+
+    it('rejects a negative offset', () => {
+      expect(notificationsQuerySchema.safeParse({ offset: '-1' }).success).toBe(false);
+    });
+
+    it('parses unreadOnly from the string form used in query strings', () => {
+      expect(notificationsQuerySchema.parse({ unreadOnly: 'true' }).unreadOnly).toBe(true);
+      expect(notificationsQuerySchema.parse({ unreadOnly: 'false' }).unreadOnly).toBe(false);
     });
   });
 

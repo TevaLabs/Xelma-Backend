@@ -12,7 +12,7 @@ const router = Router();
  * Extend the unified pagination schema with the notifications-specific
  * `unreadOnly` filter.
  */
-const notificationsQuerySchema = unifiedPaginationSchema.extend({
+export const notificationsQuerySchema = unifiedPaginationSchema.extend({
   unreadOnly: z
     .preprocess((v) => v === "true" || v === true, z.boolean())
     .optional()
