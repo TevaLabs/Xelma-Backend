@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { stellarAddressSchema } from "../utils/stellar-address.util";
+import { stakeAmountSchema } from "../utils/max-stake.util";
 
 export const upDownBetSchema = z.object({
   address: stellarAddressSchema,
-  amount: z.number({ message: "amount is required" }).positive("amount must be a positive number"),
+  amount: stakeAmountSchema(),
   side: z.enum(["UP", "DOWN"], {
     message: "side must be UP or DOWN",
   }),
@@ -11,7 +12,7 @@ export const upDownBetSchema = z.object({
 
 export const precisionBetSchema = z.object({
   address: stellarAddressSchema,
-  amount: z.number({ message: "amount is required" }).positive("amount must be a positive number"),
+  amount: stakeAmountSchema(),
   predictedPrice: z
     .number({ message: "predictedPrice is required" })
     .positive("predictedPrice must be a positive number"),

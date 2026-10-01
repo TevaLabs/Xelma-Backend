@@ -73,6 +73,39 @@ Soroban or just record the intent **locally**.
 > The active mode is logged at startup:
 > `Bet mode: STUB (no on-chain calls)` or `Bet mode: ON-CHAIN (Soroban)`.
 
+### MAX_STAKE
+
+Circuit breaker on bet / prediction size, enforced in the Zod schemas
+(`src/utils/max-stake.util.ts`) so it applies identically to stub and on-chain
+paths.
+
+| Setting | Value |
+|---|---|
+| Env var | `MAX_STAKE` (alias: `MAX_PREDICTION_AMOUNT`) |
+| Unit | **XLM** (same unit as every `amount` field; never stroops) |
+| Default | `1000000` (also used if the value is unset or not a positive number) |
+| Over-max result | `400` with a field error on `amount` |
+
+**Affected endpoints:** `POST /api/bets/*`, `POST /api/rounds/:id/bet*`,
+`POST /api/predictions/submit` and batch, and legends predictions.
+
+### Data retention (expired challenges and idempotency keys)
+
+`SchedulerService` runs `retentionService.runAllPolicies()` daily at 03:00 under
+the `run-retention-policies` distributed lock. In memory mode the
+`MemoryHousekeepingService` sweep runs the same auth-challenge and idempotency
+cleanups.
+
+| Data | Expiry / TTL | Deleted when |
+|---|---|---|
+| `AuthChallenge` | `expiresAt` (challenge lifetime) and `RETENTION_AUTH_CHALLENGES_TTL_DAYS` (default `7`) | `expiresAt` passed **or** older than the TTL |
+| `IdempotencyKey` | Per-key `expiresAt`: 10 min default for `checkIdempotency`/`storeIdempotencyResult`, 24 h default for locks | `expiresAt` passed |
+| Chat messages / audit logs | `RETENTION_CHAT_MESSAGES_TTL_DAYS` / `RETENTION_AUDIT_LOGS_TTL_DAYS` (default `90`) | older than the TTL |
+
+Expired idempotency keys are also ignored on read, so a stale key cannot replay
+a response even before the job runs. Tests: `src/tests/retention-expiry.spec.ts`,
+`src/tests/idempotency.spec.ts`.
+
 ### SOROBAN_FAIL_CLOSED
 
 Controls whether **money paths** (bet placement and round resolve) abort when
