@@ -401,16 +401,13 @@ export function createApp(options: CreateAppOptions = {}): Application {
   }
 
   if (includeErrorHandlers) {
+    // Both apps share a single 404 handler so unmatched routes return an
+    // identical response shape regardless of entrypoint (#637). Each mode
+    // still keeps its own error handler for errors forwarded via next(err).
+    app.use(notFoundHandler);
     if (mode === 'full') {
-      // Forward unmatched routes into the error handler so 404s use the same
-      // response envelope as every other error.
-      app.use((req: Request, _res: Response, next: NextFunction) => {
-        const { NotFoundError } = require('./utils/errors');
-        next(new NotFoundError(`Route ${req.method} ${req.path} not found`));
-      });
       app.use(fullErrorHandler);
     } else {
-      app.use(notFoundHandler);
       app.use(hackathonErrorHandler);
     }
   }

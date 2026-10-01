@@ -170,6 +170,8 @@ The hackathon app and the production app share the same services, but the data b
 See [src/data/mockData.ts](src/data/mockData.ts) for the full in-memory seed data and fallback constants.
 
 > **Runtime modes reference:** For the complete flag matrix (DATA_MODE, BET_STUB_MODE, ROUNDS_MOCK_MODE), recommended combinations, and interaction diagrams, see **[docs/runtime-modes.md](docs/runtime-modes.md)**.
+>
+> **Stake cap:** `amount` on bets/predictions is limited by `MAX_STAKE` (XLM, default `1000000`); over-max requests get a `400`. Retention TTLs for expired auth challenges and idempotency keys are documented there too.
 
 ---
 
@@ -861,6 +863,27 @@ round IDs, socket IDs, request bodies, and secrets.
 
 For ready-to-use Prometheus alert rules covering oracle freshness, Soroban RPC,
 and circuit-breaker health, see the [Prometheus alerts cookbook](docs/prometheus-alerts-cookbook.md).
+
+**Scrape auth (Issue #636)**: `GET /metrics` is not anonymously readable in
+production. Set `METRICS_SCRAPE_TOKEN` and configure your Prometheus job to
+send it as a bearer token:
+
+```yaml
+scrape_configs:
+  - job_name: xelma-backend
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials: <METRICS_SCRAPE_TOKEN value>
+    static_configs:
+      - targets: ["your-host:3000"]
+```
+
+Without `METRICS_SCRAPE_TOKEN` set, the endpoint allows anonymous scrape only
+when `NODE_ENV != production` (local dev/demo convenience); in production it
+falls back to requiring an Admin JWT, so the endpoint is never anonymously
+exposed. An Admin JWT also works in any environment:
+`Authorization: Bearer <admin JWT>`.
 
 > **Running more than one replica?** Cron jobs elect a single leader per tick
 > via Redis. Every replica must share one `REDIS_URL`, or round creation and

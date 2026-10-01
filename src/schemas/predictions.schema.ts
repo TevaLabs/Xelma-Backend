@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { stakeAmountSchema } from "../utils/max-stake.util";
 
 const predictionPriceRangeSchema = z
   .object({
@@ -12,7 +13,7 @@ const predictionPriceRangeSchema = z
 export const submitPredictionSchema = z
   .object({
     roundId: z.string({ error: "Round ID is required" }).min(1, "Round ID is required"),
-    amount: z.number({ error: "Invalid amount" }).positive("Invalid amount"),
+    amount: stakeAmountSchema("Invalid amount", "Invalid amount"),
     side: z.string().optional(),
     priceRange: predictionPriceRangeSchema.optional(),
   })

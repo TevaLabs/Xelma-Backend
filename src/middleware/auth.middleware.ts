@@ -181,6 +181,12 @@ export const requireAdmin = requireRole([UserRole.ADMIN], {
  * Middleware to authenticate Prometheus metrics scrape.
  * Allows access if a valid Bearer token matching METRICS_SCRAPE_TOKEN is provided,
  * otherwise falls back to requiring an Admin JWT.
+ *
+ * Always requires auth, in every environment: this is also mounted on the
+ * admin dashboard's duplicate scrape route (`GET /api/admin/metrics/metrics`),
+ * which must never allow anonymous access. Use `requirePublicMetricsAuth`
+ * for the public `/metrics` endpoint, which additionally allows local/dev
+ * convenience.
  */
 export const requireMetricsAuth = async (
   req: Request,
@@ -198,6 +204,31 @@ export const requireMetricsAuth = async (
   }
 
   return requireAdmin(req, res, next);
+};
+
+/**
+ * Middleware for the public `GET /metrics` endpoint (Issue #636).
+ *
+ * Wraps `requireMetricsAuth` with a local/dev/test convenience bypass: when
+ * no METRICS_SCRAPE_TOKEN is configured and NODE_ENV != production,
+ * anonymous scrape is allowed so `curl localhost:3000/metrics` just works
+ * without an Admin JWT. In production (or once a token is configured),
+ * behavior is identical to `requireMetricsAuth` — anonymous scrape is
+ * refused. This bypass is intentionally NOT part of `requireMetricsAuth`
+ * itself, since that function also guards the admin-only duplicate scrape
+ * route (`GET /api/admin/metrics/metrics`), which must always require auth.
+ */
+export const requirePublicMetricsAuth = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  if (!config.app.metricsScrapeToken && config.app.nodeEnv !== "production") {
+    next();
+    return;
+  }
+
+  return requireMetricsAuth(req, res, next);
 };
 
 /**
