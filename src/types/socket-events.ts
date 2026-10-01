@@ -184,6 +184,10 @@ export interface ClientToServerEvents {
   'leave:chat': () => void;
   'chat:send': (data: ChatSendPayload, ack: (response: ChatAckPayload) => void) => void;
   'join:notifications': () => void;
+  /** Join a multiplayer session room (`session:<cuid|uuid>`). */
+  'join:session': (sessionId: string) => void;
+  /** Leave a multiplayer session room. */
+  'leave:session': (sessionId: string) => void;
   'session:checkpoint': (data: SessionCheckpointPayload) => void;
 }
 

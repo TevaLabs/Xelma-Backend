@@ -106,7 +106,37 @@ socket.emit("session:checkpoint", { lastViewedRound: "abc-123" });
 | `leave:chat` | — | — | Leave the chat room |
 | `chat:send` | `{ content: string }` | `ChatAckPayload` | Send a chat message (auth required, rate-limited) |
 | `join:notifications` | — | — | Join personal notification room (auth required) |
+| `join:session` | `string` (session id) | — | Join a multiplayer session room (see [Room naming](#room-naming--id-formats)) |
+| `leave:session` | `string` (session id) | — | Leave a multiplayer session room |
 | `session:checkpoint` | `Record<string, unknown>` | — | Save opaque session metadata for reconnect |
+
+### Room naming & id formats
+
+Room names are built server-side from a fixed set of namespaces. Clients never
+send a room name directly — only the id segment — and every id is validated
+before `socket.join` (Issue #730). An invalid id is rejected with an `error`
+event and **no** join takes place.
+
+| Room | Id format |
+|------|-----------|
+| `round` | — (singleton, no id) |
+| `chat` | — (singleton, no id) |
+| `round:<roundId>` | bounded slug: `[A-Za-z0-9_-]{1,64}` |
+| `user:<userId>` | bounded slug: `[A-Za-z0-9_-]{1,64}` |
+| `session:<sessionId>` | **cuid or uuid only** |
+
+Session rooms are always namespaced under `session:` so a session id can never
+alias a `user:` room (i.e. `join:session` cannot reach `user:*`).
+
+```typescript
+// ✅ valid: uuid
+socket.emit("join:session", "6f1c2c74-9f0a-4b5e-8f0b-2f3f1f8a91cd");
+
+// ❌ rejected: wrong format / wildcard / oversized
+socket.emit("join:session", "*");
+socket.emit("join:session", "user:someone-else");
+socket.on("error", (e) => console.warn(e.message)); // "Invalid session id"
+```
 
 ### Chat Send Ack
 
