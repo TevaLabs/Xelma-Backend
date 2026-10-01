@@ -83,6 +83,13 @@ describe('runPreflightChecks — full mode', () => {
     expect(result.errors.some(e => e.includes('openssl rand -base64 32'))).toBe(true);
   });
 
+  it('fails when JWT_EXPIRY is not a valid duration or seconds value', () => {
+    const result = runPreflightChecks({ ...FULL_ENV, JWT_EXPIRY: 'not-a-duration' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.includes('JWT_EXPIRY must be'))).toBe(true);
+  });
+
   it('warns when REDIS_URL has an unexpected scheme', () => {
     const env = { ...FULL_ENV, REDIS_URL: 'http://localhost:6379' };
     const result = runPreflightChecks(env);
