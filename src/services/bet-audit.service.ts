@@ -350,6 +350,57 @@ class BetAuditService {
      return filtered;
    }
 
+   /** Query the configured audit store and return the public event shape. */
+   async queryStoredEvents({
+     address,
+     limit = 50,
+     redact = true,
+   }: {
+     address?: string;
+     limit?: number;
+     redact?: boolean;
+   } = {}): Promise<BetAuditEvent[]> {
+     if (this.storageMode === "memory") {
+       return this.queryEvents({ address, limit, redact });
+     }
+
+     const rows = await prisma.auditLog.findMany({
+       where: {
+         eventType: {
+           in: ["BET_ACCEPTED", "BET_FAILED", "BET_RECONCILED", "CLAIM_ACCEPTED"],
+         },
+         ...(address ? { walletAddress: address } : {}),
+       },
+       orderBy: { timestamp: "desc" },
+       take: limit,
+     });
+
+     return rows.map((row: any) => {
+       const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+       const txHash = typeof metadata.txHash === "string" ? metadata.txHash : undefined;
+       const event: BetAuditEvent = {
+         event: row.eventType,
+         roundId: typeof metadata.roundId === "string" ? metadata.roundId : undefined,
+         betId: typeof metadata.betId === "string" ? metadata.betId : undefined,
+         address: row.walletAddress ?? "",
+         amount: typeof metadata.amount === "number" ? metadata.amount : 0,
+         side: metadata.side === "UP" || metadata.side === "DOWN" ? metadata.side : undefined,
+         mode: metadata.mode === "UP_DOWN" || metadata.mode === "PRECISION" ? metadata.mode : undefined,
+         result: typeof metadata.result === "string" ? metadata.result : row.outcome,
+         status: metadata.status as BetStatus | undefined,
+         txHash,
+         requestId: typeof metadata.requestId === "string" ? metadata.requestId : row.requestId ?? undefined,
+         correlationId: typeof metadata.correlationId === "string" ? metadata.correlationId : undefined,
+         failureReason: typeof metadata.failureReason === "string" ? metadata.failureReason : undefined,
+         createdAt: new Date(row.timestamp).toISOString(),
+       };
+
+       return redact
+         ? { ...event, txHash: txHash ? `${txHash.slice(0, 8)}...` : undefined }
+         : event;
+     });
+   }
+
    /** Clear all in-memory events (for test isolation). */
    clear(): void {
      this.events = [];
