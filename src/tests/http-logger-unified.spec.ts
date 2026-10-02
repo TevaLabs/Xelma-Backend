@@ -1,12 +1,14 @@
 /**
  * Assertion test: both hackathon and production apps produce the same
- * HTTP request log shape (method, path, status, durationMs, requestId).
+ * HTTP request log shape (method, path, status, durationMs, requestId,
+ * headers, body) and redact secrets/wallets from it.
  *
  * Run:  npx jest src/tests/http-logger-unified.spec.ts
  */
 
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import request from 'supertest';
+import { redactWallet } from '../utils/log-redaction';
 
 const mockLogInfo = jest.fn();
 
@@ -58,6 +60,10 @@ jest.mock('../middleware/rateLimiter.middleware', () => {
 jest.mock('../lib/prisma', () => ({ prisma: {} }));
 
 const EXPECTED_FIELDS = ['method', 'path', 'status', 'durationMs', 'requestId'];
+
+/** Valid-shaped Stellar public address: `G` + 55 base32 chars = 56 total. */
+const FULL_ADDRESS = `G${'A'.repeat(55)}`;
+const TRUNCATED_ADDRESS = redactWallet(FULL_ADDRESS);
 
 function getLastHttpLog(): Record<string, any> | undefined {
   const calls = mockLogInfo.mock.calls;
@@ -167,6 +173,57 @@ describe('HTTP request log shape is identical across apps', () => {
 
       // Verify the two log shapes have the same fields
       expect(fullKeys.sort()).toEqual(hackKeys.sort());
+    });
+  });
+
+  describe.each([
+    ['hackathon app (src/app.ts)', () => import('../app').then((m) => m.createApp())],
+    ['production app (src/index.ts)', () => import('../index').then((m) => m.createApp())],
+  ])('redaction: %s', (_name, loadApp) => {
+    it('never logs the Authorization header value', async () => {
+      const app = await loadApp();
+      const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVP-mc0';
+
+      await request(app).get('/api/health').set('Authorization', `Bearer ${jwt}`);
+
+      const log = getLastHttpLog();
+      expect(log).toBeDefined();
+      expect(String(log!.headers.authorization)).toMatch(/REDACTED/);
+      expect(JSON.stringify(log)).not.toContain(jwt);
+      expect(JSON.stringify(log)).not.toContain('eyJhbGci');
+    });
+
+    it('truncates wallet addresses embedded in the request path', async () => {
+      const app = await loadApp();
+
+      // Unmatched route: the redaction guarantee must not depend on the route.
+      await request(app).get(`/api/redaction-probe/${FULL_ADDRESS}`);
+
+      const log = getLastHttpLog();
+      expect(log).toBeDefined();
+      expect(log!.path).toBe(`/api/redaction-probe/${TRUNCATED_ADDRESS}`);
+      expect(JSON.stringify(log)).not.toContain(FULL_ADDRESS);
+    });
+
+    it('redacts selected request body fields', async () => {
+      const app = await loadApp();
+
+      await request(app).post('/api/redaction-probe').send({
+        address: FULL_ADDRESS,
+        amount: 5,
+        side: 'UP',
+        signature: 'raw-signature-must-not-leak',
+      });
+
+      const log = getLastHttpLog();
+      expect(log).toBeDefined();
+      expect(log!.body.address).toBe(TRUNCATED_ADDRESS);
+      expect(log!.body.amount).toBe(5);
+      expect(log!.body.side).toBe('UP');
+      // Non-allowlisted fields are not captured at all.
+      expect(log!.body.signature).toBeUndefined();
+      expect(JSON.stringify(log)).not.toContain(FULL_ADDRESS);
+      expect(JSON.stringify(log)).not.toContain('raw-signature-must-not-leak');
     });
   });
 });

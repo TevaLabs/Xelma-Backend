@@ -1,6 +1,7 @@
 import { BetStatus, BetMode, PredictionSide, OutboxEventType, ClaimStatus, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
+import { redactWallet } from '../utils/log-redaction';
 import sorobanService from './soroban.service';
 import betAuditService from './bet-audit.service';
 import outboxService, { BetAcceptedOutboxPayload, BetConfirmedOutboxPayload, BetResolvedOutboxPayload, BetFailedOutboxPayload } from './outbox.service';
@@ -120,9 +121,9 @@ export class BetService {
     const stubMode = this.isStubMode();
 
     if (stubMode) {
-      logger.info('UP/DOWN bet recorded (stub mode)', { ...input, idempotencyKey, requestId });
+      logger.info('UP/DOWN bet recorded (stub mode)', { ...input, address: redactWallet(input.address), idempotencyKey, requestId });
     } else {
-      logger.info('Placing UP/DOWN bet on-chain', { ...input, idempotencyKey, requestId });
+      logger.info('Placing UP/DOWN bet on-chain', { ...input, address: redactWallet(input.address), idempotencyKey, requestId });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -261,9 +262,9 @@ export class BetService {
     const stubMode = this.isStubMode();
 
     if (stubMode) {
-      logger.info('Precision bet recorded (stub mode)', { ...input, idempotencyKey, requestId });
+      logger.info('Precision bet recorded (stub mode)', { ...input, address: redactWallet(input.address), idempotencyKey, requestId });
     } else {
-      logger.info('Placing Precision bet on-chain', { ...input, idempotencyKey, requestId });
+      logger.info('Placing Precision bet on-chain', { ...input, address: redactWallet(input.address), idempotencyKey, requestId });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -693,10 +694,10 @@ export class BetService {
     let result: { state: string; amount: number; txHash?: string };
 
     if (process.env.BET_STUB_MODE === 'true') {
-      logger.info('Claim winnings stub recorded', { address, idempotencyKey, requestId });
+      logger.info('Claim winnings stub recorded', { address: redactWallet(address), idempotencyKey, requestId });
       result = { state: 'stub', amount: 0 };
     } else {
-      logger.info('Claiming winnings on-chain', { address, idempotencyKey, requestId });
+      logger.info('Claiming winnings on-chain', { address: redactWallet(address), idempotencyKey, requestId });
 
       // Track every claim in the Claim ledger (Issue #492) so the payout
       // reconciliation worker can detect and sweep stuck submissions. An
@@ -712,7 +713,7 @@ export class BetService {
 
       if (openClaim?.status === ClaimStatus.SUBMITTED) {
         logger.info('Claim already in flight; returning existing submission', {
-          address,
+          address: redactWallet(address),
           claimId: openClaim.id,
           txHash: openClaim.txHash,
           requestId,
@@ -735,7 +736,7 @@ export class BetService {
     }
 
     const correlationId = requestId && result.txHash ? `${requestId}:${result.txHash}` : requestId ?? result.txHash;
-    logger.info('Claim winnings result', { address, requestId, txHash: result.txHash, correlationId, state: result.state });
+    logger.info('Claim winnings result', { address: redactWallet(address), requestId, txHash: result.txHash, correlationId, state: result.state });
 
     betAuditService.emitClaimAccepted({
       address,
