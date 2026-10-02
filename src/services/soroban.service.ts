@@ -2,6 +2,7 @@ import { Keypair, Networks, Transaction } from "@stellar/stellar-sdk";
 import type { Client as XelmaClient, BetSide, OraclePayload, RoundMode, UserStats, contract } from "@tevalabs/xelma-bindings";
 import config from "../config";
 import logger from "../utils/logger";
+import { redactWallet } from "../utils/log-redaction";
 import { toDecimal } from "../utils/decimal.util";
 import { stroopsToXlm } from "../utils/payout.util";
 import { withTimeout, TimeoutResult } from "../utils/timeout-wrapper";
@@ -366,8 +367,8 @@ export class SorobanService {
       withTimeout(
         async () => {
         logger.debug(
-          `Initiating Soroban placeBet: user=${userAddress}, amount=${amount}, side=${side}`,
-          { requestId, userAddress, amount, side },
+          `Initiating Soroban placeBet: user=${redactWallet(userAddress)}, amount=${amount}, side=${side}`,
+          { requestId, userAddress: redactWallet(userAddress), amount, side },
         );
 
         // Amount in stroops (1 XLM = 10^7 stroops)
@@ -401,7 +402,7 @@ export class SorobanService {
         timedOut: result.timedOut,
         durationMs: result.durationMs,
         requestId,
-        userAddress,
+        userAddress: redactWallet(userAddress),
       });
       throw mapSorobanError(result.error?.message);
     }
@@ -411,7 +412,7 @@ export class SorobanService {
       retriesUsed: result.retriesUsed,
       requestId,
       txHash: result.data?.txHash,
-      userAddress,
+      userAddress: redactWallet(userAddress),
       correlationId: requestId && result.data?.txHash ? `${requestId}:${result.data.txHash}` : undefined,
     });
 
@@ -435,8 +436,8 @@ export class SorobanService {
       withTimeout(
         async () => {
         logger.debug(
-          `Initiating Soroban placePrecisionBet: user=${userAddress}, amount=${amount}, predictedPrice=${predictedPrice}`,
-          { requestId, userAddress, amount, predictedPrice },
+          `Initiating Soroban placePrecisionBet: user=${redactWallet(userAddress)}, amount=${amount}, predictedPrice=${predictedPrice}`,
+          { requestId, userAddress: redactWallet(userAddress), amount, predictedPrice },
         );
 
         // Amount in stroops (1 XLM = 10^7 stroops)
@@ -467,7 +468,7 @@ export class SorobanService {
         timedOut: result.timedOut,
         durationMs: result.durationMs,
         requestId,
-        userAddress,
+        userAddress: redactWallet(userAddress),
       });
       throw mapSorobanError(result.error?.message);
     }
@@ -477,7 +478,7 @@ export class SorobanService {
       retriesUsed: result.retriesUsed,
       requestId,
       txHash: result.data?.txHash,
-      userAddress,
+      userAddress: redactWallet(userAddress),
       correlationId: requestId && result.data?.txHash ? `${requestId}:${result.data.txHash}` : undefined,
     });
 
@@ -586,7 +587,7 @@ export class SorobanService {
     const result = await this.callWithBreaker("sorobanMintInitial", () =>
       withTimeout(
         async () => {
-        logger.debug(`Initiating Soroban mintInitial: user=${userAddress}`);
+        logger.debug(`Initiating Soroban mintInitial: user=${redactWallet(userAddress)}`);
         const tx = await this.client!.mint_initial({ user: userAddress });
         await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
         return Number(tx.result) / 10_000_000;
@@ -768,7 +769,7 @@ export class SorobanService {
 
     if (!result.success) {
       logger.warn("Failed to get user position from Soroban", {
-        userAddress,
+        userAddress: redactWallet(userAddress),
         roundId,
         error: result.error?.message,
       });
@@ -791,7 +792,7 @@ export class SorobanService {
     const result = await this.callWithBreaker("sorobanClaimWinnings", () =>
       withTimeout(
         async () => {
-          logger.debug(`Initiating Soroban claimWinnings: user=${userAddress}`, { requestId, userAddress });
+          logger.debug(`Initiating Soroban claimWinnings: user=${redactWallet(userAddress)}`, { requestId, userAddress: redactWallet(userAddress) });
 
           const tx = await this.client!.claim_winnings({ user: userAddress });
           const res = await tx.signAndSend({
@@ -814,7 +815,7 @@ export class SorobanService {
         timedOut: result.timedOut,
         durationMs: result.durationMs,
         requestId,
-        userAddress,
+        userAddress: redactWallet(userAddress),
       });
       throw mapSorobanError(result.error?.message);
     }
@@ -825,7 +826,7 @@ export class SorobanService {
       retriesUsed: result.retriesUsed,
       requestId,
       txHash: result.data?.txHash,
-      userAddress,
+      userAddress: redactWallet(userAddress),
       correlationId: requestId && result.data?.txHash ? `${requestId}:${result.data.txHash}` : undefined,
     });
 
