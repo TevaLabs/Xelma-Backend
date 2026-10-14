@@ -3,6 +3,7 @@ import { metricsRegistry } from '../middleware/metrics.middleware';
 import { prisma } from '../lib/prisma';
 import { checkSchemaReadiness } from '../services/schema-readiness.service';
 import { requirePublicMetricsAuth } from '../middleware/auth.middleware';
+import { getRedisTelemetry } from '../lib/redis';
 
 const router = Router();
 
@@ -81,6 +82,116 @@ router.get('/readiness', async (_req: Request, res: Response) => {
   const payload = await checkSchemaReadiness(prisma as any);
   const statusCode = payload.ready ? 200 : 503;
   res.status(statusCode).json(payload);
+});
+
+/**
+ * @openapi
+ * /metrics/cache:
+ *   get:
+ *     summary: Redis cache and circuit-breaker telemetry
+ *     description: >
+ *       Returns health, circuit breaker state, hit/miss metrics, and bypass
+ *       telemetry for the Redis cache layer. Protected by requirePublicMetricsAuth.
+ *     tags:
+ *       - Observability
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Redis cache telemetry payload
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   enum: [healthy, degraded, bypassed, unavailable]
+ *                 enabled:
+ *                   type: boolean
+ *                 configured:
+ *                   type: boolean
+ *                 circuitBreaker:
+ *                   type: object
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                     state:
+ *                       type: string
+ *                       enum: [closed, open, half-open]
+ *                     failureCount:
+ *                       type: integer
+ *                     openedAt:
+ *                       type: string
+ *                       nullable: true
+ *                     nextAttemptAt:
+ *                       type: string
+ *                       nullable: true
+ *                     halfOpenInFlight:
+ *                       type: integer
+ *                 metrics:
+ *                   type: object
+ *                   properties:
+ *                     enabled:
+ *                       type: boolean
+ *                     hits:
+ *                       type: integer
+ *                     misses:
+ *                       type: integer
+ *                     hitRatio:
+ *                       type: number
+ *                     sets:
+ *                       type: integer
+ *                     invalidations:
+ *                       type: integer
+ *                     bypasses:
+ *                       type: integer
+ *                     bypassesByReason:
+ *                       type: object
+ *                       properties:
+ *                         disabled:
+ *                           type: integer
+ *                         unconfigured:
+ *                           type: integer
+ *                         circuit_open:
+ *                           type: integer
+ *                         connection_failure:
+ *                           type: integer
+ *                         error:
+ *                           type: integer
+ *                     errors:
+ *                       type: integer
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ */
+router.get('/cache', requirePublicMetricsAuth, async (_req: Request, res: Response) => {
+  const telemetry = getRedisTelemetry();
+  res.status(200).json(telemetry);
+});
+
+/**
+ * @openapi
+ * /metrics/redis:
+ *   get:
+ *     summary: Redis telemetry alias
+ *     description: Alias for /metrics/cache exposing Redis cache health and circuit breaker telemetry.
+ *     tags:
+ *       - Observability
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Redis cache telemetry payload
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ */
+router.get('/redis', requirePublicMetricsAuth, async (_req: Request, res: Response) => {
+  const telemetry = getRedisTelemetry();
+  res.status(200).json(telemetry);
 });
 
 export default router;

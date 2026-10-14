@@ -49,7 +49,9 @@ export class CircuitBreaker {
     this.openBackoffMs = options.openBackoffMs ?? 30_000;
     this.halfOpenMaxCalls = options.halfOpenMaxCalls ?? 1;
     this.now = options.now ?? Date.now;
-    circuitBreakerState.set({ breaker: this.options.name, state: this.state }, 1);
+    if (circuitBreakerState && typeof circuitBreakerState.set === 'function') {
+      circuitBreakerState.set({ breaker: this.options.name, state: this.state }, 1);
+    }
   }
 
   async execute<T>(operation: () => Promise<T>): Promise<T> {

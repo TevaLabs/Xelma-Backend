@@ -60,6 +60,7 @@ const ROUTE_FILE_PREFIXES = {
   'errors.routes.ts':                  '/api/errors',
   'admin-cors-diagnostics.routes.ts':  '/api/admin/cors-diagnostics',
   'admin-dead-letter.routes.ts':       '/api/admin/dead-letter',
+  'admin-runtime-flags.routes.ts':     '/api/admin/runtime-flags',
   'health.ts':                         '/health',
   'prices.ts':                         '/api',
 };
@@ -76,6 +77,8 @@ const EXEMPT_FROM_SPEC = new Set([
   'GET /api-docs',
   'GET /metrics',
   'GET /metrics/readiness',
+  'GET /metrics/cache',
+  'GET /metrics/redis',
   'GET /api/health',
   'GET /api/stats',
   'GET /api/price',
@@ -331,7 +334,8 @@ function checkPathMethodDrift(spec, expressRoutes) {
   // the statically scanned route files; those are still valid public routes.
   const factoryMounted = new Set([
     'GET /api/stats', 'GET /api/price', 'GET /metrics',
-    'GET /metrics/readiness', 'GET /api/health', 'GET /api/admin/bet-audit',
+    'GET /metrics/readiness', 'GET /metrics/cache', 'GET /metrics/redis',
+    'GET /api/health', 'GET /api/admin/bet-audit',
   ]);
 
   // Spec paths with no corresponding Express route

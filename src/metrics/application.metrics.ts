@@ -6,7 +6,11 @@ import {
    Gauge,
 } from 'prom-client';
 import config from '../config';
-import { getCacheMetrics } from '../lib/redis';
+import {
+   getCacheMetrics,
+   isRedisCacheEnabled,
+   getRedisCircuitBreakerSnapshot,
+} from '../lib/redis';
 
 export const metricsRegistry = new Registry();
 
@@ -358,6 +362,34 @@ export const redisCacheHitRatio = new Gauge({
       const m = getCacheMetrics();
       const total = m.hits + m.misses;
       this.set(total > 0 ? m.hits / total : 0);
+   }
+});
+
+export const redisCacheBypassesByReasonTotal = new Gauge({
+   name: 'redis_cache_bypasses_by_reason_total',
+   help: 'Total Redis cache bypasses broken down by reason (disabled, unconfigured, circuit_open, connection_failure, error)',
+   labelNames: ['reason'] as const,
+   registers: [metricsRegistry],
+   collect() {
+      const m = getCacheMetrics();
+      if (m && m.bypassesByReason) {
+         for (const [reason, count] of Object.entries(m.bypassesByReason)) {
+            this.set({ reason }, count as number);
+         }
+      }
+   }
+});
+
+export const redisCacheHealthy = new Gauge({
+   name: 'redis_cache_healthy',
+   help: '1 when Redis cache is configured, enabled, and circuit breaker is closed; 0 otherwise',
+   registers: [metricsRegistry],
+   collect() {
+      const isEnabled = isRedisCacheEnabled();
+      const isConfigured = Boolean(process.env.REDIS_URL && process.env.REDIS_URL.trim().length > 0);
+      const snapshot = getRedisCircuitBreakerSnapshot();
+      const isHealthy = isEnabled && isConfigured && snapshot.state === 'closed';
+      this.set(isHealthy ? 1 : 0);
    }
 });
 

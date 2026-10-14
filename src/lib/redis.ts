@@ -2,14 +2,27 @@ import { createClient, type RedisClientType } from "redis";
 import { withTimeout } from "../utils/timeout-wrapper";
 import logger from "../utils/logger";
 import type { Options, Store, IncrementResponse } from "express-rate-limit";
+import {
+  CircuitBreaker,
+  CircuitBreakerOpenError,
+  CircuitBreakerSnapshot,
+} from "../utils/circuit-breaker";
 
-type CacheMetrics = {
+export type BypassReason =
+  | "disabled"
+  | "unconfigured"
+  | "circuit_open"
+  | "connection_failure"
+  | "error";
+
+export type CacheMetrics = {
   enabled: boolean;
   hits: number;
   misses: number;
   sets: number;
   invalidations: number;
   bypasses: number;
+  bypassesByReason: Record<BypassReason, number>;
   errors: number;
 };
 
@@ -29,8 +42,66 @@ const metrics: CacheMetrics = {
   sets: 0,
   invalidations: 0,
   bypasses: 0,
+  bypassesByReason: {
+    disabled: 0,
+    unconfigured: 0,
+    circuit_open: 0,
+    connection_failure: 0,
+    error: 0,
+  },
   errors: 0,
 };
+
+export const redisCircuitBreaker = new CircuitBreaker({
+  name: "redis-cache",
+  failureThreshold: parseInt(process.env.REDIS_FAIL_THRESHOLD || "3", 10),
+  openBackoffMs: parseInt(process.env.REDIS_FAIL_COOLDOWN_MS || "10000", 10),
+});
+
+export function getRedisCircuitBreakerSnapshot(): CircuitBreakerSnapshot {
+  return redisCircuitBreaker.getSnapshot();
+}
+
+export function resetRedisCircuitBreaker(): void {
+  redisCircuitBreaker.reset("manual_reset");
+}
+
+export function resetCacheMetrics(): void {
+  metrics.enabled = false;
+  metrics.hits = 0;
+  metrics.misses = 0;
+  metrics.sets = 0;
+  metrics.invalidations = 0;
+  metrics.bypasses = 0;
+  metrics.bypassesByReason = {
+    disabled: 0,
+    unconfigured: 0,
+    circuit_open: 0,
+    connection_failure: 0,
+    error: 0,
+  };
+  metrics.errors = 0;
+}
+
+function determineBypassReason(): BypassReason {
+  if (!getRedisUrl()) {
+    return "unconfigured";
+  }
+  if (!getRedisCacheEnabled()) {
+    return "disabled";
+  }
+  const snapshot = redisCircuitBreaker.getSnapshot();
+  if (snapshot.state === "open") {
+    return "circuit_open";
+  }
+  return "connection_failure";
+}
+
+function recordBypass(reason?: BypassReason): void {
+  const finalReason = reason ?? determineBypassReason();
+  metrics.bypasses += 1;
+  metrics.bypassesByReason[finalReason] = (metrics.bypassesByReason[finalReason] || 0) + 1;
+}
 
 const redisCacheDebug = process.env.REDIS_CACHE_DEBUG === "true";
 
@@ -71,14 +142,12 @@ async function ensureClient(respectCacheFlag = true): Promise<RedisClientType | 
     return null;
   }
 
-  const cooldownMs = parseInt(
-    process.env.REDIS_FAIL_COOLDOWN_MS || "10000",
-    10,
-  );
-  if (lastRedisFailureAtMs > 0 && Date.now() - lastRedisFailureAtMs < cooldownMs) {
-    metrics.enabled = false;
-    metrics.bypasses += 1;
-    return null;
+  const cbSnapshot = redisCircuitBreaker.getSnapshot();
+  if (cbSnapshot.state === "open") {
+    if (cbSnapshot.nextAttemptAt && Date.now() < cbSnapshot.nextAttemptAt.getTime()) {
+      metrics.enabled = false;
+      return null;
+    }
   }
 
   if (client) return client;
@@ -88,30 +157,32 @@ async function ensureClient(respectCacheFlag = true): Promise<RedisClientType | 
 
   clientConnecting = (async () => {
     try {
-      const nextClient = createClient({
-        url: redisUrl,
-        socket: {
-          connectTimeout: parseInt(process.env.REDIS_CONNECT_TIMEOUT_MS || "2000", 10),
-          reconnectStrategy: () => {
-            // If Redis is down, fail fast and switch to bypass mode.
-            return new Error("Redis unavailable");
+      return await redisCircuitBreaker.execute(async () => {
+        const nextClient = createClient({
+          url: redisUrl,
+          socket: {
+            connectTimeout: parseInt(process.env.REDIS_CONNECT_TIMEOUT_MS || "2000", 10),
+            reconnectStrategy: () => {
+              // If Redis is down, fail fast and switch to bypass mode.
+              return new Error("Redis unavailable");
+            },
           },
-        },
-      });
-
-      nextClient.on("error", (err) => {
-        logger.warn("Redis client error", {
-          message: err instanceof Error ? err.message : String(err),
         });
+
+        nextClient.on("error", (err) => {
+          logger.warn("Redis client error", {
+            message: err instanceof Error ? err.message : String(err),
+          });
+        });
+
+        await nextClient.connect();
+        // Force a connection check early.
+        await nextClient.ping();
+
+        client = nextClient;
+        lastRedisFailureAtMs = 0;
+        return client;
       });
-
-      await nextClient.connect();
-      // Force a connection check early.
-      await nextClient.ping();
-
-      client = nextClient;
-      lastRedisFailureAtMs = 0;
-      return client;
     } catch (error) {
       metrics.enabled = false;
       metrics.errors += 1;
@@ -144,6 +215,7 @@ async function getNamespaceVersion(namespace: string): Promise<number> {
     return Number.isFinite(parsed) ? parsed : 0;
   } catch (error) {
     metrics.errors += 1;
+    recordBypass("error");
     logger.warn("Failed to read namespace version; bypassing cache", {
       namespace,
       error: error instanceof Error ? error.message : String(error),
@@ -159,17 +231,59 @@ async function makeNamespacedKey(namespace: string, rawKey: string): Promise<str
 }
 
 export function getCacheMetrics(): CacheMetrics {
-  return { ...metrics };
+  return {
+    ...metrics,
+    bypassesByReason: { ...metrics.bypassesByReason },
+  };
 }
 
 export function isRedisCacheEnabled(): boolean {
   return getRedisCacheEnabled();
 }
 
+export interface RedisTelemetry {
+  status: "healthy" | "degraded" | "bypassed" | "unavailable";
+  enabled: boolean;
+  configured: boolean;
+  circuitBreaker: CircuitBreakerSnapshot;
+  metrics: CacheMetrics & { hitRatio: number };
+}
+
+export function getRedisTelemetry(): RedisTelemetry {
+  const isConfigured = Boolean(getRedisUrl());
+  const isEnabled = getRedisCacheEnabled();
+  const cbSnapshot = redisCircuitBreaker.getSnapshot();
+  const cacheMetrics = getCacheMetrics();
+  const totalQueries = cacheMetrics.hits + cacheMetrics.misses;
+  const hitRatio = totalQueries > 0 ? cacheMetrics.hits / totalQueries : 0;
+
+  let status: "healthy" | "degraded" | "bypassed" | "unavailable" = "healthy";
+  if (!isEnabled) {
+    status = "bypassed";
+  } else if (!isConfigured) {
+    status = "bypassed";
+  } else if (cbSnapshot.state === "open") {
+    status = "degraded";
+  } else if (!client) {
+    status = "unavailable";
+  }
+
+  return {
+    status,
+    enabled: isEnabled,
+    configured: isConfigured,
+    circuitBreaker: cbSnapshot,
+    metrics: {
+      ...cacheMetrics,
+      hitRatio,
+    },
+  };
+}
+
 export async function invalidateNamespace(namespace: string): Promise<void> {
   const redisClient = await ensureClient();
   if (!redisClient) {
-    metrics.bypasses += 1;
+    recordBypass();
     return;
   }
 
@@ -181,6 +295,7 @@ export async function invalidateNamespace(namespace: string): Promise<void> {
     }
   } catch (error) {
     metrics.errors += 1;
+    recordBypass("error");
     logger.warn("Failed to invalidate cache namespace", {
       namespace,
       error: error instanceof Error ? error.message : String(error),
@@ -191,7 +306,7 @@ export async function invalidateNamespace(namespace: string): Promise<void> {
 export async function getJsonFromCache<T>(namespace: string, rawKey: string): Promise<T | null> {
   const redisClient = await ensureClient();
   if (!redisClient) {
-    metrics.bypasses += 1;
+    recordBypass();
     return null;
   }
 
@@ -213,6 +328,7 @@ export async function getJsonFromCache<T>(namespace: string, rawKey: string): Pr
     return JSON.parse(raw) as T;
   } catch (error) {
     metrics.errors += 1;
+    recordBypass("error");
     logger.warn("Failed to read cache entry; bypassing cache", {
       namespace,
       rawKey,
@@ -231,7 +347,7 @@ export async function setJsonToCache<T>(
 ): Promise<void> {
   const redisClient = await ensureClient();
   if (!redisClient) {
-    metrics.bypasses += 1;
+    recordBypass();
     return;
   }
 
@@ -246,6 +362,7 @@ export async function setJsonToCache<T>(
     }
   } catch (error) {
     metrics.errors += 1;
+    recordBypass("error");
     logger.warn("Failed to write cache entry; bypassing cache", {
       namespace,
       rawKey,
@@ -280,7 +397,7 @@ function leaderboardZSetKey(): string {
 export async function zsetAdd(userId: string, score: number): Promise<void> {
   const redisClient = await ensureClient();
   if (!redisClient) {
-    metrics.bypasses += 1;
+    recordBypass();
     return;
   }
 
@@ -291,6 +408,7 @@ export async function zsetAdd(userId: string, score: number): Promise<void> {
     }
   } catch (error) {
     metrics.errors += 1;
+    recordBypass("error");
     logger.warn("Failed to update leaderboard zset", {
       userId,
       error: error instanceof Error ? error.message : String(error),
@@ -305,7 +423,7 @@ export async function zsetAdd(userId: string, score: number): Promise<void> {
 export async function zsetRemove(userId: string): Promise<void> {
   const redisClient = await ensureClient();
   if (!redisClient) {
-    metrics.bypasses += 1;
+    recordBypass();
     return;
   }
 
@@ -313,6 +431,7 @@ export async function zsetRemove(userId: string): Promise<void> {
     await redisClient.zRem(leaderboardZSetKey(), userId);
   } catch (error) {
     metrics.errors += 1;
+    recordBypass("error");
     logger.warn("Failed to remove member from leaderboard zset", {
       userId,
       error: error instanceof Error ? error.message : String(error),
@@ -327,7 +446,7 @@ export async function zsetRemove(userId: string): Promise<void> {
 export async function zsetCard(): Promise<number | null> {
   const redisClient = await ensureClient();
   if (!redisClient) {
-    metrics.bypasses += 1;
+    recordBypass();
     return null;
   }
 
@@ -335,6 +454,7 @@ export async function zsetCard(): Promise<number | null> {
     return await redisClient.zCard(leaderboardZSetKey());
   } catch (error) {
     metrics.errors += 1;
+    recordBypass("error");
     logger.warn("Failed to read leaderboard zset cardinality", {
       error: error instanceof Error ? error.message : String(error),
     });
@@ -356,7 +476,7 @@ export async function zsetRangeWithScores(
 ): Promise<ZSetMember[] | null> {
   const redisClient = await ensureClient();
   if (!redisClient) {
-    metrics.bypasses += 1;
+    recordBypass();
     return null;
   }
 
@@ -372,6 +492,7 @@ export async function zsetRangeWithScores(
     return members;
   } catch (error) {
     metrics.errors += 1;
+    recordBypass("error");
     logger.warn("Failed to read leaderboard zset range", {
       offset,
       limit,
@@ -388,7 +509,7 @@ export async function zsetRangeWithScores(
 export async function zsetRank(userId: string): Promise<number | null> {
   const redisClient = await ensureClient();
   if (!redisClient) {
-    metrics.bypasses += 1;
+    recordBypass();
     return null;
   }
 
@@ -398,6 +519,7 @@ export async function zsetRank(userId: string): Promise<number | null> {
     return rank ?? null;
   } catch (error) {
     metrics.errors += 1;
+    recordBypass("error");
     logger.warn("Failed to read leaderboard zset rank", {
       userId,
       error: error instanceof Error ? error.message : String(error),
@@ -414,7 +536,7 @@ export async function zsetRank(userId: string): Promise<number | null> {
 export async function invalidateLeaderboardSortedSet(): Promise<void> {
   const redisClient = await ensureClient();
   if (!redisClient) {
-    metrics.bypasses += 1;
+    recordBypass();
     return;
   }
 
@@ -426,6 +548,7 @@ export async function invalidateLeaderboardSortedSet(): Promise<void> {
     }
   } catch (error) {
     metrics.errors += 1;
+    recordBypass("error");
     logger.warn("Failed to invalidate leaderboard sorted set", {
       error: error instanceof Error ? error.message : String(error),
     });
@@ -464,6 +587,7 @@ export async function closeRedisClient(): Promise<void> {
   }
   clientConnecting = null;
   lastRedisFailureAtMs = 0;
+  redisCircuitBreaker.reset("client_closed");
 }
 
 /**
@@ -488,6 +612,15 @@ export async function checkRedisHealth(
 ): Promise<{ status: string; durationMs: number; error?: string }> {
   if (!isRedisCacheEnabled()) {
     return { status: "bypassed", durationMs: 0 };
+  }
+
+  const cbSnapshot = redisCircuitBreaker.getSnapshot();
+  if (cbSnapshot.state === "open") {
+    return {
+      status: "degraded",
+      durationMs: 0,
+      error: `Circuit breaker "redis-cache" is open until ${cbSnapshot.nextAttemptAt?.toISOString()}`,
+    };
   }
 
   const start = Date.now();
