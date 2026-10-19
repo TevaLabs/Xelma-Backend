@@ -109,4 +109,17 @@ describe('Winston structured logging in hackathon app', () => {
     expect(typeof logger.warn).toBe('function');
     expect(typeof logger.error).toBe('function');
   });
+
+  it('redacts Authorization header in HTTP request log (Issue #886)', async () => {
+    await request(app)
+      .get('/api/rounds')
+      .set('Authorization', 'Bearer sensitive-token-abc123xyz');
+
+    const httpLogCall = mockLogInfo.mock.calls.find(
+      (call) => call[0] === 'http request',
+    );
+    expect(httpLogCall).toBeDefined();
+    const meta = httpLogCall![1];
+    expect(meta.authorization).toBe('[REDACTED]');
+  });
 });
