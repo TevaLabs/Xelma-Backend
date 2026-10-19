@@ -124,6 +124,17 @@ describe('HTTP request log shape is identical across apps', () => {
       const log = getLastHttpLog();
       expect([200, 304]).toContain(log!.status);
     });
+
+    it('redacts Authorization header to [REDACTED] in HTTP request log (Issue #886)', async () => {
+      const { createApp } = await import('../app');
+      const app = createApp();
+
+      await request(app).get('/api/rounds').set('Authorization', 'Bearer secret-jwt-abc');
+
+      const log = getLastHttpLog();
+      expect(log).toBeDefined();
+      expect(log!.authorization).toBe('[REDACTED]');
+    });
   });
 
   describe('production app (src/index.ts)', () => {
