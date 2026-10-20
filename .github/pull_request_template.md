@@ -35,6 +35,7 @@ the entrypoint map and the checklist for adding new routes.
 - [ ] Added or updated tests covering the change.
 - [ ] `npm run lint` and `npm test` pass locally.
 - [ ] Updated docs (README, OpenAPI annotations, `docs/`) where behavior changed.
+- [ ] If this PR adds a Prisma migration: `down.sql` written, rollback tested locally, and data-loss risk stated (see the [database migration checklist](../CONTRIBUTING.md#database-migration-checklist)).
 
 ## Notes for reviewers
 

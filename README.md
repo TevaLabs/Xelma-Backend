@@ -942,6 +942,8 @@ This project uses **Prisma as the single migration tool** against the PostgreSQL
 
 `npm run db:migrate` applies all committed Prisma migrations, and `npm run db:prepare` generates the Prisma client before applying them. These are the same commands used by CI and deploy workflows, keeping local, CI, and production setup identical. When you change [prisma/schema.prisma](prisma/schema.prisma), use `npm run prisma:migrate`.
 
+Prisma Migrate is forward-only, so every new migration ships a hand-written `down.sql` rollback next to its `migration.sql`. See [prisma/migrations/README.md](prisma/migrations/README.md#rollback-guidance) for the rollback SQL template and how to test it, and the [database migration checklist](CONTRIBUTING.md#database-migration-checklist) in CONTRIBUTING.md.
+
 > **Note**: Never commit your `.env` file. It contains sensitive credentials.
 
 ---

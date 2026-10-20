@@ -110,6 +110,25 @@ Prisma is the single database ORM and migration tool. The schema lives in
 and apply migrations, or use `npm run prisma:migrate` when changing the schema.
 See the README "Migration story" section for more detail.
 
+Prisma Migrate has no automatic "down" migrations, so every migration PR must
+include a reviewed rollback plan. The rollback SQL template, the `down.sql`
+convention, and how to generate and test a rollback are documented in
+**[prisma/migrations/README.md](prisma/migrations/README.md#rollback-guidance)**.
+
+### Database migration checklist
+
+Copy this into the PR description of any PR that adds a migration:
+
+- [ ] Migration created with `npm run prisma:migrate` (`prisma migrate dev`)
+      and its folder committed.
+- [ ] Rollback SQL written to `prisma/migrations/<migration_name>/down.sql`
+      using the [rollback template](prisma/migrations/README.md#rollback-sql-template).
+- [ ] Rollback tested locally against a disposable database
+      (apply → rollback → re-apply; see
+      [Testing a rollback locally](prisma/migrations/README.md#testing-a-rollback-locally)).
+- [ ] Data-loss risk of the rollback stated in the PR (`None`, or what is lost
+      and how to recover it).
+
 ## Keeping the repo root clean
 
 Accidental empty files at the repo root (e.g. `src*.ts` leftovers from misplacing
