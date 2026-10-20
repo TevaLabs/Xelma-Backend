@@ -44,6 +44,9 @@ import {
   getLeaderboardCursor,
   getUserPosition,
   updateUserStatsForRound,
+  invalidateLeaderboardCache,
+  clearLeaderboardMemoryCache,
+  getLeaderboardMemoryCacheSize,
 } from "../services/leaderboard.service";
 
 const userStatsFindMany = prisma.userStats.findMany as unknown as jest.Mock;
@@ -417,6 +420,68 @@ describe("Leaderboard Service", () => {
       expect(result.leaderboard).toHaveLength(1);
       expect(result.leaderboard[0].userId).toBe("u1");
       expect(userStatsFindMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("invalidateLeaderboardCache", () => {
+    it("clears in-memory keys and calls Redis invalidation for namespace and sorted set", async () => {
+      const invalidateNamespaceMock = redisLib.invalidateNamespace as unknown as jest.Mock;
+      const invalidateZsetMock = redisLib.invalidateLeaderboardSortedSet as unknown as jest.Mock;
+
+      // Seed in-memory cache with an entry
+      process.env.REDIS_CACHE_ENABLED = "true";
+      userStatsFindMany.mockResolvedValue(sampleStats);
+      userStatsCount.mockResolvedValue(3);
+      userStatsFindUnique.mockResolvedValue(null);
+
+      await getLeaderboard(3, 0, undefined);
+      expect(getLeaderboardMemoryCacheSize()).toBeGreaterThan(0);
+
+      await invalidateLeaderboardCache();
+
+      // Memory cache is cleared
+      expect(getLeaderboardMemoryCacheSize()).toBe(0);
+      // Redis invalidations are called
+      expect(invalidateNamespaceMock).toHaveBeenCalledWith("leaderboard");
+      expect(invalidateZsetMock).toHaveBeenCalled();
+    });
+
+    it("does not throw when Redis invalidation fails", async () => {
+      const invalidateNamespaceMock = redisLib.invalidateNamespace as unknown as jest.Mock;
+      const invalidateZsetMock = redisLib.invalidateLeaderboardSortedSet as unknown as jest.Mock;
+
+      invalidateNamespaceMock.mockRejectedValueOnce(new Error("Redis connection lost"));
+      invalidateZsetMock.mockRejectedValueOnce(new Error("Redis connection lost"));
+
+      await expect(invalidateLeaderboardCache()).resolves.not.toThrow();
+    });
+
+    it("prevents stale ranks by ensuring fresh data is queried after invalidation", async () => {
+      process.env.REDIS_CACHE_ENABLED = "true";
+      userStatsFindMany.mockResolvedValueOnce([sampleStats[0]]);
+      userStatsCount.mockResolvedValueOnce(1);
+      userStatsFindUnique.mockResolvedValue(null);
+
+      // Initial read
+      const firstResult = await getLeaderboard(1, 0, undefined);
+      expect(firstResult.leaderboard[0].userId).toBe("u1");
+
+      // Invalidate on round resolution
+      await invalidateLeaderboardCache();
+
+      // Second read with updated stats row (e.g. u2 surpassed u1)
+      const updatedStats = [
+        {
+          ...sampleStats[1],
+          totalEarnings: 200, // new rank 1
+        },
+      ];
+      userStatsFindMany.mockResolvedValueOnce(updatedStats);
+      userStatsCount.mockResolvedValueOnce(1);
+
+      const secondResult = await getLeaderboard(1, 0, undefined);
+      expect(secondResult.leaderboard[0].userId).toBe("u2");
+      expect(secondResult.leaderboard[0].totalEarnings).toBe("200.00000000");
     });
   });
 });
