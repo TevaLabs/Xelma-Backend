@@ -1123,6 +1123,20 @@
         }
       }
     },
+    "/api/rounds/active": {
+      "get": {
+        "summary": "Get active prediction rounds with pool totals",
+        "description": "Returns active prediction rounds with decimal-serialized poolUp and poolDown totals. Delegates to shared round service with Soroban -> Database -> Mock fallback.",
+        "tags": [
+          "rounds"
+        ],
+        "responses": {
+          "200": {
+            "description": "Active prediction rounds with source metadata and decimal pool totals"
+          }
+        }
+      }
+    },
     "/api/rounds/{id}": {
       "get": {
         "summary": "Get a round by ID",

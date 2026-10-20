@@ -49,9 +49,17 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
     // Source fallback order: Soroban on-chain → database → mock data.
     // Controlled by roundService.getRoundsForApi(); see round.service.ts.
     const { source, rounds } = await roundService.getRoundsForApi();
+    const serializedRounds = rounds.map((round) => {
+      const roundObj = round as unknown as Record<string, unknown>;
+      return serializeRound({
+        ...roundObj,
+        poolUp: roundObj.poolUp ?? 0,
+        poolDown: roundObj.poolDown ?? 0,
+      });
+    });
     sendSuccess(res, {
       source,
-      rounds: rounds.map((round) => serializeRound(round)),
+      rounds: serializedRounds,
     });
   } catch (err) {
     next(err);
@@ -138,9 +146,46 @@ router.post(
   }),
 );
 
-// NOTE: GET /active was removed — it duplicated GET / (both called
-// roundService.getRoundsForApi()). Callers should use GET / instead.
-// Kept here as a comment for discoverability; see issue #370.
+/**
+ * @openapi
+ * /api/rounds/active:
+ *   get:
+ *     summary: Get active prediction rounds with pool totals
+ *     description: Returns active prediction rounds with decimal-serialized poolUp and poolDown totals. Delegates to shared round service with Soroban -> Database -> Mock fallback.
+ *     tags:
+ *       - rounds
+ *     responses:
+ *       200:
+ *         description: Active prediction rounds with source metadata and decimal pool totals
+ */
+router.get("/active", async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { source, rounds } = await roundService.getRoundsForApi();
+    const serializedRounds = rounds.map((round) => {
+      const roundObj = round as unknown as Record<string, unknown>;
+      return serializeRound({
+        ...roundObj,
+        poolUp: roundObj.poolUp ?? 0,
+        poolDown: roundObj.poolDown ?? 0,
+      });
+    });
+
+    const data = {
+      source,
+      rounds: serializedRounds,
+    };
+
+    res.status(200).json({
+      success: true,
+      data,
+      source,
+      rounds: serializedRounds,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 
 /**
  * @swagger
