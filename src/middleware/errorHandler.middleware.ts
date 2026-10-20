@@ -6,6 +6,7 @@ import {
 import { AppError, BackpressureError, ValidationError, ErrorCode } from '../utils/errors';
 import { CircuitBreakerOpenError } from '../utils/circuit-breaker';
 import logger from '../utils/logger';
+import { redactUrl } from '../utils/log-redaction.util';
 
 /**
  * Standardized error response shape.
@@ -111,7 +112,8 @@ export function errorHandler(
     message: appError.message,
     requestId,
     timestamp,
-    path: req.originalUrl,
+    // Query strings can carry tokens or signatures; never log them raw.
+    path: redactUrl(req.originalUrl),
     ...(appError.details && { details: appError.details }),
     ...(isDev && err instanceof Error && { stack: err.stack }),
   });

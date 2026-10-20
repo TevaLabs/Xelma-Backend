@@ -221,8 +221,9 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
   app.use(requestIdMiddleware);
   app.use(metricsMiddleware);
   // Both modes log the same shape (method, path, status, durationMs,
-  // requestId) on response finish — see src/middleware/httpLogger.middleware.ts
-  // and src/tests/http-logger-unified.spec.ts (Issue #423).
+  // requestId, redacted headers) on response finish — see
+  // src/middleware/httpLogger.middleware.ts and
+  // src/tests/http-logger-unified.spec.ts (Issue #423, #886).
   app.use(httpLoggerMiddleware);
 }
 
