@@ -2,6 +2,7 @@ jest.mock('../lib/prisma', () => ({
   prisma: {
     round: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
   },
 }));
@@ -413,6 +414,44 @@ describe('EducationTipService', () => {
 
       // Should have variety of categories
       expect(categories.size).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('last resolved round context', () => {
+    const mockedFindFirst = prisma.round.findFirst as unknown as jest.Mock;
+
+    it('uses the latest resolved round when roundId is omitted', async () => {
+      const latest = {
+        id: 'last-resolved-round',
+        mode: 'UP_DOWN',
+        status: 'RESOLVED',
+        startPrice: 1.0,
+        endPrice: 1.04,
+        startTime: new Date('2024-01-01T00:00:00Z'),
+        endTime: new Date('2024-01-01T00:05:00Z'),
+        resolvedAt: new Date('2024-01-01T00:05:01Z'),
+      };
+      mockedFindFirst.mockResolvedValue(latest);
+
+      const tip = await educationTipService.generateTip();
+
+      expect(mockedFindFirst).toHaveBeenCalledWith({
+        where: { status: 'RESOLVED' },
+        orderBy: { resolvedAt: 'desc' },
+        select: expect.objectContaining({ id: true, resolvedAt: true }),
+      });
+      expect(prisma.round.findUnique).not.toHaveBeenCalled();
+      expect(tip.roundId).toBe('last-resolved-round');
+      expect(tip.metadata?.priceChangePercent).toBe(4);
+      expect(tip.metadata?.outcome).toBe('up');
+    });
+
+    it('throws when no resolved round exists and roundId is omitted', async () => {
+      mockedFindFirst.mockResolvedValue(null);
+
+      await expect(educationTipService.generateTip()).rejects.toThrow(
+        'No resolved round available',
+      );
     });
   });
 });
