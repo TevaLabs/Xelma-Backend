@@ -19,12 +19,26 @@ interface NotificationPreferences {
   announcement?: boolean;
 }
 
+type NotificationTypeName = "WIN" | "LOSS" | "ROUND_START" | "BONUS_AVAILABLE" | "ANNOUNCEMENT";
+
 interface CreateNotificationInput {
   userId: string;
-  type: "WIN" | "LOSS" | "ROUND_START" | "BONUS_AVAILABLE" | "ANNOUNCEMENT";
+  type: NotificationTypeName;
   title: string;
   message: string;
   data?: any;
+}
+
+function notificationListWhere(
+  userId: string,
+  unreadOnly: boolean,
+  type?: NotificationTypeName,
+) {
+  return {
+    userId,
+    ...(unreadOnly ? { isRead: false } : {}),
+    ...(type ? { type } : {}),
+  };
 }
 
 /** Serialised shape of a single notification row returned to callers. */
@@ -158,10 +172,11 @@ class NotificationService {
     limit: number = 20,
     offset: number = 0,
     unreadOnly: boolean = false,
+    type?: NotificationTypeName,
   ): Promise<LegacyPaginatedResponse> {
     try {
       const finalLimit = Math.min(limit, 100);
-      const where = unreadOnly ? { userId, isRead: false } : { userId };
+      const where = notificationListWhere(userId, unreadOnly, type);
 
       const [notifications, total] = await Promise.all([
         prisma.notification.findMany({
@@ -193,9 +208,10 @@ class NotificationService {
     limit: number = 20,
     offset: number = 0,
     unreadOnly: boolean = false,
+    type?: NotificationTypeName,
   ): Promise<OffsetPage<NotificationDto>> {
     try {
-      const where = unreadOnly ? { userId, isRead: false } : { userId };
+      const where = notificationListWhere(userId, unreadOnly, type);
 
       const [rows, total] = await Promise.all([
         prisma.notification.findMany({
@@ -233,10 +249,11 @@ class NotificationService {
     limit: number = 20,
     cursor?: string,
     unreadOnly: boolean = false,
+    type?: NotificationTypeName,
   ): Promise<CursorPage<NotificationDto>> {
     try {
       const decoded = decodeCursor<{ createdAt: string; id: string }>(cursor);
-      const where = unreadOnly ? { userId, isRead: false } : { userId };
+      const where = notificationListWhere(userId, unreadOnly, type);
 
       const rows = await prisma.notification.findMany({
         where,

@@ -12,11 +12,20 @@ const router = Router();
  * Extend the unified pagination schema with the notifications-specific
  * `unreadOnly` filter.
  */
+const notificationTypeSchema = z.enum([
+  "WIN",
+  "LOSS",
+  "ROUND_START",
+  "BONUS_AVAILABLE",
+  "ANNOUNCEMENT",
+]);
+
 const notificationsQuerySchema = unifiedPaginationSchema.extend({
   unreadOnly: z
     .preprocess((v) => v === "true" || v === true, z.boolean())
     .optional()
     .default(false),
+  type: notificationTypeSchema.optional(),
 });
 
 /**
@@ -53,6 +62,12 @@ const notificationsQuerySchema = unifiedPaginationSchema.extend({
  *         name: unreadOnly
  *         schema: { type: boolean, default: false }
  *         description: When true, only unread notifications are returned
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [WIN, LOSS, ROUND_START, BONUS_AVAILABLE, ANNOUNCEMENT]
+ *         description: When set, only notifications of this type are returned (for example type=WIN). Applied before pagination.
  *     responses:
  *       200:
  *         description: Notifications page
@@ -68,11 +83,12 @@ router.get(
   (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const userId = req.user.userId;
-      const { limit, offset, cursor, unreadOnly } = req.query as unknown as {
+      const { limit, offset, cursor, unreadOnly, type } = req.query as unknown as {
         limit: number;
         offset: number;
         cursor?: string;
         unreadOnly: boolean;
+        type?: "WIN" | "LOSS" | "ROUND_START" | "BONUS_AVAILABLE" | "ANNOUNCEMENT";
       };
 
       if (cursor) {
@@ -82,6 +98,7 @@ router.get(
           limit,
           cursor,
           unreadOnly,
+          type,
         );
         return res.json({
           success: true,
@@ -96,6 +113,7 @@ router.get(
         limit,
         offset,
         unreadOnly,
+        type,
       );
       return res.json({
         success: true,

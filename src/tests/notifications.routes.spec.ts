@@ -160,6 +160,35 @@ describe("Notifications Routes & Ownership (Issue #78)", () => {
       expect(res.body.offset).toBe(0);
       expect(res.body.notifications.length).toBeLessThanOrEqual(1);
     });
+
+    it("filters by type before pagination", async () => {
+      mockNotificationFindMany.mockClear();
+      mockNotificationCount.mockClear();
+
+      const res = await request(app)
+        .get("/api/notifications?type=WIN&limit=1&offset=0")
+        .set("Authorization", `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      const listCall = mockNotificationFindMany.mock.calls.find(
+        (call) => call[0]?.where?.type === "WIN",
+      );
+      const countCall = mockNotificationCount.mock.calls.find(
+        (call) => call[0]?.where?.type === "WIN",
+      );
+      expect(listCall?.[0].where).toEqual({ userId: userA.id, type: "WIN" });
+      expect(countCall?.[0].where).toEqual({ userId: userA.id, type: "WIN" });
+      expect(listCall?.[0].skip).toBe(0);
+      expect(listCall?.[0].take).toBe(1);
+    });
+
+    it("rejects an unsupported notification type", async () => {
+      const res = await request(app)
+        .get("/api/notifications?type=NOT_A_TYPE")
+        .set("Authorization", `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(400);
+    });
   });
 
   describe("GET /api/notifications/unread-count", () => {
