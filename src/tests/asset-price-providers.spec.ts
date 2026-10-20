@@ -36,10 +36,75 @@ describe('CoinGeckoProvider.fetchAssetPrices', () => {
   });
 });
 
+describe('CoinCapProvider.fetchPrice', () => {
+  const url = 'https://coincap.example/assets/stellar';
+  const providerWithTimeout = new CoinCapProvider(url, 3_000);
+  const defaultProvider = new CoinCapProvider(url);
+
+  it('maps priceUsd to Decimal with exact precision and applies configured timeout', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: {
+          priceUsd: '0.12345678',
+        },
+      },
+    });
+
+    const result = await providerWithTimeout.fetchPrice();
+
+    expect(result).toBeInstanceOf(Decimal);
+    expect(result.toString()).toBe('0.12345678');
+    expect(mockedAxios.get).toHaveBeenCalledWith(url, { timeout: 3_000 });
+  });
+
+  it('uses default 5000ms timeout when timeout is omitted', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: {
+          priceUsd: '0.25',
+        },
+      },
+    });
+
+    const result = await defaultProvider.fetchPrice();
+
+    expect(result.toString()).toBe('0.25');
+    expect(mockedAxios.get).toHaveBeenCalledWith(url, { timeout: 5_000 });
+  });
+
+  it('handles and rejects on axios timeout failure (ECONNABORTED)', async () => {
+    const timeoutError = Object.assign(new Error('timeout of 3000ms exceeded'), {
+      code: 'ECONNABORTED',
+    });
+    mockedAxios.get.mockRejectedValueOnce(timeoutError);
+
+    await expect(providerWithTimeout.fetchPrice()).rejects.toThrow('timeout of 3000ms exceeded');
+  });
+
+  it('handles and rejects on network connection failure', async () => {
+    const networkError = Object.assign(new Error('Network Error: connect ECONNREFUSED'), {
+      code: 'ECONNREFUSED',
+    });
+    mockedAxios.get.mockRejectedValueOnce(networkError);
+
+    await expect(providerWithTimeout.fetchPrice()).rejects.toThrow('Network Error');
+  });
+
+  it('throws when priceUsd is missing in payload', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: { data: {} },
+    });
+
+    await expect(providerWithTimeout.fetchPrice()).rejects.toThrow(
+      'Invalid response from CoinCap: missing data.priceUsd',
+    );
+  });
+});
+
 describe('CoinCapProvider.fetchAssetPrices', () => {
   const provider = new CoinCapProvider('https://coincap.example/assets/stellar', 5_000);
 
-  it('maps the assets array to Decimal BTC/ETH/XLM', async () => {
+  it('maps the assets array to Decimal BTC/ETH/XLM and applies aligned timeout', async () => {
     mockedAxios.get.mockResolvedValueOnce({
       data: {
         data: [
@@ -55,6 +120,10 @@ describe('CoinCapProvider.fetchAssetPrices', () => {
     expect(result.BTC.toString()).toBe('67000.00000001');
     expect(result.ETH.toString()).toBe('3200.5');
     expect(result.XLM.toString()).toBe('0.28');
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ timeout: 5_000 }),
+    );
   });
 
   it('throws when the assets array is missing an asset', async () => {
@@ -63,5 +132,20 @@ describe('CoinCapProvider.fetchAssetPrices', () => {
     });
 
     await expect(provider.fetchAssetPrices()).rejects.toThrow(/missing BTC, ETH, or XLM/);
+  });
+
+  it('handles and rejects on axios timeout failure for multi-asset prices', async () => {
+    const timeoutError = Object.assign(new Error('timeout of 5000ms exceeded'), {
+      code: 'ECONNABORTED',
+    });
+    mockedAxios.get.mockRejectedValueOnce(timeoutError);
+
+    await expect(provider.fetchAssetPrices()).rejects.toThrow('timeout of 5000ms exceeded');
+  });
+
+  it('handles and rejects on network outage for multi-asset prices', async () => {
+    mockedAxios.get.mockRejectedValueOnce(new Error('CoinCap multi-asset gateway timeout 504'));
+
+    await expect(provider.fetchAssetPrices()).rejects.toThrow('504');
   });
 });

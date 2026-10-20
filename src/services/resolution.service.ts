@@ -6,7 +6,7 @@ import websocketService from './websocket.service';
 import betService from './bet.service';
 import roundLifecycleService from './round-lifecycle.service';
 import { prisma } from '../lib/prisma';
-import { invalidateNamespace, invalidateLeaderboardSortedSet } from '../lib/redis';
+import { invalidateLeaderboardCache } from './leaderboard.service';
 import { OutboxEventType, BetStatus } from '@prisma/client';
 import {
    toDecimal,
@@ -205,9 +205,8 @@ export class ResolutionService {
             };
          });
 
-         // Invalidate leaderboard after transaction commits
-         void invalidateNamespace('leaderboard');
-         void invalidateLeaderboardSortedSet();
+         // Invalidate leaderboard cache (Redis and memory keys) after transaction commits
+         void invalidateLeaderboardCache().catch(() => {});
 
          if (result?.outcome === RoundLifecycleOutcome.UPDATED && result.round) {
             roundsResolvedTotal.inc({ mode: result.round.mode });
