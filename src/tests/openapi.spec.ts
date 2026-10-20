@@ -20,6 +20,7 @@ const REQUIRED_OPERATIONS: RequiredOperation[] = [
   // Auth — wallet challenge/connect flow (src/routes/auth.routes.ts)
   { path: "/api/auth/challenge", method: "post", statuses: ["200", "400", "429", "500"] },
   { path: "/api/auth/connect", method: "post", statuses: ["200", "400", "401", "429", "500"] },
+  { path: "/api/auth/me", method: "get", statuses: ["200", "401"] },
 
   // Predictions — placement and reads (src/routes/predictions.routes.ts)
   { path: "/api/predictions/submit", method: "post", statuses: ["200", "409"] },

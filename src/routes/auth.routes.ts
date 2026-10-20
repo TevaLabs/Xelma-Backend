@@ -25,6 +25,7 @@ import { validate } from "../middleware/validate.middleware";
 import { challengeSchema, connectSchema } from "../schemas/auth.schema";
 import { AuthenticationError, ErrorCode } from "../utils/errors";
 import { auditLogger } from "../utils/audit-logger";
+import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
 
 /**
  * Wallet auth challenge/connect/verify routes.
@@ -669,6 +670,63 @@ router.post(
     } catch (error) {
       next(error);
     }
+  },
+);
+
+/**
+ * @swagger
+ * /api/auth/me:
+ *   get:
+ *     summary: Verify session token and retrieve caller payload
+ *     description: |
+ *       Lightweight session probe endpoint allowing clients to verify JWT validity cheaply
+ *       without executing expensive business logic.
+ *     tags: [auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Authenticated caller session payload
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthMeResponse'
+ *             example:
+ *               userId: "usr_123456789"
+ *               walletAddress: "GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN"
+ *               role: "USER"
+ *               exp: 1725148800
+ *       401:
+ *         description: Unauthenticated or invalid/expired token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: "No token provided"
+ */
+router.get(
+  "/me",
+  authenticateUser,
+  (req: Request, res: Response) => {
+    let exp = req.user?.exp;
+    if (exp === undefined) {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        const token = authHeader.substring(7);
+        const decoded = verifyToken(token);
+        if (decoded?.exp !== undefined) {
+          exp = decoded.exp;
+        }
+      }
+    }
+
+    return res.status(200).json({
+      userId: req.user!.userId,
+      walletAddress: req.user!.walletAddress,
+      role: req.user!.role,
+      exp: exp ?? 0,
+    });
   },
 );
 

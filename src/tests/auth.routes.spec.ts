@@ -412,4 +412,46 @@ describe("Auth Routes & JWT Guards (Issue #78)", () => {
       expect(res.body.error).toBeDefined();
     });
   });
+
+  describe("GET /api/auth/me", () => {
+    it("should return 401 when no token is provided", async () => {
+      const res = await request(app).get("/api/auth/me");
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it("should return 401 when token is invalid or expired", async () => {
+      const res = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", "Bearer invalid.token.here");
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it("should return 401 when authorization header is malformed", async () => {
+      const res = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", "InvalidFormat token");
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it("should return 200 with caller session payload when valid token is provided", async () => {
+      const res = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${validToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        userId: testUser.id,
+        walletAddress: testUser.walletAddress,
+        role: "USER",
+        exp: expect.any(Number),
+      });
+      expect(res.body.exp).toBeGreaterThan(0);
+    });
+  });
 });
