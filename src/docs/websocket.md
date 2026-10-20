@@ -105,7 +105,7 @@ socket.emit("session:checkpoint", { lastViewedRound: "abc-123" });
 | `join:chat` | — | — | Join the global chat room (auth required) |
 | `leave:chat` | — | — | Leave the chat room |
 | `chat:send` | `{ content: string }` | `ChatAckPayload` | Send a chat message (auth required, rate-limited) |
-| `join:notifications` | — | — | Join personal notification room (auth required) |
+| `join:notifications` | `JoinNotificationsPayload` (optional) | `JoinNotificationsAckPayload` (optional) | Join your own notification room `user:<jwtUserId>` (auth required, see below) |
 | `session:checkpoint` | `Record<string, unknown>` | — | Save opaque session metadata for reconnect |
 
 ### Chat Send Ack
@@ -117,6 +117,40 @@ type ChatAckPayload =
   | { ok: true; message: ChatMessage }
   | { ok: false; error: string; code: "AUTH_REQUIRED" | "INVALID_CONTENT" | "RATE_LIMITED" | "SEND_FAILED" };
 ```
+
+### Notification Room Authorization
+
+A socket can only join the notification room that belongs to the `userId` in
+its own verified JWT. The server always joins `user:<jwtUserId>` and never
+joins a room name supplied by the client. Authenticated sockets are also
+auto-joined to that room when they connect.
+
+The payload is optional. When it is sent, it must name the caller's own user.
+For backward compatibility, any of these forms is accepted:
+
+```typescript
+type JoinNotificationsPayload =
+  | string                                     // "user:<id>" or "<id>"
+  | number                                     // <id>, compared as a string
+  | { userId?: string | number; room?: string };
+
+type JoinNotificationsAckPayload =
+  | { ok: true; room: "notifications" }
+  | { ok: false; error: string; code: "AUTH_REQUIRED" | "FORBIDDEN" };
+```
+
+| Outcome | Ack (if supplied) | Events emitted |
+|---------|-------------------|----------------|
+| Own room (or no payload) | `{ ok: true, room: "notifications" }` | `room:joined` `{ room: "notifications" }` |
+| Unauthenticated socket | `{ ok: false, code: "AUTH_REQUIRED", error }` | `error` `{ code: "AUTH_REQUIRED", message }` |
+| Another user's id or room, or a malformed target (empty id, `"user:"`, `"chat"`, arrays, ...) | `{ ok: false, code: "FORBIDDEN", error }` | `error` `{ code: "FORBIDDEN", message }` |
+
+Rejected joins leave the socket's rooms unchanged and are logged as a
+warning, together with the socket id and the user id. Tokens are never
+logged. Connections with an invalid or expired token are refused at the
+handshake (`AUTH_TOKEN_INVALID` / `AUTH_TOKEN_EXPIRED`), so they cannot reach
+this event. Rooms restored from a persisted session (`session:resume`) go
+through the same ownership check before they are rejoined.
 
 ---
 

@@ -25,6 +25,8 @@ export interface RoomEventPayload {
 
 export interface GenericErrorPayload {
   message: string;
+  /** Machine-readable reason, present on authorization failures. */
+  code?: 'AUTH_REQUIRED' | 'FORBIDDEN';
 }
 
 export interface RoundStartedPayload {
@@ -139,6 +141,20 @@ export type ChatAckPayload =
       code: 'AUTH_REQUIRED' | 'INVALID_CONTENT' | 'RATE_LIMITED' | 'SEND_FAILED';
     };
 
+/**
+ * Optional target for `join:notifications`. The server always joins the room
+ * derived from the verified JWT (`user:<jwtUserId>`); a supplied target is only
+ * accepted when it names that same user, otherwise the join is FORBIDDEN.
+ */
+export type JoinNotificationsPayload =
+  | string
+  | number
+  | { userId?: string | number; room?: string };
+
+export type JoinNotificationsAckPayload =
+  | { ok: true; room: 'notifications' }
+  | { ok: false; error: string; code: 'AUTH_REQUIRED' | 'FORBIDDEN' };
+
 export type SessionCheckpointPayload = Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
@@ -183,7 +199,10 @@ export interface ClientToServerEvents {
   'join:chat': () => void;
   'leave:chat': () => void;
   'chat:send': (data: ChatSendPayload, ack: (response: ChatAckPayload) => void) => void;
-  'join:notifications': () => void;
+  'join:notifications': (
+    data?: JoinNotificationsPayload,
+    ack?: (response: JoinNotificationsAckPayload) => void,
+  ) => void;
   'session:checkpoint': (data: SessionCheckpointPayload) => void;
 }
 
