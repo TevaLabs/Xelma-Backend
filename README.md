@@ -829,6 +829,12 @@ is observable at `GET /health` (`services.oracle`) and via the `oracle_*` metric
 | :-------------- | :---------------------------------------------------------------------------------------------------------------- | :------ |
 | `BET_STUB_MODE` | `true` = stub mode (bets recorded locally, no on-chain calls); `false` = bets submitted to Soroban smart contract | `true`  |
 
+#### Bet audit storage (`BET_AUDIT_STORAGE`)
+
+| Variable            | Description                                                                                                                                                                                                                                                                                        | Default  |
+| :------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------- |
+| `BET_AUDIT_STORAGE` | `memory` = bet-audit events kept in process memory only (a restart clears them); `database` = events are also persisted to the `BetAuditEvent` table so audit history survives restarts ([Issue #835](https://github.com/TevaLabs/Xelma-Backend/issues/835)). Database writes are best-effort: on failure the event stays in memory and the failure is logged. | `memory` |
+
 #### Distributed idempotency lock tuning
 
 | Variable                              | Purpose                                                                                | Default |

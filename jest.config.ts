@@ -3,6 +3,7 @@ type JestConfig = Config.InitialOptions;
 
 const integrationTestFiles = [
   "auth.routes.spec.ts",
+  "bet-audit-persistence.spec.ts",
   "auth-audit-integration.spec.ts",
   "auth-race.spec.ts",
   "batch-routes.spec.ts",

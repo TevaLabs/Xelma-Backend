@@ -571,6 +571,55 @@ model AuditLog {
   @@index([outcome])
 }
 
+/// Bet-lifecycle audit trail (Issue #835).
+///
+/// Optional persistence for the bet-audit stream emitted by
+/// `src/services/bet-audit.service.ts`. Rows are written only when
+/// `BET_AUDIT_STORAGE=database`; with the default (`memory`) the table
+/// stays empty and events live in process memory only, so a restart drops
+/// them. In `database` mode events survive restarts; if a write fails
+/// (database down, migration not applied), the service logs it and keeps
+/// the event in memory instead — persistence is best-effort and never
+/// blocks the bet flow.
+///
+/// Design notes:
+///   - No foreign keys: audit history must outlive deletion of the
+///     referenced round / bet / user.
+///   - `event`, `side`, `mode` and `status` are plain varchars rather than
+///     the `BetMode` / `BetStatus` enums: those enum types are not present
+///     in prisma/migrations history yet, so referencing them here would
+///     make `prisma migrate deploy` fail on a fresh database. This also
+///     mirrors the AuditLog table's conventions.
+///   - Retention: rows accumulate while the flag is on; prune them like
+///     AuditLog (RETENTION_AUDIT_LOGS_TTL_DAYS) as a follow-up.
+model BetAuditEvent {
+  id            String   @id @default(uuid())
+  /// BetAuditEventName: BET_ACCEPTED | BET_FAILED | BET_RECONCILED | CLAIM_ACCEPTED
+  event         String   @db.VarChar(40)
+  /// Enriched asynchronously from the active round; absent if none found.
+  roundId       String?
+  /// Bet record handle, so a row can be traced back to its record.
+  betId         String?
+  address       String   @db.VarChar(100)
+  amount        Decimal  @db.Decimal(20, 8)
+  side          String?  @db.VarChar(8)
+  mode          String?  @db.VarChar(20)
+  result        String   @db.VarChar(100)
+  /// Bet reconciliation status at emit time (ACCEPTED | SUBMITTED | CONFIRMED | RESOLVED | FAILED).
+  status        String?  @db.VarChar(20)
+  txHash        String?
+  requestId     String?  @db.VarChar(100)
+  correlationId String?  @db.VarChar(200)
+  failureReason String?  @db.VarChar(1000)
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([event, createdAt])
+  @@index([address, createdAt])
+  @@index([txHash])
+  @@index([betId])
+}
+
 // =======================
 // Mock Data Models
 // =======================
