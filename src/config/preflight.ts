@@ -218,6 +218,20 @@ function checkProductionSafetyProfile(
     );
   }
 
+  // REQUIRE_SOROBAN: when true, verify Soroban RPC config at startup.
+  // If the RPC URL is unset, preflight fails so the operator is forced
+  // to address the misconfiguration before the server starts.
+  if (env.REQUIRE_SOROBAN === 'true') {
+    const rpcUrl = env.SOROBAN_RPC_URL || env.STELLAR_RPC_URL;
+    if (!rpcUrl || rpcUrl.trim().length === 0) {
+      errors.push(
+        `REQUIRE_SOROBAN=true but Soroban RPC URL is not set. ` +
+          `Set SOROBAN_RPC_URL (or STELLAR_RPC_URL) in .env or your ` +
+          `deployment environment before starting the server.`,
+      );
+    }
+  }
+
   return errors;
 }
 
