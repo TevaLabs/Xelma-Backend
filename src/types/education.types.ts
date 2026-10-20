@@ -36,6 +36,8 @@ export interface TipContext {
   outcome: "up" | "down" | "unchanged";
   highVolatility: boolean;
   mode:  "UP_DOWN" | "LEGENDS"
+  /** Set when the context was taken from a resolved round. */
+  roundId?: string;
 }
 
 export interface EducationalTipResponse {

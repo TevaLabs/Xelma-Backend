@@ -2,7 +2,11 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
-import { updateProfileSchema } from "../schemas/user.schema";
+import {
+  notificationPreferencesSchema,
+  updateProfileSchema,
+  updateNotificationPreferencesSchema,
+} from "../schemas/user.schema";
 import { unifiedPaginationSchema, UnifiedPaginationParams, encodeCursor } from "../schemas/pagination.schema";
 import { NotFoundError, ConflictError } from "../utils/errors";
 import { invalidateNamespace } from "../lib/redis";
@@ -257,6 +261,90 @@ router.patch(
       if (error?.code === "P2002") {
         return next(new ConflictError("Nickname is already taken"));
       }
+      next(error);
+    }
+  }) as any,
+);
+
+function storedNotificationPreferences(stored: unknown) {
+  const candidate =
+    stored !== null && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  const parsed = notificationPreferencesSchema.safeParse(candidate);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  return notificationPreferencesSchema.parse({});
+}
+
+/**
+ * @openapi
+ * /api/user/notification-preferences:
+ *   patch:
+ *     tags: [User]
+ *     summary: Update notification preferences
+ *     description: |
+ *       Partially updates the authenticated user's notification preferences.
+ *       Omitted fields keep their stored values. When nothing is stored yet,
+ *       missing fields use the Prisma defaults (win, loss, bonus, and
+ *       announcement true; roundStart false).
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties: false
+ *             properties:
+ *               win:
+ *                 type: boolean
+ *               loss:
+ *                 type: boolean
+ *               roundStart:
+ *                 type: boolean
+ *               bonus:
+ *                 type: boolean
+ *               announcement:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Updated notification preferences
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ */
+router.patch(
+  "/notification-preferences",
+  authenticateUser,
+  validate(updateNotificationPreferencesSchema),
+  (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user.userId;
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { notificationPreferences: true },
+      });
+
+      if (!user) {
+        return next(new NotFoundError("User not found"));
+      }
+
+      const notificationPreferences = {
+        ...storedNotificationPreferences(user.notificationPreferences),
+        ...req.body,
+      };
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { notificationPreferences },
+      });
+
+      return sendSuccess(res, { notificationPreferences });
+    } catch (error) {
       next(error);
     }
   }) as any,

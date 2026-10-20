@@ -39,6 +39,7 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   { method: "GET", path: "/api/user/balance", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "GET", path: "/api/user/stats", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "PATCH", path: "/api/user/profile", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "PATCH", path: "/api/user/notification-preferences", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "GET", path: "/api/user/transactions", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "GET", path: "/api/user/:walletAddress/public-profile", auth: RouteAuthLevel.PUBLIC },
 

@@ -307,3 +307,122 @@ describe("PATCH /api/user/profile — input validation (Issue #137)", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("PATCH /api/user/notification-preferences", () => {
+  let app: Express;
+  let token: string;
+
+  const defaults = {
+    win: true,
+    loss: true,
+    roundStart: false,
+    bonus: true,
+    announcement: true,
+  };
+
+  beforeAll(() => {
+    app = createApp();
+    token = generateToken(USER_ID, WALLET, UserRole.USER);
+  });
+
+  beforeEach(() => {
+    mockUserUpdate.mockResolvedValue({});
+  });
+
+  it("rejects unauthenticated requests", async () => {
+    const res = await request(app)
+      .patch("/api/user/notification-preferences")
+      .send({ win: false });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("merges a partial update onto stored preferences", async () => {
+    mockUserFindUnique.mockResolvedValue({
+      id: USER_ID,
+      walletAddress: WALLET,
+      role: UserRole.USER,
+      notificationPreferences: {
+        win: false,
+        loss: true,
+        roundStart: false,
+        bonus: true,
+        announcement: false,
+      },
+    });
+
+    const res = await request(app)
+      .patch("/api/user/notification-preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ announcement: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.notificationPreferences).toEqual({
+      win: false,
+      loss: true,
+      roundStart: false,
+      bonus: true,
+      announcement: true,
+    });
+    expect(mockUserUpdate).toHaveBeenCalledWith({
+      where: { id: USER_ID },
+      data: {
+        notificationPreferences: {
+          win: false,
+          loss: true,
+          roundStart: false,
+          bonus: true,
+          announcement: true,
+        },
+      },
+    });
+    expect(res.body.data.nickname).toBeUndefined();
+  });
+
+  it("applies Prisma defaults when no preferences are stored", async () => {
+    mockUserFindUnique.mockResolvedValue({
+      id: USER_ID,
+      walletAddress: WALLET,
+      role: UserRole.USER,
+      notificationPreferences: null,
+    });
+
+    const res = await request(app)
+      .patch("/api/user/notification-preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ roundStart: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.notificationPreferences).toEqual({
+      ...defaults,
+      roundStart: true,
+    });
+  });
+
+  it("rejects an empty body, unknown keys, and non-booleans", async () => {
+    mockUserFindUnique.mockResolvedValue({
+      id: USER_ID,
+      walletAddress: WALLET,
+      role: UserRole.USER,
+      notificationPreferences: defaults,
+    });
+
+    const empty = await request(app)
+      .patch("/api/user/notification-preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({});
+    const unknown = await request(app)
+      .patch("/api/user/notification-preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ win: true, theme: "dark" });
+    const invalid = await request(app)
+      .patch("/api/user/notification-preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ win: "yes" });
+
+    expect(empty.status).toBe(400);
+    expect(unknown.status).toBe(400);
+    expect(invalid.status).toBe(400);
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+});

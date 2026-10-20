@@ -17,6 +17,17 @@ import {
  */
 const TIP_LIBRARY: TipTemplate[] = parseTipCatalog(rawTipCatalog);
 
+const ROUND_CONTEXT_SELECT = {
+  id: true,
+  mode: true,
+  status: true,
+  startPrice: true,
+  endPrice: true,
+  startTime: true,
+  endTime: true,
+  resolvedAt: true,
+} as const;
+
 /**
  * Evaluate a tip's declarative condition against the round context.
  */
@@ -59,35 +70,32 @@ export class EducationTipService {
    * @param roundId The ID of the round to generate a tip for
    * @returns Educational tip with message, category, and metadata
    */
-  async generateTip(roundId: string): Promise<EducationalTip> {
+  async generateTip(roundId?: string): Promise<EducationalTip> {
     try {
-      // Check cache first
-      const cached = this.getCachedTip(roundId);
-      if (cached) {
-        logger.info("Educational tip served from cache", {
-          roundId,
-          category: cached.category,
-        });
-        return cached;
+      // A known round can be served from cache without another lookup.
+      if (roundId) {
+        const cached = this.getCachedTip(roundId);
+        if (cached) {
+          logger.info("Educational tip served from cache", {
+            roundId,
+            category: cached.category,
+          });
+          return cached;
+        }
       }
 
-      // Fetch round from database
-      const round = await prisma.round.findUnique({
-        where: { id: roundId },
-        select: {
-          id: true,
-          mode: true,
-          status: true,
-          startPrice: true,
-          endPrice: true,
-          startTime: true,
-          endTime: true,
-        },
-      });
+      const round = await this.loadRoundForContext(roundId);
+      const contextRoundId = round.id;
 
-      // Validate round exists
-      if (!round) {
-        throw new Error("Round not found");
+      if (!roundId) {
+        const cached = this.getCachedTip(contextRoundId);
+        if (cached) {
+          logger.info("Educational tip served from cache", {
+            roundId: contextRoundId,
+            category: cached.category,
+          });
+          return cached;
+        }
       }
 
       // Validate round is resolved
@@ -106,13 +114,13 @@ export class EducationTipService {
       const context = this.calculateContext(round);
 
       // Select appropriate tip based on context
-      const tip = this.selectTip(context, roundId);
+      const tip = this.selectTip(context, contextRoundId);
 
       // Cache the result
-      this.cacheTip(roundId, tip);
+      this.cacheTip(contextRoundId, tip);
 
       logger.info("Educational tip generated", {
-        roundId,
+        roundId: contextRoundId,
         category: tip.category,
         priceChangePercent: context.priceChangePercent,
         cached: false,
@@ -127,6 +135,34 @@ export class EducationTipService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Load the round whose outcome should shape the tip. A provided roundId
+   * addresses that round. When it is omitted, the most recently resolved
+   * round supplies the context so the tip is not generic.
+   */
+  private async loadRoundForContext(roundId?: string) {
+    if (roundId) {
+      const round = await prisma.round.findUnique({
+        where: { id: roundId },
+        select: ROUND_CONTEXT_SELECT,
+      });
+      if (!round) {
+        throw new Error("Round not found");
+      }
+      return round;
+    }
+
+    const round = await prisma.round.findFirst({
+      where: { status: "RESOLVED" },
+      orderBy: { resolvedAt: "desc" },
+      select: ROUND_CONTEXT_SELECT,
+    });
+    if (!round) {
+      throw new Error("No resolved round available");
+    }
+    return round;
   }
 
   /**
@@ -172,6 +208,7 @@ export class EducationTipService {
       outcome,
       highVolatility,
       mode: round.mode,
+      roundId: typeof round.id === "string" ? round.id : undefined,
     };
   }
 
