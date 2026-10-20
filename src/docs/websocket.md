@@ -96,6 +96,72 @@ socket.emit("session:checkpoint", { lastViewedRound: "abc-123" });
 
 ---
 
+## Multi-Instance Fanout & Redis Adapter
+
+Server-side room broadcasts are fanned out across replicas through the Redis
+adapter in [`src/utils/socket-adapter.ts`](../utils/socket-adapter.ts). This is
+invisible to clients, but it determines whether your events arrive during
+deploys, scale-outs, and Redis outages.
+
+### Key prefix (namespace isolation)
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `keyPrefix` (`SocketAdapterConfig.keyPrefix`) | `xelma:socket.io` | Redis key namespace for all adapter pub/sub channels |
+
+Rules:
+
+- **Every replica that must share broadcasts uses the same `REDIS_URL` and the
+  same `keyPrefix`.** Mismatched prefixes mean replicas publish into different
+  namespaces — each instance only reaches its own clients, which looks like a
+  silent fanout failure.
+- **Two deployments sharing one Redis must use different prefixes** (e.g.
+  `xelma:socket.io` vs `xelma:staging:socket.io`), otherwise events leak
+  between environments: staging clients would receive production round
+  broadcasts.
+- The prefix is server-side configuration only. Clients never see or send it,
+  and changing it requires restarting every replica at once.
+
+### Connection pool tuning
+
+The adapter holds exactly **two** Redis connections per process — one `PUBLISH`
+client and one `SUBSCRIBE` client (Socket.IO requires separate connections for
+pub/sub; the subscriber is created via `pubClient.duplicate()`, so it inherits
+the publisher's options).
+
+| Knob | Default | Behaviour |
+|---|---|---|
+| `connectTimeout` | `2000` ms | Budget for TCP connect of each client during startup. |
+| Reconnect backoff | `min(retries * 50, 500)` ms | Linear backoff capped at 500 ms between retries. |
+| Max reconnect attempts | `10` retries | After that the pub client logs `max reconnection attempts reached` and stops retrying. |
+| `keyPrefix` | `xelma:socket.io` | See above. |
+
+### Reconnect behaviour during a Redis outage
+
+- **Clients do not need to reconnect.** Their sockets, JWTs, rooms, and
+  `session:checkpoint` state are unaffected — Redis only carries inter-server
+  fanout, not client connections.
+- **Broadcasts degrade to instance-local**: with Redis unreachable, each
+  replica keeps its in-memory adapter, so `round:*`, `price:update`,
+  `chat:message`, and `notification:new` only reach clients connected to the
+  same process. Clients on other replicas see a gap until Redis recovers.
+- **Startup**: if Redis cannot be connected and pinged within
+  `connectTimeout`, `initializeSocketAdapter` returns `false`, logs
+  `Failed to initialize Socket.IO Redis adapter; using in-memory adapter`,
+  and the server starts anyway (single-instance semantics).
+- **Monitoring**: after a Redis blip or a scale-up, `isUsingRedisAdapter(io)`
+  must be `true` on every replica; otherwise that replica is silently
+  instance-local. Look for `Socket.IO Redis pub client error` warnings in the
+  logs.
+- Because broadcasts may be briefly lossy, clients should still follow the
+  heartbeat contract above (reconnect on missed ping) and re-join rooms + rely
+  on `session:resume` after any reconnect to resynchronize state.
+
+See [`docs/multi-instance-deployment.md`](../../docs/multi-instance-deployment.md)
+for the deployment checklist.
+
+---
+
 ## Client-to-Server Events
 
 | Event | Payload | Ack | Description |
