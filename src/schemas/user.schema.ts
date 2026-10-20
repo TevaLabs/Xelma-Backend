@@ -45,3 +45,31 @@ export const updateProfileSchema = z
   );
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+
+/**
+ * Stored notification-preference document. Defaults match the Prisma
+ * `User.notificationPreferences` column default.
+ */
+export const notificationPreferencesSchema = z.object({
+  win: z.boolean().default(true),
+  loss: z.boolean().default(true),
+  roundStart: z.boolean().default(false),
+  bonus: z.boolean().default(true),
+  announcement: z.boolean().default(true),
+});
+
+export type NotificationPreferences = z.infer<typeof notificationPreferencesSchema>;
+
+/** Partial update. Omitted keys are left unchanged by the route handler. */
+export const updateNotificationPreferencesSchema = z.object({
+  win: z.boolean().optional(),
+  loss: z.boolean().optional(),
+  roundStart: z.boolean().optional(),
+  bonus: z.boolean().optional(),
+  announcement: z.boolean().optional(),
+}).strict().refine(
+  (data) => Object.keys(data).length > 0,
+  'At least one notification preference must be provided',
+);
+
+export type UpdateNotificationPreferencesInput = z.infer<typeof updateNotificationPreferencesSchema>;
