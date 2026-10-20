@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAdmin } from '../middleware/auth.middleware';
-import { getCorsOrigins, parseOriginList, CorsOriginConfig } from '../utils/cors';
+import { describeCorsConfig, isOriginAllowed, parseOriginList } from '../utils/cors';
 
 const router = Router();
 
@@ -37,24 +37,9 @@ router.get('/', requireAdmin, (req: Request, res: Response) => {
   const clientUrl = process.env.CLIENT_URL ?? null;
   const allowedOrigins = parseOriginList(process.env.ALLOWED_ORIGINS);
 
-  const normalize = (
-    resolved: CorsOriginConfig,
-  ): { allowAll: boolean; origins: string[] } => {
-    if (resolved === true || resolved === '*') {
-      return { allowAll: true, origins: [] };
-    }
-    if (Array.isArray(resolved)) {
-      return { allowAll: false, origins: resolved };
-    }
-    if (typeof resolved === 'string') {
-      return { allowAll: false, origins: [resolved] };
-    }
-    return { allowAll: false, origins: [] };
-  };
-
   let resolved: { allowAll: boolean; origins: string[]; error?: string };
   try {
-    resolved = normalize(getCorsOrigins());
+    resolved = describeCorsConfig();
   } catch (e) {
     resolved = { allowAll: false, origins: [], error: (e as Error).message };
   }
@@ -65,10 +50,11 @@ router.get('/', requireAdmin, (req: Request, res: Response) => {
   const testOrigin =
     typeof req.query.origin === 'string' ? req.query.origin : null;
 
-  const matches = (origins: string[], allowAll: boolean): boolean | null => {
+  const matches = (allowAll: boolean): boolean | null => {
     if (testOrigin === null) return null;
+    if (resolved.error) return false;
     if (allowAll) return true;
-    return origins.includes(testOrigin);
+    return isOriginAllowed(testOrigin);
   };
 
   res.json({
@@ -82,8 +68,8 @@ router.get('/', requireAdmin, (req: Request, res: Response) => {
     test: testOrigin
       ? {
           origin: testOrigin,
-          httpAllowed: matches(http.origins, http.allowAll),
-          socketAllowed: matches(socket.origins, socket.allowAll),
+          httpAllowed: matches(http.allowAll),
+          socketAllowed: matches(socket.allowAll),
         }
       : null,
   });

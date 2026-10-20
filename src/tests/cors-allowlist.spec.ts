@@ -45,6 +45,62 @@ describe("parseOriginList", () => {
   });
 });
 
+describe("wildcard subdomain allowlist", () => {
+  afterEach(() => {
+    restoreEnv();
+    jest.resetModules();
+  });
+
+  function loadCors() {
+    jest.resetModules();
+    return require("../utils/cors") as typeof import("../utils/cors");
+  }
+
+  it("matches a single subdomain and rejects lookalikes", () => {
+    setEnv({
+      NODE_ENV: "production",
+      CLIENT_URL: "https://*.example.com",
+      ALLOWED_ORIGINS: "https://app.example.com",
+    });
+    const { getCorsOrigins, isOriginAllowed, describeCorsConfig, WildcardOrigin } = loadCors();
+
+    const origins = getCorsOrigins();
+    expect(Array.isArray(origins)).toBe(true);
+    expect(origins).toEqual([
+      expect.any(WildcardOrigin),
+      "https://app.example.com",
+    ]);
+    expect(describeCorsConfig().origins).toEqual([
+      "https://*.example.com",
+      "https://app.example.com",
+    ]);
+
+    expect(isOriginAllowed("https://api.example.com")).toBe(true);
+    expect(isOriginAllowed("https://app.example.com")).toBe(true);
+    expect(isOriginAllowed("https://example.com")).toBe(false);
+    expect(isOriginAllowed("https://a.b.example.com")).toBe(false);
+    expect(isOriginAllowed("https://example.com.attacker.com")).toBe(false);
+    expect(isOriginAllowed("https://app.example.com.attacker.com")).toBe(false);
+    expect(isOriginAllowed("https://notexample.com")).toBe(false);
+    expect(isOriginAllowed("http://api.example.com")).toBe(false);
+  });
+
+  it("rejects overly broad or malformed wildcard patterns", () => {
+    const cases = ["*", "https://*", "https://*.com", "https://*.*.example.com", "https://foo.*.example.com"];
+
+    for (const pattern of cases) {
+      setEnv({
+        NODE_ENV: "production",
+        CLIENT_URL: pattern,
+        ALLOWED_ORIGINS: undefined,
+      });
+      jest.resetModules();
+      const { getHttpCorsOrigins } = require("../utils/cors");
+      expect(() => getHttpCorsOrigins()).toThrow(/Invalid CORS origin/);
+    }
+  });
+});
+
 describe("CORS single source of truth", () => {
   afterEach(() => {
     restoreEnv();
