@@ -129,34 +129,34 @@ model User {
   lastLoginAt             DateTime?
 
   // Relations
-  messages            Message[]
-  predictions         Prediction[]
-  rounds              Round[]
-  notifications       Notification[]
-  authChallenges      AuthChallenge[]
-  stats               UserStats?
-  transactions        Transaction[]
-  multiplayerSessions MultiplayerSession[]
+  messages               Message[]
+  predictions            Prediction[]
+  rounds                 Round[]
+  notifications          Notification[]
+  authChallenges         AuthChallenge[]
+  stats                  UserStats?
+  transactions           Transaction[]
+  multiplayerSessions    MultiplayerSession[]
   tournamentParticipants TournamentParticipant[]
-  bets                Bet[]
-  claims              Claim[]
+  bets                   Bet[]
+  claims                 Claim[]
 }
 
 model Tournament {
-  id                String                      @id @default(uuid())
-  name              String
-  description       String
-  mode              GameMode
-  status            TournamentStatus            @default(UPCOMING)
-  entryFee          Decimal                     @db.Decimal(20, 8)
-  prizePool         Decimal                     @db.Decimal(20, 8)
-  maxParticipants   Int
-  currentParticipants Int                     @default(0)
-  startTime         DateTime
-  endTime           DateTime
-  rounds            Int                         @default(1)
-  createdAt         DateTime                    @default(now())
-  updatedAt         DateTime                    @updatedAt
+  id                  String           @id @default(uuid())
+  name                String
+  description         String
+  mode                GameMode
+  status              TournamentStatus @default(UPCOMING)
+  entryFee            Decimal          @db.Decimal(20, 8)
+  prizePool           Decimal          @db.Decimal(20, 8)
+  maxParticipants     Int
+  currentParticipants Int              @default(0)
+  startTime           DateTime
+  endTime             DateTime
+  rounds              Int              @default(1)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   participants TournamentParticipant[]
 
@@ -165,10 +165,10 @@ model Tournament {
 }
 
 model TournamentParticipant {
-  id           String     @id @default(uuid())
+  id           String   @id @default(uuid())
   tournamentId String
   userId       String
-  joinedAt     DateTime   @default(now())
+  joinedAt     DateTime @default(now())
 
   tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -290,24 +290,24 @@ enum BetMode {
 }
 
 model Bet {
-  id              String     @id @default(uuid())
-  userId          String
-  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  roundId         String?
-  round           Round?     @relation(fields: [roundId], references: [id], onDelete: SetNull)
-  mode            BetMode
-  side            PredictionSide?
-  amount          Decimal    @db.Decimal(20, 8)
-  predictedPrice  Decimal?   @db.Decimal(18, 8)
-  status          BetStatus  @default(ACCEPTED)
-  txHash          String?    @unique
-  failureReason   String?
-  submittedAt     DateTime?
-  confirmedAt     DateTime?
-  resolvedAt      DateTime?
-  failedAt        DateTime?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id             String          @id @default(uuid())
+  userId         String
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundId        String?
+  round          Round?          @relation(fields: [roundId], references: [id], onDelete: SetNull)
+  mode           BetMode
+  side           PredictionSide?
+  amount         Decimal         @db.Decimal(20, 8)
+  predictedPrice Decimal?        @db.Decimal(18, 8)
+  status         BetStatus       @default(ACCEPTED)
+  txHash         String?         @unique
+  failureReason  String?
+  submittedAt    DateTime?
+  confirmedAt    DateTime?
+  resolvedAt     DateTime?
+  failedAt       DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   @@index([userId])
   @@index([roundId])
@@ -625,42 +625,46 @@ model BetAuditEvent {
 // =======================
 
 model MockRound {
-  id              String @id
+  id              String    @id
   asset           String
   mode            String
   status          String
-  startPrice      Float  @map("start_price")
-  poolUp          Float? @map("pool_up")
-  poolDown        Float? @map("pool_down")
-  totalPool       Float? @map("total_pool")
-  predictionCount Int?   @map("prediction_count")
-  closesAt        String @map("closes_at")
+  startPrice      Float     @map("start_price")
+  poolUp          Float?    @map("pool_up")
+  poolDown        Float?    @map("pool_down")
+  totalPool       Float?    @map("total_pool")
+  predictionCount Int?      @map("prediction_count")
+  closesAt        String    @map("closes_at")
+  bets            MockBet[]
 
   @@map("hackathon_rounds")
 }
 
 model MockLeaderboard {
-  address         String @id
+  address         String    @id
   rank            Int
-  totalWins       Int    @map("total_wins")
-  totalLosses     Int    @map("total_losses")
-  winStreak       Int    @map("current_streak")
+  totalWins       Int       @map("total_wins")
+  totalLosses     Int       @map("total_losses")
+  winStreak       Int       @map("current_streak")
   xp              Int
-  rankTitle       String @map("rank_title")
-  balance         Int    @default(1000)
-  pendingWinnings Int    @map("pending_winnings") @default(0)
+  rankTitle       String    @map("rank_title")
+  balance         Int       @default(1000)
+  pendingWinnings Int       @default(0) @map("pending_winnings")
+  bets            MockBet[]
 
   @@map("hackathon_users")
 }
 
 model MockBet {
-  id             Int       @id @default(autoincrement())
-  roundId        String    @map("round_id")
+  id             Int             @id @default(autoincrement())
+  roundId        String          @map("round_id")
+  round          MockRound       @relation(fields: [roundId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   address        String
+  leaderboard    MockLeaderboard @relation(fields: [address], references: [address], onDelete: Cascade, onUpdate: NoAction)
   amount         Float
   side           String?
-  predictedPrice Float?    @map("predicted_price")
-  createdAt      DateTime  @default(now()) @map("created_at")
+  predictedPrice Float?          @map("predicted_price")
+  createdAt      DateTime        @default(now()) @map("created_at")
 
   @@map("hackathon_bets")
 }

@@ -31,6 +31,23 @@ jest.mock("../services/prediction.service", () => ({
   },
 }));
 
+// The batch endpoints are rate limited; the limits would interfere with the
+// assertions in this suite.
+jest.mock("../middleware/rateLimiter.middleware", () => ({
+  challengeRateLimiter: (_req: any, _res: any, next: any) => next(),
+  connectRateLimiter: (_req: any, _res: any, next: any) => next(),
+  authRateLimiter: (_req: any, _res: any, next: any) => next(),
+  chatMessageRateLimiter: (_req: any, _res: any, next: any) => next(),
+  predictionRateLimiter: (_req: any, _res: any, next: any) => next(),
+  batchPredictionRateLimiter: (_req: any, _res: any, next: any) => next(),
+  batchLeaderboardRateLimiter: (_req: any, _res: any, next: any) => next(),
+  adminRoundRateLimiter: (_req: any, _res: any, next: any) => next(),
+  oracleResolveRateLimiter: (_req: any, _res: any, next: any) => next(),
+  apiRateLimiter: (_req: any, _res: any, next: any) => next(),
+  writeRateLimiter: (_req: any, _res: any, next: any) => next(),
+  betRateLimiter: (_req: any, _res: any, next: any) => next(),
+}));
+
 jest.mock("../services/leaderboard.service", () => ({
   getLeaderboard: jest.fn(),
   getBatchUserPositions: (...args: any[]) => mockGetBatchUserPositions(...args),
@@ -47,6 +64,8 @@ describe("Batch Predictions Routes", () => {
     userA = {
       id: USER_A_ID,
       walletAddress: "GBATCH_USER_A_TEST_AAAAAAAAAAAAAAAA",
+      // The role gate resolves the role from the database row.
+      role: UserRole.USER,
     };
     userAToken = generateToken(userA.id, userA.walletAddress, UserRole.USER);
 
@@ -265,6 +284,8 @@ describe("Batch Leaderboard Routes", () => {
     userA = {
       id: USER_A_ID,
       walletAddress: "GBATCH_USER_A_TEST_AAAAAAAAAAAAAAAA",
+      // The role gate resolves the role from the database row.
+      role: UserRole.USER,
     };
     userAToken = generateToken(userA.id, userA.walletAddress, UserRole.USER);
 

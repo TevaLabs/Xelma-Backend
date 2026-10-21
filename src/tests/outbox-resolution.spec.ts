@@ -116,8 +116,10 @@ jest.mock('../services/education-tip.service', () => ({
 // ─── mock redis (leaderboard invalidation) ───────────────────────────────────
 
 jest.mock('../lib/redis', () => ({
-  invalidateNamespace: jest.fn(),
-  invalidateLeaderboardSortedSet: jest.fn(),
+  // The production helper returns a promise; callers chain `.catch()` on it,
+  // so the mock must resolve rather than return undefined.
+  invalidateNamespace: jest.fn().mockResolvedValue(undefined),
+  invalidateLeaderboardSortedSet: jest.fn().mockResolvedValue(undefined),
 }));
 
 // ─── mock logger ─────────────────────────────────────────────────────────────

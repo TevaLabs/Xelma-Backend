@@ -21,7 +21,6 @@ import {
   measureWebSocketFanout,
   runConcurrentLoad,
 } from "./load-test.harness";
-import { betStore } from "../data/bet-store";
 
 // Mock external services to keep performance tests focused on backend logic
 jest.mock("../services/stellar.service", () => ({
@@ -32,7 +31,10 @@ jest.mock("../services/stellar.service", () => ({
 jest.mock("../services/soroban.service", () => ({
   __esModule: true,
     default: {
-      placeBet: jest.fn().mockResolvedValue(undefined),
+      placeBet: jest.fn().mockResolvedValue({
+        state: "on-chain-success",
+        txHash: "0xperf-load-test",
+      }),
       ensureInitialized: jest.fn(),
       getActiveRound: jest.fn().mockResolvedValue(null),
     },
@@ -47,6 +49,7 @@ jest.mock("../lib/redis", () => {
     invalidateNamespace: jest.fn().mockResolvedValue(undefined),
     invalidateLeaderboardSortedSet: jest.fn().mockResolvedValue(undefined),
     getCacheMetrics: jest.fn().mockReturnValue({ enabled: false }),
+    isRedisConfigured: jest.fn(() => true),
     // Fail-closed distributed idempotency lock (Issue #493): the load test
     // keeps a fake client so it stays a pure throughput harness without a
     // live Redis dependency.
@@ -99,6 +102,9 @@ jest.mock("../lib/prisma", () => ({
     },
     prediction: {
       findUnique: jest.fn().mockResolvedValue(null),
+      findUniqueOrThrow: jest.fn().mockImplementation(({ where }: any) =>
+        Promise.resolve({ id: where.id, amount: 10, side: "UP", won: null, payout: null })
+      ),
     },
     idempotencyKey: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -131,6 +137,19 @@ jest.mock("../lib/prisma", () => ({
       cb({
         round: {
           findUnique: jest.fn().mockResolvedValue({
+            id: "some-uuid",
+            status: "ACTIVE",
+            mode: "UP_DOWN",
+            startTime: new Date(),
+            endTime: new Date(Date.now() + 60_000),
+            startPrice: 0.1,
+            endPrice: null,
+            poolUp: 0,
+            poolDown: 0,
+            priceRanges: [],
+            resolvedAt: null,
+          }),
+          findFirst: jest.fn().mockResolvedValue({
             id: "some-uuid",
             status: "ACTIVE",
             mode: "UP_DOWN",
@@ -186,11 +205,26 @@ jest.mock("../lib/prisma", () => ({
         outboxEvent: {
           create: jest.fn().mockResolvedValue({ id: "outbox-1" }),
         },
+        bet: {
+          create: mockTxBetCreate,
+          update: jest.fn().mockImplementation(({ where, data }: any) =>
+            Promise.resolve({ id: where.id, ...data })
+          ),
+          findUnique: jest.fn().mockImplementation(({ where }: any) =>
+            Promise.resolve({ id: where.id, status: "ACCEPTED" })
+          ),
+        },
       })
     ),
     $disconnect: jest.fn().mockResolvedValue(undefined),
   },
 }));
+
+// The bet flow writes through the Prisma-shaped client, so the idempotency
+// assertion counts `bet.create` calls instead of the legacy in-memory store.
+const mockTxBetCreate = jest.fn(({ data }: any) =>
+  Promise.resolve({ id: `bet-${data.userId}-${data.roundId}`, ...data })
+);
 
 const LOAD_CONFIG = getLoadTestConfig();
 const WALLET =
@@ -398,7 +432,8 @@ describe("Load Test Harness — Duplicate idempotency (#500)", () => {
     const { concurrency, iterations, maxP95LatencyMs, maxErrorRate } =
       LOAD_CONFIG.idempotency;
     const idempotencyKey = `load-idempotency-${Date.now()}`;
-    const beforeCount = betStore.getBets({ address: BET_WALLET }).length;
+    mockTxBetCreate.mockClear();
+    const beforeCount = mockTxBetCreate.mock.calls.length;
 
     const result = await runConcurrentLoad({
       concurrency,
@@ -425,7 +460,7 @@ describe("Load Test Harness — Duplicate idempotency (#500)", () => {
 
     console.log(formatLoadTestReport("duplicate idempotency", result));
 
-    const created = betStore.getBets({ address: BET_WALLET }).length - beforeCount;
+    const created = mockTxBetCreate.mock.calls.length - beforeCount;
     expect(created).toBe(1);
     expect(result.errorRate).toBeLessThanOrEqual(maxErrorRate);
     expect(result.latencyMs.p95).toBeLessThanOrEqual(maxP95LatencyMs);

@@ -24,6 +24,8 @@ export interface SorobanHealth {
   hasAdminKey: boolean;
   hasOracleKey: boolean;
   failClosed: boolean;
+  /** Latest RPC round-trip latency in milliseconds (from the most recent health check). */
+  rpcLatencyMs?: number;
 }
 
 export interface TransactionStatus {
@@ -167,6 +169,23 @@ export class SorobanService {
    */
   async getHealth(): Promise<SorobanHealth> {
     await this.ready;
+    const startMs = Date.now();
+    // Perform a lightweight RPC ping to measure latency.
+    // Use the same JSON-RPC method as callWithBreaker uses for timing.
+    let rpcLatencyMs = 0;
+    try {
+      const abortCtrl = new AbortController();
+      const timeoutId = setTimeout(() => abortCtrl.abort(), 3000);
+      await fetch(config.soroban.rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber' }),
+        signal: abortCtrl.signal,
+      });
+      rpcLatencyMs = Date.now() - startMs;
+    } catch {
+      // RPC unreachable or failed — latency stays 0; health check will still report initialized.
+    }
     return {
       initialized: this.initialized,
       contractId: config.soroban.contractId || null,
@@ -175,6 +194,7 @@ export class SorobanService {
       hasAdminKey: !!this.adminKeypair,
       hasOracleKey: !!this.oracleKeypair,
       failClosed: this.isFailClosed(),
+      rpcLatencyMs,
     };
   }
 

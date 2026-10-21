@@ -1328,7 +1328,7 @@
                       ]
                     },
                     "startPrice": {
-                      "type": "number"
+                      "$ref": "#/components/schemas/MoneyAmount"
                     },
                     "winningSide": {
                       "type": "string",
@@ -1360,10 +1360,10 @@
                             "nullable": true
                           },
                           "payout": {
-                            "type": "number"
+                            "$ref": "#/components/schemas/NullableMoneyAmount"
                           },
                           "amount": {
-                            "type": "number"
+                            "$ref": "#/components/schemas/MoneyAmount"
                           },
                           "side": {
                             "type": "string",

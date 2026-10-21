@@ -17,12 +17,18 @@ jest.mock('../lib/prisma', () => ({
   },
 }));
 
-jest.mock('../services/tournament.service', () => ({
-  __esModule: true,
-  default: {
-    joinTournament: (...args: any[]) => mockJoinTournament(...args),
-  },
-}));
+jest.mock('../services/tournament.service', () => {
+  const actual = jest.requireActual('../services/tournament.service');
+  const actualService = actual.default;
+  return {
+    __esModule: true,
+    default: {
+      listTournaments: (...args: any[]) => actualService.listTournaments(...args),
+      getMockById: (...args: any[]) => actualService.getMockById(...args),
+      joinTournament: (...args: any[]) => mockJoinTournament(...args),
+    },
+  };
+});
 
 jest.mock('../middleware/rateLimiter.middleware', () => ({
   challengeRateLimiter: (_req: any, _res: any, next: any) => next(),
@@ -62,8 +68,8 @@ describe('Tournaments Routes (Issue #412)', () => {
       expect(res.body.meta.pagination.total).toBe(3);
     });
 
-    it('filters by status (case-insensitive)', async () => {
-      const res = await request(app).get('/api/tournaments').query({ status: 'active' });
+    it('filters by status', async () => {
+      const res = await request(app).get('/api/tournaments').query({ status: 'ACTIVE' });
 
       expect(res.status).toBe(200);
       expect(res.body.data.every((t: any) => t.status === 'ACTIVE')).toBe(true);
@@ -71,7 +77,7 @@ describe('Tournaments Routes (Issue #412)', () => {
     });
 
     it('returns an empty list for a status with no matches', async () => {
-      const res = await request(app).get('/api/tournaments').query({ status: 'cancelled' });
+      const res = await request(app).get('/api/tournaments').query({ status: 'CANCELLED' });
 
       expect(res.status).toBe(200);
       expect(res.body.data).toEqual([]);

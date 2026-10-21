@@ -64,8 +64,10 @@ jest.mock('../services/websocket.service', () => ({
 }));
 
 jest.mock('../lib/redis', () => ({
-   invalidateNamespace: jest.fn(),
-   invalidateLeaderboardSortedSet: jest.fn(),
+   // The cache invalidation helpers are awaited with `.catch(...)`, so they
+   // have to return a promise.
+   invalidateNamespace: jest.fn(() => Promise.resolve()),
+   invalidateLeaderboardSortedSet: jest.fn(() => Promise.resolve()),
 }));
 
 jest.mock('../utils/logger', () => ({
@@ -213,12 +215,20 @@ const txProxy = {
          return event;
       }),
    },
+   // The resolver settles the on-chain bet that matches a prediction when one
+   // exists; these fixtures only cover the prediction path.
+   bet: {
+      findFirst: jest.fn(async () => null),
+   },
 };
 
 jest.mock('../lib/prisma', () => ({
    prisma: {
       round: {
          findUnique: jest.fn(async ({ where }: any) => buildRoundWithPredictions(where.id)),
+      },
+      bet: {
+         findFirst: jest.fn(async () => null),
       },
       $transaction: jest.fn(async (fn: (tx: any) => Promise<any>) => fn(txProxy)),
    },

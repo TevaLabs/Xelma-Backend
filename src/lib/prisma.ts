@@ -127,6 +127,21 @@ export const prisma = (() => {
         findUnique: async () => null,
         findFirst: async () => null,
       },
+      // Retention-policy models (#391 follow-up). The retention service
+      // deletes expired rows and previews the counts, so the unit-mode double
+      // exposes `deleteMany` and `count` for each of them.
+      authChallenge: {
+        deleteMany: async () => ({ count: 0 }) as any,
+        count: async () => 0,
+      },
+      message: {
+        deleteMany: async () => ({ count: 0 }) as any,
+        count: async () => 0,
+      },
+      auditLog: {
+        deleteMany: async () => ({ count: 0 }) as any,
+        count: async () => 0,
+      },
       // Add a generic $queryRaw mock for connectivity checks.
       $queryRaw: async () => null,
     } as any;

@@ -3,6 +3,8 @@ import { verifyToken } from "../utils/jwt.util";
 import { UserRole } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
+import { buildStandardErrorBody } from "../utils/response";
+import { ErrorCode } from "../utils/errors";
 import { AuthRequest, AuthenticatedRequest, JwtPayload } from "../types/auth.types";
 import { ORACLE_ALLOWED_ROLES } from "../security/route-auth.registry";
 import config from "../config";
@@ -73,6 +75,31 @@ function attachWalletAddress(req: Request, payload: JwtPayload): void {
 }
 
 /**
+ * Respond with the standard error envelope (same shape as the centralized
+ * error handler) for authentication/authorization failures. Both app modes
+ * share it so clients never have to special-case a bare `{ error }` body.
+ */
+function sendAuthError(
+  req: Request,
+  res: Response,
+  statusCode: number,
+  error: string,
+  message: string,
+  code: string,
+): void {
+  const requestId = (req as any).requestId;
+  res.status(statusCode).json(
+    buildStandardErrorBody({
+      error,
+      message,
+      code,
+      path: req.originalUrl,
+      requestId,
+    }),
+  );
+}
+
+/**
  * Middleware to verify Stellar JWT auth and attach the authenticated wallet address.
  */
 export async function verifyStellarAuth(
@@ -83,7 +110,14 @@ export async function verifyStellarAuth(
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    res.status(401).json({ error: "No token provided" });
+    sendAuthError(
+      req,
+      res,
+      401,
+      "AuthenticationError",
+      "No token provided",
+      ErrorCode.AUTHENTICATION_ERROR,
+    );
     return;
   }
 
@@ -91,7 +125,14 @@ export async function verifyStellarAuth(
   const decoded = verifyToken(token);
 
   if (!decoded || !decoded.walletAddress) {
-    res.status(401).json({ error: "Invalid or expired token" });
+    sendAuthError(
+      req,
+      res,
+      401,
+      "AuthenticationError",
+      "Invalid or expired token",
+      ErrorCode.AUTHENTICATION_ERROR,
+    );
     return;
   }
 
@@ -117,14 +158,26 @@ export function requireRole(
 
       if (!user) {
         const hasHeader = Boolean(req.headers.authorization?.startsWith("Bearer "));
-        res.status(401).json({
-          error: hasHeader ? "Invalid or expired token" : "No token provided",
-        });
+        sendAuthError(
+          req,
+          res,
+          401,
+          "AuthenticationError",
+          hasHeader ? "Invalid or expired token" : "No token provided",
+          ErrorCode.AUTHENTICATION_ERROR,
+        );
         return;
       }
 
       if (!userHasAnyRole(user, allowedRoles)) {
-        res.status(403).json({ error: forbiddenMessage });
+        sendAuthError(
+          req,
+          res,
+          403,
+          "AuthorizationError",
+          forbiddenMessage,
+          ErrorCode.AUTHORIZATION_ERROR,
+        );
         return;
       }
 
@@ -132,7 +185,14 @@ export function requireRole(
       next();
     } catch (error) {
       logger.error("Role authentication error:", { error, requestId });
-      res.status(401).json({ error: "Authentication failed" });
+      sendAuthError(
+        req,
+        res,
+        401,
+        "AuthenticationError",
+        "Authentication failed",
+        ErrorCode.AUTHENTICATION_ERROR,
+      );
     }
   };
 }
@@ -249,14 +309,26 @@ export function bindAuthenticatedWallet(
 ): void {
   const walletAddress = req.user?.walletAddress;
   if (!walletAddress) {
-    res.status(401).json({ error: "No token provided" });
+    sendAuthError(
+      req,
+      res,
+      401,
+      "AuthenticationError",
+      "No token provided",
+      ErrorCode.AUTHENTICATION_ERROR,
+    );
     return;
   }
 
   if (req.body?.address && req.body.address !== walletAddress) {
-    res.status(403).json({
-      error: "Wallet address does not match authenticated user",
-    });
+    sendAuthError(
+      req,
+      res,
+      403,
+      "AuthorizationError",
+      "Wallet address does not match authenticated user",
+      ErrorCode.AUTHORIZATION_ERROR,
+    );
     return;
   }
 

@@ -6,8 +6,8 @@ const mockPredictions: any[] = [];
 const mockRounds: any[] = [];
 const mockUsers: any[] = [];
 
-jest.mock('../lib/prisma', () => ({
-    prisma: {
+jest.mock('../lib/prisma', () => {
+    const prismaMock: any = {
         prediction: {
             deleteMany: jest.fn(async () => { mockPredictions.length = 0; }),
             createMany: jest.fn(async ({ data }: any) => {
@@ -72,6 +72,15 @@ jest.mock('../lib/prisma', () => ({
                 }
                 return r;
             }),
+            updateMany: jest.fn(async ({ where, data }: any) => {
+                const r = mockRounds.find(r => r.id === where.id);
+                if (!r) return { count: 0 };
+                const allowed = where?.status?.in;
+                if (allowed && !allowed.includes(r.status)) return { count: 0 };
+                Object.assign(r, data);
+                if (data.endPrice !== undefined) r.endPrice = new Decimal(data.endPrice);
+                return { count: 1 };
+            }),
         },
         user: {
             deleteMany: jest.fn(async () => { mockUsers.length = 0; }),
@@ -91,18 +100,35 @@ jest.mock('../lib/prisma', () => ({
             update: jest.fn(async ({ where, data }: any) => {
                 const u = mockUsers.find(u => u.id === where.id);
                 if (u) {
-                    if (data.virtualBalance && data.virtualBalance.increment) {
-                        u.virtualBalance = new Decimal(u.virtualBalance).plus(new Decimal(data.virtualBalance.increment));
-                    } else if (data.virtualBalance !== undefined) {
-                        u.virtualBalance = new Decimal(data.virtualBalance);
+                    const next = data.virtualBalance;
+                    if (next && typeof next === 'object') {
+                        if (next.increment !== undefined) {
+                            u.virtualBalance = new Decimal(u.virtualBalance).plus(new Decimal(next.increment));
+                        } else if (next.decrement !== undefined) {
+                            u.virtualBalance = new Decimal(u.virtualBalance).minus(new Decimal(next.decrement));
+                        }
+                    } else if (next !== undefined) {
+                        u.virtualBalance = new Decimal(next);
                     }
                 }
                 return u;
             }),
         },
         $disconnect: jest.fn(async () => { }),
-    }
-}));
+        bet: {
+            findFirst: jest.fn(async () => null),
+        },
+        outboxEvent: {
+            create: jest.fn(async () => ({ id: 'outbox-id' })),
+        },
+    };
+
+    // The resolution service settles a round inside a transaction; the mocked
+    // client has to hand the same stubs to the transaction callback.
+    prismaMock.$transaction = jest.fn(async (fn: any) => fn(prismaMock));
+
+    return { prisma: prismaMock };
+});
 
 import { prisma } from '../lib/prisma';
 import resolutionService from '../services/resolution.service';
@@ -122,6 +148,9 @@ jest.mock('../services/notification.service', () => ({
 // Mock WebSocket Service
 jest.mock('../services/websocket.service', () => ({
     emitNotification: jest.fn(),
+    emitRoundResolved: jest.fn(),
+    emitRoundUpdate: jest.fn(),
+    emitPriceUpdate: jest.fn(),
 }));
 
 describe('Monetary Precision and Deterministic Payouts', () => {
@@ -155,7 +184,7 @@ describe('Monetary Precision and Deterministic Payouts', () => {
         const round = await prisma.round.create({
             data: {
                 mode: 'UP_DOWN',
-                status: 'ACTIVE',
+                status: 'LOCKED',
                 startPrice: 100.0,
                 startTime: new Date(),
                 endTime: new Date(),
@@ -191,7 +220,7 @@ describe('Monetary Precision and Deterministic Payouts', () => {
         const round = await prisma.round.create({
             data: {
                 mode: 'UP_DOWN',
-                status: 'ACTIVE',
+                status: 'LOCKED',
                 startPrice: 100.0,
                 startTime: new Date(),
                 endTime: new Date(),
@@ -222,7 +251,7 @@ describe('Monetary Precision and Deterministic Payouts', () => {
         const round = await prisma.round.create({
             data: {
                 mode: 'UP_DOWN',
-                status: 'ACTIVE',
+                status: 'LOCKED',
                 startPrice: 100.0,
                 startTime: new Date(),
                 endTime: new Date(),

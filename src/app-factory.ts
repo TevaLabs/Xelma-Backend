@@ -202,6 +202,15 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
   // this stack.
   app.use(compression());
 
+  // Correlation ID first, so everything downstream can log it — including the
+  // body parser, whose malformed-JSON errors must still carry a requestId.
+  app.use(requestIdMiddleware);
+  app.use(metricsMiddleware);
+  // Both modes log the same shape (method, path, status, durationMs,
+  // requestId) on response finish — see src/middleware/httpLogger.middleware.ts
+  // and src/tests/http-logger-unified.spec.ts (Issue #423).
+  app.use(httpLoggerMiddleware);
+
   const jsonLimit = process.env.JSON_BODY_LIMIT || '16kb';
   app.use(express.json({ limit: jsonLimit }));
   if (mode === 'full') {
@@ -216,14 +225,6 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
       credentials: true,
     }),
   );
-
-  // Correlation ID first, so everything downstream can log it.
-  app.use(requestIdMiddleware);
-  app.use(metricsMiddleware);
-  // Both modes log the same shape (method, path, status, durationMs,
-  // requestId) on response finish — see src/middleware/httpLogger.middleware.ts
-  // and src/tests/http-logger-unified.spec.ts (Issue #423).
-  app.use(httpLoggerMiddleware);
 }
 
 function mountApiDocs(app: Application, mode: AppMode): void {

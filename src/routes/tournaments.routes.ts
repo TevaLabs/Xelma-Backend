@@ -9,6 +9,7 @@ import {
 } from "../schemas/tournament.schema";
 import tournamentService from "../services/tournament.service";
 import { sendSuccess } from "../utils/response";
+import { NotFoundError } from "../utils/errors";
 
 const router = Router();
 
@@ -149,7 +150,7 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     const tournament = tournamentService.getMockById(req.params.id);
     if (!tournament) {
-      return res.status(404).json({ success: false, error: "Tournament not found" });
+      throw new NotFoundError("Tournament not found");
     }
     return sendSuccess(res, tournament);
   }),

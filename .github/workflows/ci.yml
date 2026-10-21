@@ -104,6 +104,10 @@ jobs:
   test-unit:
     name: test (unit)
     runs-on: ubuntu-latest
+    # The unit suite includes the Node.js startup-version guard, which
+    # executes the compiled entry point (dist/index.js). Reuse the build
+    # artifact instead of compiling twice.
+    needs: build
     env:
       NODE_ENV: test
       JWT_SECRET: ci-test-secret
@@ -121,6 +125,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
 
       - name: Run unit tests with coverage
         run: npm run test:unit:coverage
@@ -140,21 +150,6 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
       JWT_SECRET: ci-test-secret
 
-    services:
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:16
-        env:
-          POSTGRES_DB: xelma_ci
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d xelma_ci"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -167,6 +162,43 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # The database is started as a plain container (instead of a `services:`
+      # block) so a throttled container registry cannot fail the job before
+      # any step runs. The retry loop absorbs transient "toomanyrequests"
+      # pull failures, which GitHub-hosted runners hit regularly.
+      - name: Start PostgreSQL
+        run: |
+          started=0
+          for attempt in 1 2 3 4 5 6; do
+            docker rm -f xelma-postgres >/dev/null 2>&1 || true
+            if docker run -d --name xelma-postgres \
+              -e POSTGRES_USER=postgres \
+              -e POSTGRES_PASSWORD=postgres \
+              -e POSTGRES_DB=xelma_ci \
+              -p 5432:5432 \
+              postgres:16; then
+              echo "PostgreSQL container started (attempt ${attempt})"
+              started=1
+              break
+            fi
+            echo "::warning::Could not start PostgreSQL (attempt ${attempt}) — registry pull may be throttled. Retrying in 20s."
+            sleep 20
+          done
+          if [ "$started" != "1" ]; then
+            echo "::error::Could not start PostgreSQL after 6 attempts"
+            exit 1
+          fi
+          for _ in $(seq 1 60); do
+            if docker exec xelma-postgres pg_isready -U postgres -d xelma_ci >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::PostgreSQL did not become ready in time"
+          docker logs xelma-postgres || true
+          exit 1
 
       - name: Run database migrations
         run: npm run db:migrate
@@ -182,21 +214,6 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
       JWT_SECRET: ci-test-secret
 
-    services:
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:16
-        env:
-          POSTGRES_DB: xelma_ci
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d xelma_ci"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -209,6 +226,41 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Same retrying container start as the integration job — see the comment
+      # there for why the database is not a `services:` block.
+      - name: Start PostgreSQL
+        run: |
+          started=0
+          for attempt in 1 2 3 4 5 6; do
+            docker rm -f xelma-postgres >/dev/null 2>&1 || true
+            if docker run -d --name xelma-postgres \
+              -e POSTGRES_USER=postgres \
+              -e POSTGRES_PASSWORD=postgres \
+              -e POSTGRES_DB=xelma_ci \
+              -p 5432:5432 \
+              postgres:16; then
+              echo "PostgreSQL container started (attempt ${attempt})"
+              started=1
+              break
+            fi
+            echo "::warning::Could not start PostgreSQL (attempt ${attempt}) — registry pull may be throttled. Retrying in 20s."
+            sleep 20
+          done
+          if [ "$started" != "1" ]; then
+            echo "::error::Could not start PostgreSQL after 6 attempts"
+            exit 1
+          fi
+          for _ in $(seq 1 60); do
+            if docker exec xelma-postgres pg_isready -U postgres -d xelma_ci >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::PostgreSQL did not become ready in time"
+          docker logs xelma-postgres || true
+          exit 1
 
       - name: Run database migrations
         run: npm run db:migrate

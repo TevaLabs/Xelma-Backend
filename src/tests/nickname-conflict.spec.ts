@@ -74,7 +74,7 @@ describe("Unique Nickname with 409 Conflict Envelope (Issue #690)", () => {
 
     expect(res.status).toBe(409);
     expect(res.body).toHaveProperty("error");
-    expect(res.body.error).toMatch(/nickname is already taken/i);
+    expect(res.body.message).toMatch(/nickname is already taken/i);
     expect(res.body).toHaveProperty("code", "CONFLICT");
     expect(res.body).toHaveProperty("timestamp");
     expect(mockUserUpdate).not.toHaveBeenCalled();
@@ -92,7 +92,7 @@ describe("Unique Nickname with 409 Conflict Envelope (Issue #690)", () => {
       .send({ nickname: "concurrent_nick" });
 
     expect(res.status).toBe(409);
-    expect(res.body.error).toMatch(/nickname is already taken/i);
+    expect(res.body.message).toMatch(/nickname is already taken/i);
     expect(res.body.code).toBe("CONFLICT");
   });
 
