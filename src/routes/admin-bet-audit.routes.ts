@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAdmin } from '../middleware/auth.middleware';
+import { auditAdminAction } from '../middleware/admin-audit.middleware';
 import { betAuditService } from '../services/bet-audit.service';
 import logger from '../utils/logger';
 
@@ -52,7 +53,11 @@ const router = Router();
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/', requireAdmin, async (req: Request, res: Response) => {
+router.get(
+  '/',
+  requireAdmin,
+  auditAdminAction('admin.bet_audit.read'),
+  async (req: Request, res: Response) => {
   try {
     const address = typeof req.query.address === 'string' ? req.query.address : undefined;
     const limit = Math.min(

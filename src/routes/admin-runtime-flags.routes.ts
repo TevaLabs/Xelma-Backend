@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { requireAdmin } from "../middleware/auth.middleware";
+import { auditAdminAction } from "../middleware/admin-audit.middleware";
 import config from "../config";
 import { setNoStore } from "../utils/http-cache";
 
@@ -22,7 +23,7 @@ const router = Router();
  *       403:
  *         description: Admin access required
  */
-router.get("/", requireAdmin, (_req: Request, res: Response) => {
+router.get("/", requireAdmin, auditAdminAction("admin.runtime_flags.read"), (_req: Request, res: Response) => {
   setNoStore(res);
   res.json({
     success: true,

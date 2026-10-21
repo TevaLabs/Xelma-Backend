@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { rateLimitMetricsService } from '../services/rate-limit-metrics.service';
 import payoutReconciliationService from '../services/payout-reconciliation.service';
 import { requireAdmin, requireMetricsAuth } from '../middleware/auth.middleware';
+import { auditAdminAction } from '../middleware/admin-audit.middleware';
 import logger from '../utils/logger';
 import { register } from 'prom-client';
 
@@ -117,7 +118,11 @@ const router = Router();
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/rate-limits', requireAdmin, async (req: Request, res: Response) => {
+router.get(
+  '/rate-limits',
+  requireAdmin,
+  auditAdminAction('admin.metrics.rate_limits.read'),
+  async (req: Request, res: Response) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
     const summary = await rateLimitMetricsService.getSummary(limit);
@@ -153,7 +158,11 @@ router.get('/rate-limits', requireAdmin, async (req: Request, res: Response) => 
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.post('/rate-limits/clear', requireAdmin, async (req: Request, res: Response) => {
+router.post(
+  '/rate-limits/clear',
+  requireAdmin,
+  auditAdminAction('admin.metrics.rate_limits.clear'),
+  async (req: Request, res: Response) => {
   try {
     const days = req.query.days ? parseInt(req.query.days as string) : 7;
     const count = await rateLimitMetricsService.clearOldMetrics(days);
@@ -193,7 +202,11 @@ router.post('/rate-limits/clear', requireAdmin, async (req: Request, res: Respon
 // path here as well produced /api/admin/metrics/admin/metrics/metrics.
 // Auth is required so this duplicate scrape surface cannot expose
 // limiter/user-activity numbers on the unauthenticated hackathon app.
-router.get('/metrics', requireMetricsAuth, async (req: Request, res: Response) => {
+router.get(
+  '/metrics',
+  requireMetricsAuth,
+  auditAdminAction('admin.metrics.prometheus.read'),
+  async (req: Request, res: Response) => {
   try {
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
@@ -234,7 +247,11 @@ router.get('/metrics', requireMetricsAuth, async (req: Request, res: Response) =
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/payout-reconciliation', requireAdmin, async (req: Request, res: Response) => {
+router.get(
+  '/payout-reconciliation',
+  requireAdmin,
+  auditAdminAction('admin.metrics.payout_reconciliation.read'),
+  async (req: Request, res: Response) => {
   try {
     const summary = await payoutReconciliationService.getReconciliationSummary();
     res.json({ success: true, summary });
@@ -262,7 +279,11 @@ router.get('/payout-reconciliation', requireAdmin, async (req: Request, res: Res
  *             schema:
  *               type: object
  */
-router.get('/rate-limit-summary', requireAdmin, async (req: Request, res: Response) => {
+router.get(
+  '/rate-limit-summary',
+  requireAdmin,
+  auditAdminAction('admin.metrics.rate_limit_summary.read'),
+  async (req: Request, res: Response) => {
   try {
     const metric = register.getSingleMetric('http_rate_limit_hits_total');
     const values = metric ? (await metric.get()).values : [];

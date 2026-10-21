@@ -9,6 +9,7 @@
 import { Router, Request, Response } from 'express';
 import { DispatchChannel, DispatchStatus } from '@prisma/client';
 import { requireAdmin } from '../middleware/auth.middleware';
+import { auditAdminAction } from '../middleware/admin-audit.middleware';
 import deadLetterQueueService, {
   RetryHandlers,
 } from '../services/dead-letter-queue.service';
@@ -75,7 +76,11 @@ function parseDryRun(req: Request): boolean {
  *     security:
  *       - bearerAuth: []
  */
-router.get('/', requireAdmin, async (req: Request, res: Response) => {
+router.get(
+  '/',
+  requireAdmin,
+  auditAdminAction('admin.dead_letter.list'),
+  async (req: Request, res: Response) => {
   try {
     const { entries, total, limit, offset } = await deadLetterQueueService.list({
       status: parseStatus(req.query.status),
@@ -101,7 +106,11 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
  *     security:
  *       - bearerAuth: []
  */
-router.post('/retry-all', requireAdmin, async (req: Request, res: Response) => {
+router.post(
+  '/retry-all',
+  requireAdmin,
+  auditAdminAction('admin.dead_letter.retry_all'),
+  async (req: Request, res: Response) => {
   try {
     const limit = parseInt32(req.body?.limit ?? req.query?.limit, 50);
     const dryRun = parseDryRun(req);
@@ -128,7 +137,11 @@ router.post('/retry-all', requireAdmin, async (req: Request, res: Response) => {
  *     security:
  *       - bearerAuth: []
  */
-router.post('/:id/retry', requireAdmin, async (req: Request, res: Response) => {
+router.post(
+  '/:id/retry',
+  requireAdmin,
+  auditAdminAction('admin.dead_letter.retry'),
+  async (req: Request, res: Response) => {
   try {
     const dryRun = parseDryRun(req);
     const result = await deadLetterQueueService.retry(

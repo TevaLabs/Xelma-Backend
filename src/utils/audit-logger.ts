@@ -31,6 +31,10 @@ export enum AuditEventType {
   // User events
   USER_CREATED = 'auth.user.created',
   USER_LOGIN = 'auth.user.login',
+
+  // Admin / privileged actions (Issue #497)
+  ADMIN_ACTION = 'admin.action',
+  ADMIN_ACCESS_DENIED = 'admin.access.denied',
 }
 
 /**
@@ -69,7 +73,7 @@ export interface AuditContext {
  * Resource information (what was affected)
  */
 export interface AuditResource {
-  type: 'challenge' | 'user' | 'session';
+  type: 'challenge' | 'user' | 'session' | 'admin';
   id?: string;
   walletAddress?: string;
 }
@@ -561,6 +565,53 @@ class AuditLogger {
       metadata: {
         streak: params.streak,
         bonusAwarded: params.bonusAwarded,
+      },
+    });
+  }
+
+  /**
+   * Log a privileged admin action (Issue #497).
+   *
+   * Called after an admin request completes so the audit trail records the
+   * outcome (status code) rather than just the attempt. Never include request
+   * bodies or secrets in `metadata`.
+   */
+  logAdminAction(params: {
+    action: string;
+    outcome: 'success' | 'failure';
+    walletAddress?: string;
+    userId?: string;
+    requestId?: string;
+    ipAddress?: string;
+    userAgent?: string;
+    endpoint?: string;
+    method?: string;
+    statusCode?: number;
+    metadata?: AuditMetadata;
+  }): void {
+    this.log({
+      eventType: AuditEventType.ADMIN_ACTION,
+      severity:
+        params.outcome === 'success' ? AuditSeverity.INFO : AuditSeverity.WARNING,
+      message: `Admin action: ${params.action} (${params.outcome})`,
+      outcome: params.outcome,
+      actor: {
+        type: 'user',
+        walletAddress: params.walletAddress,
+        userId: params.userId,
+        ipAddress: params.ipAddress,
+        userAgent: params.userAgent,
+      },
+      context: {
+        requestId: params.requestId,
+        endpoint: params.endpoint,
+        method: params.method,
+        timestamp: new Date().toISOString(),
+      },
+      resource: { type: 'admin', id: params.action },
+      metadata: {
+        ...params.metadata,
+        statusCode: params.statusCode,
       },
     });
   }

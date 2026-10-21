@@ -171,6 +171,12 @@ jobs:
       - name: Run database migrations
         run: npm run db:migrate
 
+      # Issue #834: run the transactional bet-race suite explicitly so a
+      # regression fails a named job even if the aggregate suite is red for an
+      # unrelated reason. `--runInBand` keeps the pool assertions deterministic.
+      - name: Run hackathon atomic bet race test
+        run: npm run test:hackathon:atomic
+
       - name: Run integration tests
         run: npm run test:integration
 
