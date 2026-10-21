@@ -52,12 +52,18 @@ export const getMockRounds = async (): Promise<MockPredictionRound[]> => {
     if (r.mode === 'updown') {
       return {
         id: r.id, asset: r.asset, mode: 'updown', status: r.status as 'live' | 'new',
-        startPrice: r.startPrice, poolUp: r.poolUp!, poolDown: r.poolDown!, closesAt: r.closesAt
+        startPrice: typeof r.startPrice === 'number' ? r.startPrice : Number(r.startPrice),
+        poolUp: typeof r.poolUp === 'number' ? r.poolUp : Number(r.poolUp),
+        poolDown: typeof r.poolDown === 'number' ? r.poolDown : Number(r.poolDown),
+        closesAt: r.closesAt
       };
     }
     return {
       id: r.id, asset: r.asset, mode: 'precision', status: r.status as 'live' | 'new',
-      startPrice: r.startPrice, totalPool: r.totalPool!, predictionCount: r.predictionCount!, closesAt: r.closesAt
+      startPrice: typeof r.startPrice === 'number' ? r.startPrice : Number(r.startPrice),
+      totalPool: typeof r.totalPool === 'number' ? r.totalPool : Number(r.totalPool),
+      predictionCount: r.predictionCount ?? 0,
+      closesAt: r.closesAt
     };
   });
 };

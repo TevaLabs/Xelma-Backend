@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
 import hackathonService from '../services/hackathon.service';
 import { prisma } from '../lib/prisma';
+import { toNumber } from '../utils/decimal.util';
 
 jest.mock('../services/stellar.service', () => ({
   isValidStellarAddress: () => true,
@@ -57,10 +58,10 @@ describe('Hackathon Atomic Bets', () => {
 
       const freshBet = bets.find(b => b.roundId === 'btc-updown-live');
       expect(freshBet).toBeDefined();
-      expect(freshBet!.amount).toBe(200);
+      expect(toNumber(freshBet!.amount)).toBe(200);
       expect(freshBet!.side).toBe('UP');
-      expect(userAfter!.balance).toBe(userBefore!.balance - 200);
-      expect(roundAfter!.poolUp).toBe(roundBefore!.poolUp! + 200);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance) - 200);
+      expect(toNumber(roundAfter!.poolUp!)).toBe(toNumber(roundBefore!.poolUp!) + 200);
     });
 
     it('atomically inserts bet and updates totalPool for Precision mode', async () => {
@@ -75,10 +76,10 @@ describe('Hackathon Atomic Bets', () => {
 
       const freshBet = bets.find(b => b.roundId === 'eth-precision-live');
       expect(freshBet).toBeDefined();
-      expect(freshBet!.amount).toBe(150);
-      expect(freshBet!.predictedPrice).toBe(3250);
-      expect(userAfter!.balance).toBe(userBefore!.balance - 150);
-      expect(roundAfter!.totalPool).toBe(roundBefore!.totalPool! + 150);
+      expect(toNumber(freshBet!.amount)).toBe(150);
+      expect(toNumber(freshBet!.predictedPrice!)).toBe(3250);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance) - 150);
+      expect(toNumber(roundAfter!.totalPool!)).toBe(toNumber(roundBefore!.totalPool!) + 150);
       expect(roundAfter!.predictionCount).toBe(roundBefore!.predictionCount! + 1);
     });
   });
@@ -99,7 +100,7 @@ describe('Hackathon Atomic Bets', () => {
       });
 
       expect(bets.length).toBe(0);
-      expect(userAfter!.balance).toBe(userBefore!.balance);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance));
       expect(roundsAfter).toEqual(roundsBefore);
     });
 
@@ -120,7 +121,7 @@ describe('Hackathon Atomic Bets', () => {
       });
 
       expect(bets.length).toBe(0);
-      expect(userAfter!.balance).toBe(userBefore!.balance);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance));
       expect(roundsAfter).toEqual(roundsBefore);
 
       txSpy.mockRestore();
@@ -148,10 +149,10 @@ describe('Hackathon Atomic Bets', () => {
       const roundBets = bets.filter(b => b.roundId === roundId);
       expect(roundBets.length).toBe(3);
 
-      const totalBetAmount = roundBets.reduce((sum, b) => sum + b.amount, 0);
-      expect(userAfter!.balance).toBe(userBefore!.balance - totalBetAmount);
-      expect(roundAfter!.poolUp).toBe(roundBefore!.poolUp! + 100 + 50);
-      expect(roundAfter!.poolDown).toBe(roundBefore!.poolDown! + 200);
+      const totalBetAmount = roundBets.reduce((sum, b) => sum + toNumber(b.amount), 0);
+      expect(toNumber(userAfter!.balance)).toBe(toNumber(userBefore!.balance) - totalBetAmount);
+      expect(toNumber(roundAfter!.poolUp!)).toBe(toNumber(roundBefore!.poolUp!) + 100 + 50);
+      expect(toNumber(roundAfter!.poolDown!)).toBe(toNumber(roundBefore!.poolDown!) + 200);
     });
   });
 });
