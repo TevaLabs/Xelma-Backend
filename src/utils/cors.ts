@@ -39,3 +39,17 @@ export function getCorsOrigins(): CorsOriginConfig {
 }
 
 export const getHttpCorsOrigins = getCorsOrigins;
+
+export interface SocketCorsConfig {
+  origin: CorsOriginConfig;
+  methods: string[];
+  credentials: boolean;
+}
+
+export function getSocketCorsConfig(): SocketCorsConfig {
+  return {
+    origin: getCorsOrigins(),
+    methods: ['GET', 'POST'],
+    credentials: true,
+  };
+}

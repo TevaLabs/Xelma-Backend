@@ -45,6 +45,27 @@ describe("parseOriginList", () => {
   });
 });
 
+describe("getSocketCorsConfig", () => {
+  afterEach(() => {
+    restoreEnv();
+  });
+
+  it("returns origins, methods, and credentials", () => {
+    setEnv({
+      NODE_ENV: "production",
+      CLIENT_URL: "https://app.example.com",
+    });
+    jest.resetModules();
+    const { getSocketCorsConfig } = require("../utils/cors");
+    const config = getSocketCorsConfig();
+    expect(config).toEqual({
+      origin: "https://app.example.com",
+      methods: ["GET", "POST"],
+      credentials: true,
+    });
+  });
+});
+
 describe("CORS single source of truth", () => {
   afterEach(() => {
     restoreEnv();

@@ -32,8 +32,8 @@ let activeStaleInterval: NodeJS.Timeout | null = null;
 let activeTokenExpiryInterval: NodeJS.Timeout | null = null;
 let ioInstance: SocketIOServer | null = null;
 
-export { getCorsOrigins } from './utils/cors';
-import { getCorsOrigins } from './utils/cors';
+export { getCorsOrigins, getSocketCorsConfig } from './utils/cors';
+import { getCorsOrigins, getSocketCorsConfig } from './utils/cors';
 
 function isAuthorizedPrivateRoomJoin(
    socket: AuthenticatedSocket,
@@ -286,7 +286,7 @@ export function checkExpiredTokenSockets(
 export async function initializeSocket(
    httpServer: HTTPServer
 ): Promise<TypedServer> {
-   const corsOrigins = getCorsOrigins();
+   const socketCorsConfig = getSocketCorsConfig();
 
    const io = new SocketIOServer<
       ClientToServerEvents,
@@ -296,11 +296,7 @@ export async function initializeSocket(
    >(httpServer, {
       pingInterval: PING_INTERVAL,
       pingTimeout: PING_TIMEOUT,
-      cors: {
-         origin: corsOrigins,
-         methods: ['GET', 'POST'],
-         credentials: true,
-      },
+      cors: socketCorsConfig,
    });
 
    // Initialize Redis adapter for multi-instance fanout

@@ -1,11 +1,11 @@
 {
   "item": [
     {
-      "id": "5bd52ed9-cfdc-47b6-a0ee-5b645f31a2b1",
+      "id": "e8d496e8-4529-4f64-b588-19460c6fc153",
       "name": "api",
       "item": [
         {
-          "id": "bb241ea9-2847-4432-9f83-cb5ea574c08e",
+          "id": "f95acd9c-e968-4f05-984b-a0b0001654e1",
           "name": "Return per-wallet stats for a Stellar address",
           "request": {
             "name": "Return per-wallet stats for a Stellar address",
@@ -45,7 +45,7 @@
           },
           "response": [
             {
-              "id": "1b14d1e9-055f-4bdb-8ff8-9d26b31f783d",
+              "id": "b302e4bd-6574-4f2c-98e8-8ce095aa213e",
               "name": "Wallet-specific stats matching production profile contract",
               "originalRequest": {
                 "url": {
@@ -86,12 +86,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"success\": true,\n  \"stats\": {\n    \"totalWins\": 3389,\n    \"totalLosses\": 6938,\n    \"currentStreak\": 5764,\n    \"pendingWinnings\": \"1000.33333333\",\n    \"isRegistered\": false\n  },\n  \"profile\": {\n    \"balance\": \"1000.33333333\",\n    \"xp\": 416,\n    \"rankTitle\": \"string\"\n  }\n}",
+              "body": "{\n  \"success\": true,\n  \"stats\": {\n    \"totalWins\": 8175,\n    \"totalLosses\": 4582,\n    \"currentStreak\": 540,\n    \"pendingWinnings\": \"1000.33333333\",\n    \"isRegistered\": false\n  },\n  \"profile\": {\n    \"balance\": \"1000.33333333\",\n    \"xp\": 6985,\n    \"rankTitle\": \"string\"\n  }\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "1cdbda73-21ec-45a4-80ce-18ce172fabc1",
+              "id": "e65a6993-41cf-4762-a33c-0467d3a90368",
               "name": "Invalid wallet address",
               "originalRequest": {
                 "url": {
@@ -137,113 +137,181 @@
           }
         },
         {
-          "id": "bfae0756-609e-4386-a60e-dae5e4f9021d",
-          "name": "List tournaments",
-          "request": {
-            "name": "List tournaments",
-            "description": {
-              "content": "Supports optional mode and status filters with offset pagination.",
-              "type": "text/plain"
-            },
-            "url": {
-              "path": [
-                "api",
-                "tournaments"
-              ],
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "query": [
+          "id": "c85755f6-f472-4f2e-a3f7-3e9a3a7be56c",
+          "name": "tournaments",
+          "item": [
+            {
+              "id": "487b75c1-c1fc-41b9-b3bf-4d1e850c5942",
+              "name": "List tournaments",
+              "request": {
+                "name": "List tournaments",
+                "description": {
+                  "content": "Supports optional mode and status filters with offset pagination.",
+                  "type": "text/plain"
+                },
+                "url": {
+                  "path": [
+                    "api",
+                    "tournaments"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [
+                    {
+                      "disabled": false,
+                      "key": "mode",
+                      "value": "<string>"
+                    },
+                    {
+                      "disabled": false,
+                      "key": "status",
+                      "value": "<string>"
+                    },
+                    {
+                      "disabled": false,
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "disabled": false,
+                      "key": "offset",
+                      "value": "0"
+                    }
+                  ],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "auth": null
+              },
+              "response": [
                 {
-                  "disabled": false,
-                  "key": "mode",
-                  "value": "<string>"
+                  "id": "45cef9ac-f0c2-4977-a95d-2ec2e603a035",
+                  "name": "Paginated tournament list",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "tournaments"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [
+                        {
+                          "key": "mode",
+                          "value": "<string>"
+                        },
+                        {
+                          "key": "status",
+                          "value": "<string>"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "offset",
+                          "value": "0"
+                        }
+                      ],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "GET",
+                    "body": {}
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "body": "{\n  \"success\": false,\n  \"data\": [\n    {\n      \"value\": \"reference #/components/schemas/Tournament not found in the OpenAPI spec\"\n    },\n    {\n      \"value\": \"reference #/components/schemas/Tournament not found in the OpenAPI spec\"\n    }\n  ],\n  \"meta\": {\n    \"pagination\": {\n      \"limit\": 1272,\n      \"offset\": 4595,\n      \"total\": 7\n    }\n  }\n}",
+                  "cookie": [],
+                  "_postman_previewlanguage": "json"
                 },
                 {
-                  "disabled": false,
-                  "key": "status",
-                  "value": "<string>"
-                },
-                {
-                  "disabled": false,
-                  "key": "limit",
-                  "value": "20"
-                },
-                {
-                  "disabled": false,
-                  "key": "offset",
-                  "value": "0"
+                  "id": "04da03eb-64ad-41c4-84dc-e7434aff79b2",
+                  "name": "Invalid mode or status",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "tournaments"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [
+                        {
+                          "key": "mode",
+                          "value": "<string>"
+                        },
+                        {
+                          "key": "status",
+                          "value": "<string>"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "offset",
+                          "value": "0"
+                        }
+                      ],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "GET",
+                    "body": {}
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "body": "{\n  \"error\": \"ValidationError\",\n  \"message\": \"walletAddress is required\",\n  \"code\": \"VALIDATION_ERROR\",\n  \"details\": [\n    {\n      \"field\": \"walletAddress\",\n      \"message\": \"walletAddress is required\"\n    },\n    {\n      \"field\": \"walletAddress\",\n      \"message\": \"walletAddress is required\"\n    }\n  ]\n}",
+                  "cookie": [],
+                  "_postman_previewlanguage": "json"
                 }
               ],
-              "variable": []
-            },
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
+              "event": [],
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
               }
-            ],
-            "method": "GET",
-            "auth": null
-          },
-          "response": [
-            {
-              "id": "78e413c0-94a2-40cc-a88e-b6a85e30f76b",
-              "name": "Paginated tournament list",
-              "originalRequest": {
-                "url": {
-                  "path": [
-                    "api",
-                    "tournaments"
-                  ],
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "query": [
-                    {
-                      "key": "mode",
-                      "value": "<string>"
-                    },
-                    {
-                      "key": "status",
-                      "value": "<string>"
-                    },
-                    {
-                      "key": "limit",
-                      "value": "20"
-                    },
-                    {
-                      "key": "offset",
-                      "value": "0"
-                    }
-                  ],
-                  "variable": []
-                },
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  }
-                ],
-                "method": "GET",
-                "body": {}
-              },
-              "status": "OK",
-              "code": 200,
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"value\": \"reference #/components/schemas/Tournament not found in the OpenAPI spec\"\n    },\n    {\n      \"value\": \"reference #/components/schemas/Tournament not found in the OpenAPI spec\"\n    }\n  ],\n  \"meta\": {\n    \"pagination\": {\n      \"limit\": 1076,\n      \"offset\": 8130,\n      \"total\": 2731\n    }\n  }\n}",
-              "cookie": [],
-              "_postman_previewlanguage": "json"
             },
             {
-              "id": "d7855f90-26d0-475a-a885-909a7f089aed",
-              "name": "Invalid mode or status",
-              "originalRequest": {
+              "id": "a8e001c2-52bd-4c6d-b28b-52fcb96144f4",
+              "name": "Create a tournament (start of the saga lifecycle)",
+              "request": {
+                "name": "Create a tournament (start of the saga lifecycle)",
+                "description": {
+                  "content": "Starts the tournament saga at UPCOMING. Subsequent lifecycle steps\n(join -> lock -> settle -> payout) are validated exclusively in the\nservice layer, not in this route, so out-of-order requests fail with a\nstructured bad-state rejection. Requires authentication.\n",
+                  "type": "text/plain"
+                },
                 "url": {
                   "path": [
                     "api",
@@ -252,55 +320,990 @@
                   "host": [
                     "{{baseUrl}}"
                   ],
-                  "query": [
-                    {
-                      "key": "mode",
-                      "value": "<string>"
-                    },
-                    {
-                      "key": "status",
-                      "value": "<string>"
-                    },
-                    {
-                      "key": "limit",
-                      "value": "20"
-                    },
-                    {
-                      "key": "offset",
-                      "value": "0"
-                    }
-                  ],
+                  "query": [],
                   "variable": []
                 },
                 "header": [
                   {
-                    "key": "Accept",
+                    "key": "Content-Type",
                     "value": "application/json"
                   }
                 ],
-                "method": "GET",
-                "body": {}
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{bearerToken}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"<string>\",\n  \"description\": \"<string>\",\n  \"mode\": \"<string>\",\n  \"entryFee\": \"<string>\",\n  \"prizePool\": \"<string>\",\n  \"maxParticipants\": \"<integer>\",\n  \"startTime\": \"<dateTime>\",\n  \"endTime\": \"<dateTime>\",\n  \"rounds\": \"<integer>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
               },
-              "status": "Bad Request",
-              "code": 400,
-              "header": [
+              "response": [
                 {
-                  "key": "Content-Type",
-                  "value": "application/json"
+                  "id": "125483cf-ca10-45ec-9b12-91a250e4a3de",
+                  "name": "Tournament created",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "tournaments"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"<string>\",\n  \"description\": \"<string>\",\n  \"mode\": \"<string>\",\n  \"entryFee\": \"<string>\",\n  \"prizePool\": \"<string>\",\n  \"maxParticipants\": \"<integer>\",\n  \"startTime\": \"<dateTime>\",\n  \"endTime\": \"<dateTime>\",\n  \"rounds\": \"<integer>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "text/plain"
+                    }
+                  ],
+                  "body": "",
+                  "cookie": [],
+                  "_postman_previewlanguage": "text"
+                },
+                {
+                  "id": "fc0e6435-37ff-4056-beb5-2218721c19cf",
+                  "name": "Invalid tournament parameters",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "tournaments"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"<string>\",\n  \"description\": \"<string>\",\n  \"mode\": \"<string>\",\n  \"entryFee\": \"<string>\",\n  \"prizePool\": \"<string>\",\n  \"maxParticipants\": \"<integer>\",\n  \"startTime\": \"<dateTime>\",\n  \"endTime\": \"<dateTime>\",\n  \"rounds\": \"<integer>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "text/plain"
+                    }
+                  ],
+                  "body": "",
+                  "cookie": [],
+                  "_postman_previewlanguage": "text"
+                },
+                {
+                  "id": "64120854-a228-40d9-9f3c-f26148f7d607",
+                  "name": "Authentication required",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "tournaments"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"<string>\",\n  \"description\": \"<string>\",\n  \"mode\": \"<string>\",\n  \"entryFee\": \"<string>\",\n  \"prizePool\": \"<string>\",\n  \"maxParticipants\": \"<integer>\",\n  \"startTime\": \"<dateTime>\",\n  \"endTime\": \"<dateTime>\",\n  \"rounds\": \"<integer>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "text/plain"
+                    }
+                  ],
+                  "body": "",
+                  "cookie": [],
+                  "_postman_previewlanguage": "text"
+                },
+                {
+                  "id": "3e6c58a6-b7c6-4afe-a344-0fb63f1aa48d",
+                  "name": "Lifecycle violation",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "tournaments"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"<string>\",\n  \"description\": \"<string>\",\n  \"mode\": \"<string>\",\n  \"entryFee\": \"<string>\",\n  \"prizePool\": \"<string>\",\n  \"maxParticipants\": \"<integer>\",\n  \"startTime\": \"<dateTime>\",\n  \"endTime\": \"<dateTime>\",\n  \"rounds\": \"<integer>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Conflict",
+                  "code": 409,
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "text/plain"
+                    }
+                  ],
+                  "body": "",
+                  "cookie": [],
+                  "_postman_previewlanguage": "text"
                 }
               ],
-              "body": "{\n  \"error\": \"ValidationError\",\n  \"message\": \"walletAddress is required\",\n  \"code\": \"VALIDATION_ERROR\",\n  \"details\": [\n    {\n      \"field\": \"walletAddress\",\n      \"message\": \"walletAddress is required\"\n    },\n    {\n      \"field\": \"walletAddress\",\n      \"message\": \"walletAddress is required\"\n    }\n  ]\n}",
-              "cookie": [],
-              "_postman_previewlanguage": "json"
+              "event": [],
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              }
+            },
+            {
+              "id": "7af2f324-86de-42e8-b263-541f63003436",
+              "name": "{id}",
+              "item": [
+                {
+                  "id": "e3b826cc-895c-4150-98b4-4dcab7861014",
+                  "name": "Lock a tournament (close the join window)",
+                  "request": {
+                    "name": "Lock a tournament (close the join window)",
+                    "description": {
+                      "content": "Transitions the tournament UPCOMING -> ACTIVE, freezing registration\nbefore rounds begin. Validated by the saga state machine in the service.\n",
+                      "type": "text/plain"
+                    },
+                    "url": {
+                      "path": [
+                        "api",
+                        "tournaments",
+                        ":id",
+                        "lock"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": [
+                        {
+                          "disabled": false,
+                          "type": "any",
+                          "value": "<string>",
+                          "key": "id",
+                          "description": "(Required) "
+                        }
+                      ]
+                    },
+                    "method": "POST",
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{bearerToken}}"
+                        }
+                      ]
+                    }
+                  },
+                  "response": [
+                    {
+                      "id": "109cee5e-6d65-4182-9eb8-8de2142abc20",
+                      "name": "Tournament locked",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "lock"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "OK",
+                      "code": 200,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "cf69bb92-9267-455b-987b-06abe2a334c9",
+                      "name": "Authentication required",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "lock"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Unauthorized",
+                      "code": 401,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "6070142e-532b-4742-a2aa-e38b2667d6bf",
+                      "name": "Tournament not found",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "lock"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Not Found",
+                      "code": 404,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "34175a5c-2d38-461b-bcfe-bac48f44f876",
+                      "name": "Lifecycle violation (e.g. locking a COMPLETED tournament)",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "lock"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Conflict",
+                      "code": 409,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    }
+                  ],
+                  "event": [],
+                  "protocolProfileBehavior": {
+                    "disableBodyPruning": true
+                  }
+                },
+                {
+                  "id": "107b68a9-f2b3-4517-9944-68ca6f5c9669",
+                  "name": "Settle a tournament and pay out winners",
+                  "request": {
+                    "name": "Settle a tournament and pay out winners",
+                    "description": {
+                      "content": "Transitions the tournament ACTIVE -> COMPLETED and distributes the prize\npool deterministically based on the tied round leaderboard. The settle +\npayout is atomic and validated by the saga state machine.\n",
+                      "type": "text/plain"
+                    },
+                    "url": {
+                      "path": [
+                        "api",
+                        "tournaments",
+                        ":id",
+                        "settle"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": [
+                        {
+                          "disabled": false,
+                          "type": "any",
+                          "value": "<string>",
+                          "key": "id",
+                          "description": "(Required) "
+                        }
+                      ]
+                    },
+                    "method": "POST",
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{bearerToken}}"
+                        }
+                      ]
+                    }
+                  },
+                  "response": [
+                    {
+                      "id": "d806df22-a5a9-4d54-9444-f6bf7574b23d",
+                      "name": "Settlement completed with winner allocations",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "settle"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "OK",
+                      "code": 200,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "7e5ec7f4-3a0c-4849-b23e-0fca9b0c8b0a",
+                      "name": "Authentication required",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "settle"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Unauthorized",
+                      "code": 401,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "31c474ff-496b-4007-b0d0-cdd736a5e70d",
+                      "name": "Tournament not found",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "settle"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Not Found",
+                      "code": 404,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "4c9837bf-ff5b-4acc-b150-b18e863fffdb",
+                      "name": "Lifecycle violation (e.g. settling an un-locked tournament)",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "settle"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Conflict",
+                      "code": 409,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    }
+                  ],
+                  "event": [],
+                  "protocolProfileBehavior": {
+                    "disableBodyPruning": true
+                  }
+                },
+                {
+                  "id": "9bcd1c3e-e113-4a14-873c-296cddf74236",
+                  "name": "Cancel a tournament",
+                  "request": {
+                    "name": "Cancel a tournament",
+                    "description": {
+                      "content": "Transitions the tournament UPCOMING/ACTIVE -> CANCELLED. Terminal\nsuppression: a COMPLETED tournament cannot be cancelled. Validated by\nthe saga state machine in the service layer.\n",
+                      "type": "text/plain"
+                    },
+                    "url": {
+                      "path": [
+                        "api",
+                        "tournaments",
+                        ":id",
+                        "cancel"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": [
+                        {
+                          "disabled": false,
+                          "type": "any",
+                          "value": "<string>",
+                          "key": "id",
+                          "description": "(Required) "
+                        }
+                      ]
+                    },
+                    "method": "POST",
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{bearerToken}}"
+                        }
+                      ]
+                    }
+                  },
+                  "response": [
+                    {
+                      "id": "df8e0f92-4a50-437f-96cb-98e1f84f890f",
+                      "name": "Tournament cancelled",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "cancel"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "OK",
+                      "code": 200,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "2dd047d4-0993-4162-880e-26b8f0a89164",
+                      "name": "Authentication required",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "cancel"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Unauthorized",
+                      "code": 401,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "910c4132-7366-45b0-803b-4ce9c42dc97d",
+                      "name": "Tournament not found",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "cancel"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Not Found",
+                      "code": 404,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "f4c6f1fb-959a-4d4a-90ad-693ce3886298",
+                      "name": "Lifecycle violation (e.g. cancelling a COMPLETED tournament)",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "tournaments",
+                            ":id",
+                            "cancel"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Conflict",
+                      "code": 409,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    }
+                  ],
+                  "event": [],
+                  "protocolProfileBehavior": {
+                    "disableBodyPruning": true
+                  }
+                }
+              ],
+              "event": []
             }
           ],
-          "event": [],
-          "protocolProfileBehavior": {
-            "disableBodyPruning": true
-          }
+          "event": []
         },
         {
-          "id": "78011cdd-b6ad-4b3a-bbb2-d4423ad827c0",
+          "id": "82ffb522-5e20-4e54-a53e-3981247d0e74",
           "name": "Platform statistics",
           "request": {
             "name": "Platform statistics",
@@ -330,7 +1333,7 @@
           },
           "response": [
             {
-              "id": "a4fe1bc2-ce9b-44f6-83c7-47c7253c1099",
+              "id": "1eb75d4d-1475-457e-b055-cfa564603cd0",
               "name": "Platform stats",
               "originalRequest": {
                 "url": {
@@ -366,7 +1369,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "5d84779f-6822-40c3-b1cd-c144402337fd",
+              "id": "580cfaf4-995d-4584-8acf-075bd831dd9d",
               "name": "Failed to retrieve stats",
               "originalRequest": {
                 "url": {
@@ -402,11 +1405,11 @@
           }
         },
         {
-          "id": "8ebcd8d0-0430-4122-a92d-a37ff7b2f4f5",
+          "id": "cce11f5d-9703-4d67-9fef-fde646405bfe",
           "name": "rounds",
           "item": [
             {
-              "id": "b296ada3-d4f6-4753-84a5-628f5a898fae",
+              "id": "bddb2358-baa2-43b0-a525-ff2b8969ddc9",
               "name": "List active prediction rounds",
               "request": {
                 "name": "List active prediction rounds",
@@ -430,7 +1433,7 @@
               },
               "response": [
                 {
-                  "id": "8c392e4e-bf0a-4503-9400-a9b91e0331d1",
+                  "id": "6c008896-9152-475c-8f60-74cf80206416",
                   "name": "Active rounds with source metadata",
                   "originalRequest": {
                     "url": {
@@ -466,7 +1469,7 @@
               }
             },
             {
-              "id": "f1adb897-6cd9-41bc-9415-5144d0b468f6",
+              "id": "ba592917-ae7f-4a18-9c89-1537d36bb9c1",
               "name": "Start a new prediction round",
               "request": {
                 "name": "Start a new prediction round",
@@ -514,7 +1517,7 @@
               },
               "response": [
                 {
-                  "id": "d49f7c18-b9e9-4c60-9de1-fef050d44d76",
+                  "id": "a508b18a-9ae5-48ae-8a55-cb8333f99758",
                   "name": "Round started",
                   "originalRequest": {
                     "url": {
@@ -563,7 +1566,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "7f88a49e-580d-4c7e-b4e4-8489f62931fc",
+                  "id": "9695bf51-d406-4ea9-a053-a7115d8df412",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -612,7 +1615,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "0fac850a-c066-4e9e-aa3f-d42e44e45d76",
+                  "id": "fe85f930-b67e-45fb-81a9-3a4d70dbb1f9",
                   "name": "Unauthorized",
                   "originalRequest": {
                     "url": {
@@ -661,7 +1664,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "3d98b59a-8e63-4546-8584-92836bf65efc",
+                  "id": "f8481b7b-2f81-4c0a-825b-ccbbd9f20a00",
                   "name": "Forbidden",
                   "originalRequest": {
                     "url": {
@@ -710,7 +1713,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "9d921fb0-0fa9-4efc-bb39-b259aa8eb2ab",
+                  "id": "a89a9623-3b78-411c-ba10-128215f9aaa1",
                   "name": "Conflict - active round exists",
                   "originalRequest": {
                     "url": {
@@ -765,11 +1768,11 @@
               }
             },
             {
-              "id": "abd514d4-9738-4246-a8ce-f688c40ad674",
+              "id": "bc7ad97b-f97a-4e86-b15b-51f72a95c784",
               "name": "{id}",
               "item": [
                 {
-                  "id": "c28198a9-3267-4412-9f05-b02bd7c53cad",
+                  "id": "aca313a5-b35d-49d1-8dd8-ae47000df814",
                   "name": "Get a round by ID",
                   "request": {
                     "name": "Get a round by ID",
@@ -799,7 +1802,7 @@
                   },
                   "response": [
                     {
-                      "id": "55285708-a670-4a3d-b3aa-7c04c47734af",
+                      "id": "f2bfd052-1236-4b32-b4ad-d2a6ea0380a9",
                       "name": "Round found",
                       "originalRequest": {
                         "url": {
@@ -838,7 +1841,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "855bc8b0-d814-4090-a188-93d2fb1d13bd",
+                      "id": "7a78d893-329b-4f77-bf59-70957b9deae2",
                       "name": "Round not found",
                       "originalRequest": {
                         "url": {
@@ -883,7 +1886,399 @@
                   }
                 },
                 {
-                  "id": "264c002d-3af9-49c3-a98a-d9be293fb57a",
+                  "id": "df03dc35-12ee-4657-a00b-f74162b81111",
+                  "name": "Place a bet on a specific round",
+                  "request": {
+                    "name": "Place a bet on a specific round",
+                    "description": {
+                      "content": "Round-scoped bet placement. The body shape selects the bet kind: a `side` places an UP/DOWN bet, a `predictedPrice` places a Precision bet. Runs through the same BetService execution path as `/api/bets/*`, so `BET_STUB_MODE` decides between recording a stub bet and submitting to Soroban, and on-chain failures surface as structured errors.\n",
+                      "type": "text/plain"
+                    },
+                    "url": {
+                      "path": [
+                        "api",
+                        "rounds",
+                        ":id",
+                        "bet"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": [
+                        {
+                          "disabled": false,
+                          "type": "any",
+                          "value": "<string>",
+                          "key": "id",
+                          "description": "(Required) "
+                        }
+                      ]
+                    },
+                    "header": [
+                      {
+                        "disabled": false,
+                        "key": "Idempotency-Key",
+                        "value": "<string>",
+                        "description": ""
+                      }
+                    ],
+                    "method": "POST",
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{bearerToken}}"
+                        }
+                      ]
+                    }
+                  },
+                  "response": [
+                    {
+                      "id": "97cdf3c0-402a-4e6f-af6f-457a7fde2ac1",
+                      "name": "Bet recorded (stub) or placed on-chain",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "bet"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
+                          {
+                            "disabled": false,
+                            "key": "Idempotency-Key",
+                            "value": "<string>",
+                            "description": ""
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "OK",
+                      "code": 200,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "d5faf0f5-57d6-438c-a3ab-cc7de623e990",
+                      "name": "Validation error, or round mode does not match the bet kind",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "bet"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
+                          {
+                            "disabled": false,
+                            "key": "Idempotency-Key",
+                            "value": "<string>",
+                            "description": ""
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Bad Request",
+                      "code": 400,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "3955827a-fcba-47cc-af8f-dfa8f47d977d",
+                      "name": "Missing or invalid JWT",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "bet"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
+                          {
+                            "disabled": false,
+                            "key": "Idempotency-Key",
+                            "value": "<string>",
+                            "description": ""
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Unauthorized",
+                      "code": 401,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "11df525b-1f4e-414d-8f61-47fb8d023eea",
+                      "name": "Wallet address mismatch",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "bet"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
+                          {
+                            "disabled": false,
+                            "key": "Idempotency-Key",
+                            "value": "<string>",
+                            "description": ""
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Forbidden",
+                      "code": 403,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "593d095a-959a-42f2-9d60-086e63acca5e",
+                      "name": "Round not found",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "bet"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
+                          {
+                            "disabled": false,
+                            "key": "Idempotency-Key",
+                            "value": "<string>",
+                            "description": ""
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Not Found",
+                      "code": 404,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "a4216c21-16eb-4ba7-af09-cbf6aa5dbec5",
+                      "name": "Idempotency key conflict",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "bet"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) "
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
+                          {
+                            "disabled": false,
+                            "key": "Idempotency-Key",
+                            "value": "<string>",
+                            "description": ""
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {}
+                      },
+                      "status": "Conflict",
+                      "code": 409,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    }
+                  ],
+                  "event": [],
+                  "protocolProfileBehavior": {
+                    "disableBodyPruning": true
+                  }
+                },
+                {
+                  "id": "accba3dd-d6f8-469d-b2cb-eb0b14d7df22",
                   "name": "Resolve a round with the final price",
                   "request": {
                     "name": "Resolve a round with the final price",
@@ -940,7 +2335,7 @@
                   },
                   "response": [
                     {
-                      "id": "1f29bace-1270-4f68-b152-77549f8e9373",
+                      "id": "dc7f5791-de70-42e4-98e2-290d086d0d47",
                       "name": "Round resolved",
                       "originalRequest": {
                         "url": {
@@ -998,7 +2393,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "0c40a01c-9140-4835-b994-6062e44ec0df",
+                      "id": "78822ef4-a112-48d8-a01b-e79d3016ce10",
                       "name": "Validation error",
                       "originalRequest": {
                         "url": {
@@ -1056,7 +2451,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "ed5ca398-1714-4b61-84af-d44295c30f53",
+                      "id": "12785155-d763-4613-927a-1c22b1288bd6",
                       "name": "Unauthorized",
                       "originalRequest": {
                         "url": {
@@ -1114,7 +2509,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "449b173c-f93e-48b5-9f00-e184c19d25bb",
+                      "id": "c30e1a04-ef7c-4654-874a-bda79661559f",
                       "name": "Forbidden",
                       "originalRequest": {
                         "url": {
@@ -1172,7 +2567,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "bb16d0b8-3ed2-481d-8a0e-1748e0661db9",
+                      "id": "829d867b-0d0f-436e-9e17-9c4c44b1c95d",
                       "name": "Round not found",
                       "originalRequest": {
                         "url": {
@@ -1236,7 +2631,7 @@
                   }
                 },
                 {
-                  "id": "58dea9a2-1ea2-494f-af9e-d4461eb04f53",
+                  "id": "6f3149a8-ca0b-49f5-98a4-21a682e2e001",
                   "name": "Simulate a round resolution (Non-Production QA Endpoint)",
                   "request": {
                     "name": "Simulate a round resolution (Non-Production QA Endpoint)",
@@ -1297,7 +2692,7 @@
                   },
                   "response": [
                     {
-                      "id": "e56f91a3-69dc-4c4f-855c-901275e747a5",
+                      "id": "ebeb0429-53e9-4f3d-be29-79a951455a80",
                       "name": "Simulation results",
                       "originalRequest": {
                         "url": {
@@ -1354,12 +2749,12 @@
                           "value": "application/json"
                         }
                       ],
-                      "body": "{\n  \"success\": true,\n  \"roundId\": \"string\",\n  \"simulatedPrice\": 8493.384122663467,\n  \"mode\": \"LEGENDS\",\n  \"startPrice\": 1146.3991819385078,\n  \"winningSide\": \"DOWN\",\n  \"winningRange\": {\n    \"min\": 7139.157122108372,\n    \"max\": 1424.2628848136685\n  },\n  \"predictions\": [\n    {\n      \"won\": true,\n      \"payout\": 9032.460847750055,\n      \"amount\": 4925.9443835720995,\n      \"side\": \"UP\"\n    },\n    {\n      \"won\": true,\n      \"payout\": 4310.796773222586,\n      \"amount\": 7031.745394185051,\n      \"side\": \"DOWN\"\n    }\n  ],\n  \"summary\": {\n    \"totalPredictions\": 738,\n    \"winners\": 5133,\n    \"losers\": 9133,\n    \"refunded\": 8617,\n    \"totalPayout\": 2427.7800893562485\n  }\n}",
+                      "body": "{\n  \"success\": true,\n  \"roundId\": \"string\",\n  \"simulatedPrice\": 5553.764561220855,\n  \"mode\": \"LEGENDS\",\n  \"startPrice\": 2687.785154019171,\n  \"winningSide\": \"DOWN\",\n  \"winningRange\": {\n    \"min\": 3368.3267480795553,\n    \"max\": 4436.420012168232\n  },\n  \"predictions\": [\n    {\n      \"won\": false,\n      \"payout\": 7394.067394678316,\n      \"amount\": 1393.828485808688,\n      \"side\": \"DOWN\"\n    },\n    {\n      \"won\": false,\n      \"payout\": 5092.018429105853,\n      \"amount\": 4428.39591071672,\n      \"side\": \"DOWN\"\n    }\n  ],\n  \"summary\": {\n    \"totalPredictions\": 8121,\n    \"winners\": 1989,\n    \"losers\": 36,\n    \"refunded\": 13,\n    \"totalPayout\": 7758.409830796218\n  }\n}",
                       "cookie": [],
                       "_postman_previewlanguage": "json"
                     },
                     {
-                      "id": "ecbdf202-095e-4576-b714-e695d686da55",
+                      "id": "ce059850-3dd6-41be-885f-e3a8897ff57e",
                       "name": "Validation error - finalPrice missing",
                       "originalRequest": {
                         "url": {
@@ -1417,7 +2812,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "c392fc51-054c-441e-911e-151c88b14fb1",
+                      "id": "c3faeb2a-b9ae-42fc-84d8-0e8e41760c02",
                       "name": "Unauthorized - missing or invalid bearer token",
                       "originalRequest": {
                         "url": {
@@ -1475,7 +2870,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "f339c346-dc80-433d-be2e-031dee09fbc7",
+                      "id": "7326bd0f-2acd-40c3-894f-e169b3192440",
                       "name": "Forbidden - simulation disabled (ENABLE_SIMULATION=false) or caller is not an admin",
                       "originalRequest": {
                         "url": {
@@ -1533,7 +2928,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "35180ac0-429a-4ac6-9125-b32fd49e42d2",
+                      "id": "83b1317a-f584-4536-bf58-2bdf24326a29",
                       "name": "Round not found",
                       "originalRequest": {
                         "url": {
@@ -1603,12 +2998,12 @@
           "event": []
         },
         {
-          "id": "d7035a24-1542-468a-9aa9-6cfffb2efc48",
+          "id": "717db0ca-9760-4e6f-a090-6c9d25d228af",
           "name": "Multi-asset USD prices (BTC, ETH, XLM)",
           "request": {
             "name": "Multi-asset USD prices (BTC, ETH, XLM)",
             "description": {
-              "content": "**Hackathon/demo price endpoint. Do not confuse with production `GET /api/price`.**\n\nReturns BTC, ETH, and XLM spot prices (CoinGecko with a 30-second cache,\nor mock data when `DATA_MODE=mock`). Wrapped in the standard\n`{ success: true, data }` envelope.\n\n| Path | App | Purpose |\n|------|-----|---------|\n| `GET /api/prices` | Hackathon + production | Multi-asset ticker |\n| `GET /api/price` | Production only | Single-asset XLM oracle |\n\nThe hackathon app does **not** serve `/api/price`. Frontends targeting\nthis demo API must use `/api/prices`. The two paths are **not** aliases\nand return different payloads on production.\n",
+              "content": "**Hackathon/demo price endpoint. Do not confuse with production `GET /api/price`.**\n\nReturns BTC, ETH, and XLM spot prices (CoinGecko with a 30-second cache,\nor mock data when `DATA_MODE=mock`). Wrapped in the standard\n`{ success: true, data }` envelope — the same handler and envelope the\nproduction app serves on this path.\n\n| Path | App | Purpose |\n|------|-----|---------|\n| `GET /api/prices` | Hackathon + production | Multi-asset ticker |\n| `GET /api/price` | Production only | Single-asset XLM oracle |\n\nThe hackathon app does **not** serve `/api/price`. Frontends targeting\nthis demo API must use `/api/prices`. The two paths are **not** aliases\nand return different payloads on production.\n",
               "type": "text/plain"
             },
             "url": {
@@ -1633,8 +3028,8 @@
           },
           "response": [
             {
-              "id": "fedb2b42-2223-4650-bc97-c6e08c151a18",
-              "name": "Current market prices in a success envelope",
+              "id": "29a58fdc-dd1b-4522-ac3a-7d9f80d58982",
+              "name": "Current market prices in the success envelope",
               "originalRequest": {
                 "url": {
                   "path": [
@@ -1664,13 +3059,13 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"success\": true,\n    \"data\": {\n      \"BTC\": 67420.12,\n      \"ETH\": 3241.55,\n      \"XLM\": 0.2891,\n      \"stale\": false,\n      \"lastUpdatedAt\": \"1980-02-21T02:01:03.895Z\"\n    }\n  }\n}",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"BTC\": 67420.12,\n    \"ETH\": 3241.55,\n    \"XLM\": 0.2891,\n    \"stale\": false,\n    \"lastUpdatedAt\": \"2026-07-29T12:00:00.000Z\"\n  }\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "61652d25-1bf2-409a-bc72-7b73d551e276",
-              "name": "Price service unavailable (no cache)",
+              "id": "304d165e-aa4f-4f29-8d32-f451100122f3",
+              "name": "Price service unavailable (no cache and upstream failed)",
               "originalRequest": {
                 "url": {
                   "path": [
@@ -1700,7 +3095,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"success\": false,\n  \"error\": \"string\",\n  \"message\": \"string\",\n  \"stale\": true,\n  \"lastUpdatedAt\": \"string\",\n  \"source\": \"string\"\n}",
+              "body": "{\n  \"success\": false,\n  \"error\": \"Unable to fetch prices and no cached data is available\"\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             }
@@ -1711,7 +3106,7 @@
           }
         },
         {
-          "id": "bda8e464-ada3-4431-90e3-b0af8a1184a0",
+          "id": "53305117-75e4-4cae-bad8-fd744cbdc955",
           "name": "Single-asset XLM oracle price",
           "request": {
             "name": "Single-asset XLM oracle price",
@@ -1741,7 +3136,7 @@
           },
           "response": [
             {
-              "id": "8cd6cb9a-d9ae-4327-b984-7d8338325f71",
+              "id": "e0c7d5b0-672d-4ec6-b986-c19992349cc3",
               "name": "Current XLM oracle price snapshot",
               "originalRequest": {
                 "url": {
@@ -1783,11 +3178,11 @@
           }
         },
         {
-          "id": "185f8cbd-a819-4404-9866-1311fbb7eeb1",
+          "id": "71c83e4d-cabf-4c67-a573-8f0774015b97",
           "name": "predictions",
           "item": [
             {
-              "id": "e7001058-e1e1-4c6c-9c7b-94ceecf3cb29",
+              "id": "ec2dc481-6115-4fe1-8597-de1c74367871",
               "name": "Submit a prediction",
               "request": {
                 "name": "Submit a prediction",
@@ -1845,7 +3240,7 @@
               },
               "response": [
                 {
-                  "id": "09373b5c-94ef-4519-9ae7-74914ae2fca4",
+                  "id": "892cab96-54bd-474f-907b-32e269429760",
                   "name": "Prediction submitted",
                   "originalRequest": {
                     "url": {
@@ -1900,7 +3295,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "2d5cdcce-9c80-4180-899b-7adade34b5ab",
+                  "id": "2971c88f-8465-4bba-a38a-88ec35be3d75",
                   "name": "Idempotency key reused with a different request body",
                   "originalRequest": {
                     "url": {
@@ -1965,7 +3360,7 @@
               }
             },
             {
-              "id": "56e14208-ce71-40ff-97d6-49c04d28272f",
+              "id": "fe3b0948-44d1-4f7f-84d9-a5931c099c59",
               "name": "Submit multiple predictions at once",
               "request": {
                 "name": "Submit multiple predictions at once",
@@ -2017,7 +3412,7 @@
               },
               "response": [
                 {
-                  "id": "53a1fde7-8078-4dbd-9fae-4cc1762d9ee8",
+                  "id": "c154dd1e-8a4d-440b-91d7-242880eff72e",
                   "name": "Predictions processed",
                   "originalRequest": {
                     "url": {
@@ -2066,7 +3461,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "14ba1a7a-3651-454b-ae62-5b534336231d",
+                  "id": "81d7b555-ddc3-4488-96e0-c731079d770c",
                   "name": "Too many batch requests",
                   "originalRequest": {
                     "url": {
@@ -2125,7 +3520,7 @@
               }
             },
             {
-              "id": "8d8b59ad-d6ff-499b-bc23-311613c4d917",
+              "id": "7349adaa-48fb-4441-bec6-9058c7e6451e",
               "name": "Get user predictions",
               "request": {
                 "name": "Get user predictions",
@@ -2155,7 +3550,7 @@
               },
               "response": [
                 {
-                  "id": "fb802f94-d489-49f7-8fb9-ca8dabc8e23f",
+                  "id": "5b708692-64bd-4f45-bf2d-be11298a40b5",
                   "name": "List of predictions",
                   "originalRequest": {
                     "url": {
@@ -2202,7 +3597,7 @@
               }
             },
             {
-              "id": "1375ffeb-38ed-4977-b461-a516e0ac2965",
+              "id": "10bd74f2-0a0c-48d2-9284-c86f2cbd45d9",
               "name": "Get predictions for a round",
               "request": {
                 "name": "Get predictions for a round",
@@ -2233,7 +3628,7 @@
               },
               "response": [
                 {
-                  "id": "734ea690-15db-45a4-8166-4edcab5446e1",
+                  "id": "ab00e87f-bda1-4ac5-b348-9f84181b122b",
                   "name": "List of predictions",
                   "originalRequest": {
                     "url": {
@@ -2282,7 +3677,7 @@
           "event": []
         },
         {
-          "id": "6d5ad4f9-7e75-4124-9241-b4b769fb426a",
+          "id": "406b1c5d-2ff5-4c35-91a1-e7915c08d8d6",
           "name": "Get paginated notifications",
           "request": {
             "name": "Get paginated notifications",
@@ -2338,7 +3733,7 @@
           },
           "response": [
             {
-              "id": "7e97d788-962c-4ff5-9a1e-96d9abefb226",
+              "id": "e90dfb77-c8a7-4e19-b6de-69b539aa0ff9",
               "name": "Notifications page",
               "originalRequest": {
                 "url": {
@@ -2395,7 +3790,7 @@
               "_postman_previewlanguage": "text"
             },
             {
-              "id": "f2dc6217-74f0-4e17-a0bd-bab372c2151f",
+              "id": "76fcce38-1306-4f01-812a-e254d64bb849",
               "name": "Validation error",
               "originalRequest": {
                 "url": {
@@ -2452,7 +3847,7 @@
               "_postman_previewlanguage": "text"
             },
             {
-              "id": "22835e1a-9ca0-4721-abba-b79b45238828",
+              "id": "4a13ea47-b368-4874-9bb9-9cb82effdf83",
               "name": "Unauthorized",
               "originalRequest": {
                 "url": {
@@ -2515,11 +3910,11 @@
           }
         },
         {
-          "id": "8f55e9b1-9a94-4e2e-a638-c3f844811fd8",
+          "id": "689c1bfa-5b11-4cc0-aa70-318a69bc98f4",
           "name": "leaderboard",
           "item": [
             {
-              "id": "a00ac6fc-0d69-4ab0-ac72-b7eb37325207",
+              "id": "9ac77f79-290a-4256-9727-294f63ff1f3e",
               "name": "Get the global leaderboard",
               "request": {
                 "name": "Get the global leaderboard",
@@ -2568,7 +3963,7 @@
               },
               "response": [
                 {
-                  "id": "c7c1f820-9749-4878-b11c-6686325be9c2",
+                  "id": "81f410c5-5dd6-408d-adbb-37366766161d",
                   "name": "Leaderboard payload",
                   "originalRequest": {
                     "url": {
@@ -2612,12 +4007,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"leaderboard\": [\n    {\n      \"rank\": 1950,\n      \"userId\": \"string\",\n      \"walletAddress\": \"string\",\n      \"totalEarnings\": \"1000.33333333\",\n      \"totalPredictions\": 6745,\n      \"accuracy\": 5488.03486438649,\n      \"modeStats\": {\n        \"upDown\": {\n          \"wins\": 8153,\n          \"losses\": 1090,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 6440.804444160203\n        },\n        \"legends\": {\n          \"wins\": 9694,\n          \"losses\": 6300,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 3010.807981504189\n        }\n      }\n    },\n    {\n      \"rank\": 7908,\n      \"userId\": \"string\",\n      \"walletAddress\": \"string\",\n      \"totalEarnings\": \"1000.33333333\",\n      \"totalPredictions\": 7994,\n      \"accuracy\": 7362.589739285795,\n      \"modeStats\": {\n        \"upDown\": {\n          \"wins\": 3434,\n          \"losses\": 1375,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 7204.884062698046\n        },\n        \"legends\": {\n          \"wins\": 8150,\n          \"losses\": 1986,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 531.5791662910718\n        }\n      }\n    }\n  ],\n  \"totalUsers\": 4480.34641250322,\n  \"lastUpdated\": \"string\",\n  \"userPosition\": {\n    \"rank\": 4383,\n    \"userId\": \"string\",\n    \"walletAddress\": \"string\",\n    \"totalEarnings\": \"1000.33333333\",\n    \"totalPredictions\": 3385,\n    \"accuracy\": 3242.1969090381785,\n    \"modeStats\": {\n      \"upDown\": {\n        \"wins\": 404,\n        \"losses\": 9270,\n        \"earnings\": \"1000.33333333\",\n        \"accuracy\": 2298.02897667873\n      },\n      \"legends\": {\n        \"wins\": 7525,\n        \"losses\": 2092,\n        \"earnings\": \"1000.33333333\",\n        \"accuracy\": 4252.739547045138\n      }\n    }\n  }\n}",
+                  "body": "{\n  \"leaderboard\": [\n    {\n      \"rank\": 1654,\n      \"userId\": \"string\",\n      \"walletAddress\": \"string\",\n      \"totalEarnings\": \"1000.33333333\",\n      \"totalPredictions\": 2619,\n      \"accuracy\": 214.92623163064107,\n      \"modeStats\": {\n        \"upDown\": {\n          \"wins\": 1530,\n          \"losses\": 7060,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 1965.2544950355489\n        },\n        \"legends\": {\n          \"wins\": 9093,\n          \"losses\": 6946,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 3754.7902310380455\n        }\n      }\n    },\n    {\n      \"rank\": 8669,\n      \"userId\": \"string\",\n      \"walletAddress\": \"string\",\n      \"totalEarnings\": \"1000.33333333\",\n      \"totalPredictions\": 7814,\n      \"accuracy\": 1681.6859706643993,\n      \"modeStats\": {\n        \"upDown\": {\n          \"wins\": 1426,\n          \"losses\": 4034,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 3029.250276472186\n        },\n        \"legends\": {\n          \"wins\": 6703,\n          \"losses\": 6897,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 7869.186934797696\n        }\n      }\n    }\n  ],\n  \"totalUsers\": 427.3587791402078,\n  \"lastUpdated\": \"string\",\n  \"userPosition\": {\n    \"rank\": 9277,\n    \"userId\": \"string\",\n    \"walletAddress\": \"string\",\n    \"totalEarnings\": \"1000.33333333\",\n    \"totalPredictions\": 7653,\n    \"accuracy\": 268.8124051084295,\n    \"modeStats\": {\n      \"upDown\": {\n        \"wins\": 3839,\n        \"losses\": 5266,\n        \"earnings\": \"1000.33333333\",\n        \"accuracy\": 8612.174670228687\n      },\n      \"legends\": {\n        \"wins\": 5143,\n        \"losses\": 1870,\n        \"earnings\": \"1000.33333333\",\n        \"accuracy\": 221.75532497061613\n      }\n    }\n  }\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "189c42f2-78f2-4743-8424-8acfba78c414",
+                  "id": "49205526-90e1-4a87-9eaa-34990cce882e",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -2660,7 +4055,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "5cd63a8f-fe70-4770-b67f-a5395ccb987c",
+                  "id": "d2eb5149-598c-422e-8442-2203fb220b03",
                   "name": "Internal server error",
                   "originalRequest": {
                     "url": {
@@ -2709,7 +4104,7 @@
               }
             },
             {
-              "id": "436c8fbb-0bae-403b-86b6-7cb616225a8f",
+              "id": "a4ca3109-f6eb-411d-9df4-1c9c823f8bdf",
               "name": "Get leaderboard positions for multiple users",
               "request": {
                 "name": "Get leaderboard positions for multiple users",
@@ -2761,7 +4156,7 @@
               },
               "response": [
                 {
-                  "id": "a6639807-6cf1-41a9-9514-19e157a2b52b",
+                  "id": "a0e14e54-cb87-4931-850d-a9078276cc1f",
                   "name": "Batch user positions",
                   "originalRequest": {
                     "url": {
@@ -2814,7 +4209,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "3b4cc6ae-658e-4a1a-97b5-33d55d168e0c",
+                  "id": "d6532e04-971c-44c6-a465-14dcbd023b89",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -2867,7 +4262,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "629aee54-3cdc-414c-9fb1-98537f10b839",
+                  "id": "cf999861-4fc0-441a-b852-758688536bca",
                   "name": "Unauthorized",
                   "originalRequest": {
                     "url": {
@@ -2920,7 +4315,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "6f856aff-3f13-4a9a-af75-e671c32abcac",
+                  "id": "2aad252e-5a9e-4e9a-a24b-0ee43daf4cb3",
                   "name": "Internal server error",
                   "originalRequest": {
                     "url": {
@@ -2982,7 +4377,7 @@
           "event": []
         },
         {
-          "id": "5393e3be-85ac-43cc-8495-aa977f831982",
+          "id": "5468f427-2ada-4629-a8b4-8a3b27ccd08e",
           "name": "Lightweight hackathon health check",
           "request": {
             "name": "Lightweight hackathon health check",
@@ -3003,7 +4398,7 @@
           },
           "response": [
             {
-              "id": "0625c911-4eca-4635-91ce-b548bd6e3574",
+              "id": "708cad26-c0c0-4cf6-9379-c83a6bc3579a",
               "name": "Process and dependency status",
               "originalRequest": {
                 "url": {
@@ -3039,7 +4434,7 @@
           }
         },
         {
-          "id": "526e2027-230e-4437-bd04-27c47e08df5b",
+          "id": "0374b5e3-70da-4680-a304-90b4520d3690",
           "name": "Backend error code catalog (#196)",
           "request": {
             "name": "Backend error code catalog (#196)",
@@ -3069,7 +4464,7 @@
           },
           "response": [
             {
-              "id": "0bd14452-b24c-4a2c-8427-713a96af846c",
+              "id": "559e3af0-566c-435d-a545-ec5c10b10261",
               "name": "Catalog of error codes",
               "originalRequest": {
                 "url": {
@@ -3100,7 +4495,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"entries\": [\n    {\n      \"code\": \"string\",\n      \"status\": 9457,\n      \"errorClass\": \"string\",\n      \"description\": \"string\"\n    },\n    {\n      \"code\": \"string\",\n      \"status\": 8337,\n      \"errorClass\": \"string\",\n      \"description\": \"string\"\n    }\n  ]\n}",
+              "body": "{\n  \"entries\": [\n    {\n      \"code\": \"string\",\n      \"status\": 709,\n      \"errorClass\": \"string\",\n      \"description\": \"string\"\n    },\n    {\n      \"code\": \"string\",\n      \"status\": 8677,\n      \"errorClass\": \"string\",\n      \"description\": \"string\"\n    }\n  ]\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             }
@@ -3111,7 +4506,7 @@
           }
         },
         {
-          "id": "74ad20c7-df23-417a-b7ce-4f0983f64b85",
+          "id": "be4d7d66-ae24-46af-aa78-40112ab4bcea",
           "name": "Get educational guides",
           "request": {
             "name": "Get educational guides",
@@ -3142,7 +4537,7 @@
           },
           "response": [
             {
-              "id": "2117e674-ef1d-4b2a-a028-fceb2af8514c",
+              "id": "6e78142a-ccb5-4490-b4aa-9c6028972b5f",
               "name": "Education guides",
               "originalRequest": {
                 "url": {
@@ -3179,7 +4574,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "8b246e05-0469-49a2-adf5-dd1b2d3f5074",
+              "id": "604e6d48-ba81-4e81-9a5a-cc36ada33620",
               "name": "Internal server error",
               "originalRequest": {
                 "url": {
@@ -3222,11 +4617,11 @@
           }
         },
         {
-          "id": "6fdd3ef5-cb5d-46ad-ab73-e1c6dffd29e9",
+          "id": "ad2a33e3-4205-4c19-8918-bea40e91fd59",
           "name": "chat",
           "item": [
             {
-              "id": "f76d0952-ca6a-4799-b0fe-f5cd3fb5b081",
+              "id": "2e69f30b-d617-4c5f-b43f-ccd852371fa4",
               "name": "Send a chat message",
               "request": {
                 "name": "Send a chat message",
@@ -3278,7 +4673,7 @@
               },
               "response": [
                 {
-                  "id": "f689860d-18cd-4b2d-951c-f7a1ff8c729c",
+                  "id": "deff7e65-0516-4274-81db-da605c0ef2f1",
                   "name": "Message created",
                   "originalRequest": {
                     "url": {
@@ -3327,7 +4722,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "702f5d6a-ef42-4964-b214-20b397b5956a",
+                  "id": "258d672b-2211-498e-b7a7-58af9a79d173",
                   "name": "Too many messages",
                   "originalRequest": {
                     "url": {
@@ -3386,7 +4781,7 @@
               }
             },
             {
-              "id": "7c8c2190-6249-4daf-ae52-06fe37b7e7c0",
+              "id": "ec95233e-2516-490b-bd35-739b9455de13",
               "name": "Get chat history",
               "request": {
                 "name": "Get chat history",
@@ -3436,7 +4831,7 @@
               },
               "response": [
                 {
-                  "id": "38112bd7-37db-4220-b25b-a7df82341891",
+                  "id": "3a796f40-482a-4d98-bf7c-d2a5207ec24f",
                   "name": "Chat history page",
                   "originalRequest": {
                     "url": {
@@ -3486,7 +4881,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "be8ab851-f390-40de-be84-0f304066f8e8",
+                  "id": "d1120d5a-29ab-44da-944c-9158067f02cd",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -3539,11 +4934,11 @@
           "event": []
         },
         {
-          "id": "acb595ce-eb05-454b-bac7-3b58da65b55c",
+          "id": "28777050-44d4-4d6a-848f-68995c1a9a0a",
           "name": "bets",
           "item": [
             {
-              "id": "ed122274-ae1e-4fc7-a22f-59a44b401c08",
+              "id": "be0d270b-bd9d-410e-ba00-0dcec4101e25",
               "name": "Submit an UP/DOWN bet (stub)",
               "request": {
                 "name": "Submit an UP/DOWN bet (stub)",
@@ -3588,7 +4983,7 @@
               },
               "response": [
                 {
-                  "id": "72e42688-5681-44e4-8f4e-e645567754c8",
+                  "id": "732dd6d8-0ff7-4496-883b-dca84769944d",
                   "name": "Bet recorded (stub)",
                   "originalRequest": {
                     "url": {
@@ -3637,7 +5032,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "3934ee8f-ba6b-4b94-93b3-5277d64c75eb",
+                  "id": "d658ddf0-4fb6-4754-beaf-14bf8a15b7b8",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -3686,7 +5081,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "e9b284e1-5295-4a7b-adff-d1b6cb055c56",
+                  "id": "ed3a59db-2207-47af-b172-0684dd022534",
                   "name": "Missing or invalid JWT",
                   "originalRequest": {
                     "url": {
@@ -3741,7 +5136,7 @@
               }
             },
             {
-              "id": "1453577d-3955-4151-9824-a06d6a2663c6",
+              "id": "50639914-05c9-42dc-84f9-c21a9096cabc",
               "name": "Submit a Precision bet (stub)",
               "request": {
                 "name": "Submit a Precision bet (stub)",
@@ -3786,7 +5181,7 @@
               },
               "response": [
                 {
-                  "id": "b672e564-e5dc-4db3-833c-bca2eef0f488",
+                  "id": "4c185163-aa73-461c-88ce-7dc61c05445c",
                   "name": "Bet recorded (stub)",
                   "originalRequest": {
                     "url": {
@@ -3835,7 +5230,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "eadd8b70-59a1-4b62-bc2d-d0db83f9f6b1",
+                  "id": "a698fdce-f950-4775-8d96-c5b3498b8571",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -3884,7 +5279,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "c27b168e-d1a4-4105-99d1-cf01e2ea9f24",
+                  "id": "d313afb5-683f-438a-84fd-40dc527af0e0",
                   "name": "Missing or invalid JWT",
                   "originalRequest": {
                     "url": {
@@ -3939,7 +5334,7 @@
               }
             },
             {
-              "id": "27ce7ec3-02da-4221-98d7-dc1262424160",
+              "id": "6d45574e-9a43-4f95-aa5f-8a3300bea07c",
               "name": "Claim pending Soroban winnings",
               "request": {
                 "name": "Claim pending Soroban winnings",
@@ -3990,7 +5385,7 @@
               },
               "response": [
                 {
-                  "id": "6506caec-796f-47fe-a24f-0c3d018a7696",
+                  "id": "500903a5-4f1d-447d-8710-9a5e3e6ea8a7",
                   "name": "Claim recorded or submitted on-chain",
                   "originalRequest": {
                     "url": {
@@ -4045,7 +5440,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "3b3614f3-87e9-42ce-bfa4-c95741c5aff6",
+                  "id": "938b8e31-bbe5-42f1-9499-4d25b7822158",
                   "name": "Missing or invalid JWT",
                   "originalRequest": {
                     "url": {
@@ -4100,7 +5495,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "76b983ae-0a8a-421f-a9c1-9e832f662d0c",
+                  "id": "6703303a-2433-4461-8af7-04e3cc9b2d11",
                   "name": "Wallet address mismatch",
                   "originalRequest": {
                     "url": {
@@ -4155,7 +5550,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "f69fe537-ebfc-4234-886b-491dc0540b99",
+                  "id": "9ca3d3a4-3d27-46af-a97d-d1a598b27b0d",
                   "name": "Idempotency key conflict",
                   "originalRequest": {
                     "url": {
@@ -4210,7 +5605,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "82ea3db9-2810-4b3e-b0c0-027402cd5dc6",
+                  "id": "4b0fce69-47ea-487e-a225-5f88b68483e0",
                   "name": "No claimable winnings / invalid contract state",
                   "originalRequest": {
                     "url": {
@@ -4265,7 +5660,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "d6b22784-3015-42b1-828c-ce7a08a2c52f",
+                  "id": "322a77ee-32cb-4cf7-98b8-1d67442080cc",
                   "name": "Contract interaction failed",
                   "originalRequest": {
                     "url": {
@@ -4326,7 +5721,7 @@
               }
             },
             {
-              "id": "03e02f5f-7a18-4022-b132-cdb40003a0ca",
+              "id": "e11aa6e1-5c7a-4163-bbaa-c4502f77f1c2",
               "name": "Query bet records and their on-chain reconciliation state",
               "request": {
                 "name": "Query bet records and their on-chain reconciliation state",
@@ -4378,7 +5773,7 @@
               },
               "response": [
                 {
-                  "id": "1e7b4486-b3dd-4c4a-9951-c01059af0b12",
+                  "id": "d4f4e2ff-47db-4776-adb8-584dd293ce51",
                   "name": "Matching bet records, newest first, with a status summary",
                   "originalRequest": {
                     "url": {
@@ -4432,7 +5827,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "dea95000-c450-45b3-b99a-6766cbc70fe8",
+                  "id": "e28c5809-2aff-49db-ad09-cc8593b5886c",
                   "name": "Unknown status filter",
                   "originalRequest": {
                     "url": {
@@ -4486,7 +5881,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "0b7fe7e4-afae-4f25-a61e-3ec3a41a76ab",
+                  "id": "97cad813-ac35-4706-addf-2f4fc6658bde",
                   "name": "Missing or invalid JWT",
                   "originalRequest": {
                     "url": {
@@ -4540,7 +5935,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "fb36a1a6-a3f4-4391-b7aa-ebe3e3c0cf9d",
+                  "id": "a2521656-33cc-4ded-b1f8-60e93293bc97",
                   "name": "Admin access required",
                   "originalRequest": {
                     "url": {
@@ -4600,7 +5995,7 @@
               }
             },
             {
-              "id": "8c5b8c89-34eb-4da8-a57d-64d7306b9331",
+              "id": "cb4692ad-eefe-4ddd-a2a2-dbcd91a822dd",
               "name": "Get a single bet record with its reconciliation state",
               "request": {
                 "name": "Get a single bet record with its reconciliation state",
@@ -4638,7 +6033,7 @@
               },
               "response": [
                 {
-                  "id": "a980bb85-1b79-460e-8ec3-016a4a0155c0",
+                  "id": "142e0ab9-8d4c-49b5-967a-70cde485231a",
                   "name": "Bet record",
                   "originalRequest": {
                     "url": {
@@ -4687,7 +6082,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "91c88674-5202-4820-b926-6f1ebbea6c61",
+                  "id": "72ab98e6-1aae-4fad-9ff5-f497787713ef",
                   "name": "Missing or invalid JWT",
                   "originalRequest": {
                     "url": {
@@ -4736,7 +6131,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "dcd5aa50-ddb3-4e33-b5c5-241c24f29698",
+                  "id": "66aa1328-8916-4db2-bbb7-00693c0affa8",
                   "name": "Admin access required",
                   "originalRequest": {
                     "url": {
@@ -4785,7 +6180,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "1635cad5-22d4-42ae-8162-b5da0ab046ca",
+                  "id": "4b5cbdc5-92a2-4f0d-a21e-6b5d6f85fe84",
                   "name": "Bet not found",
                   "originalRequest": {
                     "url": {
@@ -4843,16 +6238,16 @@
           "event": []
         },
         {
-          "id": "242fc313-eeb7-4865-825f-6b99154054ac",
+          "id": "ecf6ea24-1816-487a-929e-ab98df8f68f7",
           "name": "auth",
           "item": [
             {
-              "id": "7ea772b0-d6b6-4564-804c-58026466d2b8",
+              "id": "f249c3b8-9b19-4a93-b28d-73fa8fa321c0",
               "name": "Request a wallet authentication challenge",
               "request": {
                 "name": "Request a wallet authentication challenge",
                 "description": {
-                  "content": "Step 1 of wallet authentication. Returns a one-time challenge string for the wallet to sign.\\n\nRate limit: **10 requests per 15 minutes per IP**. On limit, responds with **429**.\n",
+                  "content": "Step 1 of wallet authentication. Returns a SEP-10-style one-time challenge string for the wallet to sign.\nThe challenge is a human-readable message that **includes `Domain` and `Home Domain` fields** (SEP-10 `web_auth_domain` / `home_domain` style) so wallets can display the requesting origin and users can spot phishing.\nSign the *exact* `challenge` string (UTF-8 bytes) with the Stellar account's ed25519 key; the server verifies the signature and the embedded domain binding. Legacy `xelma_auth_*` challenges are still accepted on `/connect`/`/verify` for backward compatibility — see migration notes below.\\n\nRate limit: **10 requests per 15 minutes per IP**. On limit, responds with **429**.\n\n**Migration / backward compatibility:**\n- New clients: treat `challenge` as an opaque UTF-8 string (may contain newlines) and sign `Buffer.from(challenge,'utf8')`.\n- Old clients that expected `challenge` to match `/^xelma_auth_/` will need to update — they should not parse or trim the challenge, just sign it verbatim. Stored legacy challenges continue to verify.\n- `domain` and `homeDomain` are also returned as top-level fields for clients that want to show the origin without parsing the message.\n",
                   "type": "text/plain"
                 },
                 "url": {
@@ -4891,7 +6286,7 @@
               },
               "response": [
                 {
-                  "id": "ec20a540-1a0c-474d-866a-72653b116fb9",
+                  "id": "6643b73d-e24e-4641-a485-1e365cee550c",
                   "name": "Challenge created",
                   "originalRequest": {
                     "url": {
@@ -4915,7 +6310,7 @@
                     "method": "POST",
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\"\n}",
+                      "raw": "{\n  \"walletAddress\": \"GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -4931,12 +6326,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"challenge\": \"random-challenge-string\",\n  \"expiresAt\": \"2026-01-29T00:00:00.000Z\"\n}",
+                  "body": "{\n  \"challenge\": \"Xelma Authentication\\nDomain: xelma.io\\nHome Domain: xelma.io\\nAddress: GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\\nNonce: ab12... \\nIssued At: 2026-09-01T00:00:00.000Z\\nVersion: 1\\nTimestamp: 1725148800000\",\n  \"domain\": \"xelma.io\",\n  \"homeDomain\": \"xelma.io\",\n  \"expiresAt\": \"2026-01-29T00:00:00.000Z\"\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "eac1db95-f7fe-4115-b6fa-3942f06a119e",
+                  "id": "12b281d1-1797-45bb-957d-9bca44a43a13",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -4960,7 +6355,7 @@
                     "method": "POST",
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\"\n}",
+                      "raw": "{\n  \"walletAddress\": \"GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -4981,7 +6376,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "003b76f0-884b-4a2f-8a5a-77afff7adf91",
+                  "id": "2336dbd0-f25e-4df2-986c-f78ed450f7c5",
                   "name": "Too many requests",
                   "originalRequest": {
                     "url": {
@@ -5005,7 +6400,7 @@
                     "method": "POST",
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\"\n}",
+                      "raw": "{\n  \"walletAddress\": \"GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -5026,7 +6421,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "682a0e4f-a130-4e88-9514-4ede0e35da18",
+                  "id": "a08d308b-d101-498a-ad97-6bff748c223c",
                   "name": "Internal server error",
                   "originalRequest": {
                     "url": {
@@ -5050,7 +6445,7 @@
                     "method": "POST",
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\"\n}",
+                      "raw": "{\n  \"walletAddress\": \"GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -5077,12 +6472,12 @@
               }
             },
             {
-              "id": "6695e6ab-04b4-420d-9a43-d1774bf91286",
+              "id": "210c638b-2b52-401e-89da-8d48c5c026a4",
               "name": "Verify signature and authenticate wallet",
               "request": {
                 "name": "Verify signature and authenticate wallet",
                 "description": {
-                  "content": "Step 2 of wallet authentication. Verifies the signature for the challenge and returns a JWT.\\n\nRate limit: **5 requests per 15 minutes per IP**. On limit, responds with **429**.\n",
+                  "content": "Step 2 of wallet authentication. Verifies the signature for the challenge and returns a JWT.\nThe `challenge` must be the exact UTF-8 string returned from `/challenge` (including any `Domain`/`Home Domain` lines). The server checks the ed25519 signature **and** that the challenge's embedded `Domain`/`Home Domain` match the server's `AUTH_DOMAIN`/`HOME_DOMAIN` (anti-phishing). Legacy `xelma_auth_*` challenges skip the domain check for backward compatibility.\\n\nRate limit: **5 requests per 15 minutes per IP**. On limit, responds with **429**.\n",
                   "type": "text/plain"
                 },
                 "url": {
@@ -5121,7 +6516,7 @@
               },
               "response": [
                 {
-                  "id": "0f01de6c-54cd-4499-9318-13f6e1eb1ab6",
+                  "id": "8f59d2d0-719e-4f45-aed6-1f2b8965a663",
                   "name": "Authenticated",
                   "originalRequest": {
                     "url": {
@@ -5145,7 +6540,7 @@
                     "method": "POST",
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"random-challenge-string\",\n  \"signature\": \"base64-or-hex-signature\"\n}",
+                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"Xelma Authentication\\nDomain: xelma.io\\nHome Domain: xelma.io\\n...\",\n  \"signature\": \"base64-or-hex-signature\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -5161,12 +6556,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"token\": \"string\",\n  \"user\": {\n    \"id\": \"string\",\n    \"walletAddress\": \"string\",\n    \"createdAt\": \"1976-01-05T19:02:53.411Z\",\n    \"lastLoginAt\": \"1993-02-26T17:04:33.093Z\"\n  }\n}",
+                  "body": "{\n  \"token\": \"string\",\n  \"user\": {\n    \"id\": \"string\",\n    \"walletAddress\": \"string\",\n    \"createdAt\": \"1993-03-21T12:52:39.862Z\",\n    \"lastLoginAt\": \"2006-03-07T23:08:01.344Z\"\n  }\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "3d26ca45-52d8-4c14-80fa-51920ec8ae32",
+                  "id": "85236d39-e5ba-45de-b06a-dd85de992399",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -5190,7 +6585,7 @@
                     "method": "POST",
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"random-challenge-string\",\n  \"signature\": \"base64-or-hex-signature\"\n}",
+                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"Xelma Authentication\\nDomain: xelma.io\\nHome Domain: xelma.io\\n...\",\n  \"signature\": \"base64-or-hex-signature\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -5211,7 +6606,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "87ba57a7-6372-4997-b7b3-37585f0dad87",
+                  "id": "acfa3373-7e93-4a11-9128-b0150f173788",
                   "name": "Authentication failed",
                   "originalRequest": {
                     "url": {
@@ -5235,7 +6630,7 @@
                     "method": "POST",
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"random-challenge-string\",\n  \"signature\": \"base64-or-hex-signature\"\n}",
+                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"Xelma Authentication\\nDomain: xelma.io\\nHome Domain: xelma.io\\n...\",\n  \"signature\": \"base64-or-hex-signature\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -5256,7 +6651,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "85fc09f1-fdc8-4f3e-9192-7d44fed91c3c",
+                  "id": "91a6ac14-7ca1-42b5-b866-76ba1ba70743",
                   "name": "Too many requests",
                   "originalRequest": {
                     "url": {
@@ -5280,7 +6675,7 @@
                     "method": "POST",
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"random-challenge-string\",\n  \"signature\": \"base64-or-hex-signature\"\n}",
+                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"Xelma Authentication\\nDomain: xelma.io\\nHome Domain: xelma.io\\n...\",\n  \"signature\": \"base64-or-hex-signature\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -5301,7 +6696,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "e1f0a0a0-c5b5-4959-967d-c77002b96875",
+                  "id": "da8f9169-c35a-4d26-967b-f4ee899abea2",
                   "name": "Internal server error",
                   "originalRequest": {
                     "url": {
@@ -5325,7 +6720,7 @@
                     "method": "POST",
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"random-challenge-string\",\n  \"signature\": \"base64-or-hex-signature\"\n}",
+                      "raw": "{\n  \"walletAddress\": \"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\n  \"challenge\": \"Xelma Authentication\\nDomain: xelma.io\\nHome Domain: xelma.io\\n...\",\n  \"signature\": \"base64-or-hex-signature\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
@@ -5352,7 +6747,7 @@
               }
             },
             {
-              "id": "b2ddf5c9-c65b-4f45-a509-31602284e23c",
+              "id": "054e9370-6b08-4c49-bb57-d231d6b14a92",
               "name": "Refresh JWT access token",
               "request": {
                 "name": "Refresh JWT access token",
@@ -5404,7 +6799,7 @@
               },
               "response": [
                 {
-                  "id": "b2997cfe-6bae-49f3-8a5f-b695b35d762b",
+                  "id": "0b5e59d3-1ef8-47ba-9174-0fdad2649684",
                   "name": "Token successfully refreshed",
                   "originalRequest": {
                     "url": {
@@ -5452,12 +6847,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"token\": \"string\",\n  \"user\": {\n    \"id\": \"string\",\n    \"walletAddress\": \"string\",\n    \"createdAt\": \"1976-01-05T19:02:53.411Z\",\n    \"lastLoginAt\": \"1993-02-26T17:04:33.093Z\"\n  }\n}",
+                  "body": "{\n  \"token\": \"string\",\n  \"user\": {\n    \"id\": \"string\",\n    \"walletAddress\": \"string\",\n    \"createdAt\": \"1993-03-21T12:52:39.862Z\",\n    \"lastLoginAt\": \"2006-03-07T23:08:01.344Z\"\n  }\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "a24c8624-0f43-45ea-94df-511110241182",
+                  "id": "49428f5f-4e18-4b07-9859-943f52c0aa61",
                   "name": "Authentication failed or expired token",
                   "originalRequest": {
                     "url": {
@@ -5519,19 +6914,181 @@
           "event": []
         },
         {
-          "id": "0d600b39-23d8-41fa-acde-51f1c6dfb1f3",
+          "id": "1ae1cced-4241-4743-9f4b-8d00c778a61c",
           "name": "admin",
           "item": [
             {
-              "id": "265c1ef6-f695-450d-a578-da8fb85e09b1",
+              "id": "2cc0b7df-7f34-40f7-aa6f-48eff32e501a",
+              "name": "Inspect safe runtime feature flags",
+              "request": {
+                "name": "Inspect safe runtime feature flags",
+                "description": {
+                  "content": "Returns the non-secret runtime flags for operators. Admin only.",
+                  "type": "text/plain"
+                },
+                "url": {
+                  "path": [
+                    "api",
+                    "admin",
+                    "runtime-flags"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{bearerToken}}"
+                    }
+                  ]
+                }
+              },
+              "response": [
+                {
+                  "id": "a2ade07d-b2ac-4210-8445-196988d37ac3",
+                  "name": "Safe runtime flag matrix",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "admin",
+                        "runtime-flags"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "GET",
+                    "body": {}
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "text/plain"
+                    }
+                  ],
+                  "body": "",
+                  "cookie": [],
+                  "_postman_previewlanguage": "text"
+                },
+                {
+                  "id": "79136084-04f7-4f98-8b9c-210ba2c26c79",
+                  "name": "Unauthorized",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "admin",
+                        "runtime-flags"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "GET",
+                    "body": {}
+                  },
+                  "status": "Unauthorized",
+                  "code": 401,
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "text/plain"
+                    }
+                  ],
+                  "body": "",
+                  "cookie": [],
+                  "_postman_previewlanguage": "text"
+                },
+                {
+                  "id": "eb978eb4-f4a2-453b-b2df-355b69152951",
+                  "name": "Admin access required",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "admin",
+                        "runtime-flags"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "GET",
+                    "body": {}
+                  },
+                  "status": "Forbidden",
+                  "code": 403,
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "text/plain"
+                    }
+                  ],
+                  "body": "",
+                  "cookie": [],
+                  "_postman_previewlanguage": "text"
+                }
+              ],
+              "event": [],
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              }
+            },
+            {
+              "id": "8fb26e37-34aa-43c8-b1e0-9e72459a3bb4",
               "name": "metrics",
               "item": [
                 {
-                  "id": "5d4ba2cc-2ebe-4bd9-b3b1-bf2c7da05c27",
+                  "id": "e4df8005-1f8d-430d-9b32-91a8024ac25a",
                   "name": "rate-limits",
                   "item": [
                     {
-                      "id": "83af6b3c-313b-4659-b86c-8fdc14242f0c",
+                      "id": "2371ae13-4ac8-457f-8188-bcae8b392950",
                       "name": "Rate-limit activity summary",
                       "request": {
                         "name": "Rate-limit activity summary",
@@ -5578,7 +7135,7 @@
                       },
                       "response": [
                         {
-                          "id": "d038492d-b36f-4164-919c-6b7f2b37922a",
+                          "id": "116466b6-6d02-4156-ad7a-416a265bb357",
                           "name": "Rate-limit metrics summary",
                           "originalRequest": {
                             "url": {
@@ -5624,12 +7181,12 @@
                               "value": "application/json"
                             }
                           ],
-                          "body": "{\n  \"topEndpoints\": [\n    {\n      \"endpoint\": \"string\",\n      \"hits\": 5128\n    },\n    {\n      \"endpoint\": \"string\",\n      \"hits\": 8410\n    }\n  ],\n  \"topAbusers\": [\n    {\n      \"key\": \"string\",\n      \"endpoint\": \"string\",\n      \"hits\": 1430\n    },\n    {\n      \"key\": \"string\",\n      \"endpoint\": \"string\",\n      \"hits\": 8956\n    }\n  ],\n  \"recentEvents\": [\n    {\n      \"id\": \"string\",\n      \"endpoint\": \"string\",\n      \"key\": \"string\",\n      \"ip\": \"string\",\n      \"userId\": \"string\",\n      \"timestamp\": \"1979-12-22T04:49:10.726Z\"\n    },\n    {\n      \"id\": \"string\",\n      \"endpoint\": \"string\",\n      \"key\": \"string\",\n      \"ip\": \"string\",\n      \"userId\": \"string\",\n      \"timestamp\": \"1953-12-17T22:54:13.567Z\"\n    }\n  ],\n  \"suspiciousActivity\": {\n    \"lookbackHours\": 7333,\n    \"hitThreshold\": 2066,\n    \"byCategory\": [\n      {\n        \"category\": \"auth\",\n        \"hits\": 9600,\n        \"uniqueKeys\": 2721\n      },\n      {\n        \"category\": \"chat\",\n        \"hits\": 1394,\n        \"uniqueKeys\": 5106\n      }\n    ],\n    \"flaggedActors\": [\n      {\n        \"key\": \"string\",\n        \"endpoint\": \"string\",\n        \"hits\": 1675,\n        \"category\": \"string\",\n        \"userId\": \"string\",\n        \"ip\": \"string\",\n        \"lastSeenAt\": \"1997-07-10T23:51:41.830Z\"\n      },\n      {\n        \"key\": \"string\",\n        \"endpoint\": \"string\",\n        \"hits\": 4038,\n        \"category\": \"string\",\n        \"userId\": \"string\",\n        \"ip\": \"string\",\n        \"lastSeenAt\": \"2022-03-14T08:30:42.249Z\"\n      }\n    ]\n  }\n}",
+                          "body": "{\n  \"topEndpoints\": [\n    {\n      \"endpoint\": \"string\",\n      \"hits\": 6861\n    },\n    {\n      \"endpoint\": \"string\",\n      \"hits\": 6519\n    }\n  ],\n  \"topAbusers\": [\n    {\n      \"key\": \"string\",\n      \"endpoint\": \"string\",\n      \"hits\": 9307\n    },\n    {\n      \"key\": \"string\",\n      \"endpoint\": \"string\",\n      \"hits\": 6968\n    }\n  ],\n  \"recentEvents\": [\n    {\n      \"id\": \"string\",\n      \"endpoint\": \"string\",\n      \"key\": \"string\",\n      \"ip\": \"string\",\n      \"userId\": \"string\",\n      \"timestamp\": \"2001-02-08T06:06:51.742Z\"\n    },\n    {\n      \"id\": \"string\",\n      \"endpoint\": \"string\",\n      \"key\": \"string\",\n      \"ip\": \"string\",\n      \"userId\": \"string\",\n      \"timestamp\": \"1974-04-17T13:21:40.965Z\"\n    }\n  ],\n  \"suspiciousActivity\": {\n    \"lookbackHours\": 3237,\n    \"hitThreshold\": 2104,\n    \"byCategory\": [\n      {\n        \"category\": \"auth\",\n        \"hits\": 5097,\n        \"uniqueKeys\": 4369\n      },\n      {\n        \"category\": \"prediction\",\n        \"hits\": 3730,\n        \"uniqueKeys\": 3489\n      }\n    ],\n    \"flaggedActors\": [\n      {\n        \"key\": \"string\",\n        \"endpoint\": \"string\",\n        \"hits\": 6094,\n        \"category\": \"string\",\n        \"userId\": \"string\",\n        \"ip\": \"string\",\n        \"lastSeenAt\": \"1995-06-11T09:37:16.390Z\"\n      },\n      {\n        \"key\": \"string\",\n        \"endpoint\": \"string\",\n        \"hits\": 3716,\n        \"category\": \"string\",\n        \"userId\": \"string\",\n        \"ip\": \"string\",\n        \"lastSeenAt\": \"2025-05-15T14:50:26.952Z\"\n      }\n    ]\n  }\n}",
                           "cookie": [],
                           "_postman_previewlanguage": "json"
                         },
                         {
-                          "id": "4488b55f-d97d-4e56-87fc-403dfac4c1ad",
+                          "id": "a829c424-0b72-48e4-9e07-12524e5ee885",
                           "originalRequest": {
                             "url": {
                               "path": [
@@ -5675,7 +7232,7 @@
                           "_postman_previewlanguage": "text"
                         },
                         {
-                          "id": "ff05d929-f666-409b-b560-c4c85c27e467",
+                          "id": "fae0cc57-e462-440c-aec0-077e01f4eb61",
                           "originalRequest": {
                             "url": {
                               "path": [
@@ -5727,7 +7284,7 @@
                       }
                     },
                     {
-                      "id": "e09ab329-374b-4519-9980-d32951eee084",
+                      "id": "7420d7da-9e8a-42f4-997b-cb0836f9e10b",
                       "name": "Clear old rate-limit metrics",
                       "request": {
                         "name": "Clear old rate-limit metrics",
@@ -5769,7 +7326,7 @@
                       },
                       "response": [
                         {
-                          "id": "3318f4d1-f650-492a-9a33-6b887a542811",
+                          "id": "b17f53c5-fb29-4732-9ae6-2958fa74fa70",
                           "name": "Number of records deleted",
                           "originalRequest": {
                             "url": {
@@ -5817,7 +7374,7 @@
                           "_postman_previewlanguage": "text"
                         },
                         {
-                          "id": "7d12a502-5389-4087-8e4e-5cd443a8d521",
+                          "id": "7818554f-c70a-4497-a15b-340f920b2fc6",
                           "originalRequest": {
                             "url": {
                               "path": [
@@ -5864,7 +7421,7 @@
                           "_postman_previewlanguage": "text"
                         },
                         {
-                          "id": "070fc1ab-e969-4977-9374-d64041e6377d",
+                          "id": "d6648be8-7734-45a0-b6a8-9b8a1d93b849",
                           "originalRequest": {
                             "url": {
                               "path": [
@@ -5920,12 +7477,12 @@
                   "event": []
                 },
                 {
-                  "id": "c12babbf-d8ad-4ef6-8141-ef175c5a209e",
+                  "id": "0a1357dd-4e1f-4712-9c26-e0e69630e287",
                   "name": "Scrape Prometheus metrics",
                   "request": {
                     "name": "Scrape Prometheus metrics",
                     "description": {
-                      "content": "Returns standard flat text representations of all registered metrics.",
+                      "content": "Returns standard flat text representations of all registered metrics.\nRequires an admin JWT or a valid METRICS_SCRAPE_TOKEN, matching the\npublic /metrics scrape endpoint.\n",
                       "type": "text/plain"
                     },
                     "url": {
@@ -5948,11 +7505,19 @@
                       }
                     ],
                     "method": "GET",
-                    "auth": null
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{bearerToken}}"
+                        }
+                      ]
+                    }
                   },
                   "response": [
                     {
-                      "id": "2503410a-0a3a-4e41-bb6c-059e032a9d19",
+                      "id": "fd69c7ca-19f7-4111-b718-d0eb42ecae71",
                       "name": "Prometheus text exposition format",
                       "originalRequest": {
                         "url": {
@@ -5969,6 +7534,14 @@
                           "variable": []
                         },
                         "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
                           {
                             "key": "Accept",
                             "value": "text/plain"
@@ -5988,6 +7561,88 @@
                       "body": "string",
                       "cookie": [],
                       "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "7a0ba2cf-3a92-4cea-b62e-1f00a851d317",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "admin",
+                            "metrics",
+                            "metrics"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": []
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "GET",
+                        "body": {}
+                      },
+                      "status": "Unauthorized",
+                      "code": 401,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "a02cdea3-8bf3-4bb1-9acc-ce86f1bf8048",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "admin",
+                            "metrics",
+                            "metrics"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": []
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "GET",
+                        "body": {}
+                      },
+                      "status": "Forbidden",
+                      "code": 403,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
                     }
                   ],
                   "event": [],
@@ -5996,7 +7651,181 @@
                   }
                 },
                 {
-                  "id": "a3bf56d0-eae2-470e-83af-5ba655a04257",
+                  "id": "cc5a63b3-9b59-4e10-b896-d55c7bd70d4b",
+                  "name": "Payout claim ledger summary",
+                  "request": {
+                    "name": "Payout claim ledger summary",
+                    "description": {
+                      "content": "Returns current payout-claim counts by status so operators can see\nstuck pending winnings (PENDING/SUBMITTED/FAILED) and claims flagged\nNEEDS_MANUAL_REVIEW by the payout reconciliation worker (Issue #492).\nAdmin only. Prometheus counters are scraped from /api/admin/metrics/metrics.\n",
+                      "type": "text/plain"
+                    },
+                    "url": {
+                      "path": [
+                        "api",
+                        "admin",
+                        "metrics",
+                        "payout-reconciliation"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "GET",
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{bearerToken}}"
+                        }
+                      ]
+                    }
+                  },
+                  "response": [
+                    {
+                      "id": "df544155-6fc7-41dd-ad11-8b79196121a2",
+                      "name": "Payout claim counts by status",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "admin",
+                            "metrics",
+                            "payout-reconciliation"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": []
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
+                          {
+                            "key": "Accept",
+                            "value": "application/json"
+                          }
+                        ],
+                        "method": "GET",
+                        "body": {}
+                      },
+                      "status": "OK",
+                      "code": 200,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "application/json"
+                        }
+                      ],
+                      "body": "{\n  \"summary\": {\n    \"key_0\": 1081,\n    \"key_1\": 5632\n  }\n}",
+                      "cookie": [],
+                      "_postman_previewlanguage": "json"
+                    },
+                    {
+                      "id": "51490135-ee21-4bf2-b3f6-e93328f36125",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "admin",
+                            "metrics",
+                            "payout-reconciliation"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": []
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "GET",
+                        "body": {}
+                      },
+                      "status": "Unauthorized",
+                      "code": 401,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "78a4d8f0-b2cc-4698-bbf1-636688dee76b",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "admin",
+                            "metrics",
+                            "payout-reconciliation"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": []
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "GET",
+                        "body": {}
+                      },
+                      "status": "Forbidden",
+                      "code": 403,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    }
+                  ],
+                  "event": [],
+                  "protocolProfileBehavior": {
+                    "disableBodyPruning": true
+                  }
+                },
+                {
+                  "id": "a1c719e0-8d2e-4274-b4bf-ba33fc360d55",
                   "name": "Structured rate-limit metrics summary",
                   "request": {
                     "name": "Structured rate-limit metrics summary",
@@ -6036,7 +7865,7 @@
                   },
                   "response": [
                     {
-                      "id": "ea72869d-b2b5-445a-8163-45023ae4ab00",
+                      "id": "7cdaf453-bed1-46a2-aa6e-bd976e615551",
                       "name": "Structured rate-limit metrics summary",
                       "originalRequest": {
                         "url": {
@@ -6091,11 +7920,11 @@
               "event": []
             },
             {
-              "id": "64b76007-5dff-4d20-9a15-dfe364e1b10b",
+              "id": "0bbb13c3-0545-4e1a-8321-b1c5db61cdd7",
               "name": "dead-letter",
               "item": [
                 {
-                  "id": "0d2571dc-4c23-4957-90e8-728df0646e96",
+                  "id": "767aa474-7dcb-44b8-8629-e42d8a65ad60",
                   "name": "List failed notification/event dispatches",
                   "request": {
                     "name": "List failed notification/event dispatches",
@@ -6133,7 +7962,7 @@
                   }
                 },
                 {
-                  "id": "d5b23e25-dc73-44ea-a9db-93d103b370cf",
+                  "id": "7862bf4e-7ac7-4d0c-876b-259746395f58",
                   "name": "Replay every pending/retrying dispatch in the DLQ",
                   "request": {
                     "name": "Replay every pending/retrying dispatch in the DLQ",
@@ -6172,7 +8001,7 @@
                   }
                 },
                 {
-                  "id": "32efaaae-19d4-419f-b91e-6ca40e3e0453",
+                  "id": "2a07e534-cc7c-4703-aa99-02669e1d5a0b",
                   "name": "Replay a single DLQ entry",
                   "request": {
                     "name": "Replay a single DLQ entry",
@@ -6212,7 +8041,7 @@
               "event": []
             },
             {
-              "id": "53f606f2-5d22-4e34-bf7e-177c9dd9136f",
+              "id": "1c8d9b5f-cc25-4572-b773-adf99cbeb564",
               "name": "Resolved CORS origin allowlist for HTTP and Socket.IO",
               "request": {
                 "name": "Resolved CORS origin allowlist for HTTP and Socket.IO",
@@ -6252,7 +8081,7 @@
               },
               "response": [
                 {
-                  "id": "dc8226ae-080e-463f-b9f2-19703f7c8fd3",
+                  "id": "d184a7ca-fa2a-4965-9153-c9a67a1a99fd",
                   "name": "Resolved CORS configuration",
                   "originalRequest": {
                     "url": {
@@ -6304,7 +8133,7 @@
               }
             },
             {
-              "id": "dce5c174-a857-4f33-9f93-b0fd01f536ce",
+              "id": "6324f5eb-baa6-4f88-a5b2-663b8919dba6",
               "name": "List recent bet-audit events",
               "request": {
                 "name": "List recent bet-audit events",
@@ -6356,7 +8185,7 @@
               },
               "response": [
                 {
-                  "id": "9d3a1470-170b-4ddf-9bea-462da5df9703",
+                  "id": "c018de39-a6be-410a-b3e3-00d388d28f7a",
                   "name": "Bet-audit event list",
                   "originalRequest": {
                     "url": {
@@ -6405,12 +8234,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"total\": 9102,\n  \"limit\": 8035,\n  \"events\": [\n    {\n      \"value\": \"reference #/components/schemas/BetAuditEvent not found in the OpenAPI spec\"\n    },\n    {\n      \"value\": \"reference #/components/schemas/BetAuditEvent not found in the OpenAPI spec\"\n    }\n  ]\n}",
+                  "body": "{\n  \"total\": 3747,\n  \"limit\": 9440,\n  \"events\": [\n    {\n      \"value\": \"reference #/components/schemas/BetAuditEvent not found in the OpenAPI spec\"\n    },\n    {\n      \"value\": \"reference #/components/schemas/BetAuditEvent not found in the OpenAPI spec\"\n    }\n  ]\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "25fa84ed-ce39-4b55-90a8-0358817af2cc",
+                  "id": "61dcb211-b1ac-41dc-9289-4f3a59a34461",
                   "originalRequest": {
                     "url": {
                       "path": [
@@ -6459,7 +8288,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "a4e71a7c-4994-4d3b-9a42-22ea41653521",
+                  "id": "6c4ff533-b527-482f-95d9-8e4049c31c48",
                   "originalRequest": {
                     "url": {
                       "path": [
@@ -6520,16 +8349,16 @@
       "event": []
     },
     {
-      "id": "400e4964-9669-444c-9e73-89f379520b79",
+      "id": "0926ca13-efdb-49d7-8915-5016c3f6856e",
       "name": "metrics",
       "item": [
         {
-          "id": "2391a895-1aa3-4371-980d-4adfcddc4c56",
+          "id": "56c10d01-ae13-4281-aaf4-753c4e6d9636",
           "name": "Prometheus metrics",
           "request": {
             "name": "Prometheus metrics",
             "description": {
-              "content": "Returns all application and process metrics in Prometheus text format. Scrape this endpoint with a Prometheus instance.\n",
+              "content": "Returns all application and process metrics in Prometheus text format. Scrape this endpoint with a Prometheus instance. Requires an admin JWT or a valid METRICS_SCRAPE_TOKEN in production. Outside production, anonymous scrape is allowed as long as METRICS_SCRAPE_TOKEN is unset.\n",
               "type": "text/plain"
             },
             "url": {
@@ -6549,11 +8378,19 @@
               }
             ],
             "method": "GET",
-            "auth": null
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{bearerToken}}"
+                }
+              ]
+            }
           },
           "response": [
             {
-              "id": "7845ad6a-518c-4ec4-b4c5-7dc0ebd52857",
+              "id": "eb2031fe-c854-47f0-8cd3-fe350e5a2d3e",
               "name": "Prometheus text exposition format",
               "originalRequest": {
                 "url": {
@@ -6567,6 +8404,14 @@
                   "variable": []
                 },
                 "header": [
+                  {
+                    "description": {
+                      "content": "Added as a part of security scheme: bearer",
+                      "type": "text/plain"
+                    },
+                    "key": "Authorization",
+                    "value": "Bearer <token>"
+                  },
                   {
                     "key": "Accept",
                     "value": "text/plain"
@@ -6586,6 +8431,82 @@
               "body": "string",
               "cookie": [],
               "_postman_previewlanguage": "text"
+            },
+            {
+              "id": "d06cf049-4d27-47cf-96ac-580d8493d81d",
+              "originalRequest": {
+                "url": {
+                  "path": [
+                    "metrics"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "description": {
+                      "content": "Added as a part of security scheme: bearer",
+                      "type": "text/plain"
+                    },
+                    "key": "Authorization",
+                    "value": "Bearer <token>"
+                  }
+                ],
+                "method": "GET",
+                "body": {}
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": "",
+              "cookie": [],
+              "_postman_previewlanguage": "text"
+            },
+            {
+              "id": "8966fc8e-daa6-4405-b798-c73aec2a83b0",
+              "originalRequest": {
+                "url": {
+                  "path": [
+                    "metrics"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "description": {
+                      "content": "Added as a part of security scheme: bearer",
+                      "type": "text/plain"
+                    },
+                    "key": "Authorization",
+                    "value": "Bearer <token>"
+                  }
+                ],
+                "method": "GET",
+                "body": {}
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": "",
+              "cookie": [],
+              "_postman_previewlanguage": "text"
             }
           ],
           "event": [],
@@ -6594,7 +8515,7 @@
           }
         },
         {
-          "id": "31946e81-ab19-4b9e-9e4b-cd2bf8615156",
+          "id": "9f2c1e36-e3ba-448e-81e8-fe704b4331bb",
           "name": "Schema compatibility readiness check",
           "request": {
             "name": "Schema compatibility readiness check",
@@ -6624,7 +8545,7 @@
           },
           "response": [
             {
-              "id": "d109204e-7fd7-4dca-802c-e74ee564523b",
+              "id": "c875eed3-c4e4-4558-993c-04f9d98bdf59",
               "name": "Schema is compatible and the service is ready.",
               "originalRequest": {
                 "url": {
@@ -6655,12 +8576,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"database\": \"unreachable\",\n  \"schema\": \"outdated\",\n  \"appliedMigrations\": 5021,\n  \"totalMigrations\": 5321,\n  \"pendingMigrations\": 9718,\n  \"pendingNames\": [\n    \"string\",\n    \"string\"\n  ],\n  \"ready\": true\n}",
+              "body": "{\n  \"database\": \"healthy\",\n  \"schema\": \"compatible\",\n  \"appliedMigrations\": 509,\n  \"totalMigrations\": 1017,\n  \"pendingMigrations\": 1805,\n  \"pendingNames\": [\n    \"string\",\n    \"string\"\n  ],\n  \"ready\": false\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "c22f0f83-0685-422f-91d3-343353ff442c",
+              "id": "8c1fdb8e-6258-42dd-9a79-fa822ea7d05c",
               "name": "Schema is outdated or database is unreachable.",
               "originalRequest": {
                 "url": {
@@ -6699,7 +8620,7 @@
       "event": []
     },
     {
-      "id": "ca0a66f7-1340-47b4-b97b-da55897feb55",
+      "id": "50aa2f8e-9fbe-4a3c-8507-f95272a3355b",
       "name": "Service health check with dependency checks",
       "request": {
         "name": "Service health check with dependency checks",
@@ -6728,7 +8649,7 @@
       },
       "response": [
         {
-          "id": "b6d97f8c-62d5-4cbb-9b5b-a844bc222946",
+          "id": "8a129d5b-2b02-4c1e-ae3c-2686d9203217",
           "name": "Health check completed",
           "originalRequest": {
             "url": {
@@ -6758,7 +8679,7 @@
               "value": "application/json"
             }
           ],
-          "body": "{\n  \"status\": \"unhealthy\",\n  \"timestamp\": \"2013-06-10T13:28:34.825Z\",\n  \"uptime\": 746.7250131607095,\n  \"durationMs\": 622.5549316635737,\n  \"services\": {\n    \"database\": {\n      \"status\": \"healthy\",\n      \"durationMs\": 5554.992245325924,\n      \"error\": \"string\"\n    },\n    \"redis\": {\n      \"status\": \"bypassed\",\n      \"durationMs\": 9091.863408926136,\n      \"error\": \"string\"\n    },\n    \"soroban\": {\n      \"status\": \"healthy\",\n      \"durationMs\": 7389.446167127088,\n      \"initialized\": false,\n      \"error\": \"string\"\n    },\n    \"oracle\": {\n      \"status\": \"not_running\",\n      \"durationMs\": 5174.076231088554,\n      \"stale\": false,\n      \"lastUpdatedAt\": \"2005-02-02T09:42:25.701Z\",\n      \"stalenessSeconds\": 2025,\n      \"provider\": \"string\",\n      \"error\": \"string\"\n    }\n  }\n}",
+          "body": "{\n  \"status\": \"degraded\",\n  \"timestamp\": \"2017-06-22T11:10:00.492Z\",\n  \"uptime\": 5758.487482675141,\n  \"durationMs\": 1611.7523110643583,\n  \"services\": {\n    \"database\": {\n      \"status\": \"healthy\",\n      \"durationMs\": 9386.609010585817,\n      \"error\": \"string\"\n    },\n    \"redis\": {\n      \"status\": \"bypassed\",\n      \"durationMs\": 8004.075294449438,\n      \"error\": \"string\"\n    },\n    \"soroban\": {\n      \"status\": \"healthy\",\n      \"durationMs\": 8059.219782677962,\n      \"initialized\": false,\n      \"error\": \"string\"\n    },\n    \"oracle\": {\n      \"status\": \"healthy\",\n      \"durationMs\": 5687.935858421065,\n      \"stale\": true,\n      \"lastUpdatedAt\": \"1997-12-22T16:41:39.642Z\",\n      \"stalenessSeconds\": 6076,\n      \"provider\": \"string\",\n      \"error\": \"string\"\n    }\n  }\n}",
           "cookie": [],
           "_postman_previewlanguage": "json"
         }
@@ -6778,7 +8699,7 @@
     }
   ],
   "info": {
-    "_postman_id": "5ebc4f67-c923-4e21-8833-c9673ba5554c",
+    "_postman_id": "b1066b13-5390-4a1e-8eb1-143d6a94e7e8",
     "name": "Prediction Game API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "description": {
