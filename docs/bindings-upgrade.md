@@ -25,6 +25,7 @@ expected revision with it.
 | `repository`, `ref` | Upstream source the bindings are generated from |
 | `commitSha` | Exact upstream commit the vendored build must come from |
 | `packageName` | Name `vendor/xelma-bindings/package.json` must declare |
+| `packageVersion` | Semantic version `vendor/xelma-bindings/package.json` must declare (upstream `bindings/package.json` at `commitSha`) |
 | `requiredArtifacts` | Build outputs that must exist (ESM, CJS, `.d.ts`, manifest) |
 | `requiredValueExports` | Runtime exports the backend imports (`Client`, `RoundMode`) |
 | `requiredTypeExports` | Types the backend imports (`Round`, `BetSide`, `OraclePayload`, `UserStats`) |
@@ -40,7 +41,8 @@ is free to add or change anything else without breaking this repo's CI.
 `src/utils/bindings-validator.ts` asserts three independent layers:
 
 1. **Revision** — `vendor/xelma-bindings/.commit-sha` equals `commitSha`, the
-   manifest name matches, and every `requiredArtifacts` entry exists.
+   manifest name and version match `packageName`/`packageVersion`, and every
+   `requiredArtifacts` entry exists.
 2. **TypeScript surface** — `dist/index.d.ts` exports the required types and
    declares every required `Client` method with the expected argument names.
 3. **Contract ABI** — the Soroban contract spec embedded in `dist/index.js` as
@@ -80,7 +82,10 @@ deployment that never touches Soroban is never blocked by a missing vendor.
 1. **Pick the commit.** Review the upstream diff in `Xelma-Blockchain` and note
    the full 40-character SHA. Never point the pin at a branch.
 
-2. **Update the pin.** Set `commitSha` in `bindings.pin.json`.
+2. **Update the pin.** Set `commitSha` in `bindings.pin.json`, and set
+   `packageVersion` to the `version` upstream declares in `bindings/package.json`
+   at that commit. CI asserts both on every run, so a manifest that drifts from
+   the pin fails fast instead of silently.
 
 3. **Rebuild the vendor:**
 
@@ -119,6 +124,7 @@ deployment that never touches Soroban is never blocked by a missing vendor.
 | Message | Cause | Fix |
 |---|---|---|
 | `Bindings commit skew: … .commit-sha is X, but bindings.pin.json pins Y` | Vendor built from a different commit than the pin | `node scripts/install-bindings.js --refresh` |
+| `Bindings package version skew: … package.json is X, but bindings.pin.json pins Y` | Vendored manifest version differs from `packageVersion` (hand edit or partial re-vendor) | Set `packageVersion` to the upstream version, or `node scripts/install-bindings.js --refresh` |
 | `Contract method \`x\` is missing from the bindings Client interface` | Upstream removed/renamed a method the backend calls | Update `soroban.service.ts` and the pin together |
 | `Contract method \`x\` no longer accepts argument \`y\`` | Signature changed upstream | Update the call site and `requiredMethods` |
 | `Contract method \`x\` is absent from the ESM/CJS build` | Stale or partial build (`dist/` older than `.d.ts`) | `node scripts/install-bindings.js --refresh` |

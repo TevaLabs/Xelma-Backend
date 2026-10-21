@@ -48,6 +48,25 @@ jobs:
       - name: Run production-readiness scorecard
         run: npm run scorecard
 
+  bindings-pin:
+    name: vendored bindings pin
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No `npm ci`: the pin check reads only the checked-in bindings.pin.json
+      # and vendor/ tree, so it fails in seconds on fresh forks. Asserts the
+      # pinned commit, the vendored package version, and the build artifacts.
+      - name: Assert vendored bindings package version against pin
+        run: npm run check:bindings
+
   build:
     name: build
     runs-on: ubuntu-latest

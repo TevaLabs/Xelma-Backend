@@ -12,8 +12,9 @@ import path from "path";
  * in CI (`npm run check:bindings:abi`) and at startup (`src/index.ts`).
  *
  * Three independent layers are asserted against `bindings.pin.json`:
- *   1. Revision  — vendor/.commit-sha equals the pinned commitSha, and every
- *                  required build artifact exists.
+ *   1. Revision  — vendor/.commit-sha equals the pinned commitSha,
+ *                  vendor/package.json declares the pinned package version,
+ *                  and every required build artifact exists.
  *   2. Type      — dist/index.d.ts exports the required types and declares
  *                  every required `Client` method with the expected argument
  *                  names. (`tsc` covers most of this, but only for code paths
@@ -42,6 +43,8 @@ export interface BindingsPin {
   ref: string;
   commitSha: string;
   packageName: string;
+  /** Semantic version vendor/xelma-bindings/package.json must declare. */
+  packageVersion: string;
   requiredArtifacts: string[];
   requiredValueExports: string[];
   requiredTypeExports: string[];
@@ -93,9 +96,14 @@ const REQUIRED_PIN_KEYS: Array<keyof BindingsPin> = [
   "ref",
   "commitSha",
   "packageName",
+  "packageVersion",
   "requiredArtifacts",
   "requiredMethods",
 ];
+
+/** Loose semver: `1.2.3` with optional `-prerelease` and `+build` metadata. */
+const PACKAGE_VERSION_PATTERN =
+  /^\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
 
 /**
  * Read and shape-check bindings.pin.json. Throws when the pin itself is
@@ -127,12 +135,22 @@ export function loadBindingsPin(cwd: string = process.cwd()): BindingsPin {
       `${BINDINGS_PIN_FILE} commitSha must be a 40-character hex SHA, got ${JSON.stringify(parsed.commitSha)}.`,
     );
   }
+  if (
+    typeof parsed.packageVersion !== "string" ||
+    !PACKAGE_VERSION_PATTERN.test(parsed.packageVersion)
+  ) {
+    throw new Error(
+      `${BINDINGS_PIN_FILE} packageVersion must be a semantic version like ` +
+        `"1.1.0", got ${JSON.stringify(parsed.packageVersion)}.`,
+    );
+  }
 
   return {
     repository: parsed.repository!,
     ref: parsed.ref!,
     commitSha: parsed.commitSha!,
     packageName: parsed.packageName ?? BINDINGS_PACKAGE_NAME,
+    packageVersion: parsed.packageVersion,
     requiredArtifacts: parsed.requiredArtifacts ?? [],
     requiredValueExports: parsed.requiredValueExports ?? [],
     requiredTypeExports: parsed.requiredTypeExports ?? [],
@@ -316,6 +334,26 @@ export function validateVendoredBindings(
       if (packageName !== pin.packageName) {
         errors.push(
           `vendor package.json name is ${JSON.stringify(packageName)}, expected ${pin.packageName}`,
+        );
+      }
+
+      // The version is the cheapest canary for vendor drift: an upstream
+      // bump (or a hand-edited manifest) changes it before anything else
+      // breaks, so CI asserts it against the pin on every run.
+      const pkgVersion = typeof pkg?.version === "string" ? pkg.version : null;
+      if (pkgVersion === null) {
+        errors.push(
+          `vendor package.json declares no version; expected the pinned ${pin.packageVersion}.`,
+        );
+      } else if (!PACKAGE_VERSION_PATTERN.test(pkgVersion)) {
+        errors.push(
+          `vendor package.json version ${JSON.stringify(pkgVersion)} is not a semantic version.`,
+        );
+      } else if (pkgVersion !== pin.packageVersion) {
+        errors.push(
+          `Bindings package version skew: vendor/xelma-bindings/package.json is ` +
+            `${JSON.stringify(pkgVersion)}, but ${BINDINGS_PIN_FILE} pins ` +
+            `${pin.packageVersion}.`,
         );
       }
     } catch (e) {
