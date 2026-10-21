@@ -11,6 +11,8 @@ import {
   buildOffsetMeta,
   buildOffsetPage,
   buildCursorMeta,
+  buildUnifiedCursorPagination,
+  buildUnifiedOffsetPagination,
   trimSentinel,
 } from "../utils/pagination.util";
 
@@ -79,6 +81,67 @@ describe("buildOffsetMeta", () => {
   it("hasNextPage is false when total is 0", () => {
     const meta = buildOffsetMeta(20, 0, 0);
     expect(meta.hasNextPage).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unified pagination (issue #340)
+// ---------------------------------------------------------------------------
+
+describe("buildUnifiedOffsetPagination", () => {
+  it("exposes the canonical offset keys", () => {
+    expect(buildUnifiedOffsetPagination(10, 0, 25)).toEqual({
+      limit: 10,
+      offset: 0,
+      total: 25,
+      hasNextPage: true,
+      totalPages: 3,
+    });
+  });
+
+  it("reports no next page on the last page", () => {
+    const meta = buildUnifiedOffsetPagination(10, 20, 25);
+    expect(meta.hasNextPage).toBe(false);
+  });
+
+  it("handles an empty result set", () => {
+    expect(buildUnifiedOffsetPagination(20, 0, 0)).toEqual({
+      limit: 20,
+      offset: 0,
+      total: 0,
+      hasNextPage: false,
+      totalPages: 0,
+    });
+  });
+
+  it("never emits cursor-only keys", () => {
+    const meta = buildUnifiedOffsetPagination(10, 0, 5);
+    expect(meta.nextCursor).toBeUndefined();
+  });
+});
+
+describe("buildUnifiedCursorPagination", () => {
+  it("exposes the canonical cursor keys", () => {
+    expect(buildUnifiedCursorPagination(10, "abc")).toEqual({
+      limit: 10,
+      nextCursor: "abc",
+      hasNextPage: true,
+    });
+  });
+
+  it("reports the last page when the cursor is null", () => {
+    expect(buildUnifiedCursorPagination(10, null)).toEqual({
+      limit: 10,
+      nextCursor: null,
+      hasNextPage: false,
+    });
+  });
+
+  it("never emits offset-only keys", () => {
+    const meta = buildUnifiedCursorPagination(10, null);
+    expect(meta.offset).toBeUndefined();
+    expect(meta.total).toBeUndefined();
+    expect(meta.totalPages).toBeUndefined();
   });
 });
 

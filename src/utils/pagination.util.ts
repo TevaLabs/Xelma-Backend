@@ -44,6 +44,78 @@ export interface CursorPage<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Canonical pagination type (issue #340)
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical unified pagination metadata (issue #340).
+ *
+ * This is the single source of truth for pagination shape across all
+ * list endpoints. All endpoints should eventually emit this shape so
+ * clients can implement one pagination parser.
+ *
+ * The shape combines both offset and cursor modes:
+ * - When using offset mode: `limit`, `offset`, `total`, `hasNextPage`
+ * - When using cursor mode: `limit`, `nextCursor`, `hasNextPage`
+ * - `totalPages` is included for offset mode UI paginators
+ */
+export interface UnifiedPagination {
+  limit: number;
+  /** Offset mode only: number of rows skipped. */
+  offset?: number;
+  /** Offset mode only: total number of rows across all pages. */
+  total?: number;
+  /** Cursor mode only: opaque cursor for the next page. null = last page. */
+  nextCursor?: string | null;
+  /** True when there are more rows beyond this page. */
+  hasNextPage: boolean;
+  /** Offset mode only: total number of pages (ceil(total / limit)). */
+  totalPages?: number;
+}
+
+/**
+ * Build a unified pagination envelope for offset mode (issue #340).
+ * This is the recommended helper for all offset-paginated endpoints.
+ *
+ * @param limit    - page size requested
+ * @param offset   - rows skipped
+ * @param total    - total rows across all pages
+ * @returns UnifiedPagination with offset-mode fields populated
+ */
+export function buildUnifiedOffsetPagination(
+  limit: number,
+  offset: number,
+  total: number,
+): UnifiedPagination {
+  return {
+    limit,
+    offset,
+    total,
+    hasNextPage: offset + limit < total,
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
+/**
+ * Build a unified pagination envelope for cursor mode (issue #340).
+ * This is the recommended helper for all cursor-paginated endpoints.
+ *
+ * @param limit      - page size requested
+ * @param nextCursor - opaque cursor for next page, or null for last page
+ * @returns UnifiedPagination with cursor-mode fields populated
+ */
+export function buildUnifiedCursorPagination(
+  limit: number,
+  nextCursor: string | null,
+): UnifiedPagination {
+  return {
+    limit,
+    nextCursor,
+    hasNextPage: nextCursor !== null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Cursor encoding / decoding
 // ---------------------------------------------------------------------------
 

@@ -5,6 +5,7 @@ import { validate } from "../middleware/validate.middleware";
 import { updateProfileSchema } from "../schemas/user.schema";
 import { unifiedPaginationSchema, UnifiedPaginationParams, encodeCursor } from "../schemas/pagination.schema";
 import { NotFoundError, ConflictError } from "../utils/errors";
+import { buildUnifiedCursorPagination, buildUnifiedOffsetPagination } from "../utils/pagination.util";
 import { invalidateNamespace } from "../lib/redis";
 import { validateStellarAddressParam } from "../utils/stellar-address.util";
 import sorobanService from "../services/soroban.service";
@@ -352,8 +353,8 @@ router.get(
           res,
           [],
           cursor
-            ? { nextCursor: null }
-            : { pagination: { limit, offset, total: 0, totalPages: 0 } },
+            ? { nextCursor: null, pagination: buildUnifiedCursorPagination(limit, null) }
+            : { pagination: buildUnifiedOffsetPagination(limit, offset, 0) },
         );
       }
 
@@ -407,7 +408,11 @@ router.get(
           ? Buffer.from(page[page.length - 1].createdAt.toISOString()).toString("base64url")
           : null;
 
-        return sendSuccess(res, page.map(mapPrediction), { nextCursor });
+        return sendSuccess(res, page.map(mapPrediction), {
+          pagination: buildUnifiedCursorPagination(limit, nextCursor),
+          // Legacy field kept for backward compatibility (issue #340)
+          nextCursor,
+        });
       }
 
       // ── Offset-based path (backward-compatible) ───────────────────────────
@@ -431,12 +436,7 @@ router.get(
       ]);
 
       return sendSuccess(res, predictions.map(mapPrediction), {
-        pagination: {
-          limit,
-          offset,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
+        pagination: buildUnifiedOffsetPagination(limit, offset, total),
       });
     } catch (error) {
       next(error);
@@ -518,7 +518,11 @@ function handleMockHistory(
       ? encodeCursor(page[page.length - 1].timestamp)
       : null;
 
-    sendSuccess(res, page, { nextCursor });
+    sendSuccess(res, page, {
+      pagination: buildUnifiedCursorPagination(limit, nextCursor),
+      // Legacy field kept for backward compatibility (issue #340)
+      nextCursor,
+    });
     return;
   }
 
@@ -527,12 +531,7 @@ function handleMockHistory(
   const total = all.length;
 
   sendSuccess(res, page, {
-    pagination: {
-      limit,
-      offset,
-      total,
-      totalPages: Math.ceil(total / limit),
-    },
+    pagination: buildUnifiedOffsetPagination(limit, offset, total),
   });
 }
 
