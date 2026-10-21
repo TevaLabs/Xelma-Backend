@@ -139,9 +139,30 @@ router.post(
 );
 
 /**
- * GET /api/tournaments/:id
- * Get tournament detail by id. Uses the mock seed for idempotent listing/detail
- * demos (as before); the saga write endpoints below are DB-backed via the service.
+ * @openapi
+ * /api/tournaments/{id}:
+ *   get:
+ *     tags: [tournaments]
+ *     summary: Get tournament details
+ *     description: Returns detailed information for a specific tournament by ID.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Tournament details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { $ref: '#/components/schemas/Tournament' }
+ *       404:
+ *         description: Tournament not found
  */
 router.get(
   "/:id",
@@ -266,8 +287,41 @@ router.post(
 );
 
 /**
- * POST /api/tournaments/:id/join
- * Join a tournament (authenticated).
+ * @openapi
+ * /api/tournaments/{id}/join:
+ *   post:
+ *     tags: [tournaments]
+ *     summary: Join a tournament
+ *     description: Join an upcoming tournament. Requires authentication.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Joined tournament successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: object
+ *                   required: [tournamentId, currentParticipants]
+ *                   properties:
+ *                     tournamentId: { type: string }
+ *                     currentParticipants: { type: integer }
+ *       401:
+ *         description: Authentication required
+ *       404:
+ *         description: Tournament not found
+ *       409:
+ *         description: Tournament is full or already joined
  */
 router.post(
   "/:id/join",

@@ -288,6 +288,27 @@ export const swaggerSpec = swaggerJSDoc({
           },
           required: ['asset', 'price_usd', 'stale', 'timestamp'],
         },
+        Tournament: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            description: { type: 'string' },
+            mode: { type: 'string', enum: ['UP_DOWN', 'LEGENDS'] },
+            status: {
+              type: 'string',
+              enum: ['UPCOMING', 'ACTIVE', 'COMPLETED', 'CANCELLED'],
+            },
+            entryFee: { $ref: '#/components/schemas/MoneyAmount' },
+            prizePool: { $ref: '#/components/schemas/MoneyAmount' },
+            maxParticipants: { type: 'integer' },
+            currentParticipants: { type: 'integer' },
+            startTime: { type: 'string', format: 'date-time' },
+            endTime: { type: 'string', format: 'date-time' },
+            rounds: { type: 'integer' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
       },
     },
     tags: [
@@ -305,6 +326,7 @@ export const swaggerSpec = swaggerJSDoc({
         description:
           'Price feeds. GET /api/price is the XLM oracle; GET /api/prices is the multi-asset ticker — different payloads, not aliases.',
       },
+      { name: 'tournaments', description: 'Tournament listings and join' },
     ],
   },
   apis: [
