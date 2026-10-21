@@ -1,4 +1,8 @@
-import { 
+import { jest } from '@jest/globals';
+import {
+  createSanitizePipeline,
+  defaultChatSanitizeHooks,
+  defaultChatSanitizePipeline,
   escapeHtml, 
   normalizeWhitespace, 
   isSuspiciousContent, 
@@ -207,6 +211,68 @@ describe('Chat Content Sanitization', () => {
       const sanitized = sanitizeChatContent(payload);
       // Should detect the hex encoding pattern
       expect(isSuspiciousContent(payload)).toBe(true);
+    });
+  });
+
+  describe('createSanitizePipeline (issue #849)', () => {
+    it('runs hooks in order', () => {
+      const calls: string[] = [];
+      const pipeline = createSanitizePipeline([
+        (content) => { calls.push('first'); return content.trim(); },
+        (content) => { calls.push('second'); return content.toUpperCase(); },
+      ]);
+
+      expect(pipeline('  hello  ')).toBe('HELLO');
+      expect(calls).toEqual(['first', 'second']);
+    });
+
+    it('feeds each hook the previous hook output', () => {
+      const pipeline = createSanitizePipeline([
+        (content) => content.replace(/bad/g, 'good'),
+        (content) => `${content}!`,
+      ]);
+
+      expect(pipeline('bad day')).toBe('good day!');
+    });
+
+    it('short-circuits and throws when a hook returns an Error', () => {
+      const later = jest.fn((content: string) => content);
+      const pipeline = createSanitizePipeline([
+        () => new Error('blocked'),
+        later,
+      ]);
+
+      expect(() => pipeline('anything')).toThrow('blocked');
+      expect(later).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('default chat pipeline (issue #849)', () => {
+    it('is built from the exported default hooks', () => {
+      expect(defaultChatSanitizeHooks.length).toBeGreaterThan(0);
+      expect(defaultChatSanitizePipeline('  hi   there  ')).toBe('hi there');
+    });
+
+    it('escapes HTML like sanitizeChatContent', () => {
+      const input = '<script>alert("xss")</script>';
+      expect(defaultChatSanitizePipeline(input)).toBe(sanitizeChatContent(input));
+    });
+
+    it('rejects blank content', () => {
+      expect(() => defaultChatSanitizePipeline('   ')).toThrow(/empty or whitespace-only/);
+    });
+
+    it('rejects suspicious payloads', () => {
+      expect(() => defaultChatSanitizePipeline('DROP TABLE users;')).toThrow(/suspicious/);
+    });
+
+    it('supports composing extra hooks on top of the defaults', () => {
+      const pipeline = createSanitizePipeline([
+        ...defaultChatSanitizeHooks,
+        (content) => content.replace(/spoiler/gi, '[redacted]'),
+      ]);
+
+      expect(pipeline('big spoiler here')).toBe('big [redacted] here');
     });
   });
 
