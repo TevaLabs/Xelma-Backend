@@ -31,6 +31,7 @@ jest.mock('../lib/redis', () => ({
   invalidateNamespace: jest.fn(),
   invalidateLeaderboardSortedSet: jest.fn(),
   checkRedisHealth: jest.fn().mockResolvedValue(true),
+  isRedisCacheEnabled: jest.fn().mockReturnValue(false),
   getCache: jest.fn(),
   setCache: jest.fn(),
   deleteCache: jest.fn(),

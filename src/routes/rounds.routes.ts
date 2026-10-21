@@ -10,7 +10,7 @@ import {
   AuthenticatedRequest,
 } from "../middleware/auth.middleware";
 import { asyncHandler } from "../middleware/errorHandler.middleware";
-import { toDecimal } from "../utils/decimal.util";
+import { toDecimal, serializeMoney, serializeNullableMoney } from "../utils/decimal.util";
 import { serializeRound } from "../serializers/monetary.serializer";
 import {
   adminRoundRateLimiter,
@@ -375,7 +375,7 @@ const requireSimulationEnabled = (
  *                 roundId: { type: string }
  *                 simulatedPrice: { type: number }
  *                 mode: { type: string, enum: [UP_DOWN, LEGENDS] }
- *                 startPrice: { type: number }
+ *                 startPrice: { $ref: '#/components/schemas/MoneyAmount' }
  *                 winningSide: { type: string, nullable: true, enum: [UP, DOWN] }
  *                 winningRange:
  *                   type: object
@@ -389,8 +389,8 @@ const requireSimulationEnabled = (
  *                     type: object
  *                     properties:
  *                       won: { type: boolean, nullable: true }
- *                       payout: { type: number }
- *                       amount: { type: number }
+ *                       payout: { $ref: '#/components/schemas/NullableMoneyAmount' }
+ *                       amount: { $ref: '#/components/schemas/MoneyAmount' }
  *                       side: { type: string, nullable: true, enum: [UP, DOWN] }
  *                 summary:
  *                   type: object
@@ -435,10 +435,16 @@ router.post(
       roundId: result.roundId,
       simulatedPrice: result.simulatedPrice,
       mode: result.mode,
-      startPrice: result.startPrice,
+      // Money fields travel as decimal strings, matching the rest of the API
+      // and the OpenAPI money contract.
+      startPrice: serializeMoney(result.startPrice),
       winningSide: result.winningSide,
       winningRange: result.winningRange,
-      predictions: result.predictions,
+      predictions: result.predictions.map((prediction) => ({
+        ...prediction,
+        payout: serializeNullableMoney(prediction.payout),
+        amount: serializeMoney(prediction.amount),
+      })),
       summary: result.summary,
     });
   }),

@@ -120,10 +120,11 @@ describe("Leaderboard Routes", () => {
       Promise.resolve(sampleStats.slice(skip, skip + take)),
     );
     mockUserStatsFindUnique.mockResolvedValue(sampleStats[1]);
-    // getUserPosition calls count first (rank), then getLeaderboard calls count (totalUsers)
+    // getLeaderboard counts totalUsers first, then getUserPosition counts the
+    // users ranked above the authenticated user.
     mockUserStatsCount
-      .mockResolvedValueOnce(1)   // rank: 1 user has higher earnings than u2 → rank=2
-      .mockResolvedValueOnce(3);  // totalUsers
+      .mockResolvedValueOnce(3)   // totalUsers
+      .mockResolvedValueOnce(1);  // rank: 1 user has higher earnings than u2 → rank=2
 
     const response = await request(app)
       .get("/api/leaderboard")

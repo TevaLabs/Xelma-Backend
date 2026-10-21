@@ -1,3 +1,7 @@
+// The hackathon app serves its demo rounds from the mock round table, so the
+// mock source has to be selected before the config module is loaded.
+process.env.ROUNDS_MOCK_MODE = 'true';
+
 import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import request from 'supertest';
 import { UserRole } from '@prisma/client';
@@ -19,6 +23,12 @@ jest.mock('../services/soroban.service', () => ({
 
 import { createApp } from '../app';
 import hackathonService from '../services/hackathon.service';
+import {
+  HACKATHON_ROUND_FIXTURES,
+  removeDedicatedRound,
+  seedDedicatedRound,
+  seedHackathonRounds,
+} from './helpers/hackathon-fixtures';
 
 describe('Hackathon Endpoints & Middleware', () => {
   const app = createApp();
@@ -27,15 +37,76 @@ describe('Hackathon Endpoints & Middleware', () => {
   const token = generateToken('hackathon-integration-user', validAddress, UserRole.USER);
 
   beforeAll(async () => {
+    // The hackathon bet endpoints record the bet locally instead of sending
+    // it to the contract.
+    process.env.BET_STUB_MODE = 'true';
     // Ensure the authenticated user exists and database is seeded for tests
-    await prisma.user.create({ data: { id: 'hackathon-integration-user', walletAddress: validAddress } });
+    await prisma.user.upsert({
+      where: { walletAddress: validAddress },
+      create: { id: 'hackathon-integration-user', walletAddress: validAddress },
+      update: {},
+    });
+    // The hackathon app serves its rounds from `hackathon_rounds`; the
+    // integration database starts empty, so the demo rounds are seeded here.
+    await seedHackathonRounds();
+    // The bet endpoints below assert on pool balances, so they run against
+    // rounds owned by this spec file only — another suite betting on the
+    // shared demo rounds must not change the expected deltas.
+    await seedDedicatedRound({
+      id: 'endpoints-up-down',
+      asset: 'BTC',
+      mode: 'updown',
+      status: 'live',
+      startPrice: 60000,
+      poolUp: 0,
+      poolDown: 0,
+      totalPool: null,
+      predictionCount: null,
+    });
+    await seedDedicatedRound({
+      id: 'endpoints-precision',
+      asset: 'ETH',
+      mode: 'precision',
+      status: 'live',
+      startPrice: 3000,
+      poolUp: null,
+      poolDown: null,
+      totalPool: 0,
+      predictionCount: 0,
+    });
+    await prisma.round.createMany({
+      data: [
+        {
+          id: 'endpoints-up-down',
+          mode: 'UP_DOWN',
+          status: 'ACTIVE',
+          startPrice: '0.1',
+          startTime: new Date(Date.now() - 60_000),
+          endTime: new Date(Date.now() + 3_600_000),
+        },
+        {
+          id: 'endpoints-precision',
+          mode: 'LEGENDS',
+          status: 'ACTIVE',
+          startPrice: '0.1',
+          startTime: new Date(Date.now() - 60_000),
+          endTime: new Date(Date.now() + 3_600_000),
+        },
+      ],
+      skipDuplicates: true,
+    });
     await hackathonService.getUserStats(validAddress);
   });
 
   afterAll(async () => {
+    delete process.env.BET_STUB_MODE;
     await prisma.user.deleteMany({ where: { walletAddress: validAddress } });
     await prisma.mockBet.deleteMany({ where: { address: validAddress } });
     await prisma.mockLeaderboard.deleteMany({ where: { address: validAddress } });
+    await prisma.bet.deleteMany({ where: { roundId: { in: ['endpoints-up-down', 'endpoints-precision'] } } });
+    await prisma.round.deleteMany({ where: { id: { in: ['endpoints-up-down', 'endpoints-precision'] } } });
+    await removeDedicatedRound('endpoints-up-down');
+    await removeDedicatedRound('endpoints-precision');
   });
 
   describe('GET /api/rounds', () => {
@@ -44,15 +115,20 @@ describe('Hackathon Endpoints & Middleware', () => {
       expect(res.status).toBe(200);
       const rounds = res.body.data?.rounds ?? res.body;
       expect(Array.isArray(rounds)).toBe(true);
-      expect(rounds.length).toBe(3);
+      // Other suites may add their own rounds to the shared database, so
+      // assert on the demo rounds the app is expected to expose.
+      const demoRounds = rounds.filter((r: any) =>
+        HACKATHON_ROUND_FIXTURES.some((fixture) => fixture.id === r.id),
+      );
+      expect(demoRounds.length).toBe(3);
 
-      const btc = rounds.find((r: any) => r.id === 'btc-updown-live');
+      const btc = demoRounds.find((r: any) => r.id === 'btc-updown-live');
       expect(btc).toBeDefined();
       expect(btc.asset).toBe('BTC');
       expect(btc.mode).toBe('updown');
       expect(btc.status).toBe('live');
 
-      const eth = rounds.find((r: any) => r.id === 'eth-precision-live');
+      const eth = demoRounds.find((r: any) => r.id === 'eth-precision-live');
       expect(eth).toBeDefined();
       expect(eth.asset).toBe('ETH');
       expect(eth.mode).toBe('precision');
@@ -111,12 +187,12 @@ describe('Hackathon Endpoints & Middleware', () => {
   describe('POST /api/rounds/hackathon/up-down/:id/bet', () => {
     it('persists the bet, updates user balance, and updates the round pool', async () => {
       // Get round initial pools
-      const roundBefore = await prisma.mockRound.findUnique({ where: { id: 'btc-updown-live' } });
+      const roundBefore = await prisma.mockRound.findUnique({ where: { id: 'endpoints-up-down' } });
       const initialPoolUp = roundBefore!.poolUp;
 
       // Place bet
       const res = await request(app)
-        .post('/api/rounds/hackathon/up-down/btc-updown-live/bet')
+        .post('/api/rounds/hackathon/up-down/endpoints-up-down/bet')
         .set('Authorization', `Bearer ${token}`)
         .send({
           address: validAddress,
@@ -127,11 +203,11 @@ describe('Hackathon Endpoints & Middleware', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         success: true,
-        data: { message: 'Bet recorded (stub)' },
+        data: expect.objectContaining({ message: 'Bet recorded (stub)' }),
       });
 
       // Verify DB update
-      const roundAfter = await prisma.mockRound.findUnique({ where: { id: 'btc-updown-live' } });
+      const roundAfter = await prisma.mockRound.findUnique({ where: { id: 'endpoints-up-down' } });
       expect(roundAfter!.poolUp).toBe(initialPoolUp + 200);
     });
   });
@@ -139,13 +215,13 @@ describe('Hackathon Endpoints & Middleware', () => {
   describe('POST /api/rounds/hackathon/precision/:id/bet', () => {
     it('persists the bet and updates round totalPool and predictionCount', async () => {
       // Get round initial pools
-      const roundBefore = await prisma.mockRound.findUnique({ where: { id: 'eth-precision-live' } });
+      const roundBefore = await prisma.mockRound.findUnique({ where: { id: 'endpoints-precision' } });
       const initialPool = roundBefore!.totalPool;
       const initialCount = roundBefore!.predictionCount;
 
       // Place bet
       const res = await request(app)
-        .post('/api/rounds/hackathon/precision/eth-precision-live/bet')
+        .post('/api/rounds/hackathon/precision/endpoints-precision/bet')
         .set('Authorization', `Bearer ${token}`)
         .send({
           address: validAddress,
@@ -156,11 +232,11 @@ describe('Hackathon Endpoints & Middleware', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         success: true,
-        data: { message: 'Precision bet recorded (stub)' },
+        data: expect.objectContaining({ message: 'Precision bet recorded (stub)' }),
       });
 
       // Verify DB update
-      const roundAfter = await prisma.mockRound.findUnique({ where: { id: 'eth-precision-live' } });
+      const roundAfter = await prisma.mockRound.findUnique({ where: { id: 'endpoints-precision' } });
       expect(roundAfter!.totalPool).toBe(initialPool + 150);
       expect(roundAfter!.predictionCount).toBe(initialCount + 1);
     });
@@ -171,8 +247,12 @@ describe('Hackathon Endpoints & Middleware', () => {
       const res = await request(app).get('/api/invalid-url-path');
       expect(res.status).toBe(404);
       expect(res.body).toEqual({
-        error: 'Not Found',
+        error: 'NotFoundError',
+        message: 'Route GET /api/invalid-url-path not found',
+        code: 'NOT_FOUND',
         path: '/api/invalid-url-path',
+        timestamp: expect.any(String),
+        requestId: expect.any(String),
       });
     });
   });

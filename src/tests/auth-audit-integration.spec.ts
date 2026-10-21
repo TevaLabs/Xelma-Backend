@@ -14,6 +14,33 @@ jest.mock('../utils/logger', () => ({
 // Mock signature verification to control test outcomes
 jest.mock('../services/stellar.service', () => ({
   verifySignature: jest.fn(),
+  isValidStellarAddress: (address: string) =>
+    typeof address === 'string' && address.startsWith('G') && address.length === 56,
+}));
+
+/**
+ * Stellar account addresses are 56 characters ("G" + 55 base32 chars) and the
+ * auth schemas validate that format, so the test wallets are padded to a
+ * valid length while keeping the "GTEST" prefix used for cleanup.
+ */
+const makeWallet = (seed: string): string => `G${seed.padEnd(55, 'X').slice(0, 55)}`;
+
+// Disable the HTTP rate limiters: this suite issues many auth requests from
+// the same IP and would otherwise hit 429 Too Many Requests.
+const mockPassthroughLimiter = (_req: any, _res: any, next: any) => next();
+jest.mock('../middleware/rateLimiter.middleware', () => ({
+  apiRateLimiter: mockPassthroughLimiter,
+  writeRateLimiter: mockPassthroughLimiter,
+  challengeRateLimiter: mockPassthroughLimiter,
+  connectRateLimiter: mockPassthroughLimiter,
+  authRateLimiter: mockPassthroughLimiter,
+  chatMessageRateLimiter: mockPassthroughLimiter,
+  predictionRateLimiter: mockPassthroughLimiter,
+  batchPredictionRateLimiter: mockPassthroughLimiter,
+  batchLeaderboardRateLimiter: mockPassthroughLimiter,
+  adminRoundRateLimiter: mockPassthroughLimiter,
+  oracleResolveRateLimiter: mockPassthroughLimiter,
+  betRateLimiter: mockPassthroughLimiter,
 }));
 
 describe('Auth Routes - Audit Integration', () => {
@@ -42,7 +69,7 @@ describe('Auth Routes - Audit Integration', () => {
 
   describe('POST /api/auth/challenge', () => {
     it('should emit challenge issued audit event on success', async () => {
-      const walletAddress = 'GTEST123CHALLENGE';
+      const walletAddress = makeWallet('TEST123CHALLENGE');
       
       const response = await request(app)
         .post('/api/auth/challenge')
@@ -77,7 +104,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit challenge invalidated events when replacing existing challenges', async () => {
-      const walletAddress = 'GTEST123REPLACE';
+      const walletAddress = makeWallet('TEST123REPLACE');
       
       // Create first challenge
       await request(app)
@@ -112,7 +139,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should include request metadata in audit events', async () => {
-      const walletAddress = 'GTEST123METADATA';
+      const walletAddress = makeWallet('TEST123METADATA');
       
       await request(app)
         .post('/api/auth/challenge')
@@ -137,7 +164,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit complete audit trail for successful authentication', async () => {
-      const walletAddress = 'GTEST123SUCCESS';
+      const walletAddress = makeWallet('TEST123SUCCESS');
       
       // Step 1: Create challenge
       const challengeResponse = await request(app)
@@ -201,7 +228,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit user login event for existing user', async () => {
-      const walletAddress = 'GTEST123EXISTING';
+      const walletAddress = makeWallet('TEST123EXISTING');
       
       // Create user first
       await prisma.user.create({
@@ -248,7 +275,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit cleanup events for old challenges', async () => {
-      const walletAddress = 'GTEST123CLEANUP';
+      const walletAddress = makeWallet('TEST123CLEANUP');
       
       // Create old used challenge
       const oldChallenge = await prisma.authChallenge.create({
@@ -299,7 +326,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit challenge failed event for invalid signature', async () => {
-      const walletAddress = 'GTEST123INVALID';
+      const walletAddress = makeWallet('TEST123INVALID');
       
       // Create challenge
       const challengeResponse = await request(app)
@@ -335,7 +362,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit challenge failed event for non-existent challenge', async () => {
-      const walletAddress = 'GTEST123NOTFOUND';
+      const walletAddress = makeWallet('TEST123NOTFOUND');
       
       await request(app)
         .post('/api/auth/connect')
@@ -360,7 +387,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit challenge reused event for already used challenge', async () => {
-      const walletAddress = 'GTEST123REUSED';
+      const walletAddress = makeWallet('TEST123REUSED');
       
       // Create and use challenge
       const challengeResponse = await request(app)
@@ -411,7 +438,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit challenge expired event for expired challenge', async () => {
-      const walletAddress = 'GTEST123EXPIRED';
+      const walletAddress = makeWallet('TEST123EXPIRED');
       
       // Create expired challenge
       const expiredChallenge = await prisma.authChallenge.create({
@@ -450,8 +477,8 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit wallet mismatch event', async () => {
-      const walletAddress1 = 'GTEST123WALLET1';
-      const walletAddress2 = 'GTEST123WALLET2';
+      const walletAddress1 = makeWallet('TEST123WALLET1');
+      const walletAddress2 = makeWallet('TEST123WALLET2');
       
       // Create challenge for wallet1
       const challengeResponse = await request(app)
@@ -489,7 +516,7 @@ describe('Auth Routes - Audit Integration', () => {
 
   describe('Audit Event Structure Validation', () => {
     it('should include correlation identifiers in all events', async () => {
-      const walletAddress = 'GTEST123CORRELATION';
+      const walletAddress = makeWallet('TEST123CORRELATION');
       
       await request(app)
         .post('/api/auth/challenge')
@@ -506,7 +533,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should not include sensitive data in audit logs', async () => {
-      const walletAddress = 'GTEST123SECURITY';
+      const walletAddress = makeWallet('TEST123SECURITY');
       
       const challengeResponse = await request(app)
         .post('/api/auth/challenge')
@@ -549,7 +576,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should have queryable structure for observability tools', async () => {
-      const walletAddress = 'GTEST123QUERYABLE';
+      const walletAddress = makeWallet('TEST123QUERYABLE');
       
       await request(app)
         .post('/api/auth/challenge')

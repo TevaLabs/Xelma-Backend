@@ -156,7 +156,7 @@ describe("POST /api/rounds/:id/simulate - ENABLE_SIMULATION flag and auth (Issue
 
       expect(res.status).toBe(403);
       expect(res.body.success).toBe(false);
-      expect(res.body.error).toMatch(/ENABLE_SIMULATION=true/);
+      expect(res.body.message).toMatch(/ENABLE_SIMULATION=true/);
       expect(mockSimulateRound).not.toHaveBeenCalled();
     });
 
@@ -250,7 +250,7 @@ describe("POST /api/rounds/:id/simulate - ENABLE_SIMULATION flag and auth (Issue
         .send({});
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/finalPrice is required/);
+      expect(res.body.message).toMatch(/finalPrice is required/);
       expect(mockSimulateRound).not.toHaveBeenCalled();
     });
 
@@ -269,7 +269,7 @@ describe("POST /api/rounds/:id/simulate - ENABLE_SIMULATION flag and auth (Issue
         .send({ finalPrice: 55000 });
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toMatch(/Round not found/);
+      expect(res.body.message).toMatch(/Round not found/);
     });
   });
 });

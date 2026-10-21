@@ -11,7 +11,7 @@ import {
    beforeEach,
 } from '@jest/globals';
 import { createServer, Server as HttpServer } from 'http';
-import { io as ioClient, Socket } from 'socket.io-client';
+import { io as ioClientFactory, Socket } from 'socket.io-client';
 import { Server as SocketIOServer } from 'socket.io';
 import { createApp } from '../index';
 import {
@@ -31,6 +31,20 @@ const SOCKET_WALLET = 'GSOCKET_TEST_USER___________________________';
 const mockUserFindUnique = jest.fn();
 const mockChatSendMessage = jest.fn();
 const mockRoundFindMany = jest.fn();
+
+/**
+ * Every client created by a test is tracked so the teardown can disconnect
+ * them before the HTTP server is closed — otherwise `server.close()` waits
+ * for the still-open sockets and the hook times out.
+ */
+const openClients = new Set<Socket>();
+
+function ioClient(url: string, options?: Partial<any>): Socket {
+   const client = ioClientFactory(url, options as any);
+   openClients.add(client);
+   client.on('disconnect', () => openClients.delete(client));
+   return client;
+}
 
 jest.mock('../lib/prisma', () => ({
    prisma: {
@@ -169,6 +183,10 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
     });
 
     afterAll(async () => {
+       for (const client of openClients) {
+          client.disconnect();
+       }
+       openClients.clear();
        if (httpServer) {
           await new Promise<void>(resolve => {
              httpServer.closeAllConnections?.();
@@ -886,8 +904,9 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
             id: 'round-789',
             mode: 'UP_DOWN',
             status: 'ACTIVE',
-            poolUp: 100,
-            poolDown: 200,
+            // Monetary values are serialized as fixed-precision decimal strings.
+            poolUp: '100.00000000',
+            poolDown: '200.00000000',
          });
 
          // 2. Emit price_update via websocketService

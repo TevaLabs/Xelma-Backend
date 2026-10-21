@@ -236,6 +236,9 @@ router.get('/health', asyncHandler(async (_req: Request, res: Response) => {
     );
   }
 
+  // The probes run in parallel, but the overall status can only be derived
+  // once every probe has reported — otherwise a failing dependency would
+  // still be reported as "ok".
   await Promise.all(probes);
 
   const overallStatus: 'ok' | 'degraded' = degraded ? 'degraded' : 'ok';

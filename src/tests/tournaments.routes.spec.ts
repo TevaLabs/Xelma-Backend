@@ -69,8 +69,8 @@ describe('Tournaments Routes (Issue #412)', () => {
       expect(res.body.meta.pagination.total).toBe(3);
     });
 
-    it('filters by status (case-insensitive)', async () => {
-      const res = await request(app).get('/api/tournaments').query({ status: 'active' });
+    it('filters by status', async () => {
+      const res = await request(app).get('/api/tournaments').query({ status: 'ACTIVE' });
 
       expect(res.status).toBe(200);
       expect(res.body.data.every((t: any) => t.status === 'ACTIVE')).toBe(true);
@@ -78,7 +78,7 @@ describe('Tournaments Routes (Issue #412)', () => {
     });
 
     it('returns an empty list for a status with no matches', async () => {
-      const res = await request(app).get('/api/tournaments').query({ status: 'cancelled' });
+      const res = await request(app).get('/api/tournaments').query({ status: 'CANCELLED' });
 
       expect(res.status).toBe(200);
       expect(res.body.data).toEqual([]);

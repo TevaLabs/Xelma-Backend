@@ -361,54 +361,124 @@ export const ERROR_CATALOG: readonly ErrorCatalogEntry[] = [
 ];
 
 /**
+ * One rule of the Soroban error mapping table.
+ *
+ * The rule owns the *raw chain text* that identifies the failure and the
+ * consumer-facing message; everything else (HTTP status, error class) is
+ * resolved from {@link ERROR_CATALOG} via {@link SorobanErrorRule.code}, so
+ * the catalog stays the single source of truth.
+ */
+export interface SorobanErrorRule {
+  /**
+   * Lower-case substrings that identify this rule. A rule matches when the
+   * raw error text contains any of them. Order matters — the first matching
+   * rule wins, so more specific rules come first.
+   */
+  readonly patterns: readonly string[];
+  /** Catalog code emitted for this rule. */
+  readonly code: ErrorCode;
+  /** Safe, consumer-facing message. Never leaks chain jargon. */
+  readonly message: string;
+}
+
+/**
+ * Soroban/RPC error text → catalog code.
+ *
+ * This is the table that replaced the old if/else chain in
+ * {@link mapSorobanError}. Adding a new chain failure means adding a row
+ * here — the error class and HTTP status still come from the catalog, so
+ * they cannot drift apart.
+ */
+export const SOROBAN_ERROR_RULES: readonly SorobanErrorRule[] = [
+  {
+    patterns: ["insufficient funds"],
+    code: ErrorCode.INSUFFICIENT_FUNDS,
+    message: "Insufficient funds for contract operation.",
+  },
+  {
+    patterns: ["no pending", "nothing to claim", "already claimed"],
+    code: ErrorCode.CONTRACT_INVALID_STATE,
+    message: "No claimable winnings available.",
+  },
+  {
+    patterns: ["invalid state"],
+    code: ErrorCode.CONTRACT_INVALID_STATE,
+    message: "Contract operation rejected due to invalid state.",
+  },
+  {
+    patterns: ["timeout"],
+    code: ErrorCode.EXTERNAL_SERVICE_ERROR,
+    message: "Contract operation timed out.",
+  },
+  {
+    patterns: ["circuit breaker"],
+    code: ErrorCode.EXTERNAL_SERVICE_ERROR,
+    message: "Contract service temporarily unavailable. Please retry shortly.",
+  },
+];
+
+/**
+ * Builds an AppError of the catalog's error class for `code`.
+ *
+ * The catalog stores the class as a string, so it is resolved back to a
+ * constructor here. Each factory receives the (message, code) pair the class
+ * expects — ValidationError takes details as its second argument, so it is
+ * constructed without a code and keeps its own default.
+ */
+function createCatalogError(
+  entry: ErrorCatalogEntry,
+  message: string,
+  code: ErrorCode
+): AppError {
+  switch (entry.errorClass) {
+    case "ValidationError":
+      return new ValidationError(message);
+    case "AuthenticationError":
+      return new AuthenticationError(message, code);
+    case "AuthorizationError":
+      return new AuthorizationError(message, code);
+    case "NotFoundError":
+      return new NotFoundError(message, code);
+    case "ConflictError":
+      return new ConflictError(message, code);
+    case "BusinessRuleError":
+      return new BusinessRuleError(message, code);
+    case "ExternalServiceError":
+      return new ExternalServiceError(message, code);
+    case "ConfigurationError":
+      return new ConfigurationError(message, code);
+    default:
+      return new AppError(message, entry.status, code);
+  }
+}
+
+/**
  * Maps raw Soroban RPC/contract error messages into stable, safe AppErrors.
- * Protects internal details from leaking while providing actionable codes.
+ *
+ * Lookup order:
+ *   1. {@link SOROBAN_ERROR_RULES} maps the raw chain text to a catalog code.
+ *   2. {@link ERROR_CATALOG} supplies the HTTP status and error class.
+ *
+ * Falls back to EXTERNAL_SERVICE_ERROR for unmatched messages, never leaking
+ * chain jargon to API consumers.
  */
 export function mapSorobanError(errorMsg: string | undefined): AppError {
   const msg = (errorMsg || "").toLowerCase();
 
-  if (msg.includes("insufficient funds")) {
-    return new BusinessRuleError(
-      "Insufficient funds for contract operation.",
-      ErrorCode.INSUFFICIENT_FUNDS
-    );
-  }
-
-  if (
-    msg.includes("no pending") ||
-    msg.includes("nothing to claim") ||
-    msg.includes("already claimed")
-  ) {
-    return new BusinessRuleError(
-      "No claimable winnings available.",
-      ErrorCode.CONTRACT_INVALID_STATE
-    );
-  }
-
-  if (msg.includes("invalid state")) {
-    return new BusinessRuleError(
-      "Contract operation rejected due to invalid state.",
-      ErrorCode.CONTRACT_INVALID_STATE
-    );
-  }
-
-  if (msg.includes("timeout")) {
-    return new ExternalServiceError(
-      "Contract operation timed out.",
-      ErrorCode.EXTERNAL_SERVICE_ERROR
-    );
-  }
-
-  if (msg.includes("circuit breaker")) {
-    return new ExternalServiceError(
-      "Contract service temporarily unavailable. Please retry shortly.",
-      ErrorCode.EXTERNAL_SERVICE_ERROR
-    );
-  }
-
-  // Fallback for unknown errors (does not leak chain jargon)
-  return new ExternalServiceError(
-    "An unexpected contract error occurred.",
-    ErrorCode.EXTERNAL_SERVICE_ERROR
+  const rule = SOROBAN_ERROR_RULES.find((candidate) =>
+    candidate.patterns.some((pattern) => msg.includes(pattern))
   );
+
+  const code = rule?.code ?? ErrorCode.EXTERNAL_SERVICE_ERROR;
+  const message =
+    rule?.message ?? "An unexpected contract error occurred.";
+
+  const catalogEntry = ERROR_CATALOG.find((entry) => entry.code === code);
+  if (!catalogEntry) {
+    // The catalog is the source of truth; without an entry we cannot honour
+    // the code, so fall back to the generic upstream failure.
+    return new ExternalServiceError(message, ErrorCode.EXTERNAL_SERVICE_ERROR);
+  }
+
+  return createCatalogError(catalogEntry, message, code);
 }

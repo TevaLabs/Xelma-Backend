@@ -7,7 +7,13 @@ import { PredictionService } from "../services/prediction.service";
 // Mock factory creates fns internally to avoid jest.mock() hoisting TDZ issues
 jest.mock("../lib/prisma", () => {
   const round = { findUnique: jest.fn(), update: jest.fn() };
-  const prediction = { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn() };
+  const prediction = {
+    findUnique: jest.fn(),
+    findUniqueOrThrow: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  };
   const user = { findUnique: jest.fn(), update: jest.fn() };
   const outboxEvent = { create: jest.fn().mockResolvedValue({ id: "outbox-1" }) };
   return {
@@ -25,7 +31,7 @@ jest.mock("../lib/prisma", () => {
 
 jest.mock("../services/soroban.service", () => ({
   __esModule: true,
-  default: { placeBet: jest.fn().mockResolvedValue(undefined) },
+  default: { placeBet: jest.fn().mockResolvedValue({ txHash: "tx-1" }) },
 }));
 
 import { PredictionService as _PS } from "../services/prediction.service";
@@ -35,6 +41,7 @@ import { prisma } from "../lib/prisma";
 const mockRoundFindUnique = prisma.round.findUnique as jest.Mock;
 const mockRoundUpdate = prisma.round.update as jest.Mock;
 const mockPredictionFindUnique = prisma.prediction.findUnique as jest.Mock;
+const mockPredictionFindUniqueOrThrow = prisma.prediction.findUniqueOrThrow as jest.Mock;
 const mockPredictionFindMany = prisma.prediction.findMany as jest.Mock;
 const mockPredictionCreate = prisma.prediction.create as jest.Mock;
 const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
@@ -80,7 +87,10 @@ describe("PredictionService (Issue #78)", () => {
           mode: "UP_DOWN",
           status: "ACTIVE",
         });
-        mockPredictionFindUnique.mockResolvedValue({ id: "existing-pred" });
+        mockPredictionFindUnique.mockResolvedValue({
+          id: "existing-pred",
+          chainStatus: "CONFIRMED",
+        });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, "UP")
@@ -202,6 +212,8 @@ describe("PredictionService (Issue #78)", () => {
           resolvedAt: null,
         });
 
+        mockPredictionFindUniqueOrThrow.mockResolvedValue(created);
+
         const result = await predictionService.submitPrediction(
           userId,
           roundId,
@@ -216,6 +228,7 @@ describe("PredictionService (Issue #78)", () => {
             userId,
             amount: 100,
             side: "UP",
+            chainStatus: "PENDING",
           },
         });
         // Service uses an atomic WHERE+DECREMENT pattern to prevent race conditions
@@ -291,6 +304,7 @@ describe("PredictionService (Issue #78)", () => {
             amount: 50,
             side: undefined,
             priceRange: { min: 1, max: 2 },
+            chainStatus: "NOT_REQUIRED",
           },
         });
         expect(mockRoundUpdate).toHaveBeenCalledWith({

@@ -18,7 +18,9 @@ const outboxCreates: any[] = [];
 const mockRoundFindUnique = jest.fn();
 const mockRoundUpdate = jest.fn();
 const mockPredictionFindUnique = jest.fn();
+const mockPredictionFindUniqueOrThrow = jest.fn();
 const mockPredictionCreate = jest.fn();
+const mockPredictionUpdate = jest.fn();
 const mockUserFindUnique = jest.fn();
 const mockUserUpdate = jest.fn();
 const mockOutboxCreate = jest.fn((args: any) => {
@@ -28,7 +30,12 @@ const mockOutboxCreate = jest.fn((args: any) => {
 
 const txProxy = {
   round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
-  prediction: { findUnique: mockPredictionFindUnique, create: mockPredictionCreate },
+  prediction: {
+    findUnique: mockPredictionFindUnique,
+    findUniqueOrThrow: mockPredictionFindUniqueOrThrow,
+    create: mockPredictionCreate,
+    update: mockPredictionUpdate,
+  },
   user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
   outboxEvent: { create: mockOutboxCreate },
 };
@@ -36,7 +43,12 @@ const txProxy = {
 jest.mock('../lib/prisma', () => ({
   prisma: {
     round: { findUnique: jest.fn() },
-    prediction: { findUnique: jest.fn(), findMany: jest.fn() },
+    prediction: {
+      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
     user: { findUnique: jest.fn() },
     $transaction: jest.fn((fn: (tx: any) => Promise<any>) => fn(txProxy)),
   },
@@ -44,7 +56,7 @@ jest.mock('../lib/prisma', () => ({
 
 jest.mock('../services/soroban.service', () => ({
   __esModule: true,
-  default: { placeBet: jest.fn().mockResolvedValue(undefined) },
+  default: { placeBet: jest.fn().mockResolvedValue({ txHash: 'tx-1' }) },
 }));
 
 jest.mock('../lib/redis', () => ({
@@ -88,7 +100,11 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
         mode: 'UP_DOWN',
         status: 'ACTIVE',
       });
-      mockPredictionFindUnique.mockResolvedValue(null);
+      // The first lookup is the duplicate-prediction check (no existing row);
+      // the second one is the chain finalization, which requires a PENDING row.
+      mockPredictionFindUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ id: 'pred-1', chainStatus: 'PENDING' });
       mockUserFindUnique.mockResolvedValue({ id: userId, walletAddress: 'GXXX', virtualBalance: 1000 });
       mockUserUpdate.mockResolvedValue({ id: userId, walletAddress: 'GXXX', virtualBalance: 900 });
 
@@ -102,6 +118,7 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
         createdAt: new Date(),
       };
       mockPredictionCreate.mockResolvedValue(created);
+      mockPredictionFindUniqueOrThrow.mockResolvedValue(created);
       mockRoundUpdate.mockResolvedValue({
         id: roundId,
         mode: 'UP_DOWN',
@@ -142,7 +159,20 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
       mockPredictionCreate.mockResolvedValue({
         id: 'pred-1', roundId, userId, amount: 100, side: 'UP', priceRange: null, createdAt: new Date(),
       });
-      mockRoundUpdate.mockResolvedValue({});
+      // UP_DOWN mode is what triggers the on-chain call, so the updated round
+      // must report it.
+      mockRoundUpdate.mockResolvedValue({
+        id: roundId,
+        mode: 'UP_DOWN',
+        status: 'ACTIVE',
+        startTime: new Date(),
+        endTime: new Date(),
+        startPrice: 100,
+        endPrice: null,
+        poolUp: 100,
+        poolDown: 0,
+        priceRanges: [],
+      });
 
       // Soroban fails → transaction rolls back → outboxCreate never called
       const sorobanService = require('../services/soroban.service').default;

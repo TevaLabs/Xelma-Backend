@@ -1,3 +1,7 @@
+// The money path only aborts on a Soroban failure when the fail-closed
+// policy is active, so the suite opts into it before the config is loaded.
+process.env.SOROBAN_FAIL_CLOSED = 'true';
+
 import {
    describe,
    it,
@@ -9,6 +13,7 @@ import {
 } from '@jest/globals';
 import { prisma } from '../lib/prisma';
 import resolutionService from '../services/resolution.service';
+import { RoundLifecycleOutcome } from '../types/round.types';
 import sorobanService from '../services/soroban.service';
 import { toDecimal } from '../utils/decimal.util';
 
@@ -18,11 +23,19 @@ const shouldRunDbTests =
    (global as any).hasDb;
 
 jest.mock('../services/soroban.service', () => {
+   const { default: config } = jest.requireActual('../config');
    return {
       __esModule: true,
       default: {
          resolveRound: jest.fn(() => Promise.resolve()),
          ensureInitialized: jest.fn(),
+         // Mirror the real policy: the money path aborts when fail-closed is
+         // active and proceeds with a database-only fallback otherwise.
+         applyMoneyPathFailure: jest.fn((_operation: string, error: unknown) => {
+            if (config.soroban.failClosed) {
+               throw error instanceof Error ? error : new Error(String(error));
+            }
+         }),
       },
    };
 });
@@ -32,6 +45,7 @@ const describeDb = shouldRunDbTests ? describe : describe.skip;
 describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
    let testRound: any;
    let users: any[] = [];
+   const createdRoundIds: string[] = [];
 
    beforeAll(async () => {
       if (shouldRunDbTests) {
@@ -85,6 +99,7 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
                roundId: testRound.id,
                side,
                amount,
+               chainStatus: 'NOT_REQUIRED',
             },
          });
 
@@ -104,16 +119,21 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
          });
       }
 
+      createdRoundIds.push(testRound.id);
+
       jest.clearAllMocks();
    });
 
    afterAll(async () => {
-      await prisma.prediction.deleteMany({});
-      await prisma.round.deleteMany({});
+      // The integration database is shared by every suite, so only this
+      // suite's rows are removed.
+      await prisma.prediction.deleteMany({
+         where: { userId: { in: users.map(u => u.id) } },
+      });
+      await prisma.round.deleteMany({ where: { id: { in: createdRoundIds } } });
       await prisma.user.deleteMany({
          where: { id: { in: users.map(u => u.id) } },
       });
-      await prisma.$disconnect();
    });
 
    describe('Transactional Integrity', () => {
@@ -125,9 +145,9 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
             finalPrice
          );
 
-         expect(result.outcome).toBe('UPDATED');
+         expect(result.outcome).toBe(RoundLifecycleOutcome.UPDATED);
          expect(result.round.status).toBe('RESOLVED');
-         expect(result.round.endPrice).toBe(finalPrice);
+         expect(Number(result.round.endPrice)).toBe(finalPrice);
 
          // Verify all predictions were updated
          const predictions = await prisma.prediction.findMany({
@@ -155,23 +175,23 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
             testRound.id,
             finalPrice
          );
-         expect(result1.outcome).toBe('UPDATED');
+         expect(result1.outcome).toBe(RoundLifecycleOutcome.UPDATED);
 
          // Second resolution attempt
          const result2 = await resolutionService.resolveRound(
             testRound.id,
             finalPrice
          );
-         expect(result2.outcome).toBe('ALREADY_RESOLVED');
+         expect(result2.outcome).toBe(RoundLifecycleOutcome.ALREADY_RESOLVED);
 
          // Verify predictions weren't updated twice
          const predictions = await prisma.prediction.findMany({
             where: { roundId: testRound.id },
          });
 
-         // Count winners
+         // Count winners — the fixture has two UP bets and one DOWN bet.
          const winners = predictions.filter(p => p.won === true);
-         expect(winners.length).toBe(1); // Only 1 user bet UP
+         expect(winners.length).toBe(2);
       });
 
       it('should rollback all changes if Soroban call fails', async () => {
@@ -257,7 +277,7 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
 
          // Verify winners have payouts > their original bet
          for (const winner of winners) {
-            expect(winner.payout).toBeGreaterThan(winner.amount);
+            expect(Number(winner.payout)).toBeGreaterThan(Number(winner.amount));
          }
 
          // Verify losers have 0 payout
@@ -265,7 +285,7 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
             p => p.side === 'DOWN' && p.won === false
          );
          for (const loser of losers) {
-            expect(loser.payout).toBe(0);
+            expect(Number(loser.payout)).toBe(0);
          }
       });
 
@@ -280,7 +300,9 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
 
          // All predictions should be refunded (won = null, payout = original amount)
          expect(predictions.every(p => p.won === null)).toBe(true);
-         expect(predictions.every(p => p.payout === p.amount)).toBe(true);
+         expect(
+            predictions.every(p => Number(p.payout) === Number(p.amount))
+         ).toBe(true);
       });
    });
 
@@ -290,7 +312,7 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
             'non-existent-id',
             105
          );
-         expect(result.outcome).toBe('NO_OP');
+         expect(result.outcome).toBe(RoundLifecycleOutcome.NO_OP);
       });
 
       it('should handle round in invalid status', async () => {
@@ -311,7 +333,7 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
             activeRound.id,
             105
          );
-         expect(result.outcome).toBe('NO_OP');
+         expect(result.outcome).toBe(RoundLifecycleOutcome.NO_OP);
 
          await prisma.round.delete({ where: { id: activeRound.id } });
       });

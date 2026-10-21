@@ -27,7 +27,17 @@
  *
  * Storage modes (controlled by BET_AUDIT_STORAGE env var):
  *   - "memory"   (default / hackathon)  – events held in an in-memory array
- *   - "database" (full mode)            – persisted to the AuditLog table
+ *   - "database" (full mode)            – additionally persisted to the
+ *     dedicated BetAuditEvent table (Issue #835) and the generic AuditLog
+ *     table, so audit history survives process restarts.
+ *
+ * Memory fallback (Issue #835):
+ *   Every event is recorded in the in-memory array first, in both modes.
+ *   Database writes are best-effort, fire-and-forget and never throw into
+ *   the bet flow. When a write fails (database down, migration or
+ *   `prisma generate` not run yet) the event remains available in memory
+ *   for the lifetime of the process and the failure is logged — a missing
+ *   BetAuditEvent table is reported as a single warning, not per event.
  *
  * Future on-chain migration:
  *   The BetAuditEvent schema maps 1:1 to a future on-chain event. Each field
@@ -95,6 +105,8 @@ export interface ClaimAuditParams {
 
 class BetAuditService {
   private events: BetAuditEvent[] = [];
+  /** Warn at most once per process when the BetAuditEvent table is unusable. */
+  private betAuditTableWarned = false;
 
   get storageMode(): "memory" | "database" {
     const mode = process.env.BET_AUDIT_STORAGE;
@@ -201,6 +213,8 @@ class BetAuditService {
     logger.info("Claim accepted", { audit: true, requestId, correlationId, ...event });
 
     if (this.storageMode === "database") {
+      // Dedicated BetAuditEvent row (Issue #835) — never throws.
+      void this.persistToBetAuditTable(event);
       void this.persistClaimToDatabase(event).catch((error) => {
         logger.error("Failed to persist claim audit event to database", {
           error: error instanceof Error ? error.message : "Unknown error",
@@ -239,6 +253,9 @@ class BetAuditService {
     }
 
     if (this.storageMode === "database") {
+      // Dedicated BetAuditEvent row (Issue #835) — never throws.
+      await this.persistToBetAuditTable(event);
+
       try {
         await this.persistToDatabase(event);
       } catch (error) {
@@ -248,6 +265,69 @@ class BetAuditService {
         });
       }
     }
+  }
+
+  /**
+   * Persist an event to the dedicated BetAuditEvent table (Issue #835).
+   *
+   * Only reached when storageMode === "database". Never throws: the event
+   * has already been recorded in the in-memory array (memory fallback),
+   * so a failed write is logged and dropped rather than breaking the bet
+   * flow. A missing table / stale Prisma client is downgraded to a single
+   * warning per process instead of one error per event.
+   */
+  private async persistToBetAuditTable(event: BetAuditEvent): Promise<void> {
+    try {
+      if (!prisma.betAuditEvent) {
+        // Generated client predates the BetAuditEvent model.
+        this.warnBetAuditTableOnce(
+          "Prisma client is missing the BetAuditEvent model - run `npm run prisma:generate`. Falling back to in-memory audit storage.",
+        );
+        return;
+      }
+
+      await prisma.betAuditEvent.create({
+        data: {
+          event: event.event,
+          roundId: event.roundId,
+          betId: event.betId,
+          address: event.address,
+          amount: event.amount,
+          side: event.side,
+          mode: event.mode,
+          result: event.result,
+          status: event.status,
+          txHash: event.txHash,
+          requestId: event.requestId,
+          correlationId: event.correlationId,
+          failureReason: event.failureReason,
+          createdAt: new Date(event.createdAt),
+        },
+      });
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code;
+      if (code === "P2021") {
+        // Prisma: the table does not exist on this database.
+        this.warnBetAuditTableOnce(
+          "BetAuditEvent table does not exist - run `npm run db:migrate`. Falling back to in-memory audit storage.",
+        );
+        return;
+      }
+      logger.error(
+        "Failed to persist bet audit event to BetAuditEvent table",
+        {
+          error: error instanceof Error ? error.message : "Unknown error",
+          eventType: event.event,
+        },
+      );
+    }
+  }
+
+  /** Log the BetAuditEvent-table-unavailable warning at most once. */
+  private warnBetAuditTableOnce(message: string): void {
+    if (this.betAuditTableWarned) return;
+    this.betAuditTableWarned = true;
+    logger.warn(message, { audit: true, storageMode: "memory-fallback" });
   }
 
   private async persistToDatabase(event: BetAuditEvent): Promise<void> {
@@ -353,6 +433,7 @@ class BetAuditService {
    /** Clear all in-memory events (for test isolation). */
    clear(): void {
      this.events = [];
+     this.betAuditTableWarned = false;
    }
 }
 

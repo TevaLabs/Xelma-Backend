@@ -5,6 +5,7 @@ import {
 } from '@prisma/client/runtime/library';
 import { AppError, BackpressureError, ValidationError, ErrorCode } from '../utils/errors';
 import { CircuitBreakerOpenError } from '../utils/circuit-breaker';
+import { buildStandardErrorBody } from '../utils/response';
 import logger from '../utils/logger';
 
 /**
@@ -117,14 +118,20 @@ export function errorHandler(
   });
 
   const body: ErrorResponse & { stack?: string } = {
-    error: appError.message || appError.name, // Ensure textual summary error field is clear
-    message: appError.message,
-    code: appError.code,
-    path: req.originalUrl, // <-- Explicitly mapped parameter requirement
-    requestId,
-    timestamp,
+    // `error` carries the error class name (ValidationError,
+    // AuthenticationError, NotFoundError, …) — that is the documented
+    // contract in the OpenAPI ErrorResponse schema. The human-readable
+    // description lives in `message`.
+    ...buildStandardErrorBody({
+      error: appError.name || appError.message,
+      message: appError.message,
+      code: appError.code,
+      path: req.originalUrl,
+      requestId,
+      details: appError.details,
+      timestamp,
+    }),
     ...(retryAfterSeconds !== undefined && { retryAfter: retryAfterSeconds }),
-    ...(appError.details && { details: appError.details }),
     ...(isDev && err instanceof Error && { stack: err.stack }),
   };
 
