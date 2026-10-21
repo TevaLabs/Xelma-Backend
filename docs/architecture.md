@@ -109,9 +109,10 @@ for three operations:
 
 The contract client is vendored at `vendor/xelma-bindings` and pinned by
 [`bindings.pin.json`](../bindings.pin.json). The startup validator
-(`src/utils/bindings-validator.ts`) checks that the vendored commit matches
-the pin. See [bindings-upgrade.md](bindings-upgrade.md) before changing
-anything under `vendor/`.
+(`src/utils/bindings-validator.ts`) checks that the vendored commit and the
+vendored package version match the pin; CI re-asserts both on every run. See
+[bindings-upgrade.md](bindings-upgrade.md) before changing anything under
+`vendor/`.
 
 ### Money-path safety
 
