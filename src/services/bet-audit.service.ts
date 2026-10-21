@@ -1,4 +1,4 @@
-/**
+/*
  * Bet Audit Service
  *
  * Provides structured audit events across the bet lifecycle.
@@ -26,8 +26,8 @@
  * }
  *
  * Storage modes (controlled by BET_AUDIT_STORAGE env var):
- *   - "memory"   (default / hackathon)  – events held in an in-memory array
- *   - "database" (full mode)            – persisted to the AuditLog table
+ *   - "memory"   (default / hackathon)  - events held in an in-memory array
+ *   - "database" (full mode)            - persisted to the AuditLog table
  *
  * Future on-chain migration:
  *   The BetAuditEvent schema maps 1:1 to a future on-chain event. Each field
@@ -64,7 +64,7 @@ export interface BetAuditEvent {
   status?: BetStatus;
   txHash?: string;
   requestId?: string;
-  /** Correlation id linking requestId ↔ txHash for distributed tracing */
+  /** Correlation id linking requestId ℔ txHash for distributed tracing */
   correlationId?: string;
   failureReason?: string;
   createdAt: string;
@@ -91,6 +91,41 @@ export interface ClaimAuditParams {
   txHash?: string;
   requestId?: string;
   correlationId?: string;
+}
+
+/** Statuses that indicate a bet is not fully reconciled on-chain. */
+const UNRECONCILED_STATUSES: BetStatus[] = [
+  BetStatus.STUB - 0,
+] as BetStatus[];
+
+export interface ReconciliationIssue {
+  betId?: string;
+  address: string;
+  amount: number;
+  side?: "UP" | "DOWN";
+  mode?: "UP_DOWN" | "PRECISION";
+  status?: BetStatus;
+  txHash?: string;
+  event: BetAuditEventName;
+  createdAt: string;
+  reason: string;
+}
+
+export interface ReconciliationReport {
+  roundId?: string;
+  generatedAt: string;
+  totalEvents: number;
+  accepted: number;
+  failed: number;
+  reconciled: number;
+  /** Bets that were accepted but never reconciled to a txHash. */
+  unconfirmed: ReconciliationIssue[];
+  /** Bets that failed on-chain. */
+  failures: ReconciliationIssue[];
+  /** Bets whose reconciled txHash differs from the accepted txHash. */
+  mismatches: ReconciliationIssue[];
+  /** True when there are no unconfirmed bets, no failures, and no mismatches. */
+  balanced: boolean;
 }
 
 class BetAuditService {
@@ -228,7 +263,7 @@ class BetAuditService {
         params.mode === "UP_DOWN" ? GameMode.UP_DOWN : GameMode.LEGENDS;
       const round = await prisma.round.findFirst({
         where: { mode: gameMode, status: "ACTIVE" },
-        orderBy: { startTime: "desc" },
+        ordesBy: { startTime: "desc" },
         select: { id: true },
       });
       if (round) {
@@ -348,6 +383,130 @@ class BetAuditService {
      }
 
      return filtered;
+   }
+
+  /**
+   * Build a reconciliation report for a round from the audit events stream.
+   *
+   * Surfaces the mismatches that are otherwise hard to see:
+   *   - bets accepted but never reconciled to a txHash (unconfirmed)
+   *   - bets that failed on-chain (failures)
+   *   - bets whose reconciled txHash differs from the accepted txHash (mismatches)
+   *
+   * @param roundId - optional round to scope the report to
+   */
+   getReconciliationReport(roundId?: string): ReconciliationReport {
+     const scoped = roundId
+       ?  this.events.filter((e) => e.roundId === roundId)
+       : [...this.events];
+
+     const betEvents = scoped.filter(
+       (e) =>
+         e.event === "BET_ACCEPTED" ||
+         e.event === "BET_FAILED" ||
+         e.event === "BET_RECONCILED",
+     );
+
+     // Index the latest event per bet handle so we can compare accepted vs reconciled.
+     const byBet = new Map<string, BetAuditEvent[]>();
+     for (const event of betEvents) {
+       const key = event.betId ?? event.correlationId ?? `${event.address}:${event.createdAt}`;
+       const bucket = byBet.get(key) ?? [];
+       bucket.push(event);
+       byBet.set(key, bucket);
+     }
+
+     const unconfirmed: ReconciliationIssue[] = [];
+     const failures: ReconciliationIssue[] = [];
+     const mismatches: ReconciliationIssue[] = [];
+
+     for (const events of byBet.values()) {
+       const accepted = events.find((e) => e.event === "BET_ACCEPTED");
+       const failed = events.find((e) => e.event === "BET_FAILED");
+       const reconciled = [...events]
+         .reverse()
+         .find((e) => e.event === "BET_RECONCILED");
+
+       if (failed) {
+         failures.push({
+           betId: failed.betId,
+           address: failed.address,
+           amount: failed.amount,
+           side: failed.side,
+           mode: failed.mode,
+           status: failed.status,
+           txHash: failed.txHash,
+           event: failed.event,
+           createdAt: failed.createdAt,
+           reason: failed.failureReason ?? "on-chain submission failed",
+         });
+         continue;
+       }
+
+       if (!accepted) {
+         continue;
+       }
+
+       if (reconciled) {
+         if (accepted.txHash && reconciled.txHash && accepted.txHash !== reconciled.txHash) {
+           mismatches.push({
+             betId: reconciled.betId ?? accepted.betId,
+             address: reconciled.address,
+             amount: reconciled.amount,
+             side: reconciled.side,
+             mode: reconciled.mode,
+             status: reconciled.status,
+             txHash: reconciled.txHash,
+             event: reconciled.event,
+             createdAt: reconciled.createdAt,
+             reason: `reconciled txHash ${reconciled.txHash} != accepted txHash ${accepted.txHash}`,
+           });
+         }
+         continue;
+       }
+
+       const isUnconfirmed =
+         !accepted.txHash ||
+         accepted.status === BetStatus.STUB ||
+         accepted.status === BetStatus.SUBMITTED;
+
+       if (isUnconfirmed) {
+         unconfirmed.push({
+           betId: accepted.betId,
+           address: accepted.address,
+           amount: accepted.amount,
+           side: accepted.side,
+           mode: accepted.mode,
+           status: accepted.status,
+           txHash: accepted.txHash,
+           event: accepted.event,
+           createdAt: accepted.createdAt,
+           reason: accepted.txHash
+             ? "txHash present but not yet reconciled"
+             : "accepted without a txHash",
+         });
+       }
+     }
+
+     const acceptedCount = betEvents.filter((e) => e.event === "BET_ACCEPTED").length;
+     const failedCount = betEvents.filter((e) => e.event === "BET_FAILED").length;
+     const reconciledCount = betEvents.filter((e) => e.event === "BET_RECONCILED").length;
+
+     return {
+       roundId,
+       generatedAt: new Date().toISOString(),
+       totalEvents: betEvents.length,
+       accepted: acceptedCount,
+       failed: failedCount,
+       reconciled: reconciledCount,
+       unconfirmed,
+       failures,
+       mismatches,
+       balanced:
+         unconfirmed.length === 0 &&
+         failures.length === 0 &&
+         mismatches.length === 0,
+     };
    }
 
    /** Clear all in-memory events (for test isolation). */

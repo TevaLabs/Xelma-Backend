@@ -1281,6 +1281,41 @@ describe("Bet reconciliation lifecycle (#403)", () => {
       });
     });
 
+    it("scopes the reconciliation summary to a round when roundId is provided", async () => {
+      mockBetGroupBy.mockResolvedValue([
+        { status: BetStatus.ACCEPTED, _count: { status: 1 } },
+        { status: BetStatus.CONFIRMED, _count: { status: 2 } },
+      ]);
+
+      const summary = await betService.getReconciliationSummary("round-1");
+
+      expect(mockBetGroupBy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          by: ["status"],
+          where: expect.objectContaining({ roundId: "round-1" }),
+        })
+      );
+      expect(summary).toEqual({
+        [BetStatus.ACCEPTED]: 1,
+        [BetStatus.SUBMITTED]: 0,
+        [BetStatus.CONFIRMED]: 2,
+        [BetStatus.RESOLVED]: 0,
+        [BetStatus.FAILED]: 0,
+      });
+    });
+
+    it("returns zeroed counts for a round with no bets", async () => {
+      mockBetGroupBy.mockResolvedValue([]);
+
+      expect(await betService.getReconciliationSummary("empty-round")).toEqual({
+        [BetStatus.ACCEPTED]: 0,
+        [BetStatus.SUBMITTED]: 0,
+        [BetStatus.CONFIRMED]: 0,
+        [BetStatus.RESOLVED]: 0,
+        [BetStatus.FAILED]: 0,
+      });
+    });
+
     it("returns copies so callers cannot mutate stored records", async () => {
       const betId = "bet-1";
       const userId = "user-1";

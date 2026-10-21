@@ -61,6 +61,28 @@ export interface BetQuery {
   status?: BetStatus;
 }
 
+export interface ReconciliationMismatch {
+  betId: string;
+  roundId: string | null;
+  mode: BetMode;
+  status: BetStatus;
+  txHash: string | null;
+  reason: string;
+  submittedAt: Date | null;
+  confirmedAt: Date | null;
+  resolvedAt: Date | null;
+  failedAt: Date | null;
+  createdAt: Date;
+}
+
+export interface ReconciliationReport {
+  roundId: string | null;
+  summary: Record<BetStatus, number>;
+  totalBets: number;
+  mismatchCount: number;
+  mismatches: ReconciliationMismatch[];
+}
+
 export class BetService {
   private isStubMode(): boolean {
     return process.env.BET_STUB_MODE === 'true';
@@ -510,6 +532,103 @@ export class BetService {
       summary[c.status] = c._count.status;
     }
     return summary;
+  }
+
+  /**
+   * Builds an admin reconciliation report for bets, optionally scoped to a
+   * single round. Surfaces bets whose lifecycle is inconsistent so operators
+   * can spot mismatches that are otherwise hard to see:
+   *
+   * - SUBMITTED bets missing a txHash (nothing to reconcile against)
+   * - SUBMITTED bets that have been stuck for longer than the threshold
+   * - CONFIRMED bets missing a txHash or confirmedAt
+   * - RESOLVED bets missing resolvedAt
+   * - FAILED bets missing a failureReason or failedAt
+   * - ACCEPTED bets with a txHash (should have progressed to SUBMITTED)
+   */
+  async getReconciliationReport(roundId?: string): Promise<ReconciliationReport> {
+    const where: Prisma.BetWhereInput = roundId ? { roundId } : {};
+
+    const bets = await prisma.bet.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const summary: Record<BetStatus, number> = {
+      [BetStatus.ACCEPTED]: 0,
+      [BetStatus.SUBMITTED]: 0,
+      [BetStatus.CONFIRMED]: 0,
+      [BetStatus.RESOLVED]: 0,
+      [BetStatus.FAILED]: 0,
+    };
+
+    const stuckThresholdMs = Number(process.env.BET_RECONCILIATION_STUCK_MS ?? 15 * 60 * 1000);
+    const now = Date.now();
+    const mismatches: ReconciliationMismatch[] = [];
+
+    for (const bet of bets) {
+      summary[bet.status] = (summary[bet.status] ?? 0) + 1;
+
+      let reason: string | null = null;
+
+      switch (bet.status) {
+        case BetStatus.ACCEPTED:
+          if (bet.txHash) {
+            reason = 'ACCEPTED bet has a txHash but was never marked SUBMITTED';
+          }
+          break;
+        case BetStatus.SUBMITTED:
+          if (!bet.txHash) {
+            reason = 'SUBMITTED bet is missing a txHash';
+          } else if (bet.submittedAt && now - bet.submittedAt.getTime() > stuckThresholdMs) {
+            reason = 'SUBMITTED bet has been stuck past the reconciliation threshold';
+          }
+          break;
+        case BetStatus.CONFIRMED:
+          if (!bet.txHash) {
+            reason = 'CONFIRMED bet is missing a txHash';
+          } else if (!bet.confirmedAt) {
+            reason = 'CONFIRMED bet is missing confirmedAt';
+          }
+          break;
+        case BetStatus.RESOLVED:
+          if (!bet.resolvedAt) {
+            reason = 'RESOLVED bet is missing resolvedAt';
+          }
+          break;
+        case BetStatus.FAILED:
+          if (!bet.failureReason) {
+            reason = 'FAILED bet is missing a failureReason';
+          } else if (!bet.failedAt) {
+            reason = 'FAILED bet is missing failedAt';
+          }
+          break;
+      }
+
+      if (reason) {
+        mismatches.push({
+          betId: bet.id,
+          roundId: bet.roundId,
+          mode: bet.mode,
+          status: bet.status,
+          txHash: bet.txHash,
+          reason,
+          submittedAt: bet.submittedAt,
+          confirmedAt: bet.confirmedAt,
+          resolvedAt: bet.resolvedAt,
+          failedAt: bet.failedAt,
+          createdAt: bet.createdAt,
+        });
+      }
+    }
+
+    return {
+      roundId: roundId ?? null,
+      summary,
+      totalBets: bets.length,
+      mismatchCount: mismatches.length,
+      mismatches,
+    };
   }
 
   /**

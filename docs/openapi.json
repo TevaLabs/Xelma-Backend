@@ -3326,6 +3326,69 @@
         }
       }
     },
+    "/api/admin/bets/reconciliation": {
+      "get": {
+        "summary": "Admin bet reconciliation report",
+        "description": "Admin-only. Returns a reconciliation report for bets in a round, grouping records by reconciliation status and surfacing mismatches between recorded bets and their on-chain state so discrepancies are easy to spot.\n",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "roundId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Round to reconcile"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reconciliation report for the round",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "roundId": {
+                      "type": "string"
+                    },
+                    "summary": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "integer"
+                      }
+                    },
+                    "mismatches": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/BetAuditEvent"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid roundId"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/api/admin/bet-audit": {
       "get": {
         "summary": "List recent bet-audit events",
