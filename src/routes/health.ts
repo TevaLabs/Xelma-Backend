@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import sorobanService from '../services/soroban.service';
 import priceOracle from '../services/oracle';
+import { getPriceProviderHealth } from '../services/priceService';
 import { checkRedisHealth, isRedisCacheEnabled } from '../lib/redis';
 import { withTimeout } from '../utils/timeout-wrapper';
 import logger from '../utils/logger';
@@ -129,6 +130,14 @@ router.get(
     setNoStore(res);
     const startTime = Date.now();
 
+    const priceHealth = getPriceProviderHealth();
+    const prices = {
+      status: priceHealth.degraded ? 'degraded' : 'healthy',
+      activeProvider: priceHealth.activeProvider,
+      lastSuccessAt: priceHealth.lastSuccessAt,
+      providers: priceHealth.providers,
+    };
+
     const [database, redis, soroban, oracle] = await Promise.all([
       checkDatabase(),
       checkRedis(),
@@ -136,7 +145,7 @@ router.get(
       checkOracle(),
     ]);
 
-    const services = { database, redis, soroban, oracle };
+    const services = { database, redis, soroban, oracle, prices };
 
     let overallStatus: 'healthy' | 'degraded' | 'unhealthy';
     if (database.status === 'unhealthy') {
@@ -145,7 +154,8 @@ router.get(
       redis.status === 'degraded' ||
       soroban.status === 'degraded' ||
       oracle.status === 'degraded' ||
-      oracle.status === 'stale'
+      oracle.status === 'stale' ||
+      prices.status === 'degraded'
     ) {
       overallStatus = 'degraded';
     } else {
@@ -197,19 +207,29 @@ router.get('/health', asyncHandler(async (_req: Request, res: Response) => {
   const isMockMode = config.app.dataMode === 'mock';
   const sorobanReady = sorobanService.isReady();
 
+  const priceHealth = isMockMode ? null : getPriceProviderHealth();
+
   const services: Record<string, unknown> = {
-    price: {
-      status: 'ok',
-      source: isMockMode ? 'static-mock' : 'coingecko',
-      mockMode: isMockMode,
-    },
+    price: priceHealth
+      ? {
+          status: priceHealth.degraded ? 'degraded' : 'ok',
+          source: priceHealth.activeProvider ?? 'coingecko',
+          mockMode: false,
+          lastSuccessAt: priceHealth.lastSuccessAt,
+          providers: priceHealth.providers,
+        }
+      : {
+          status: 'ok',
+          source: 'static-mock',
+          mockMode: true,
+        },
     soroban: {
       status: sorobanReady ? 'ok' : 'unavailable',
       initialized: sorobanReady,
     },
   };
 
-  let degraded = !sorobanReady;
+  let degraded = !sorobanReady || Boolean(priceHealth?.degraded);
 
   // Run optional dependency probes in parallel so the response stays fast.
   const probes: Array<Promise<void>> = [];
@@ -323,6 +343,38 @@ router.get('/health', asyncHandler(async (_req: Request, res: Response) => {
  *                           type: boolean
  *                         error:
  *                           type: string
+ *                     prices:
+ *                       type: object
+ *                       description: Multi-asset price provider chain (/api/prices). Degraded when the last fetch failed on every provider.
+ *                       properties:
+ *                         status:
+ *                           type: string
+ *                           enum: [healthy, degraded]
+ *                         activeProvider:
+ *                           type: string
+ *                           nullable: true
+ *                         lastSuccessAt:
+ *                           type: string
+ *                           format: date-time
+ *                           nullable: true
+ *                         providers:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               name:
+ *                                 type: string
+ *                               lastSuccessAt:
+ *                                 type: string
+ *                                 nullable: true
+ *                               lastFailureAt:
+ *                                 type: string
+ *                                 nullable: true
+ *                               lastError:
+ *                                 type: string
+ *                                 nullable: true
+ *                               consecutiveFailures:
+ *                                 type: integer
  *                     oracle:
  *                       type: object
  *                       properties:

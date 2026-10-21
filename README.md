@@ -157,6 +157,7 @@ The hackathon app and the production app share the same services, but the data b
 | `GET /api/rounds`               | Prisma / Postgres (`hackathon_rounds` table)  | Same â€” Prisma is always used for rounds                                                                   |
 | `GET /api/leaderboard`          | Prisma / Postgres leaderboard table           | In-memory seed (`mockLeaderboard` in [src/data/mockData.ts](src/data/mockData.ts)) when `DATA_STORE=memory` |
 | `GET /api/stats`                | Prisma / Postgres aggregation                 | `MOCK_PLATFORM_STATS` constants (zero-value defaults)                                                       |
+| `GET /api/health` â†’ `price` | `ok`, or `degraded` when every price provider failed on the last fetch; lists per-provider `lastSuccessAt`/`lastFailureAt`/`lastError` | Static `ok` (`static-mock`) |
 | `GET /api/health` â†’ `soroban` | Live `soroban.isReady()` flag                 | Same â€” no extra network call; reflects initialization state only                                          |
 
 **Controlling flags** (set in `.env` or as environment variables):
