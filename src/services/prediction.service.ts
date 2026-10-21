@@ -252,7 +252,77 @@ export class PredictionService {
                      poolDown: side === 'DOWN' ? { increment: amountNum } : undefined,
                   },
                });
-               // No Soroban call or outbox events yet. Will be done in phase 2 and 3.
+
+               await tx.outboxEvent.create({
+                  data: {
+                     eventType: OutboxEventType.WEBSOCKET_EMIT,
+                     aggregateId: prediction.id,
+                     aggregateType: 'prediction',
+                     payload: {
+                        eventName: 'prediction:placed',
+                        room: 'round',
+                        data: {
+                           roundId,
+                           predictionId: prediction.id,
+                           amount: serializeMoney(prediction.amount),
+                           side: prediction.side,
+                           priceRange: prediction.priceRange,
+                        },
+                     },
+                  },
+               });
+
+               await tx.outboxEvent.create({
+                  data: {
+                     eventType: OutboxEventType.WEBSOCKET_EMIT,
+                     aggregateId: roundId,
+                     aggregateType: 'round',
+                     payload: {
+                        eventName: 'round_update',
+                        room: `round:${roundId}`,
+                        data: {
+                           id: updatedRoundResult.id,
+                           mode: updatedRoundResult.mode,
+                           status: updatedRoundResult.status,
+                           startTime: updatedRoundResult.startTime.toISOString(),
+                           endTime: updatedRoundResult.endTime.toISOString(),
+                           startPrice: serializeMoney(updatedRoundResult.startPrice),
+                           endPrice: serializeNullableMoney(updatedRoundResult.endPrice),
+                           poolUp: serializeMoney(updatedRoundResult.poolUp),
+                           poolDown: serializeMoney(updatedRoundResult.poolDown),
+                           priceRanges: updatedRoundResult.priceRanges,
+                           resolvedAt: updatedRoundResult.resolvedAt ? updatedRoundResult.resolvedAt.toISOString() : null,
+                        },
+                     },
+                  },
+               });
+
+               await tx.outboxEvent.create({
+                  data: {
+                     eventType: OutboxEventType.WEBSOCKET_EMIT,
+                     aggregateId: roundId,
+                     aggregateType: 'round',
+                     payload: {
+                        eventName: 'round_update',
+                        room: 'round',
+                        data: {
+                           id: updatedRoundResult.id,
+                           mode: updatedRoundResult.mode,
+                           status: updatedRoundResult.status,
+                           startTime: updatedRoundResult.startTime.toISOString(),
+                           endTime: updatedRoundResult.endTime.toISOString(),
+                           startPrice: serializeMoney(updatedRoundResult.startPrice),
+                           endPrice: serializeNullableMoney(updatedRoundResult.endPrice),
+                           poolUp: serializeMoney(updatedRoundResult.poolUp),
+                           poolDown: serializeMoney(updatedRoundResult.poolDown),
+                           priceRanges: updatedRoundResult.priceRanges,
+                           resolvedAt: updatedRoundResult.resolvedAt ? updatedRoundResult.resolvedAt.toISOString() : null,
+                        },
+                     },
+                  },
+               });
+
+               logger.info(`Prediction reserved (UP_DOWN): user=${userId}, round=${roundId}, side=${side}`);
             } else if (round.mode === 'LEGENDS') {
                const ranges = parseRoundPriceRanges(round.priceRanges);
                const updatedRanges = updateRangePool(ranges, priceRange!.min, priceRange!.max, amount);
@@ -391,76 +461,7 @@ export class PredictionService {
                   },
                });
 
-               await tx.outboxEvent.create({
-                  data: {
-                     eventType: OutboxEventType.WEBSOCKET_EMIT,
-                     aggregateId: prediction.id,
-                     aggregateType: 'prediction',
-                     payload: {
-                        eventName: 'prediction:placed',
-                        room: 'round',
-                        data: {
-                           roundId,
-                           predictionId: prediction.id,
-                           amount: serializeMoney(prediction.amount),
-                           side: prediction.side,
-                           priceRange: prediction.priceRange,
-                        },
-                     },
-                  },
-               });
-
-               await tx.outboxEvent.create({
-                  data: {
-                     eventType: OutboxEventType.WEBSOCKET_EMIT,
-                     aggregateId: roundId,
-                     aggregateType: 'round',
-                     payload: {
-                        eventName: 'round_update',
-                        room: `round:${roundId}`,
-                        data: {
-                           id: updatedRound.id,
-                           mode: updatedRound.mode,
-                           status: updatedRound.status,
-                           startTime: updatedRound.startTime.toISOString(),
-                           endTime: updatedRound.endTime.toISOString(),
-                           startPrice: serializeMoney(updatedRound.startPrice),
-                           endPrice: serializeNullableMoney(updatedRound.endPrice),
-                           poolUp: serializeMoney(updatedRound.poolUp),
-                           poolDown: serializeMoney(updatedRound.poolDown),
-                           priceRanges: updatedRound.priceRanges,
-                           resolvedAt: updatedRound.resolvedAt ? updatedRound.resolvedAt.toISOString() : null,
-                        },
-                     },
-                  },
-               });
-
-               await tx.outboxEvent.create({
-                  data: {
-                     eventType: OutboxEventType.WEBSOCKET_EMIT,
-                     aggregateId: roundId,
-                     aggregateType: 'round',
-                     payload: {
-                        eventName: 'round_update',
-                        room: 'round',
-                        data: {
-                           id: updatedRound.id,
-                           mode: updatedRound.mode,
-                           status: updatedRound.status,
-                           startTime: updatedRound.startTime.toISOString(),
-                           endTime: updatedRound.endTime.toISOString(),
-                           startPrice: serializeMoney(updatedRound.startPrice),
-                           endPrice: serializeNullableMoney(updatedRound.endPrice),
-                           poolUp: serializeMoney(updatedRound.poolUp),
-                           poolDown: serializeMoney(updatedRound.poolDown),
-                           priceRanges: updatedRound.priceRanges,
-                           resolvedAt: updatedRound.resolvedAt ? updatedRound.resolvedAt.toISOString() : null,
-                        },
-                     },
-                  },
-               });
-
-               logger.info(`Prediction submitted and finalized (UP_DOWN): round=${roundId}, side=${prediction.side}`);
+               logger.info(`Prediction chain confirmed (UP_DOWN): round=${roundId}, side=${prediction.side}, txHash=${txHash}`);
             });
          },
          'finalizeChainSuccess',
