@@ -18,9 +18,12 @@ import { serializeTournament } from "../serializers/monetary.serializer";
 import {
   isLegalTournamentTransition,
   TournamentLifecycleStatus,
+  TournamentJoinResult,
+  TournamentLeaveResult,
   TournamentPayoutAllocation,
   TournamentPayoutResult,
   TournamentStanding,
+  TournamentWaitlistEntry,
   compareTournamentStandings,
 } from "../types/tournament.types";
 import { tournamentTransitionFailuresTotal } from "../metrics/application.metrics";
@@ -214,7 +217,7 @@ export class TournamentService {
   async joinTournament(
     userId: string,
     tournamentId: string,
-  ): Promise<{ currentParticipants: number }> {
+  ): Promise<TournamentJoinResult> {
     // Non-race-sensitive checks stay outside the transaction
     const tournament = await prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -231,7 +234,12 @@ export class TournamentService {
 
     // Atomic join: capacity check + duplicate check + create + increment
     // all inside the same interactive transaction to prevent check-then-act races.
-    const updated = await prisma.$transaction(async (tx) => {
+    //
+    // A full tournament no longer rejects the join: the user is put on the
+    // waitlist instead (Issue #874). The waitlist is deterministic — the
+    // tournament row lock serialises both the capacity check and the ticket
+    // allocation, so the queue is strictly first-come, first-served.
+    return prisma.$transaction(async (tx) => {
       // Take a FOR UPDATE row lock on the tournament before reading its capacity.
       // Without it, two concurrent transactions can both read the same
       // currentParticipants value, both pass the capacity check, and both
@@ -252,36 +260,313 @@ export class TournamentService {
       // changed between the outer read and the begin of this transaction.
       this.assertJoinable(txTournament.status as TournamentStatus);
 
-      // Atomic capacity check — serialised by the row lock above so concurrent
-      // requests see the latest count before deciding to join.
-      if (txTournament.currentParticipants >= txTournament.maxParticipants) {
-        throw new ConflictError("Tournament is full");
-      }
-
-      const existing = await tx.tournamentParticipant.findUnique({
+      // Duplicate check first: a user who already holds a seat must not be able
+      // to slip into the waitlist as well.
+      const existingParticipant = await tx.tournamentParticipant.findUnique({
         where: {
           tournamentId_userId: { tournamentId, userId },
         },
       });
 
-      if (existing) {
+      if (existingParticipant) {
         throw new ConflictError("Already joined this tournament");
       }
 
-      const [, updatedTournament] = await Promise.all([
-        tx.tournamentParticipant.create({
-          data: { tournamentId, userId },
-        }),
-        tx.tournament.update({
-          where: { id: tournamentId },
-          data: { currentParticipants: { increment: 1 } },
-        }),
-      ]);
+      const existingEntry = await tx.tournamentWaitlist.findUnique({
+        where: {
+          tournamentId_userId: { tournamentId, userId },
+        },
+      });
 
-      return updatedTournament;
+      if (existingEntry && existingEntry.status === "WAITING") {
+        throw new ConflictError("Already on the tournament waitlist");
+      }
+
+      // Atomic capacity check — serialised by the row lock above so concurrent
+      // requests see the latest count before deciding to join.
+      const hasFreeSlot =
+        txTournament.currentParticipants < txTournament.maxParticipants;
+
+      if (hasFreeSlot) {
+        const [, updatedTournament] = await Promise.all([
+          tx.tournamentParticipant.create({
+            data: { tournamentId, userId },
+          }),
+          tx.tournament.update({
+            where: { id: tournamentId },
+            data: { currentParticipants: { increment: 1 } },
+          }),
+        ]);
+
+        return {
+          currentParticipants: updatedTournament.currentParticipants,
+          status: "CONFIRMED" as const,
+        };
+      }
+
+      // The tournament is full → queue the user instead of rejecting them.
+      const ticket = await this.nextWaitlistTicket(tx, tournamentId);
+
+      if (existingEntry) {
+        // The user was on the waitlist before and left it — re-queue them with
+        // a fresh ticket (the unique (tournamentId, userId) row is reused).
+        await tx.tournamentWaitlist.update({
+          where: { id: existingEntry.id },
+          data: { status: "WAITING", position: ticket },
+        });
+      } else {
+        await tx.tournamentWaitlist.create({
+          data: {
+            tournamentId,
+            userId,
+            position: ticket,
+            status: "WAITING",
+          },
+        });
+      }
+
+      return {
+        currentParticipants: txTournament.currentParticipants,
+        status: "WAITLISTED" as const,
+        waitlistPosition: await this.waitlistRank(tx, tournamentId, ticket),
+      };
+    });
+  }
+
+  /**
+   * Returns the waitlist of a tournament — the users still queued for a seat,
+   * ordered by their queue ticket (first come, first served).
+   *
+   * `position` is the 1-based rank the waiting user sees, so it stays
+   * contiguous even when somebody ahead of them leaves the queue.
+   */
+  async getWaitlist(tournamentId: string): Promise<TournamentWaitlistEntry[]> {
+    const entries = await prisma.tournamentWaitlist.findMany({
+      where: { tournamentId, status: "WAITING" },
+      orderBy: { position: "asc" },
     });
 
-    return { currentParticipants: updated.currentParticipants };
+    return entries.map((entry, index) => ({
+      tournamentId: entry.tournamentId,
+      userId: entry.userId,
+      position: index + 1,
+      status: entry.status,
+      createdAt: entry.createdAt.toISOString(),
+    }));
+  }
+
+  /**
+   * Promotes queued users into the free seats of a tournament (Issue #874).
+   *
+   * Promotion order is deterministic: strictly by queue ticket, so the user who
+   * has been waiting longest gets the first free seat. Users who joined the
+   * tournament directly in the meantime are skipped (their waitlist entry is
+   * closed) instead of consuming a seat.
+   */
+  async promoteWaitlist(tournamentId: string): Promise<{
+    promoted: string[];
+    currentParticipants: number;
+  }> {
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Tournament" WHERE id = ${tournamentId} FOR UPDATE`;
+
+      const tournament = await tx.tournament.findUnique({
+        where: { id: tournamentId },
+      });
+
+      if (!tournament) {
+        throw new NotFoundError("Tournament not found");
+      }
+
+      // A settled or cancelled tournament has no free seats to hand out.
+      if (
+        tournament.status === "COMPLETED" ||
+        tournament.status === "CANCELLED"
+      ) {
+        return { promoted: [], currentParticipants: tournament.currentParticipants };
+      }
+
+      const freeSlots =
+        tournament.maxParticipants - tournament.currentParticipants;
+      if (freeSlots <= 0) {
+        return { promoted: [], currentParticipants: tournament.currentParticipants };
+      }
+
+      const promoted = await this.promoteFromWaitlist(tx, tournamentId, freeSlots);
+
+      const currentParticipants =
+        tournament.currentParticipants + promoted.length;
+
+      if (promoted.length > 0) {
+        await tx.tournament.update({
+          where: { id: tournamentId },
+          data: { currentParticipants },
+        });
+      }
+
+      return { promoted, currentParticipants };
+    });
+  }
+
+  /**
+   * Removes a user from a tournament (Issue #874).
+   *
+   * A participant gives up their seat; the first user on the waitlist is
+   * promoted into it immediately, so a freed seat is never wasted. A user who
+   * is only queued simply leaves the queue.
+   */
+  async leaveTournament(
+    userId: string,
+    tournamentId: string,
+  ): Promise<TournamentLeaveResult> {
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Tournament" WHERE id = ${tournamentId} FOR UPDATE`;
+
+      const tournament = await tx.tournament.findUnique({
+        where: { id: tournamentId },
+      });
+
+      if (!tournament) {
+        throw new NotFoundError("Tournament not found");
+      }
+
+      const participant = await tx.tournamentParticipant.findUnique({
+        where: { tournamentId_userId: { tournamentId, userId } },
+      });
+
+      if (participant) {
+        await tx.tournamentParticipant.delete({ where: { id: participant.id } });
+
+        const currentParticipants = Math.max(
+          0,
+          tournament.currentParticipants - 1,
+        );
+        await tx.tournament.update({
+          where: { id: tournamentId },
+          data: { currentParticipants },
+        });
+
+        // Hand the freed seat to the first user in line.
+        const promoted = await this.promoteFromWaitlist(tx, tournamentId, 1);
+
+        if (promoted.length > 0) {
+          await tx.tournament.update({
+            where: { id: tournamentId },
+            data: { currentParticipants: currentParticipants + promoted.length },
+          });
+        }
+
+        return {
+          currentParticipants: currentParticipants + promoted.length,
+          promotedUserId: promoted[0],
+        };
+      }
+
+      const entry = await tx.tournamentWaitlist.findUnique({
+        where: { tournamentId_userId: { tournamentId, userId } },
+      });
+
+      if (entry && entry.status === "WAITING") {
+        await tx.tournamentWaitlist.update({
+          where: { id: entry.id },
+          data: { status: "CANCELLED" },
+        });
+        return { currentParticipants: tournament.currentParticipants };
+      }
+
+      throw new NotFoundError(
+        "User is not participating in this tournament",
+      );
+    });
+  }
+
+  /**
+   * Hands out the next waitlist ticket for a tournament.
+   *
+   * Tickets are monotonically increasing and never reused, which keeps the
+   * queue order stable even after entries are cancelled or promoted. The
+   * caller must hold the tournament row lock, so two concurrent joins can
+   * never receive the same ticket.
+   */
+  private async nextWaitlistTicket(
+    tx: Prisma.TransactionClient,
+    tournamentId: string,
+  ): Promise<number> {
+    const last = await tx.tournamentWaitlist.findFirst({
+      where: { tournamentId },
+      orderBy: { position: "desc" },
+      select: { position: true },
+    });
+
+    return (last?.position ?? 0) + 1;
+  }
+
+  /** 1-based rank of a ticket among the still-waiting entries. */
+  private async waitlistRank(
+    tx: Prisma.TransactionClient,
+    tournamentId: string,
+    ticket: number,
+  ): Promise<number> {
+    const waitingAhead = await tx.tournamentWaitlist.count({
+      where: {
+        tournamentId,
+        status: "WAITING",
+        position: { lt: ticket },
+      },
+    });
+
+    return waitingAhead + 1;
+  }
+
+  /**
+   * Promotes up to `limit` queued users into free seats, in queue order.
+   * Must be called while holding the tournament row lock.
+   */
+  private async promoteFromWaitlist(
+    tx: Prisma.TransactionClient,
+    tournamentId: string,
+    limit: number,
+  ): Promise<string[]> {
+    if (limit <= 0) return [];
+
+    const waiting = await tx.tournamentWaitlist.findMany({
+      where: { tournamentId, status: "WAITING" },
+      orderBy: { position: "asc" },
+    });
+
+    const promoted: string[] = [];
+
+    for (const entry of waiting) {
+      if (promoted.length >= limit) break;
+
+      // The user may have joined the tournament directly in the meantime —
+      // close their queue entry instead of giving them a second seat.
+      const alreadyParticipant = await tx.tournamentParticipant.findUnique({
+        where: {
+          tournamentId_userId: { tournamentId, userId: entry.userId },
+        },
+      });
+
+      if (alreadyParticipant) {
+        await tx.tournamentWaitlist.update({
+          where: { id: entry.id },
+          data: { status: "CANCELLED" },
+        });
+        continue;
+      }
+
+      await tx.tournamentParticipant.create({
+        data: { tournamentId, userId: entry.userId },
+      });
+      await tx.tournamentWaitlist.update({
+        where: { id: entry.id },
+        data: { status: "PROMOTED" },
+      });
+
+      promoted.push(entry.userId);
+    }
+
+    return promoted;
   }
 
   /**

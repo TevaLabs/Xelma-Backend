@@ -430,13 +430,34 @@ against a single transition graph (`types/tournament.types.ts`). Out-of-order
 requests (e.g. locking a COMPLETED tournament) return a structured `409
 TOURNAMENT_INVALID_STATE` rather than mutating state.
 
-- `GET /` - List tournaments. Query: `?mode=UP_DOWN|LEGENDS`, `?status=UPCOMING|ACTIVE|COMPLETED|CANCELLED`, `limit`, `offset` (mode and status may be combined). Response: `{ success, data, pagination: { limit, offset, total } }`
+- `GET /` - List tournaments. Query: `?mode=UP_DOWN|LEGENDS`, `?status=UPCOMING|ACTIVE|COMPLETED|CANCELLED`, `limit`, `offset` (mode and status may be combined, case-insensitive). Response: `{ success, data, pagination: { limit, offset, total } }`
 - `POST /` - [Auth] `createTournament` starts the saga at `UPCOMING`
 - `GET /:id` - Get tournament detail by id
 - `POST /:id/join` - [Auth] Join a tournament (atomic, race-safe capacity enforcement)
 - `POST /:id/lock` - [Auth] Lock the roster `UPCOMING → ACTIVE`
 - `POST /:id/settle` - [Auth] Settle `ACTIVE → COMPLETED` and pay winners
 - `POST /:id/cancel` - [Auth] Cancel `UPCOMING/ACTIVE → CANCELLED`
+
+##### **Tournament waitlist**
+
+When a tournament is at capacity, `POST /api/tournaments/:id/join` no longer
+rejects the request: the user is queued on a persistent waitlist
+(`TournamentWaitlist`) and the response reports the new status.
+
+- `POST /:id/join` response: `{ success, data: { currentParticipants, status, waitlistPosition? } }`
+  where `status` is `CONFIRMED` (seat held) or `WAITLISTED` (queued). When
+  `status` is `WAITLISTED`, `waitlistPosition` is the 1-based rank among the
+  users still waiting; it is omitted for `CONFIRMED` joins.
+- Duplicate requests are rejected with `409 CONFLICT`: `Already joined this
+  tournament` or `Already on the tournament waitlist`.
+- Queue order is a monotonic ticket allocated under the tournament row lock, so
+  concurrent joins never produce gaps, duplicates, or a different order than
+  the one the tickets were handed out in. The API `waitlistPosition` is
+  recomputed from the live `WAITING` rows, so a user who leaves the queue
+  immediately moves everyone behind them up by one.
+- A seat freed by a leaving participant is offered to the first `WAITING` entry
+  in ticket order. Terminal tournaments (`COMPLETED`/`CANCELLED`) never
+  promote from the waitlist.
 
 #### **Leaderboard (`/api/leaderboard`)**
 
@@ -523,6 +544,25 @@ The application uses **PostgreSQL** via **Prisma ORM**. Key models:
 - **Transaction**: Balance change history (bonus, win, loss, etc.)
 - **AuthChallenge**: Wallet signature challenges for authentication
 - **AuditLog**: Security audit trail for authentication and authorization events
+
+#### **UserStats Projection & Rebuild**
+
+`UserStats` is a *materialized projection* of the prediction history: every settled prediction bumps its counters by one (`updateUserStatsForRound` in `src/services/leaderboard.service.ts`). Incremental maintenance drifts — a retried round resolution counts twice, a crash between the prediction write and the stats write loses a count, a backfill never reaches the projection. The counters still look plausible, so nothing in the request path can detect it.
+
+The rebuild recomputes the projection from the prediction history and compares it with the stored rows. Both the incremental writer and the rebuild share one implementation of the "was this prediction correct?" rule ([src/utils/prediction-outcome.util.ts](src/utils/prediction-outcome.util.ts)), so they cannot disagree about what the projection *should* contain.
+
+```bash
+# Dry run (default): report the drift, write nothing. Exits 1 when drift is found.
+npm run db:rebuild:user-stats
+
+# Scope the run to a single user
+npm run db:rebuild:user-stats -- --user <userId>
+
+# Apply: rewrite the drifted rows
+npm run db:rebuild:user-stats:apply
+```
+
+The rebuild lives in `src/services/stats.service.ts` (`rebuildUserStats`); `scripts/rebuild-user-stats.ts` is only the command-line wrapper.
 
 ---
 
@@ -1616,6 +1656,8 @@ At minimum, migration PRs should include:
 | `npm run prisma:generate`       | Generate Prisma client                                                                                                                                                                                                |
 | `npm run prisma:migrate`        | Run database migrations                                                                                                                                                                                               |
 | `npm run db:seed:mock`          | Seed database with mock data                                                                                                                                                                                          |
+| `npm run db:rebuild:user-stats` | Dry-run the `UserStats` rebuild: report drift between the stored projection and the prediction history, write nothing (exit code 1 on drift)                 |
+| `npm run db:rebuild:user-stats:apply` | Apply the `UserStats` rebuild: rewrite the drifted projection rows from the prediction history                                                                                                                  |
 | `node dist/index.js`            | Run production full backend (Prisma, Soroban, schedulers, WebSocket); use this command in production Render profile                                                                                                   |
 | `npm run prisma:migrate`        | Create/apply a Prisma dev migration for the core schema                                                                                                                                                               |
 | `npm run prisma:migrate:deploy` | Apply committed Prisma migrations without creating new ones                                                                                                                                                           |

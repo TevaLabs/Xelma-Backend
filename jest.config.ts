@@ -44,6 +44,7 @@ const integrationTestFiles = [
   "tournaments.routes.spec.ts",
   "route-parity.spec.ts",
   "socket.spec.ts",
+  "stats-rebuild.integration.spec.ts",
   "user.routes.spec.ts",
   "validate.middleware.spec.ts",
   "redis-adapter.spec.ts",

@@ -17,12 +17,19 @@ jest.mock('../lib/prisma', () => ({
   },
 }));
 
-jest.mock('../services/tournament.service', () => ({
-  __esModule: true,
-  default: {
-    joinTournament: (...args: any[]) => mockJoinTournament(...args),
-  },
-}));
+// The service is mocked, but the read endpoints are backed by the real mock
+// seed data — so the mock delegates listing/detail to the actual service.
+jest.mock('../services/tournament.service', () => {
+  const actual = jest.requireActual('../services/tournament.service');
+  return {
+    __esModule: true,
+    default: {
+      joinTournament: (...args: any[]) => mockJoinTournament(...args),
+      listTournaments: (...args: any[]) => actual.default.listTournaments(...args),
+      getMockById: (...args: any[]) => actual.default.getMockById(...args),
+    },
+  };
+});
 
 jest.mock('../middleware/rateLimiter.middleware', () => ({
   challengeRateLimiter: (_req: any, _res: any, next: any) => next(),
@@ -125,7 +132,10 @@ describe('Tournaments Routes (Issue #412)', () => {
     });
 
     it('joins successfully and returns updated participant count', async () => {
-      mockJoinTournament.mockResolvedValueOnce({ currentParticipants: 68 });
+      mockJoinTournament.mockResolvedValueOnce({
+        currentParticipants: 68,
+        status: 'CONFIRMED',
+      });
 
       const res = await request(app)
         .post('/api/tournaments/t-001/join')
@@ -133,8 +143,32 @@ describe('Tournaments Routes (Issue #412)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data).toEqual({ tournamentId: 't-001', currentParticipants: 68 });
+      expect(res.body.data).toEqual({
+        tournamentId: 't-001',
+        currentParticipants: 68,
+        status: 'CONFIRMED',
+      });
       expect(mockJoinTournament).toHaveBeenCalledWith(userId, 't-001');
+    });
+
+    it('reports the waitlist position when the tournament is full', async () => {
+      mockJoinTournament.mockResolvedValueOnce({
+        currentParticipants: 68,
+        status: 'WAITLISTED',
+        waitlistPosition: 3,
+      });
+
+      const res = await request(app)
+        .post('/api/tournaments/t-001/join')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({
+        tournamentId: 't-001',
+        currentParticipants: 68,
+        status: 'WAITLISTED',
+        waitlistPosition: 3,
+      });
     });
 
     it('propagates a 404 when the service reports tournament not found', async () => {
@@ -148,9 +182,9 @@ describe('Tournaments Routes (Issue #412)', () => {
       expect(res.status).toBe(404);
     });
 
-    it('propagates a 409 when the tournament is full', async () => {
+    it('propagates a 409 when the user already joined', async () => {
       const { ConflictError } = require('../utils/errors');
-      mockJoinTournament.mockRejectedValueOnce(new ConflictError('Tournament is full'));
+      mockJoinTournament.mockRejectedValueOnce(new ConflictError('Already joined this tournament'));
 
       const res = await request(app)
         .post('/api/tournaments/t-001/join')
@@ -159,9 +193,11 @@ describe('Tournaments Routes (Issue #412)', () => {
       expect(res.status).toBe(409);
     });
 
-    it('propagates a 409 when the user already joined', async () => {
+    it('propagates a 409 when the user is already on the waitlist', async () => {
       const { ConflictError } = require('../utils/errors');
-      mockJoinTournament.mockRejectedValueOnce(new ConflictError('Already joined this tournament'));
+      mockJoinTournament.mockRejectedValueOnce(
+        new ConflictError('Already on the tournament waitlist'),
+      );
 
       const res = await request(app)
         .post('/api/tournaments/t-001/join')
