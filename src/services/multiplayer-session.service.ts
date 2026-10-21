@@ -1,4 +1,4 @@
-/**
+/*
  * Multiplayer session persistence (Issue #194).
  *
  * Powers reconnect continuity for authenticated socket clients. Every method
@@ -23,7 +23,14 @@ import { withRoomLock } from '../utils/room-lock';
 export const MAX_PERSISTED_ROOMS = 32;
 
 /** Maximum serialized size (chars) of the opaque `metadata` blob. */
-export const MAX_METADATA_CHARS = 4_096;
+export const MAX_METADATA_CHARS = 4096;
+
+/**
+ * Default retention window for disconnected sessions. Rows whose
+ * `disconnectedAt` is older than this are eligible for deletion by the
+ * sweeper (Issue #194 — multiplayer session cleanup retention).
+ */
+export const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /** Payload returned on resume. Empty arrays / nulls mean "nothing to restore". */
 export interface ResumePayload {
@@ -296,8 +303,8 @@ class MultiplayerSessionService {
 
   /**
    * Mark the session as disconnected. The row is preserved (not deleted)
-   * so a future reconnect can restore rooms; retention/cleanup is the
-   * responsibility of a separate sweeper if/when one is added.
+   * so a future reconnect can restore rooms; retention/cleanup is handled
+   * by `purgeDisconnectedSessions`.
    */
   async recordDisconnect(userId: string): Promise<void> {
     if (!userId) return;
@@ -311,6 +318,53 @@ class MultiplayerSessionService {
       logger.warn(
         `[multiplayer-session] recordDisconnect failed for user ${userId}: ${(error as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * Delete session rows that have been disconnected for longer than the
+   * retention window. This is the cleanup sweeper referred to in
+   * `recordDisconnect`.
+   *
+   * Only rows with a non-null `disconnectedAt` older than the cutoff
+   * are removed; connected sessions (`disconnectedAt = null`) are always
+   * preserved. Best-effort: returns the number of deleted rows, or 0 on
+   * error.
+   *
+   * @param retentionMs How long a disconnected session is kept.
+   *                    Defaults to `DEFAULT_RETENTION_MS`.
+   * @param now         Overridable clock (for testing).
+   */
+  async purgeDisconnectedSessions(
+    retentionMs: number = DEFAULT_RETENTION_MS,
+    now: Date = new Date(),
+  ): Promise<number> {
+    if (!Number.isFinite(retentionMs) || retentionMs < 0) {
+      logger.warn(
+        `[multiplayer-session] purgeDisconnectedSessions got invalid retention ${retentionMs}`,
+      );
+      return 0;
+    }
+    const cutoff = new Date(now.getTime() - retentionMs);
+    try {
+      const result = await prisma.multiplayerSession.deleteMany({
+        where: {
+          // Preserve live sessions (disconnectedAt is null).
+          disconnectedAt: { not: null, lt: cutoff },
+        },
+      });
+      const deleted = result.count;
+      if (deleted > 0) {
+        logger.info(
+          `[multiplayer-session] purged ${deleted} disconnected session(s) older than ${cutoff.toISOString()}`,
+        );
+      }
+      return deleted;
+    } catch (error) {
+      logger.warn(
+        `[multiplayer-session] purgeDisconnectedSessions failed: ${(error as Error).message}`,
+      );
+      return 0;
     }
   }
 
