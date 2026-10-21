@@ -847,6 +847,8 @@ Prismaâ€™s Postgres connector reads pool/timeouts via connection string que
 | `DB_POOL_TIMEOUT_SECONDS`    | Wait for a pooled connection                 | `10`    |
 | `DB_CONNECT_TIMEOUT_SECONDS` | Timeout establishing a new connection        | `10`    |
 | `DB_STATEMENT_TIMEOUT_MS`    | Server-side statement timeout (`0` disables) | `0`     |
+| `DB_TX_TIMEOUT_MS`           | Interactive `$transaction` timeout (ms)      | `5000`  |
+| `DB_TX_MAX_WAIT_MS`          | Max wait to start a `$transaction` (ms)      | `2000`  |
 | `DB_PGBOUNCER`               | Enable PgBouncer transaction-pooling mode    | `false` |
 
 **Notes**
