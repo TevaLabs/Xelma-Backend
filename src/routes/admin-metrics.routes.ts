@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { rateLimitMetricsService } from '../services/rate-limit-metrics.service';
 import payoutReconciliationService from '../services/payout-reconciliation.service';
+import outboxService from '../services/outbox.service';
 import { requireAdmin, requireMetricsAuth } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 import { register } from 'prom-client';
@@ -241,6 +242,75 @@ router.get('/payout-reconciliation', requireAdmin, async (req: Request, res: Res
   } catch (error) {
     logger.error('Error fetching payout reconciliation summary:', error);
     res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch payout reconciliation summary' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/admin/metrics/outbox:
+ *   get:
+ *     summary: Transactional outbox backlog
+ *     description: |
+ *       Returns outbox row counts by status (PENDING, PROCESSING, PROCESSED,
+ *       FAILED) and the age of the oldest PENDING row, so operators can see
+ *       whether the outbox poller is keeping up. A growing PENDING count or
+ *       oldest-pending age means dispatch is stuck or behind; FAILED rows have
+ *       been escalated to the dead-letter queue. Admin only.
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Outbox backlog snapshot
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 backlog:
+ *                   type: object
+ *                   properties:
+ *                     counts:
+ *                       type: object
+ *                       description: Row count for every status (0 when empty)
+ *                       properties:
+ *                         PENDING:
+ *                           type: integer
+ *                         PROCESSING:
+ *                           type: integer
+ *                         PROCESSED:
+ *                           type: integer
+ *                         FAILED:
+ *                           type: integer
+ *                     total:
+ *                       type: integer
+ *                     oldestPendingAt:
+ *                       type: string
+ *                       format: date-time
+ *                       nullable: true
+ *                       description: createdAt of the oldest PENDING row, null when none
+ *                     oldestPendingAgeSeconds:
+ *                       type: integer
+ *                       nullable: true
+ *                       description: Age of the oldest PENDING row in seconds, null when none
+ *                     generatedAt:
+ *                       type: string
+ *                       format: date-time
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ */
+router.get('/outbox', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const backlog = await outboxService.getBacklogMetrics();
+    res.json({ success: true, backlog });
+  } catch (error) {
+    logger.error('Error fetching outbox backlog metrics:', error);
+    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch outbox backlog metrics' });
   }
 });
 

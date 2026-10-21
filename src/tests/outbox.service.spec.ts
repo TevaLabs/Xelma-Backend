@@ -18,6 +18,8 @@ const mockFindMany: any = jest.fn();
 const mockUpdateMany: any = jest.fn();
 const mockUpdate: any = jest.fn();
 const mockDeleteMany: any = jest.fn();
+const mockGroupBy: any = jest.fn();
+const mockFindFirst: any = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -26,6 +28,8 @@ jest.mock('../lib/prisma', () => ({
       updateMany: (...args: any[]) => mockUpdateMany(...args),
       update: (...args: any[]) => mockUpdate(...args),
       deleteMany: (...args: any[]) => mockDeleteMany(...args),
+      groupBy: (...args: any[]) => mockGroupBy(...args),
+      findFirst: (...args: any[]) => mockFindFirst(...args),
     },
   },
 }));
@@ -312,6 +316,66 @@ describe('OutboxService', () => {
       mockDeleteMany.mockResolvedValue({ count: 0 });
       const count = await outboxService.cleanupProcessed(7);
       expect(count).toBe(0);
+    });
+  });
+  describe('getBacklogMetrics (Issue #852)', () => {
+    const NOW = new Date('2026-10-21T12:00:00.000Z');
+
+    it('reports every status as 0 and null age when the outbox is empty', async () => {
+      mockGroupBy.mockResolvedValue([]);
+      mockFindFirst.mockResolvedValue(null);
+
+      const result = await outboxService.getBacklogMetrics(NOW);
+
+      expect(result.counts).toEqual({ PENDING: 0, PROCESSING: 0, PROCESSED: 0, FAILED: 0 });
+      expect(result.total).toBe(0);
+      expect(result.oldestPendingAt).toBeNull();
+      expect(result.oldestPendingAgeSeconds).toBeNull();
+      expect(result.generatedAt).toBe(NOW.toISOString());
+    });
+
+    it('returns counts by status, filling missing statuses with 0', async () => {
+      mockGroupBy.mockResolvedValue([
+        { status: 'PENDING', _count: { status: 4 } },
+        { status: 'PROCESSED', _count: { status: 120 } },
+        { status: 'FAILED', _count: { status: 2 } },
+      ]);
+      mockFindFirst.mockResolvedValue({ createdAt: new Date('2026-10-21T11:59:00.000Z') });
+
+      const result = await outboxService.getBacklogMetrics(NOW);
+
+      expect(result.counts).toEqual({ PENDING: 4, PROCESSING: 0, PROCESSED: 120, FAILED: 2 });
+      expect(result.total).toBe(126);
+    });
+
+    it('reports the age of the oldest PENDING row in whole seconds', async () => {
+      mockGroupBy.mockResolvedValue([{ status: 'PENDING', _count: { status: 1 } }]);
+      mockFindFirst.mockResolvedValue({ createdAt: new Date('2026-10-21T11:58:30.900Z') });
+
+      const result = await outboxService.getBacklogMetrics(NOW);
+
+      expect(result.oldestPendingAt).toBe('2026-10-21T11:58:30.900Z');
+      expect(result.oldestPendingAgeSeconds).toBe(89); // 89.1s rounded down
+    });
+
+    it('asks for the oldest PENDING row only, ordered by createdAt', async () => {
+      mockGroupBy.mockResolvedValue([]);
+      mockFindFirst.mockResolvedValue(null);
+
+      await outboxService.getBacklogMetrics(NOW);
+
+      const args: any = mockFindFirst.mock.calls[0][0];
+      expect(args.where).toEqual({ status: 'PENDING' });
+      expect(args.orderBy).toEqual({ createdAt: 'asc' });
+    });
+
+    it('never reports a negative age when the row is slightly ahead of this clock', async () => {
+      mockGroupBy.mockResolvedValue([{ status: 'PENDING', _count: { status: 1 } }]);
+      mockFindFirst.mockResolvedValue({ createdAt: new Date('2026-10-21T12:00:05.000Z') });
+
+      const result = await outboxService.getBacklogMetrics(NOW);
+
+      expect(result.oldestPendingAgeSeconds).toBe(0);
     });
   });
 });
