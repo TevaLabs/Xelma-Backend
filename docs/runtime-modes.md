@@ -182,9 +182,14 @@ It returns only a whitelist of non-secret mode and scheduler flags, including
 returns `DATABASE_URL`, JWT secrets, Soroban secrets, or other credentials.
 The endpoint is not mounted by the hackathon app.
 
-Public price and stats responses use a 30-second browser/CDN cache aligned with
-the price service TTL. Health responses are always `no-store`; Redis and
-database caching are separate concerns from HTTP caching.
+Public price and stats responses use **per-endpoint** browser/CDN caches
+(Issue #871): the price feeds (`GET /api/prices`, `GET /api/price`) default to
+30 seconds (`PRICES_CACHE_TTL_SECONDS`), while the landing-page counters
+(`GET /api/stats`) default to a short 5 seconds (`STATS_CACHE_TTL_SECONDS`) so
+a CDN never pins stale numbers. The stats TTL also caps the origin-side
+in-process stats cache, so the short window is real end to end (Issue #876).
+Health responses are always `no-store`; Redis and database caching are
+separate concerns from HTTP caching.
 
 ### 1. Full local development (no external deps)
 

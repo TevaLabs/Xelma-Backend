@@ -40,6 +40,7 @@ jest.mock('../services/oracle', () => ({
 
 import { createApp as createMainApp } from '../index';
 import { createApp as createHackathonApp } from '../app';
+import { pricesCacheTtlSeconds } from '../utils/http-cache';
 
 const mockCoinGecko = {
   bitcoin: { usd: 67_420.12 },
@@ -102,8 +103,9 @@ describe('Price endpoint contracts (/api/price vs /api/prices)', () => {
       );
       expect(res.body).not.toHaveProperty('asset');
       expect(res.body).not.toHaveProperty('price_usd');
+      const ttl = pricesCacheTtlSeconds();
       expect(res.headers['cache-control']).toBe(
-        'public, max-age=30, s-maxage=30, stale-while-revalidate=30',
+        `public, max-age=${ttl}, s-maxage=${ttl}, stale-while-revalidate=${ttl}`,
       );
     });
 

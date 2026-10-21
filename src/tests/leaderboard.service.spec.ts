@@ -45,6 +45,7 @@ import {
   getUserPosition,
   updateUserStatsForRound,
 } from "../services/leaderboard.service";
+import { toDecimal } from "../utils/decimal.util";
 
 const userStatsFindMany = prisma.userStats.findMany as unknown as jest.Mock;
 const userStatsFindUnique = prisma.userStats.findUnique as unknown as jest.Mock;
@@ -306,8 +307,11 @@ describe("Leaderboard Service", () => {
     const mockRound = {
       id: "round-1",
       mode: "UP_DOWN",
-      startPrice: { gt: () => false },
-      endPrice: { gt: (other: any) => true }, // price went up
+      // Prisma returns Decimal instances for Decimal columns — the shared
+      // outcome rule (`src/utils/prediction-outcome.util.ts`) reads them
+      // through the decimal helpers, so the mock has to do the same.
+      startPrice: toDecimal("1"),
+      endPrice: toDecimal("2"), // price went up
       predictions: [
         {
           userId: "u1",

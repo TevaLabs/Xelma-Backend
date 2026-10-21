@@ -93,6 +93,17 @@ enum TournamentStatus {
   CANCELLED
 }
 
+/// Lifecycle of a tournament waitlist entry (Issue #874).
+///
+///   WAITING   -> queued for a free slot
+///   PROMOTED  -> a slot became free and the user took the participant seat
+///   CANCELLED -> the user left the queue (or the tournament closed the queue)
+enum TournamentWaitlistStatus {
+  WAITING
+  PROMOTED
+  CANCELLED
+}
+
 /// Lifecycle of a payout claim (Issue #492).
 ///
 ///   PENDING   -> discovered by the sweeper (or a user claim); waiting to be worked
@@ -129,52 +140,80 @@ model User {
   lastLoginAt             DateTime?
 
   // Relations
-  messages               Message[]
-  predictions            Prediction[]
-  rounds                 Round[]
-  notifications          Notification[]
-  authChallenges         AuthChallenge[]
-  stats                  UserStats?
-  transactions           Transaction[]
-  multiplayerSessions    MultiplayerSession[]
+  messages            Message[]
+  predictions         Prediction[]
+  rounds              Round[]
+  notifications       Notification[]
+  authChallenges      AuthChallenge[]
+  stats               UserStats?
+  transactions        Transaction[]
+  multiplayerSessions MultiplayerSession[]
   tournamentParticipants TournamentParticipant[]
-  bets                   Bet[]
-  claims                 Claim[]
+  tournamentWaitlist    TournamentWaitlist[]
+  bets                Bet[]
+  claims              Claim[]
 }
 
 model Tournament {
-  id                  String           @id @default(uuid())
-  name                String
-  description         String
-  mode                GameMode
-  status              TournamentStatus @default(UPCOMING)
-  entryFee            Decimal          @db.Decimal(20, 8)
-  prizePool           Decimal          @db.Decimal(20, 8)
-  maxParticipants     Int
-  currentParticipants Int              @default(0)
-  startTime           DateTime
-  endTime             DateTime
-  rounds              Int              @default(1)
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  id                String                      @id @default(uuid())
+  name              String
+  description       String
+  mode              GameMode
+  status            TournamentStatus            @default(UPCOMING)
+  entryFee          Decimal                     @db.Decimal(20, 8)
+  prizePool         Decimal                     @db.Decimal(20, 8)
+  maxParticipants   Int
+  currentParticipants Int                     @default(0)
+  startTime         DateTime
+  endTime           DateTime
+  rounds            Int                         @default(1)
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
 
   participants TournamentParticipant[]
+  waitlist     TournamentWaitlist[]
 
   @@index([status])
   @@index([mode])
 }
 
 model TournamentParticipant {
-  id           String   @id @default(uuid())
+  id           String     @id @default(uuid())
   tournamentId String
   userId       String
-  joinedAt     DateTime @default(now())
+  joinedAt     DateTime   @default(now())
 
   tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([tournamentId, userId])
   @@index([tournamentId])
+  @@index([userId])
+}
+
+/// Queue of users who tried to join a full tournament (Issue #874).
+///
+/// The `position` column is a monotonically increasing ticket: it is handed
+/// out under the tournament row lock, so the queue order is deterministic
+/// (first come, first served) and a cancelled or promoted ticket is never
+/// reused. The *rank* a waiting user sees is derived from it (the number of
+/// still-waiting entries with a smaller ticket + 1), which keeps the
+/// user-facing position contiguous even when somebody ahead leaves.
+model TournamentWaitlist {
+  id           String                   @id @default(uuid())
+  tournamentId String
+  userId       String
+  position     Int
+  status       TournamentWaitlistStatus @default(WAITING)
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@unique([tournamentId, position])
+  @@index([tournamentId, status])
   @@index([userId])
 }
 
@@ -290,24 +329,24 @@ enum BetMode {
 }
 
 model Bet {
-  id             String          @id @default(uuid())
-  userId         String
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  roundId        String?
-  round          Round?          @relation(fields: [roundId], references: [id], onDelete: SetNull)
-  mode           BetMode
-  side           PredictionSide?
-  amount         Decimal         @db.Decimal(20, 8)
-  predictedPrice Decimal?        @db.Decimal(18, 8)
-  status         BetStatus       @default(ACCEPTED)
-  txHash         String?         @unique
-  failureReason  String?
-  submittedAt    DateTime?
-  confirmedAt    DateTime?
-  resolvedAt     DateTime?
-  failedAt       DateTime?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id              String     @id @default(uuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundId         String?
+  round           Round?     @relation(fields: [roundId], references: [id], onDelete: SetNull)
+  mode            BetMode
+  side            PredictionSide?
+  amount          Decimal    @db.Decimal(20, 8)
+  predictedPrice  Decimal?   @db.Decimal(18, 8)
+  status          BetStatus  @default(ACCEPTED)
+  txHash          String?    @unique
+  failureReason   String?
+  submittedAt     DateTime?
+  confirmedAt     DateTime?
+  resolvedAt      DateTime?
+  failedAt        DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
   @@index([userId])
   @@index([roundId])
@@ -571,100 +610,47 @@ model AuditLog {
   @@index([outcome])
 }
 
-/// Bet-lifecycle audit trail (Issue #835).
-///
-/// Optional persistence for the bet-audit stream emitted by
-/// `src/services/bet-audit.service.ts`. Rows are written only when
-/// `BET_AUDIT_STORAGE=database`; with the default (`memory`) the table
-/// stays empty and events live in process memory only, so a restart drops
-/// them. In `database` mode events survive restarts; if a write fails
-/// (database down, migration not applied), the service logs it and keeps
-/// the event in memory instead — persistence is best-effort and never
-/// blocks the bet flow.
-///
-/// Design notes:
-///   - No foreign keys: audit history must outlive deletion of the
-///     referenced round / bet / user.
-///   - `event`, `side`, `mode` and `status` are plain varchars rather than
-///     the `BetMode` / `BetStatus` enums: those enum types are not present
-///     in prisma/migrations history yet, so referencing them here would
-///     make `prisma migrate deploy` fail on a fresh database. This also
-///     mirrors the AuditLog table's conventions.
-///   - Retention: rows accumulate while the flag is on; prune them like
-///     AuditLog (RETENTION_AUDIT_LOGS_TTL_DAYS) as a follow-up.
-model BetAuditEvent {
-  id            String   @id @default(uuid())
-  /// BetAuditEventName: BET_ACCEPTED | BET_FAILED | BET_RECONCILED | CLAIM_ACCEPTED
-  event         String   @db.VarChar(40)
-  /// Enriched asynchronously from the active round; absent if none found.
-  roundId       String?
-  /// Bet record handle, so a row can be traced back to its record.
-  betId         String?
-  address       String   @db.VarChar(100)
-  amount        Decimal  @db.Decimal(20, 8)
-  side          String?  @db.VarChar(8)
-  mode          String?  @db.VarChar(20)
-  result        String   @db.VarChar(100)
-  /// Bet reconciliation status at emit time (ACCEPTED | SUBMITTED | CONFIRMED | RESOLVED | FAILED).
-  status        String?  @db.VarChar(20)
-  txHash        String?
-  requestId     String?  @db.VarChar(100)
-  correlationId String?  @db.VarChar(200)
-  failureReason String?  @db.VarChar(1000)
-  createdAt     DateTime @default(now())
-
-  @@index([createdAt])
-  @@index([event, createdAt])
-  @@index([address, createdAt])
-  @@index([txHash])
-  @@index([betId])
-}
-
 // =======================
 // Mock Data Models
 // =======================
 
 model MockRound {
-  id              String    @id
+  id              String @id
   asset           String
   mode            String
   status          String
-  startPrice      Float     @map("start_price")
-  poolUp          Float?    @map("pool_up")
-  poolDown        Float?    @map("pool_down")
-  totalPool       Float?    @map("total_pool")
-  predictionCount Int?      @map("prediction_count")
-  closesAt        String    @map("closes_at")
-  bets            MockBet[]
+  startPrice      Float  @map("start_price")
+  poolUp          Float? @map("pool_up")
+  poolDown        Float? @map("pool_down")
+  totalPool       Float? @map("total_pool")
+  predictionCount Int?   @map("prediction_count")
+  closesAt        String @map("closes_at")
 
   @@map("hackathon_rounds")
 }
 
 model MockLeaderboard {
-  address         String    @id
+  address         String @id
   rank            Int
-  totalWins       Int       @map("total_wins")
-  totalLosses     Int       @map("total_losses")
-  winStreak       Int       @map("current_streak")
+  totalWins       Int    @map("total_wins")
+  totalLosses     Int    @map("total_losses")
+  winStreak       Int    @map("current_streak")
   xp              Int
-  rankTitle       String    @map("rank_title")
-  balance         Int       @default(1000)
-  pendingWinnings Int       @default(0) @map("pending_winnings")
-  bets            MockBet[]
+  rankTitle       String @map("rank_title")
+  balance         Int    @default(1000)
+  pendingWinnings Int    @map("pending_winnings") @default(0)
 
   @@map("hackathon_users")
 }
 
 model MockBet {
-  id             Int             @id @default(autoincrement())
-  roundId        String          @map("round_id")
-  round          MockRound       @relation(fields: [roundId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id             Int       @id @default(autoincrement())
+  roundId        String    @map("round_id")
   address        String
-  leaderboard    MockLeaderboard @relation(fields: [address], references: [address], onDelete: Cascade, onUpdate: NoAction)
   amount         Float
   side           String?
-  predictedPrice Float?          @map("predicted_price")
-  createdAt      DateTime        @default(now()) @map("created_at")
+  predictedPrice Float?    @map("predicted_price")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   @@map("hackathon_bets")
 }
