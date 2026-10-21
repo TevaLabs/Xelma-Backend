@@ -362,51 +362,38 @@ export const ERROR_CATALOG: readonly ErrorCatalogEntry[] = [
 
 /**
  * Maps raw Soroban RPC/contract error messages into stable, safe AppErrors.
- * Protects internal details from leaking while providing actionable codes.
+ * Uses the centralized ERROR_CATALOG to look up the appropriate error code,
+ * HTTP status, and description. Falls back to EXTERNAL_SERVICE_ERROR for
+ * unmatched messages, never leaking chain jargon to API consumers.
  */
 export function mapSorobanError(errorMsg: string | undefined): AppError {
   const msg = (errorMsg || "").toLowerCase();
 
-  if (msg.includes("insufficient funds")) {
-    return new BusinessRuleError(
-      "Insufficient funds for contract operation.",
-      ErrorCode.INSUFFICIENT_FUNDS
-    );
+  // Look up a matching entry in the centralized error catalog.
+  const catalogEntry = ERROR_CATALOG.find((entry) =>
+    entry.description.toLowerCase().split(/\s+/).some((word) => msg.includes(word.toLowerCase()))
+  );
+
+  if (catalogEntry) {
+    // Resolve the error class name to the actual constructor from the import.
+    // The ERROR_CATALOG stores the class name as a string (e.g. "ValidationError").
+    // Use a direct mapping from class name string to constructor.
+    const errorClassMap: Record<string, new (...args: any[]) => AppError> = {
+      ValidationError,
+      AuthenticationError,
+      AuthorizationError,
+      NotFoundError,
+      ConflictError,
+      BusinessRuleError,
+      ExternalServiceError,
+      ConfigurationError,
+      AppError,
+    };
+    const ErrorClass = errorClassMap[catalogEntry.errorClass] || AppError;
+    return new ErrorClass(catalogEntry.description, ErrorCode[catalogEntry.code]);
   }
 
-  if (
-    msg.includes("no pending") ||
-    msg.includes("nothing to claim") ||
-    msg.includes("already claimed")
-  ) {
-    return new BusinessRuleError(
-      "No claimable winnings available.",
-      ErrorCode.CONTRACT_INVALID_STATE
-    );
-  }
-
-  if (msg.includes("invalid state")) {
-    return new BusinessRuleError(
-      "Contract operation rejected due to invalid state.",
-      ErrorCode.CONTRACT_INVALID_STATE
-    );
-  }
-
-  if (msg.includes("timeout")) {
-    return new ExternalServiceError(
-      "Contract operation timed out.",
-      ErrorCode.EXTERNAL_SERVICE_ERROR
-    );
-  }
-
-  if (msg.includes("circuit breaker")) {
-    return new ExternalServiceError(
-      "Contract service temporarily unavailable. Please retry shortly.",
-      ErrorCode.EXTERNAL_SERVICE_ERROR
-    );
-  }
-
-  // Fallback for unknown errors (does not leak chain jargon)
+  // Fallback for truly unknown errors (does not leak chain jargon)
   return new ExternalServiceError(
     "An unexpected contract error occurred.",
     ErrorCode.EXTERNAL_SERVICE_ERROR

@@ -25,6 +25,7 @@ behavior, or choosing the right flags for a deployment profile.
 | `DATA_MODE` | `config.app.dataMode` | `live`, `mock` | `live` | `src/config/index.ts` |
 | `DATA_STORE` | `config.app.dataStore` | `postgres`, `memory` | auto (see below) | `src/config/index.ts` |
 | `BET_STUB_MODE` | `process.env.BET_STUB_MODE` | `true`, `false` | `true` | `src/services/bet.service.ts` |
+| `BET_AUDIT_STORAGE` | `process.env.BET_AUDIT_STORAGE` | `memory`, `database` | `memory` | `src/services/bet-audit.service.ts` |
 | `ROUNDS_MOCK_MODE` | `config.app.roundsMockMode` | `true`, `false` | `false` | `src/config/index.ts` |
 | `API_ONLY` | `process.env.API_ONLY` | `true`, `false` | `false` | `src/index.ts` |
 | `SOROBAN_FAIL_CLOSED` | `config.soroban.failClosed` | `true`, `false` | `false` | `src/config/index.ts` |
@@ -72,6 +73,31 @@ Soroban or just record the intent **locally**.
 
 > The active mode is logged at startup:
 > `Bet mode: STUB (no on-chain calls)` or `Bet mode: ON-CHAIN (Soroban)`.
+
+### BET_AUDIT_STORAGE
+
+Controls where bet-lifecycle audit events (`BET_ACCEPTED`, `BET_FAILED`,
+`BET_RECONCILED`, `CLAIM_ACCEPTED`) are stored ([Issue #835](https://github.com/TevaLabs/Xelma-Backend/issues/835)).
+
+| `BET_AUDIT_STORAGE` | Behavior | Use case |
+|---|---|---|
+| `memory` (default) | Events held in the in-memory ring only; a restart clears them. No database writes. | Local dev, demos, tests |
+| `database` | Events are also persisted to the `BetAuditEvent` table (and the generic `AuditLog`), so audit history survives restarts. | Production, dispute / analytics support |
+
+**Memory fallback:** events are always recorded in memory first. Database
+writes are fire-and-forget and never block or fail the bet flow. If a write
+fails — database down, or the `BetAuditEvent` migration not applied yet — the
+event stays available in memory for the life of the process and the failure is
+logged (a missing table produces a single warning telling you to run
+`npm run db:migrate`, not one error per event).
+
+**Affected surface:** emitters in `src/services/bet-audit.service.ts` (used by
+`bet.service.ts` and the payout reconciliation worker). `GET /api/admin/bet-audit`
+reads the in-memory ring in both modes.
+
+**Implementation:** `BetAuditEvent` model in
+[prisma/schema.prisma](../prisma/schema.prisma) + migration
+`prisma/migrations/20261020000000_add_bet_audit_event`.
 
 ### MAX_STAKE
 
