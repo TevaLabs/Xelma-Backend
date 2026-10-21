@@ -296,6 +296,88 @@ describe('OutboxService', () => {
     });
   });
 
+  describe('recoverStaleProcessing (Issue #855)', () => {
+    const NOW = new Date('2026-10-21T12:00:00.000Z');
+    const STALE_AT = new Date('2026-10-21T11:50:00.000Z'); // 10 min ago
+
+    it('only looks at PROCESSING rows older than the TTL', async () => {
+      mockFindMany.mockResolvedValue([]);
+
+      const result = await outboxService.recoverStaleProcessing(300, 3, 50, NOW);
+
+      expect(result).toEqual({ recovered: 0, failed: 0 });
+      const args: any = mockFindMany.mock.calls[0][0];
+      expect(args.where.status).toBe('PROCESSING');
+      expect(args.where.updatedAt.lt).toEqual(new Date('2026-10-21T11:55:00.000Z'));
+      expect(mockUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('resets a stale row to PENDING and counts the interrupted attempt', async () => {
+      mockFindMany.mockResolvedValue([makeRow({ status: 'PROCESSING', attempts: 0, updatedAt: STALE_AT })]);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+
+      const result = await outboxService.recoverStaleProcessing(300, 3, 50, NOW);
+
+      expect(result).toEqual({ recovered: 1, failed: 0 });
+      const args: any = mockUpdateMany.mock.calls[0][0];
+      expect(args.where).toEqual({ id: 'evt-1', status: 'PROCESSING', updatedAt: STALE_AT });
+      expect(args.data.status).toBe('PENDING');
+      expect(args.data.attempts).toBe(1);
+      expect(args.data.lastError).toMatch(/stuck in PROCESSING/);
+      expect(mockDlqRecord).not.toHaveBeenCalled();
+    });
+
+    it('marks a row FAILED and escalates it to the DLQ when its last attempt was the interrupted one', async () => {
+      mockFindMany.mockResolvedValue([makeRow({ status: 'PROCESSING', attempts: 2, updatedAt: STALE_AT })]);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+
+      const result = await outboxService.recoverStaleProcessing(300, 3, 50, NOW);
+
+      expect(result).toEqual({ recovered: 0, failed: 1 });
+      const args: any = mockUpdateMany.mock.calls[0][0];
+      expect(args.data.status).toBe('FAILED');
+      expect(args.data.attempts).toBe(3);
+      expect(mockDlqRecord).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips a row another instance reclaimed or finished in the meantime', async () => {
+      mockFindMany.mockResolvedValue([makeRow({ status: 'PROCESSING', updatedAt: STALE_AT })]);
+      mockUpdateMany.mockResolvedValue({ count: 0 });
+
+      const result = await outboxService.recoverStaleProcessing(300, 3, 50, NOW);
+
+      expect(result).toEqual({ recovered: 0, failed: 0 });
+      expect(mockDlqRecord).not.toHaveBeenCalled();
+    });
+
+    it('recovers several rows independently', async () => {
+      mockFindMany.mockResolvedValue([
+        makeRow({ id: 'a', status: 'PROCESSING', attempts: 0, updatedAt: STALE_AT }),
+        makeRow({ id: 'b', status: 'PROCESSING', attempts: 2, updatedAt: STALE_AT }),
+        makeRow({ id: 'c', status: 'PROCESSING', attempts: 1, updatedAt: STALE_AT }),
+      ]);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+
+      const result = await outboxService.recoverStaleProcessing(300, 3, 50, NOW);
+
+      expect(result).toEqual({ recovered: 2, failed: 1 });
+      expect(mockDlqRecord).toHaveBeenCalledTimes(1);
+    });
+
+    it('recovered rows are picked up by the next processOutbox poll', async () => {
+      // A recovered row is plain PENDING, so the normal poller query finds it.
+      mockFindMany.mockResolvedValueOnce([makeRow({ status: 'PENDING', attempts: 1 })]);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+      mockUpdate.mockResolvedValue({});
+
+      const result = await outboxService.processOutbox(makeHandlers(), 50, 3);
+
+      expect(result.processed).toBe(1);
+      const args: any = mockFindMany.mock.calls[0][0];
+      expect(args.where).toEqual({ status: 'PENDING' });
+    });
+  });
+
   describe('cleanupProcessed', () => {
     it('deletes only PROCESSED rows older than the cutoff', async () => {
       mockDeleteMany.mockResolvedValue({ count: 12 });
