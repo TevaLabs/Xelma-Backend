@@ -1743,6 +1743,51 @@
             "description": "Unauthorized"
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Bulk delete notifications",
+        "description": "Deletes notifications belonging to the authenticated user.\nIf `olderThan` or `days` query parameter is provided, deletes all notifications older than the given threshold in days.\nOtherwise, deletes all read notifications.\n",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "olderThan",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365
+            },
+            "description": "Threshold in days. Notifications created before this many days ago will be deleted."
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365
+            },
+            "description": "Alias for olderThan."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deletion confirmation with count of deleted notifications"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
       }
     },
     "/metrics": {

@@ -352,6 +352,21 @@ describe('NotificationService — unit tests (Issue #527)', () => {
       });
     });
 
+    it('deleteUserOldNotifications deletes notifications older than specified days for specific user', async () => {
+      mockNotificationDeleteMany.mockResolvedValue({ count: 4 });
+
+      const count = await notificationService.deleteUserOldNotifications(USER_ID, 14);
+      expect(count).toBe(4);
+      expect(mockNotificationDeleteMany).toHaveBeenCalledWith({
+        where: {
+          userId: USER_ID,
+          createdAt: {
+            lt: expect.any(Date),
+          },
+        },
+      });
+    });
+
     it('cleanupOldNotifications deletes notifications older than specified days', async () => {
       mockNotificationDeleteMany.mockResolvedValue({ count: 12 });
 

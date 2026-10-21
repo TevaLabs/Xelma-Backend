@@ -19,6 +19,21 @@ const notificationsQuerySchema = unifiedPaginationSchema.extend({
     .default(false),
 });
 
+const deleteNotificationsQuerySchema = z.object({
+  olderThan: z
+    .preprocess(
+      (v) => (v === undefined || v === "" ? undefined : Number(v)),
+      z.number().int().min(1, "olderThan must be at least 1 day").max(365, "olderThan cannot exceed 365 days"),
+    )
+    .optional(),
+  days: z
+    .preprocess(
+      (v) => (v === undefined || v === "" ? undefined : Number(v)),
+      z.number().int().min(1, "days must be at least 1 day").max(365, "days cannot exceed 365 days"),
+    )
+    .optional(),
+});
+
 /**
  * @openapi
  * /api/notifications:
@@ -240,21 +255,70 @@ router.delete("/:id", authenticateUser, (async (req: AuthenticatedRequest, res: 
 }) as any);
 
 /**
- * DELETE /api/notifications
- * Delete all read notifications for the authenticated user
+ * @openapi
+ * /api/notifications:
+ *   delete:
+ *     tags: [Notifications]
+ *     summary: Bulk delete notifications
+ *     description: |
+ *       Deletes notifications belonging to the authenticated user.
+ *       If `olderThan` or `days` query parameter is provided, deletes all notifications older than the given threshold in days.
+ *       Otherwise, deletes all read notifications.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: olderThan
+ *         schema: { type: integer, minimum: 1, maximum: 365 }
+ *         description: Threshold in days. Notifications created before this many days ago will be deleted.
+ *       - in: query
+ *         name: days
+ *         schema: { type: integer, minimum: 1, maximum: 365 }
+ *         description: Alias for olderThan.
+ *     responses:
+ *       200:
+ *         description: Deletion confirmation with count of deleted notifications
+ *       401:
+ *         description: Unauthorized
+ *       400:
+ *         description: Validation error
  */
-router.delete("/", authenticateUser, (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.user.userId;
-    const count = await notificationService.deleteAllRead(userId);
-    res.json({
-      success: true,
-      message: `Deleted ${count} read notification(s)`,
-      deletedCount: count,
-    });
-  } catch (error) {
-    next(error);
-  }
-}) as any);
+router.delete(
+  "/",
+  authenticateUser,
+  validate(deleteNotificationsQuerySchema, "query"),
+  (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user.userId;
+      const { olderThan, days } = req.query as unknown as {
+        olderThan?: number;
+        days?: number;
+      };
+
+      const daysThreshold = olderThan ?? days;
+
+      if (daysThreshold !== undefined) {
+        const count = await notificationService.deleteUserOldNotifications(
+          userId,
+          daysThreshold,
+        );
+        return res.json({
+          success: true,
+          message: `Deleted ${count} notification(s) older than ${daysThreshold} day(s)`,
+          deletedCount: count,
+        });
+      }
+
+      const count = await notificationService.deleteAllRead(userId);
+      res.json({
+        success: true,
+        message: `Deleted ${count} read notification(s)`,
+        deletedCount: count,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }) as any,
+);
 
 export default router;
