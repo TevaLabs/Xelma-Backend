@@ -63,6 +63,7 @@ export function getOutboxRetentionDays(): number {
 // ─── payload shapes ──────────────────────────────────────────────────────────
 
 export interface NotificationOutboxPayload {
+  outboxEventId?: string;
   userId: string;
   type: 'WIN' | 'LOSS' | 'ROUND_START' | 'BONUS_AVAILABLE' | 'ANNOUNCEMENT';
   title: string;
@@ -241,7 +242,13 @@ class OutboxService {
                 : DispatchChannel.WEBSOCKET_EMIT,
             eventName: (row.payload as any)?.eventName ?? row.eventType,
             userId: (row.payload as any)?.userId ?? null,
-            payload: row.payload,
+            payload:
+              row.eventType === OutboxEventType.NOTIFICATION_CREATE
+                ? {
+                    ...(row.payload as unknown as NotificationOutboxPayload),
+                    outboxEventId: row.id,
+                  }
+                : row.payload,
             error: err,
           });
           result.escalated += 1;
@@ -266,7 +273,10 @@ class OutboxService {
   ): Promise<void> {
     switch (row.eventType) {
       case OutboxEventType.NOTIFICATION_CREATE:
-        await handlers.notificationCreate(row.payload as NotificationOutboxPayload);
+        await handlers.notificationCreate({
+          ...(row.payload as NotificationOutboxPayload),
+          outboxEventId: row.id,
+        });
         break;
       case OutboxEventType.WEBSOCKET_EMIT:
         await handlers.websocketEmit(row.payload as WebsocketOutboxPayload);

@@ -3,6 +3,7 @@ import { DispatchChannel } from '@prisma/client';
 
 const mockUserFindUnique = jest.fn();
 const mockNotificationCreate = jest.fn();
+const mockNotificationUpsert = jest.fn();
 const mockNotificationFindMany = jest.fn();
 const mockNotificationCount = jest.fn();
 const mockNotificationFindUnique = jest.fn();
@@ -18,6 +19,7 @@ jest.mock('../lib/prisma', () => ({
     },
     notification: {
       create: (...args: any[]) => mockNotificationCreate(...args),
+      upsert: (...args: any[]) => mockNotificationUpsert(...args),
       findMany: (...args: any[]) => mockNotificationFindMany(...args),
       count: (...args: any[]) => mockNotificationCount(...args),
       findUnique: (...args: any[]) => mockNotificationFindUnique(...args),
@@ -188,6 +190,39 @@ describe('NotificationService — unit tests (Issue #527)', () => {
       expect(result.id).toBe('retry-id');
       expect(mockUserFindUnique).not.toHaveBeenCalled();
       expect(mockNotificationCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses the outbox event id to return the same notification on retry', async () => {
+      const existingNotification = { id: 'retry-id', userId: USER_ID };
+      mockNotificationUpsert.mockResolvedValue(existingNotification);
+      const input = {
+        outboxEventId: 'outbox-event-1',
+        userId: USER_ID,
+        type: 'WIN' as const,
+        title: 'Win',
+        message: 'msg',
+      };
+
+      const firstDelivery = await notificationService.createNotificationForRetry(input);
+      const retryDelivery = await notificationService.createNotificationForRetry(input);
+
+      expect(firstDelivery).toBe(existingNotification);
+      expect(retryDelivery).toBe(existingNotification);
+      expect(mockNotificationUpsert).toHaveBeenCalledTimes(2);
+      expect(mockNotificationUpsert).toHaveBeenCalledWith({
+        where: { outboxEventId: input.outboxEventId },
+        update: {},
+        create: {
+          userId: USER_ID,
+          type: 'WIN',
+          title: 'Win',
+          message: 'msg',
+          data: null,
+          outboxEventId: input.outboxEventId,
+        },
+      });
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
+      expect(mockUserFindUnique).not.toHaveBeenCalled();
     });
   });
 

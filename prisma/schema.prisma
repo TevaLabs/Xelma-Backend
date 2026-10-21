@@ -346,6 +346,7 @@ model Notification {
   id        String           @id @default(uuid())
   userId    String
   user      User             @relation(fields: [userId], references: [id])
+  outboxEventId String?      @unique
   type      NotificationType
   title     String
   message   String
@@ -475,6 +476,7 @@ model OutboxEvent {
   eventType     OutboxEventType
   aggregateId   String
   aggregateType String
+  dedupeKey     String?
   payload       Json
   status        OutboxEventStatus @default(PENDING)
   attempts      Int               @default(0)
@@ -486,6 +488,7 @@ model OutboxEvent {
   @@index([status, createdAt])
   @@index([aggregateId])
   @@index([eventType])
+  @@unique([aggregateType, aggregateId, eventType, dedupeKey])
 }
 
 model RateLimitMetric {

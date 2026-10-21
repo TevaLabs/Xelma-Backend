@@ -946,6 +946,22 @@ This project uses **Prisma as the single migration tool** against the PostgreSQL
 
 ---
 
+## Local Demo Users
+
+After configuring `DATABASE_URL` for a local development database and applying
+migrations with `npm run db:prepare`, run `npm run db:seed` to seed the existing
+sample data plus two reserved demo identities:
+
+| Role | Wallet address |
+|---|---|
+| ADMIN | `GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN` |
+| ORACLE | `GDRHOLGIIVOGHNURCNVVGUXBUJCVTSKH2V7ACB4E4ZOR7KC3XGIBK5CT` |
+
+These are public Stellar fixture addresses for local RBAC testing only; no
+private keys or credentials are included. The seed refuses to run when
+`NODE_ENV=production` or `SAFETY_PROFILE=production`, and the identity upserts
+do not modify existing users.
+
 ## Running the Server
 
 ### Development Mode (with hot-reload)

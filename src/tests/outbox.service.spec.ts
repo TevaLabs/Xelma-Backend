@@ -137,7 +137,10 @@ describe('OutboxService', () => {
       });
 
       // Handler called with payload
-      expect(handlers.notificationCreate).toHaveBeenCalledWith(row.payload);
+      expect(handlers.notificationCreate).toHaveBeenCalledWith({
+        ...row.payload,
+        outboxEventId: row.id,
+      });
 
       // Mark PROCESSED
       const updateArgs: any = mockUpdate.mock.calls[0][0];
@@ -226,7 +229,10 @@ describe('OutboxService', () => {
       expect(mockDlqRecord).toHaveBeenCalledTimes(1);
       const dlqArgs: any = mockDlqRecord.mock.calls[0][0];
       expect(dlqArgs.channel).toBe('NOTIFICATION_CREATE');
-      expect(dlqArgs.payload).toEqual(row.payload);
+      expect(dlqArgs.payload).toEqual({
+        ...row.payload,
+        outboxEventId: row.id,
+      });
     });
 
     it('escalates WEBSOCKET_EMIT failures to DLQ with correct channel', async () => {

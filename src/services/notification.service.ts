@@ -20,6 +20,7 @@ interface NotificationPreferences {
 }
 
 interface CreateNotificationInput {
+  outboxEventId?: string;
   userId: string;
   type: "WIN" | "LOSS" | "ROUND_START" | "BONUS_AVAILABLE" | "ANNOUNCEMENT";
   title: string;
@@ -138,14 +139,22 @@ class NotificationService {
    * record time the caller already decided this notification should fire.
    */
   async createNotificationForRetry(input: CreateNotificationInput): Promise<any> {
-    return prisma.notification.create({
-      data: {
-        userId: input.userId,
-        type: input.type,
-        title: input.title,
-        message: input.message,
-        data: input.data || null,
-      },
+    const data = {
+      userId: input.userId,
+      type: input.type,
+      title: input.title,
+      message: input.message,
+      data: input.data || null,
+    };
+
+    if (!input.outboxEventId) {
+      return prisma.notification.create({ data });
+    }
+
+    return prisma.notification.upsert({
+      where: { outboxEventId: input.outboxEventId },
+      update: {},
+      create: { ...data, outboxEventId: input.outboxEventId },
     });
   }
 

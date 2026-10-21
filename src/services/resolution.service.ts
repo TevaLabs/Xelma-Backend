@@ -328,6 +328,44 @@ if (priceUnchanged) {
 
       if (decEq(winningPool, 0)) {
          logger.warn(`Round ${round.id}: No winners, no payouts`);
+         for (const prediction of round.predictions) {
+            const message = `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`;
+            await db.outboxEvent.create({
+               data: {
+                  eventType: OutboxEventType.NOTIFICATION_CREATE,
+                  aggregateId: round.id,
+                  aggregateType: 'round',
+                  dedupeKey: `${prediction.id}:resolution`,
+                  payload: {
+                     userId: prediction.userId,
+                     type: 'LOSS',
+                     title: 'Prediction Did Not Win',
+                     message,
+                     data: { roundId: round.id },
+                  },
+               },
+            });
+            await db.outboxEvent.create({
+               data: {
+                  eventType: OutboxEventType.WEBSOCKET_EMIT,
+                  aggregateId: round.id,
+                  aggregateType: 'round',
+                  dedupeKey: `${prediction.id}:resolution`,
+                  payload: {
+                     eventName: 'notification:new',
+                     room: `user:${prediction.userId}`,
+                     userId: prediction.userId,
+                     data: {
+                        type: 'LOSS',
+                        title: 'Prediction Did Not Win',
+                        message,
+                        data: { roundId: round.id },
+                        isRead: false,
+                     },
+                  },
+               },
+            });
+         }
          return;
       }
 
@@ -379,6 +417,7 @@ for (const prediction of round.predictions) {
                 eventType: OutboxEventType.NOTIFICATION_CREATE,
                 aggregateId: round.id,
                 aggregateType: 'round',
+                dedupeKey: `${prediction.id}:resolution`,
                 payload: {
                    userId: prediction.userId,
                    type: won ? 'WIN' : 'LOSS',
@@ -396,6 +435,7 @@ for (const prediction of round.predictions) {
                 eventType: OutboxEventType.WEBSOCKET_EMIT,
                 aggregateId: round.id,
                 aggregateType: 'round',
+                dedupeKey: `${prediction.id}:resolution`,
                 payload: {
                    eventName: 'notification:new',
                    room: `user:${prediction.userId}`,
@@ -546,6 +586,7 @@ if (decEq(decWinningPool, 0)) {
                    eventType: OutboxEventType.NOTIFICATION_CREATE,
                    aggregateId: round.id,
                    aggregateType: 'round',
+                   dedupeKey: `${prediction.id}:resolution`,
                    payload: {
                       userId: prediction.userId,
                       type: 'LOSS',
@@ -561,6 +602,7 @@ if (decEq(decWinningPool, 0)) {
                   eventType: OutboxEventType.WEBSOCKET_EMIT,
                   aggregateId: round.id,
                   aggregateType: 'round',
+                  dedupeKey: `${prediction.id}:resolution`,
                   payload: {
                      eventName: 'notification:new',
                      room: `user:${prediction.userId}`,
@@ -641,6 +683,7 @@ for (const prediction of round.predictions) {
                 eventType: OutboxEventType.NOTIFICATION_CREATE,
                 aggregateId: round.id,
                 aggregateType: 'round',
+                dedupeKey: `${prediction.id}:resolution`,
                 payload: {
                    userId: prediction.userId,
                    type: won ? 'WIN' : 'LOSS',
@@ -658,6 +701,7 @@ for (const prediction of round.predictions) {
                 eventType: OutboxEventType.WEBSOCKET_EMIT,
                 aggregateId: round.id,
                 aggregateType: 'round',
+                dedupeKey: `${prediction.id}:resolution`,
                 payload: {
                    eventName: 'notification:new',
                    room: `user:${prediction.userId}`,

@@ -64,8 +64,8 @@ jest.mock('../services/websocket.service', () => ({
 }));
 
 jest.mock('../lib/redis', () => ({
-   invalidateNamespace: jest.fn(),
-   invalidateLeaderboardSortedSet: jest.fn(),
+   invalidateNamespace: jest.fn().mockResolvedValue(undefined),
+   invalidateLeaderboardSortedSet: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../utils/logger', () => ({
@@ -80,12 +80,14 @@ let roundStore: Map<string, any>;
 let predictionStore: Map<string, any>;
 let userStore: Map<string, any>;
 let outboxStore: any[];
+let failOutboxCreate = false;
 
 function resetStores() {
    roundStore = new Map();
    predictionStore = new Map();
    userStore = new Map();
    outboxStore = [];
+   failOutboxCreate = false;
 }
 
 function seedRound(overrides: Record<string, any> = {}) {
@@ -206,8 +208,15 @@ const txProxy = {
          return existing;
       }),
    },
+   bet: {
+      findFirst: jest.fn().mockResolvedValue(null),
+   },
    outboxEvent: {
       create: jest.fn(async ({ data }: any) => {
+         if (failOutboxCreate) {
+            failOutboxCreate = false;
+            throw new Error('outbox write failed');
+         }
          const event = { id: `outbox-${outboxStore.length}`, ...data };
          outboxStore.push(event);
          return event;
@@ -220,7 +229,23 @@ jest.mock('../lib/prisma', () => ({
       round: {
          findUnique: jest.fn(async ({ where }: any) => buildRoundWithPredictions(where.id)),
       },
-      $transaction: jest.fn(async (fn: (tx: any) => Promise<any>) => fn(txProxy)),
+      $transaction: jest.fn(async (fn: (tx: any) => Promise<any>) => {
+         const snapshot = {
+            rounds: structuredClone([...roundStore.entries()]),
+            predictions: structuredClone([...predictionStore.entries()]),
+            users: structuredClone([...userStore.entries()]),
+            outbox: structuredClone(outboxStore),
+         };
+         try {
+            return await fn(txProxy);
+         } catch (error) {
+            roundStore = new Map(snapshot.rounds);
+            predictionStore = new Map(snapshot.predictions);
+            userStore = new Map(snapshot.users);
+            outboxStore = snapshot.outbox;
+            throw error;
+         }
+      }),
    },
 }));
 
@@ -281,6 +306,20 @@ describe('ResolutionService — fail-closed money path (#524)', () => {
          const pred1 = predictionStore.get('pred-1');
          expect(pred1.won).toBe(false);
          expect(pred1.payout).toBe(0);
+
+         const balanceAfterResolution = userStore.get('user-0').virtualBalance;
+         const pendingEventsAfterResolution = outboxStore.length;
+         const retryResult = await resolutionService.resolveRound(roundId, 110);
+
+         expect(retryResult.outcome).toBe('already_resolved');
+         expect(userStore.get('user-0').virtualBalance).toBe(balanceAfterResolution);
+         expect(outboxStore).toHaveLength(pendingEventsAfterResolution);
+         expect(outboxStore.map((event) => event.dedupeKey)).toEqual([
+            'pred-0:resolution',
+            'pred-0:resolution',
+            'pred-1:resolution',
+            'pred-1:resolution',
+         ]);
       });
    });
 
@@ -355,6 +394,27 @@ describe('ResolutionService — fail-closed money path (#524)', () => {
 
          expect(outboxStore).toHaveLength(0);
       });
+   });
+
+   it('rolls back resolution, payout, and outbox when an outbox write fails', async () => {
+      sorobanIsFailClosedSpy.mockReturnValue(false);
+      sorobanResolveRoundSpy.mockResolvedValue(undefined);
+      const roundId = setupUpDownRound();
+      const user0Before = structuredClone(userStore.get('user-0'));
+      const user1Before = structuredClone(userStore.get('user-1'));
+      failOutboxCreate = true;
+
+      await expect(resolutionService.resolveRound(roundId, 110)).rejects.toThrow(
+         'outbox write failed'
+      );
+
+      expect(roundStore.get(roundId).status).toBe('LOCKED');
+      expect(roundStore.get(roundId).endPrice).toBeNull();
+      expect(predictionStore.get('pred-0').won).toBeNull();
+      expect(predictionStore.get('pred-0').payout).toBeNull();
+      expect(userStore.get('user-0')).toEqual(user0Before);
+      expect(userStore.get('user-1')).toEqual(user1Before);
+      expect(outboxStore).toHaveLength(0);
    });
 
    // ─── Stale oracle blocks resolution ────────────────────────────────────

@@ -1,10 +1,49 @@
 
-import { PrismaClient } from '@prisma/client';
+import { GameMode, PrismaClient, TournamentStatus, UserRole } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-async function main() {
+// Public, valid Stellar fixture keys reserved for local RBAC development.
+// Their private signing keys are intentionally not stored in this repository.
+export const DEMO_ROLE_USERS = [
+    {
+        walletAddress: 'GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN',
+        role: UserRole.ADMIN,
+    },
+    {
+        walletAddress: 'GDRHOLGIIVOGHNURCNVVGUXBUJCVTSKH2V7ACB4E4ZOR7KC3XGIBK5CT',
+        role: UserRole.ORACLE,
+    },
+] as const;
+
+export async function seedDemoRoleUsers(
+  client: Pick<PrismaClient, 'user'> = prisma
+) {
+    for (const demoUser of DEMO_ROLE_USERS) {
+        await client.user.upsert({
+            where: { walletAddress: demoUser.walletAddress },
+            update: { role: demoUser.role },
+            create: {
+                walletAddress: demoUser.walletAddress,
+                publicKey: demoUser.walletAddress,
+                role: demoUser.role,
+            },
+        });
+    }
+}
+
+export async function main() {
+    if (
+        process.env.NODE_ENV === 'production' ||
+        process.env.SAFETY_PROFILE === 'production'
+    ) {
+        throw new Error('Prisma seed is development-only and cannot run in production');
+    }
+
     console.log('🌱 Starting seed...');
+
+    await seedDemoRoleUsers();
+    console.log('✅ Seeded local demo ADMIN and ORACLE identities.');
 
     // Create or update a test user
     const user = await prisma.user.upsert({
@@ -38,8 +77,8 @@ async function main() {
       {
         name: 'XLM Prediction Championship',
         description: 'Compete against the best predictors in a multi-round UP/DOWN tournament.',
-        mode: 'UP_DOWN',
-        status: 'ACTIVE',
+        mode: GameMode.UP_DOWN,
+        status: TournamentStatus.ACTIVE,
         entryFee: 50,
         prizePool: 5000,
         maxParticipants: 100,
@@ -51,8 +90,8 @@ async function main() {
       {
         name: 'Legends Weekly Showdown',
         description: 'Range-based prediction tournament for experienced players. Weekly prizes.',
-        mode: 'LEGENDS',
-        status: 'UPCOMING',
+        mode: GameMode.LEGENDS,
+        status: TournamentStatus.UPCOMING,
         entryFee: 100,
         prizePool: 10000,
         maxParticipants: 50,
@@ -64,8 +103,8 @@ async function main() {
       {
         name: 'Beginner Friendly Cup',
         description: 'Low entry fee tournament perfect for newcomers. Learn and earn!',
-        mode: 'UP_DOWN',
-        status: 'COMPLETED',
+        mode: GameMode.UP_DOWN,
+        status: TournamentStatus.COMPLETED,
         entryFee: 10,
         prizePool: 500,
         maxParticipants: 200,
@@ -86,11 +125,13 @@ async function main() {
     console.log(`✅ Seeded ${tournamentSeeds.length} demo tournaments.`);
 }
 
-main()
-    .catch((e) => {
-        console.error(e);
-        process.exit(1);
-    })
-    .finally(async () => {
-        await prisma.$disconnect();
-    });
+if (require.main === module) {
+    main()
+        .catch((e) => {
+            console.error(e);
+            process.exitCode = 1;
+        })
+        .finally(async () => {
+            await prisma.$disconnect();
+        });
+}

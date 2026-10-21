@@ -116,8 +116,8 @@ jest.mock('../services/education-tip.service', () => ({
 // ─── mock redis (leaderboard invalidation) ───────────────────────────────────
 
 jest.mock('../lib/redis', () => ({
-  invalidateNamespace: jest.fn(),
-  invalidateLeaderboardSortedSet: jest.fn(),
+  invalidateNamespace: jest.fn().mockResolvedValue(undefined),
+  invalidateLeaderboardSortedSet: jest.fn().mockResolvedValue(undefined),
 }));
 
 // ─── mock logger ─────────────────────────────────────────────────────────────
@@ -221,10 +221,12 @@ describe('ResolutionService — outbox pattern (Issue #18)', () => {
     expect(notifEvent).toBeDefined();
     expect(notifEvent.data.payload.userId).toBe('user-1');
     expect(notifEvent.data.aggregateType).toBe('round');
+    expect(notifEvent.data.dedupeKey).toBe('pred-1:resolution');
 
     expect(wsEvent).toBeDefined();
     expect(wsEvent.data.payload.room).toBe('user:user-1');
     expect(wsEvent.data.payload.data.type).toBe('WIN');
+    expect(wsEvent.data.dedupeKey).toBe(notifEvent.data.dedupeKey);
   });
 
   it('writes LOSS outbox events inside the transaction', async () => {
@@ -248,6 +250,28 @@ describe('ResolutionService — outbox pattern (Issue #18)', () => {
 
     expect(wsEvent).toBeDefined();
     expect(wsEvent.data.payload.room).toBe('user:user-1');
+  });
+
+  it('writes LOSS outbox events when the UP_DOWN winning pool is empty', async () => {
+    const loser = makePrediction({ side: 'DOWN' });
+    const round = makeRound({ poolUp: '0', poolDown: '100', predictions: [loser] });
+
+    (require('../lib/prisma').prisma.round.findUnique as jest.Mock).mockResolvedValue(round);
+    mockRoundFindUnique.mockResolvedValue(round);
+
+    await resolutionService.resolveRound('round-1', 110);
+
+    const notifEvent = outboxCreates.find(
+      (event: any) => event.data.eventType === 'NOTIFICATION_CREATE'
+    );
+    const websocketEvent = outboxCreates.find(
+      (event: any) => event.data.eventType === 'WEBSOCKET_EMIT'
+    );
+
+    expect(notifEvent.data.payload).toMatchObject({ userId: 'user-1', type: 'LOSS' });
+    expect(websocketEvent.data.payload.data.type).toBe('LOSS');
+    expect(notifEvent.data.dedupeKey).toBe('pred-1:resolution');
+    expect(outboxCreates).toHaveLength(2);
   });
 
   it('writes outbox events for both winners and losers in a mixed round', async () => {
