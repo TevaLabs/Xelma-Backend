@@ -6,7 +6,7 @@ import betAuditService from './bet-audit.service';
 import outboxService, { BetAcceptedOutboxPayload, BetConfirmedOutboxPayload, BetResolvedOutboxPayload, BetFailedOutboxPayload } from './outbox.service';
 import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
-import { NotFoundError, ValidationError } from '../utils/errors';
+import { BusinessRuleError, ErrorCode, NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
 
 export interface UpDownBetInput {
@@ -86,7 +86,7 @@ export class BetService {
     if (requestedRoundId) {
       const round = await tx.round.findUnique({
         where: { id: requestedRoundId },
-        select: { id: true, mode: true },
+        select: { id: true, mode: true, isSoroban: true },
       });
 
       if (!round) {
@@ -99,16 +99,45 @@ export class BetService {
         );
       }
 
+      this.assertOnChainRoundHasContract(round);
       return round.id;
     }
 
     const activeRound = await tx.round.findFirst({
       where: { mode: gameMode, status: 'ACTIVE' },
       orderBy: { startTime: 'desc' },
-      select: { id: true },
+      select: { id: true, isSoroban: true },
     });
 
+    if (activeRound) {
+      this.assertOnChainRoundHasContract(activeRound);
+    }
+
     return activeRound?.id ?? null;
+  }
+
+  /**
+   * Reject bets on rounds flagged for on-chain settlement when no Soroban
+   * contract is actually configured (Issue #840).
+   *
+   * A round keeps `isSoroban: true` from the deployment that created it. If the
+   * process later starts without `SOROBAN_CONTRACT_ID` (or the client fails to
+   * initialize), that flag no longer matches reality: the bet would be recorded
+   * locally but never reach the contract, so settlement and payout accounting
+   * would silently diverge. Failing closed with a clear, actionable error is
+   * better than accepting a bet we cannot submit.
+   *
+   * Stub mode bypasses the chain by design, so it is exempt from this guard.
+   */
+  private assertOnChainRoundHasContract(round: { id: string; isSoroban: boolean }): void {
+    if (!round.isSoroban || this.isStubMode()) return;
+    if (sorobanService.isReady()) return;
+
+    throw new BusinessRuleError(
+      `Round ${round.id} is marked as an on-chain (isSoroban) round, but no Soroban contract is configured. ` +
+        `Set SOROBAN_CONTRACT_ID (or CONTRACT_ID) and restart the service before placing bets on this round.`,
+      ErrorCode.CONTRACT_INVALID_STATE
+    );
   }
 
   async recordUpDownBet(
