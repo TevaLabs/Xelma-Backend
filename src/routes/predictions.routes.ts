@@ -367,6 +367,27 @@ const exportUserPredictionsCsv = asyncHandler(
 );
 
 router.get('/user/export', authenticateUser, exportUserPredictionsCsv);
+
+/**
+ * @openapi
+ * /api/predictions/export:
+ *   get:
+ *     tags: [Predictions]
+ *     summary: Export authenticated user predictions as CSV (alias)
+ *     description: Authenticated streaming CSV export of predictions for the calling user only (#833).
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: CSV file stream
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/export', authenticateUser, exportUserPredictionsCsv);
 
 /**
