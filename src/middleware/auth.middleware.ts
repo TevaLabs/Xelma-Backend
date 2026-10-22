@@ -27,6 +27,7 @@ type ResolvedUser = {
   id: string;
   walletAddress: string;
   role: UserRole;
+  exp?: number;
 };
 
 async function loadUserFromBearerToken(
@@ -52,7 +53,14 @@ async function loadUserFromBearerToken(
     },
   });
 
-  return user;
+  if (!user) {
+    return null;
+  }
+
+  return {
+    ...user,
+    exp: decoded.exp,
+  };
 }
 
 function attachUser(req: Request, user: ResolvedUser): void {
@@ -60,6 +68,7 @@ function attachUser(req: Request, user: ResolvedUser): void {
     userId: user.id,
     walletAddress: user.walletAddress,
     role: user.role,
+    ...(user.exp !== undefined ? { exp: user.exp } : {}),
   };
 }
 

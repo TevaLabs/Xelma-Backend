@@ -33,6 +33,7 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   // Auth
   { method: "POST", path: "/api/auth/challenge", auth: RouteAuthLevel.PUBLIC, notes: "Rate limited per IP" },
   { method: "POST", path: "/api/auth/connect", auth: RouteAuthLevel.PUBLIC, notes: "Rate limited per IP" },
+  { method: "GET", path: "/api/auth/me", auth: RouteAuthLevel.AUTHENTICATED },
 
   // User
   { method: "GET", path: "/api/user/profile", auth: RouteAuthLevel.AUTHENTICATED },

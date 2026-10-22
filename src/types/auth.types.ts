@@ -34,6 +34,14 @@ export interface JwtPayload {
   userId: string;
   walletAddress: string;
   role: UserRole;
+  exp?: number;
+}
+
+export interface SessionPayload {
+  userId: string;
+  walletAddress: string;
+  role: UserRole;
+  exp: number;
 }
 
 export interface AuthRequest extends Request {

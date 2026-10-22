@@ -130,6 +130,31 @@ export const swaggerSpec = swaggerJSDoc({
           required: ['token', 'user'],
           additionalProperties: false,
         },
+        AuthMeResponse: {
+          type: 'object',
+          description: 'Decoded session payload returned by GET /api/auth/me',
+          properties: {
+            userId: { type: 'string', description: 'Unique user identifier' },
+            walletAddress: {
+              type: 'string',
+              description: 'Stellar wallet public key (G...)',
+              example: CHALLENGE_EXAMPLE_PUBLIC_KEY,
+            },
+            role: {
+              type: 'string',
+              enum: ['USER', 'ADMIN', 'ORACLE'],
+              description: 'User access role',
+              example: 'USER',
+            },
+            exp: {
+              type: 'integer',
+              description: 'JWT expiration timestamp in UNIX seconds',
+              example: 1725148800,
+            },
+          },
+          required: ['userId', 'walletAddress', 'role', 'exp'],
+          additionalProperties: false,
+        },
 
         LeaderboardEntry: {
           type: 'object',
