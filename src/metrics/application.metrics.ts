@@ -72,6 +72,32 @@ export const roundsResolvedTotal = new Counter({
    registers: [metricsRegistry],
 });
 
+/**
+ * Resolution delay and staleness metrics for oracle delay (#821).
+ * Exposes visibility when rounds pass their endTime without being resolved.
+ */
+export const roundResolutionDelaySeconds = new Histogram({
+   name: 'round_resolution_delay_seconds',
+   help: 'Delay in seconds between round endTime and actual resolution',
+   labelNames: ['mode'] as const,
+   buckets: [1, 5, 15, 30, 60, 120, 300, 600, 1800],
+   registers: [metricsRegistry],
+});
+
+export const roundResolutionStalenessSeconds = new Gauge({
+   name: 'round_resolution_staleness_seconds',
+   help: 'Seconds elapsed past endTime for unresolved rounds (oracle delay)',
+   labelNames: ['mode'] as const,
+   registers: [metricsRegistry],
+});
+
+export function recordResolutionStaleness(
+   mode: 'UP_DOWN' | 'LEGENDS',
+   stalenessSeconds: number
+): void {
+   roundResolutionStalenessSeconds.set({ mode }, Math.max(0, stalenessSeconds));
+}
+
 export const predictionsPlacedTotal = new Counter({
    name: 'predictions_placed_total',
    help: 'Total number of predictions placed',

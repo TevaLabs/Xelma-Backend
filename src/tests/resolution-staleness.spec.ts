@@ -19,7 +19,10 @@ const mockOracle = {
 jest.mock('../services/oracle', () => ({ __esModule: true, default: mockOracle }));
 
 const mockPrisma = {
-  round: { findUnique: jest.fn<(...args: any[]) => Promise<any>>() },
+  round: {
+    findUnique: jest.fn<(...args: any[]) => Promise<any>>(),
+    findMany: jest.fn<(...args: any[]) => Promise<any>>(),
+  },
 };
 jest.mock('../lib/prisma', () => ({ __esModule: true, prisma: mockPrisma }));
 
@@ -76,5 +79,18 @@ describe('ResolutionService — oracle staleness guard (#229)', () => {
     expect(mockOracle.isStale).not.toHaveBeenCalled();
     expect(mockPrisma.round.findUnique).toHaveBeenCalled();
     expect(result).toEqual({ outcome: RoundLifecycleOutcome.NO_OP });
+  });
+
+  it('records staleness metric for overdue unresolved rounds (#821)', async () => {
+    const pastTime = new Date(Date.now() - 45_000); // 45 seconds overdue
+    mockPrisma.round.findMany.mockResolvedValue([
+      { id: 'round-overdue-1', mode: 'UP_DOWN', endTime: pastTime },
+    ]);
+
+    const staleness = await resolutionService.checkAndRecordUnresolvedStaleness();
+
+    expect(staleness.UP_DOWN).toBeGreaterThanOrEqual(44);
+    expect(staleness.LEGENDS).toBe(0);
+    expect(mockPrisma.round.findMany).toHaveBeenCalled();
   });
 });

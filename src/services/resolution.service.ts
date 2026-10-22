@@ -32,6 +32,9 @@ import { calculatePayout } from '../utils/payout.util';
 import {
    roundsResolvedTotal,
    oracleResolveBlockedTotal,
+   roundResolutionDelaySeconds,
+   roundResolutionStalenessSeconds,
+   recordResolutionStaleness,
 } from '../metrics/application.metrics';
 
 function isValidRange(range: any): range is RoundPriceRange {
@@ -211,6 +214,18 @@ export class ResolutionService {
 
          if (result?.outcome === RoundLifecycleOutcome.UPDATED && result.round) {
             roundsResolvedTotal.inc({ mode: result.round.mode });
+            if (result.round.endTime && result.round.resolvedAt) {
+               const delaySec = Math.max(
+                  0,
+                  (new Date(result.round.resolvedAt).getTime() -
+                     new Date(result.round.endTime).getTime()) /
+                     1000
+               );
+               roundResolutionDelaySeconds.observe(
+                  { mode: result.round.mode },
+                  delaySec
+               );
+            }
             websocketService.emitRoundResolved(result.round);
          }
 
@@ -679,6 +694,49 @@ for (const prediction of round.predictions) {
       logger.info(
          `Round ${round.id}: Distributed payouts to winners in range [${winningRange.min}, ${winningRange.max}]`
       );
+   }
+
+   /**
+    * Computes and records staleness for any rounds that have passed their endTime
+    * but remain unresolved due to oracle or scheduling delays (#821).
+    */
+   async checkAndRecordUnresolvedStaleness(): Promise<{
+      UP_DOWN: number;
+      LEGENDS: number;
+   }> {
+      const now = new Date();
+      const overdueRounds = await prisma.round.findMany({
+         where: {
+            status: { in: ['ACTIVE', 'LOCKED'] },
+            endTime: { lt: now },
+         },
+         select: {
+            id: true,
+            mode: true,
+            endTime: true,
+         },
+      });
+
+      const maxStalenessByMode = {
+         UP_DOWN: 0,
+         LEGENDS: 0,
+      };
+
+      for (const r of overdueRounds) {
+         const staleness = Math.max(
+            0,
+            (now.getTime() - new Date(r.endTime).getTime()) / 1000
+         );
+         const modeKey = r.mode === 'UP_DOWN' ? 'UP_DOWN' : 'LEGENDS';
+         if (staleness > maxStalenessByMode[modeKey]) {
+            maxStalenessByMode[modeKey] = staleness;
+         }
+      }
+
+      recordResolutionStaleness('UP_DOWN', maxStalenessByMode.UP_DOWN);
+      recordResolutionStaleness('LEGENDS', maxStalenessByMode.LEGENDS);
+
+      return maxStalenessByMode;
    }
 }
 
