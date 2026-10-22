@@ -22,7 +22,9 @@ jest.mock('../lib/prisma', () => ({
     },
     idempotencyKey: {
       findUnique: (...args: any[]) => mockIdempotencyFindUnique(...args),
+      create: jest.fn().mockResolvedValue({}),
       upsert: (...args: any[]) => mockIdempotencyUpsert(...args),
+      delete: jest.fn().mockResolvedValue({}),
     },
     $disconnect: jest.fn().mockResolvedValue(undefined),
   },
@@ -44,10 +46,13 @@ function requestHash(body: any): string {
   return createHash('sha256').update(stableStringify(body)).digest('hex');
 }
 
+const mockGetUserPredictions = jest.fn();
+
 jest.mock('../services/prediction.service', () => ({
   __esModule: true,
   default: {
     submitPrediction: (...args: any[]) => mockSubmitPrediction(...args),
+    getUserPredictions: (...args: any[]) => mockGetUserPredictions(...args),
   },
 }));
 
@@ -337,6 +342,63 @@ describe('Predictions Routes - Auth Identity Binding (Issue #64)', () => {
       expect(res.status).toBe(409);
       expect(res.body.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
       expect(mockSubmitPrediction).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── CSV Export (#833) ──────────────────────────────────────────────────────
+
+  describe('GET /api/predictions/user/export (#833)', () => {
+    it('returns 401 when unauthenticated', async () => {
+      const res = await request(app).get('/api/predictions/user/export');
+      expect(res.status).toBe(401);
+    });
+
+    it('streams CSV of authenticated user predictions', async () => {
+      const now = new Date('2026-10-22T10:00:00.000Z');
+      mockGetUserPredictions.mockResolvedValueOnce([
+        {
+          id: 'pred-101',
+          roundId: 'round-abc',
+          userId: userA.id,
+          amount: 50,
+          side: 'UP',
+          priceRange: null,
+          payout: 95.5,
+          won: true,
+          createdAt: now,
+          round: {
+            id: 'round-abc',
+            mode: 'UP_DOWN',
+            status: 'RESOLVED',
+            startPrice: 0.28,
+            endPrice: 0.29,
+          },
+        },
+      ]);
+
+      const res = await request(app)
+        .get('/api/predictions/user/export')
+        .set('Authorization', `Bearer ${userAToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/csv');
+      expect(res.headers['content-disposition']).toContain('attachment');
+      expect(res.text).toContain('id,roundId,mode,side,amount,payout,won,status,createdAt');
+      expect(res.text).toContain('"pred-101","round-abc","UP_DOWN","UP","50","95.5","TRUE","RESOLVED"');
+      expect(mockGetUserPredictions).toHaveBeenCalledWith(userA.id);
+    });
+
+    it('works with the /api/predictions/export alias', async () => {
+      mockGetUserPredictions.mockResolvedValueOnce([]);
+
+      const res = await request(app)
+        .get('/api/predictions/export')
+        .set('Authorization', `Bearer ${userAToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/csv');
+      expect(res.text).toContain('id,roundId,mode,side,amount,payout,won,status,createdAt');
+      expect(mockGetUserPredictions).toHaveBeenCalledWith(userA.id);
     });
   });
 });
