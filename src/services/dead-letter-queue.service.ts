@@ -28,6 +28,86 @@ const MAX_ERROR_LEN = 1000;
  */
 export const DEFAULT_MAX_ATTEMPTS = 5;
 
+/**
+ * How long a dispatch id is remembered after a successful replay.
+ * Long enough to swallow duplicate retries of the same row (operator clicks
+ * twice, cron overlaps, or a status write fails after the emit went out) and
+ * short enough that the ledger stays bounded in memory.
+ */
+export const DEFAULT_DEDUPE_TTL_MS = 10 * 60 * 1000;
+
+/** Upper bound on ledger entries so a DLQ storm cannot grow it without limit. */
+export const DEFAULT_DEDUPE_MAX_ENTRIES = 10_000;
+
+/**
+ * Bounded, TTL-based ledger of dispatch ids that were already delivered
+ * (Issue #851).
+ *
+ * The DLQ guarantees at-least-once delivery, so a replay can run more than
+ * once for the same row. Without a ledger, a retry that follows an emit whose
+ * status write failed re-broadcasts the event and clients see it twice.
+ * Recordings are keyed by the dispatch id (the DLQ row id) and expire after
+ * `ttlMs`, so memory stays bounded no matter how many rows are replayed.
+ */
+export class DispatchDeduper {
+  /** dispatchId → epoch ms at which the recording expires. */
+  private readonly entries = new Map<string, number>();
+
+  constructor(
+    private readonly ttlMs: number = DEFAULT_DEDUPE_TTL_MS,
+    private readonly maxEntries: number = DEFAULT_DEDUPE_MAX_ENTRIES,
+  ) {}
+
+  /** True when the dispatch id was delivered within the TTL window. */
+  has(dispatchId: string, nowMs: number = Date.now()): boolean {
+    const expiresAt = this.entries.get(dispatchId);
+    if (expiresAt === undefined) return false;
+    if (expiresAt <= nowMs) {
+      this.entries.delete(dispatchId);
+      return false;
+    }
+    return true;
+  }
+
+  /** Remember that `dispatchId` was delivered, expiring after the TTL. */
+  mark(dispatchId: string, nowMs: number = Date.now()): void {
+    if (!this.entries.has(dispatchId) && this.entries.size >= this.maxEntries) {
+      this.evictExpired(nowMs);
+      // Still full: drop the oldest recordings (Map keeps insertion order).
+      while (this.entries.size >= this.maxEntries) {
+        const oldest = this.entries.keys().next();
+        if (oldest.done) break;
+        this.entries.delete(oldest.value);
+      }
+    }
+    this.entries.set(dispatchId, nowMs + this.ttlMs);
+  }
+
+  /** Drop every expired recording. */
+  evictExpired(nowMs: number = Date.now()): number {
+    let removed = 0;
+    for (const [id, expiresAt] of this.entries) {
+      if (expiresAt <= nowMs) {
+        this.entries.delete(id);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  /** Test helper: forget every recording. */
+  reset(): void {
+    this.entries.clear();
+  }
+
+  get size(): number {
+    return this.entries.size;
+  }
+}
+
+/** Process-wide replay ledger shared by every DLQ replay entry point. */
+export const dlqReplayDeduper = new DispatchDeduper();
+
 export interface RecordFailureInput {
   channel: DispatchChannel;
   eventName?: string | null;
@@ -58,6 +138,12 @@ export interface RetryResult {
   id: string;
   status: DispatchStatus;
   attempts: number;
+  /**
+   * True when this replay was suppressed because another replay already won
+   * the dispatch for this id (Issue #851). The row state is returned unchanged
+   * (or settled to RESOLVED when the ledger proves delivery already happened).
+   */
+  deduped?: boolean;
 }
 
 export interface RetryDryRunResult {
@@ -194,6 +280,57 @@ class DeadLetterQueueService {
       return { id: row.id, status: row.status, attempts: row.attempts };
     }
 
+    // Issue #851: the DLQ row id *is* the dispatch id. If this dispatch was
+    // already delivered by an earlier attempt whose status write failed, settle
+    // the row instead of re-broadcasting it.
+    if (dlqReplayDeduper.has(row.id)) {
+      logger.warn(`DLQ retry skipped: dispatch already delivered`, {
+        id,
+        channel: row.channel,
+      });
+      const settled = await prisma.failedDispatch.update({
+        where: { id },
+        data: {
+          status: DispatchStatus.RESOLVED,
+          resolvedAt: new Date(),
+          lastRetryAt: new Date(),
+          attempts: { increment: 1 },
+        },
+        select: { id: true, status: true, attempts: true },
+      });
+      return { ...settled, deduped: true };
+    }
+
+    // Issue #851: claim the row atomically before dispatching. Two concurrent
+    // replays (admin retry + retryAll, or two replicas) both read the row as
+    // PENDING above; only one of them can flip it to RETRYING, so only one
+    // invokes the handler. The loser returns the current row state without
+    // emitting.
+    const claim = await prisma.failedDispatch.updateMany({
+      where: {
+        id,
+        status: { in: [DispatchStatus.PENDING, DispatchStatus.RETRYING] },
+      },
+      data: {
+        status: DispatchStatus.RETRYING,
+        lastRetryAt: new Date(),
+      },
+    });
+    if (claim.count === 0) {
+      const current = await prisma.failedDispatch.findUnique({ where: { id } });
+      logger.warn(`DLQ retry skipped: dispatch is already being replayed`, {
+        id,
+        channel: row.channel,
+        status: current?.status ?? row.status,
+      });
+      return {
+        id,
+        status: current?.status ?? row.status,
+        attempts: current?.attempts ?? row.attempts,
+        deduped: true,
+      };
+    }
+
     try {
       if (row.channel === DispatchChannel.NOTIFICATION_CREATE) {
         await handlers.notificationCreate(row.payload as any);
@@ -204,18 +341,6 @@ class DeadLetterQueueService {
           payload: row.payload as any,
         });
       }
-      const resolved = await prisma.failedDispatch.update({
-        where: { id },
-        data: {
-          status: DispatchStatus.RESOLVED,
-          resolvedAt: new Date(),
-          lastRetryAt: new Date(),
-          attempts: { increment: 1 },
-        },
-        select: { id: true, status: true, attempts: true },
-      });
-      logger.info(`DLQ retry succeeded`, { id, channel: row.channel });
-      return resolved;
     } catch (err) {
       const nextAttempts = row.attempts + 1;
       const nextStatus =
@@ -240,6 +365,24 @@ class DeadLetterQueueService {
       });
       return updated;
     }
+
+    // Mark the dispatch id as delivered *before* writing the status: if the
+    // status write fails, the next retry settles the row (above) instead of
+    // emitting the event a second time.
+    dlqReplayDeduper.mark(row.id);
+
+    const resolved = await prisma.failedDispatch.update({
+      where: { id },
+      data: {
+        status: DispatchStatus.RESOLVED,
+        resolvedAt: new Date(),
+        lastRetryAt: new Date(),
+        attempts: { increment: 1 },
+      },
+      select: { id: true, status: true, attempts: true },
+    });
+    logger.info(`DLQ retry succeeded`, { id, channel: row.channel });
+    return resolved;
   }
 
   /**

@@ -16,6 +16,7 @@ const mockFindUnique: any = jest.fn();
 const mockFindMany: any = jest.fn();
 const mockCount: any = jest.fn();
 const mockUpdate: any = jest.fn();
+const mockUpdateMany: any = jest.fn();
 const mockDeleteMany: any = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
@@ -26,6 +27,7 @@ jest.mock('../lib/prisma', () => ({
       findMany: (...args: any[]) => mockFindMany(...args),
       count: (...args: any[]) => mockCount(...args),
       update: (...args: any[]) => mockUpdate(...args),
+      updateMany: (...args: any[]) => mockUpdateMany(...args),
       deleteMany: (...args: any[]) => mockDeleteMany(...args),
     },
   },
@@ -57,12 +59,18 @@ jest.mock('@prisma/client', () => ({
   Prisma: {},
 }));
 
-import deadLetterQueueService from '../services/dead-letter-queue.service';
+import deadLetterQueueService, {
+  DispatchDeduper,
+  dlqReplayDeduper,
+} from '../services/dead-letter-queue.service';
 import { DispatchChannel, DispatchStatus } from '@prisma/client';
 
 describe('DeadLetterQueueService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default: this replay wins the atomic claim on the row.
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    dlqReplayDeduper.reset();
   });
 
   describe('record', () => {
@@ -250,6 +258,115 @@ describe('DeadLetterQueueService', () => {
       const updateArgs: any = mockUpdate.mock.calls[0][0];
       expect(updateArgs.data.status).toBe('ABANDONED');
       expect(updateArgs.data.attempts).toBe(5);
+    });
+
+    it('claims the row atomically before dispatching (#851)', async () => {
+      mockFindUnique.mockResolvedValue({
+        id: 'claim-1',
+        status: 'PENDING',
+        channel: 'NOTIFICATION_CREATE',
+        attempts: 1,
+        payload: { userId: 'u1' },
+      });
+      handlers.notificationCreate.mockResolvedValue({ id: 'n1' });
+      mockUpdate.mockResolvedValue({ id: 'claim-1', status: 'RESOLVED', attempts: 2 });
+
+      await deadLetterQueueService.retry('claim-1', handlers);
+
+      expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+      const claimArgs: any = mockUpdateMany.mock.calls[0][0];
+      expect(claimArgs.where.id).toBe('claim-1');
+      expect(claimArgs.where.status.in).toEqual(['PENDING', 'RETRYING']);
+      expect(claimArgs.data.status).toBe('RETRYING');
+      // The handler runs only after the claim succeeds.
+      expect(handlers.notificationCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not dispatch when another replay already claimed the row (#851)', async () => {
+      mockFindUnique
+        // Initially read as retryable by this caller...
+        .mockResolvedValueOnce({
+          id: 'claim-2',
+          status: 'PENDING',
+          channel: 'WEBSOCKET_EMIT',
+          attempts: 1,
+          payload: { room: 'user:u1', data: {} },
+          eventName: 'notification:new',
+        })
+        // ...but another replay flipped it to RETRYING first.
+        .mockResolvedValueOnce({
+          id: 'claim-2',
+          status: 'RETRYING',
+          channel: 'WEBSOCKET_EMIT',
+          attempts: 2,
+        });
+      mockUpdateMany.mockResolvedValue({ count: 0 });
+
+      const result: any = await deadLetterQueueService.retry('claim-2', handlers);
+
+      expect(result).toMatchObject({
+        id: 'claim-2',
+        status: 'RETRYING',
+        attempts: 2,
+        deduped: true,
+      });
+      expect(handlers.websocketEmit).not.toHaveBeenCalled();
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('does not re-emit when the status write failed after a successful dispatch (#851)', async () => {
+      const row = {
+        id: 'dup-1',
+        status: 'PENDING',
+        channel: 'WEBSOCKET_EMIT',
+        attempts: 1,
+        payload: { room: 'user:u1', data: { id: 'n1' } },
+        eventName: 'notification:new',
+      };
+      mockFindUnique.mockResolvedValue(row);
+      handlers.websocketEmit.mockResolvedValue(undefined);
+      // The event went out, but persisting RESOLVED blew up.
+      mockUpdate.mockRejectedValueOnce(new Error('db blip'));
+
+      await expect(deadLetterQueueService.retry('dup-1', handlers)).rejects.toThrow(
+        'db blip',
+      );
+      expect(handlers.websocketEmit).toHaveBeenCalledTimes(1);
+      expect(dlqReplayDeduper.has('dup-1')).toBe(true);
+
+      // A later retry of the same dispatch id must settle the row, not re-emit.
+      mockUpdate.mockResolvedValue({ id: 'dup-1', status: 'RESOLVED', attempts: 2 });
+      const second: any = await deadLetterQueueService.retry('dup-1', handlers);
+
+      expect(handlers.websocketEmit).toHaveBeenCalledTimes(1);
+      // Only the first retry claimed the row; the second short-circuited.
+      expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+      expect(second).toMatchObject({ id: 'dup-1', status: 'RESOLVED', deduped: true });
+    });
+  });
+
+  describe('DispatchDeduper', () => {
+    it('expires recordings after the TTL', () => {
+      const deduper = new DispatchDeduper(1_000, 10);
+      const now = 1_000_000;
+      deduper.mark('d1', now);
+
+      expect(deduper.has('d1', now)).toBe(true);
+      expect(deduper.has('d1', now + 500)).toBe(true);
+      expect(deduper.has('d1', now + 1_001)).toBe(false);
+      expect(deduper.size).toBe(0);
+    });
+
+    it('stays bounded by evicting the oldest recordings', () => {
+      const deduper = new DispatchDeduper(60_000, 2);
+      deduper.mark('a', 1);
+      deduper.mark('b', 2);
+      deduper.mark('c', 3);
+
+      expect(deduper.size).toBe(2);
+      expect(deduper.has('a', 4)).toBe(false);
+      expect(deduper.has('b', 4)).toBe(true);
+      expect(deduper.has('c', 4)).toBe(true);
     });
   });
 
