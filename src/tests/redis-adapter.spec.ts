@@ -6,9 +6,13 @@
  * deployment. Skips cleanly when REDIS_URL is not configured (e.g. no
  * local Redis running) so the default unit test run is never blocked.
  *
+ * Issue #845: the CI workflow's `test (redis adapter)` job provides a Redis
+ * service container and sets REDIS_ADAPTER_TEST_REQUIRED=true, so a missing or
+ * unreachable Redis fails the job instead of silently skipping the suite.
+ *
  * To run locally:
  *   docker compose --profile full up -d redis
- *   REDIS_URL=redis://localhost:6379 npx jest --testPathPattern=redis-adapter
+ *   REDIS_URL=redis://localhost:6379 npm run test:redis-adapter
  */
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { createServer, Server as HttpServer } from 'http';
@@ -17,7 +21,12 @@ import { io as ioClient, Socket } from 'socket.io-client';
 import { initializeSocketAdapter, isUsingRedisAdapter } from '../utils/socket-adapter';
 
 const REDIS_URL = process.env.REDIS_URL;
-const maybeDescribe = REDIS_URL ? describe : describe.skip;
+const REDIS_REQUIRED = ['1', 'true'].includes(
+  (process.env.REDIS_ADAPTER_TEST_REQUIRED ?? '').toLowerCase(),
+);
+// In CI the Redis service is guaranteed, so the suite must run (and fail if
+// the adapter cannot connect) rather than report a green skip.
+const maybeDescribe = REDIS_URL || REDIS_REQUIRED ? describe : describe.skip;
 
 function waitForConnect(socket: Socket, timeoutMs = 3000): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -73,12 +82,18 @@ maybeDescribe('Redis Socket.IO adapter - cross-node fanout (Issue #418)', () => 
 
     if (!initedA || !initedB) {
       throw new Error(
-        'Redis adapter failed to initialize even though REDIS_URL is set - check that Redis is reachable.'
+        REDIS_URL
+          ? 'Redis adapter failed to initialize even though REDIS_URL is set - check that Redis is reachable.'
+          : 'Redis adapter test is required (REDIS_ADAPTER_TEST_REQUIRED) but REDIS_URL is not set.'
       );
     }
   }, 15000);
 
   afterAll(async () => {
+    // A failure in beforeAll (e.g. unreachable Redis) leaves the servers partly
+    // built; don't mask the original error with a teardown crash.
+    if (!serverA || !serverB) return;
+
     // Quit the Redis pub/sub clients the adapter created internally so Jest
     // doesn't hang on open handles after the test run finishes.
     for (const s of [serverA, serverB]) {
@@ -138,7 +153,7 @@ maybeDescribe('Redis Socket.IO adapter - cross-node fanout (Issue #418)', () => 
 });
 
 // Guard so CI output makes it obvious *why* this suite was skipped.
-if (!REDIS_URL) {
+if (!REDIS_URL && !REDIS_REQUIRED) {
   // eslint-disable-next-line no-console
   console.warn(
     '[redis-adapter.spec.ts] REDIS_URL not set - skipping Redis adapter integration test. ' +
