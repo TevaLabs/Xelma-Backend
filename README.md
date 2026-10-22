@@ -2306,7 +2306,7 @@ When a client exceeds a limit, the API returns **429** with retry guidance:
 }
 ```
 
-The `RateLimit-*` and `Retry-After` response headers are also set (`standardHeaders: true`).
+The `RateLimit-*` and `Retry-After` response headers are also set on **every** limiter, including chat (`standardHeaders: 'draft-6'`). Legacy `X-RateLimit-*` headers are never sent.
 
 ---
 

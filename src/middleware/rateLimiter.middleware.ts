@@ -74,6 +74,9 @@ export const RATE_LIMIT_POLICIES = {
   },
 } as const;
 
+/** Header format shared by all limiters: RateLimit-Limit/Remaining/Reset (+ Policy). */
+export const RATE_LIMIT_STANDARD_HEADERS = 'draft-6' as const;
+
 /**
  * Redis-backed store for one limiter, or undefined when REDIS_URL is unset so
  * express-rate-limit keeps its default in-process MemoryStore (single-node /
@@ -111,7 +114,9 @@ function createRateLimiter(opts: {
     // Omit keyGenerator to use express-rate-limit's default (IP + IPv6 subnet).
     ...(opts.keyGenerator ? { keyGenerator: opts.keyGenerator } : {}),
     message: { error: 'Too Many Requests', message: opts.message, retryAfter: Math.ceil(opts.windowMs / 1000) },
-    standardHeaders: true,
+    // Every limiter (including chat) emits the same IETF RateLimit-* headers
+    // and never the legacy X-RateLimit-* ones.
+    standardHeaders: RATE_LIMIT_STANDARD_HEADERS,
     legacyHeaders: false,
     skip: opts.skip,
     ...(store ? { store } : {}),
