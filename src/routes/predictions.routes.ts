@@ -301,6 +301,76 @@ router.get(
 
 /**
  * @openapi
+ * /api/predictions/user/export:
+ *   get:
+ *     tags: [Predictions]
+ *     summary: Export authenticated user predictions as CSV
+ *     description: Authenticated streaming CSV export of predictions for the calling user only (#833).
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: CSV file stream
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: Unauthorized
+ */
+const exportUserPredictionsCsv = asyncHandler(
+   async (req: AuthenticatedRequest, res: Response) => {
+      const userId = req.user.userId;
+      const predictions = await predictionService.getUserPredictions(userId);
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader(
+         'Content-Disposition',
+         `attachment; filename="predictions-${userId}-${Date.now()}.csv"`
+      );
+
+      // Write CSV headers
+      res.write('id,roundId,mode,side,amount,payout,won,status,createdAt\n');
+
+      for (const p of predictions) {
+         const id = p.id;
+         const roundId = p.roundId;
+         const mode = p.round?.mode ?? 'UP_DOWN';
+         const priceRangeAny = p.priceRange as any;
+         const side =
+            p.side ??
+            (priceRangeAny?.min !== undefined
+               ? `[${priceRangeAny.min}-${priceRangeAny.max}]`
+               : '');
+         const amount = p.amount ? p.amount.toString() : '0';
+         const payout = p.payout ? p.payout.toString() : '';
+         const won =
+            p.won === null || p.won === undefined
+               ? 'PENDING'
+               : p.won
+               ? 'TRUE'
+               : 'FALSE';
+         const status = p.round?.status ?? '';
+         const createdAt = p.createdAt
+            ? new Date(p.createdAt).toISOString()
+            : '';
+
+         // Stream row safely escaped
+         res.write(
+            `"${id}","${roundId}","${mode}","${side}","${amount}","${payout}","${won}","${status}","${createdAt}"\n`
+         );
+      }
+
+      res.end();
+   }
+);
+
+router.get('/user/export', authenticateUser, exportUserPredictionsCsv);
+router.get('/export', authenticateUser, exportUserPredictionsCsv);
+
+/**
+ * @openapi
  * /api/predictions/round/{roundId}:
  *   get:
  *     tags: [Predictions]
