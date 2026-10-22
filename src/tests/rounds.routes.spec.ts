@@ -287,4 +287,112 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
       expect(mockResolveRound).toHaveBeenCalledWith('round-resolve-id', expect.anything());
     });
   });
+
+  describe("POST /api/rounds/start - LEGENDS priceRanges Zod validation", () => {
+    it("returns 400 for malformed priceRanges (non-array)", async () => {
+      const res = await request(app)
+        .post("/api/rounds/start")
+        .set("Authorization", "Bearer " + adminToken)
+        .send({
+          mode: 1,
+          startPrice: 0.1234,
+          duration: 300,
+          priceRanges: "invalid",
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 for malformed priceRanges (fewer than 2 ranges)", async () => {
+      const res = await request(app)
+        .post("/api/rounds/start")
+        .set("Authorization", "Bearer " + adminToken)
+        .send({
+          mode: 1,
+          startPrice: 0.1234,
+          duration: 300,
+          priceRanges: [{ min: 0.1, max: 0.2 }],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+      expect(res.body.message).toContain("LEGENDS mode requires at least 2 ranges");
+    });
+
+    it("returns 400 for malformed priceRanges (min >= max)", async () => {
+      const res = await request(app)
+        .post("/api/rounds/start")
+        .set("Authorization", "Bearer " + adminToken)
+        .send({
+          mode: 1,
+          startPrice: 0.1234,
+          duration: 300,
+          priceRanges: [
+            { min: 0.2, max: 0.1 },
+            { min: 0.2, max: 0.3 },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+      expect(res.body.message).toContain("min must be less than max");
+    });
+
+    it("returns 400 for malformed priceRanges (overlapping ranges)", async () => {
+      const res = await request(app)
+        .post("/api/rounds/start")
+        .set("Authorization", "Bearer " + adminToken)
+        .send({
+          mode: 1,
+          startPrice: 0.1234,
+          duration: 300,
+          priceRanges: [
+            { min: 0.1, max: 0.25 },
+            { min: 0.2, max: 0.3 },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+      expect(res.body.message).toContain("LEGENDS price ranges must not overlap");
+    });
+
+    it("returns 400 for malformed priceRanges (missing min or max)", async () => {
+      const res = await request(app)
+        .post("/api/rounds/start")
+        .set("Authorization", "Bearer " + adminToken)
+        .send({
+          mode: 1,
+          startPrice: 0.1234,
+          duration: 300,
+          priceRanges: [
+            { min: 0.1 },
+            { max: 0.3 },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 when priceRanges provided for mode=0 (UP_DOWN)", async () => {
+      const res = await request(app)
+        .post("/api/rounds/start")
+        .set("Authorization", "Bearer " + adminToken)
+        .send({
+          mode: 0,
+          startPrice: 0.1234,
+          duration: 300,
+          priceRanges: [
+            { min: 0.1, max: 0.2 },
+            { min: 0.2, max: 0.3 },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("VALIDATION_ERROR");
+      expect(res.body.message).toContain("priceRanges is only supported when mode is LEGENDS (1)");
+    });
+  });
 });
