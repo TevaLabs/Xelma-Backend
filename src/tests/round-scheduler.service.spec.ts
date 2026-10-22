@@ -334,4 +334,40 @@ describe("RoundSchedulerService", () => {
       expect(roundService.autoLockExpiredRounds).toHaveBeenCalledTimes(1);
     });
   });
+
+  // ── Jitter before auto-resolve (#823) ──────────────────────────────────────
+
+  describe("auto-resolve jitter (#823)", () => {
+    afterEach(() => {
+      delete process.env.ROUND_SCHEDULER_RESOLVE_JITTER_MS;
+    });
+
+    it("returns 0 when configured max jitter is 0 or negative", () => {
+      expect(roundSchedulerService.getResolveJitterMs(0)).toBe(0);
+      expect(roundSchedulerService.getResolveJitterMs(-100)).toBe(0);
+    });
+
+    it("returns a random jitter delay within the configured bound", () => {
+      process.env.ROUND_SCHEDULER_RESOLVE_JITTER_MS = "500";
+      for (let i = 0; i < 20; i++) {
+        const jitter = roundSchedulerService.getResolveJitterMs();
+        expect(jitter).toBeGreaterThanOrEqual(0);
+        expect(jitter).toBeLessThan(500);
+      }
+    });
+
+    it("respects override max jitter parameter", () => {
+      for (let i = 0; i < 20; i++) {
+        const jitter = roundSchedulerService.getResolveJitterMs(100);
+        expect(jitter).toBeGreaterThanOrEqual(0);
+        expect(jitter).toBeLessThan(100);
+      }
+    });
+
+    it("applies jitter delay asynchronously", async () => {
+      const delay = await roundSchedulerService.applyResolveJitter(10);
+      expect(delay).toBeGreaterThanOrEqual(0);
+      expect(delay).toBeLessThan(10);
+    });
+  });
 });

@@ -167,6 +167,34 @@ class RoundSchedulerService {
 
    /**
     * Lock expired rounds, as the single leader across all instances.
+   /**
+    * Configurable maximum jitter in milliseconds applied before auto-resolution
+    * to prevent thundering herd on oracle and blockchain nodes (#823).
+    */
+   getResolveJitterMs(overrideMax?: number): number {
+      const max =
+         overrideMax !== undefined
+            ? overrideMax
+            : parseInt(process.env.ROUND_SCHEDULER_RESOLVE_JITTER_MS || '3000', 10);
+      if (isNaN(max) || max <= 0) {
+         return 0;
+      }
+      return Math.floor(Math.random() * max);
+   }
+
+   /**
+    * Applies a random jitter delay before auto-resolution (#823).
+    */
+   async applyResolveJitter(overrideMax?: number): Promise<number> {
+      const jitterMs = this.getResolveJitterMs(overrideMax);
+      if (jitterMs > 0) {
+         await new Promise(resolve => setTimeout(resolve, jitterMs));
+      }
+      return jitterMs;
+   }
+
+   /**
+    * Lock expired rounds, as the single leader across all instances.
     *
     * @visibleForTesting
     */
@@ -196,6 +224,9 @@ class RoundSchedulerService {
             });
             return;
          }
+
+         // Apply jitter before auto-locking/resolving to stagger worker load
+         await this.applyResolveJitter();
 
          lock.assertHeld();
 
