@@ -270,6 +270,13 @@ Real-time fanout across replicas requires the same `REDIS_URL`.
   # Join both clients to the same room (e.g. round:abc) and emit via websocketService; both should receive the event
   ```
 
+- **Automated cross-node check:** `npm run test:redis-adapter` runs
+  `src/tests/redis-adapter.spec.ts`, which boots two Socket.IO servers, joins a
+  room on one and asserts a broadcast from the other arrives through Redis. It
+  skips when `REDIS_URL` is unset; CI's `test (redis adapter)` job provides a
+  Redis service container and sets `REDIS_ADAPTER_TEST_REQUIRED=true`, so the
+  suite runs (and fails loudly) instead of skipping when Redis is missing.
+
 - **ACL hardening:** `src/socket.ts:isAuthorizedPrivateRoomJoin` ensures `user:<id>` rooms are only joinable by the owning `userId`. Unauthorized `join:notifications` with a foreign `user:<otherId>` is rejected with an `error` event and logged as a warning. Auto-join on connect still runs (`socket.join(user:<own>)`) so `websocketService.emitNotification(userId, …)` reaches the correct tenant even across adapters.
 
 - **Monitoring:** `GET /metrics` exposes `websocket_connection_events_total` and `socket:io` metrics. After scale-up, `isUsingRedisAdapter(io)` should be `true` on every replica; otherwise broadcasts are instance-local.

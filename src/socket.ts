@@ -122,6 +122,14 @@ export const AUTH_TOKEN_EXPIRED = 'AUTH_TOKEN_EXPIRED';
 export const AUTH_TOKEN_INVALID = 'AUTH_TOKEN_INVALID';
 
 /**
+ * How long (ms) a socket that failed authentication is kept open so the
+ * typed `auth:error` event can be flushed to the client before the server
+ * closes the connection (Issue #846). Small enough to be imperceptible, large
+ * enough to survive a slow transport tick.
+ */
+export const AUTH_ERROR_GRACE_MS = 50;
+
+/**
  * How long (ms) the server waits for a pong before treating the socket as
  * dead and forcibly disconnecting it.
  */
@@ -264,6 +272,9 @@ export function checkExpiredTokenSockets(
  * ### Token expiry & reconnect flow
  * When a JWT expires, the server emits an `auth:error` event with
  * `{ code: "AUTH_TOKEN_EXPIRED" }` and then gracefully disconnects the socket.
+ * This also applies at handshake time: a connection presenting an already
+ * expired token is accepted just long enough to receive the same typed event
+ * (rather than an abrupt transport close / bare `connect_error`), then closed.
  * Clients MUST:
  *   1. Listen for `auth:error` events on every authenticated socket.
  *   2. On `code === "AUTH_TOKEN_EXPIRED"`: call the HTTP token-refresh endpoint
@@ -347,8 +358,17 @@ export async function initializeSocket(
          if (!verifyResult.valid) {
             if (verifyResult.expired) {
                logger.warn(`Expired token for socket ${socket.id}`);
-               // AUTH_TOKEN_EXPIRED signals clients to refresh and reconnect.
-               return next(new Error('AUTH_TOKEN_EXPIRED'));
+               // Issue #846: rejecting the handshake here surfaces as an abrupt
+               // transport close, leaving clients no typed signal to refresh on.
+               // Accept the connection just long enough for the connection
+               // handler to emit `auth:error` and close gracefully.
+               socket.data.authError = {
+                  code: AUTH_TOKEN_EXPIRED,
+                  message:
+                     'Your session token has expired. ' +
+                     'Refresh your access token and reconnect.',
+               };
+               return next();
             }
             logger.warn(`Invalid token for socket ${socket.id}`);
             return next(new Error('AUTH_TOKEN_INVALID'));
@@ -400,6 +420,27 @@ export async function initializeSocket(
 
    // Connection handler
    io.on('connection', (socket: AuthenticatedSocket) => {
+      // -----------------------------------------------------------------------
+      // Handshake auth failure (Issue #846)
+      // -----------------------------------------------------------------------
+      // An expired token is not rejected inside the middleware: the socket is
+      // let through so the typed `auth:error` event is actually delivered, then
+      // disconnected once the packet has had a chance to flush. No rooms are
+      // joined and the socket is never added to the connection registry.
+      const authError = socket.data.authError;
+      if (authError) {
+         logger.warn(
+            `Rejecting socket ${socket.id} after handshake: ${authError.code}`
+         );
+         websocketConnectionEventsTotal.inc({
+            event: 'auth_rejected',
+            authenticated: 'false',
+         });
+         socket.emit('auth:error', authError);
+         setTimeout(() => socket.disconnect(true), AUTH_ERROR_GRACE_MS);
+         return;
+      }
+
       logger.info(
          `Client connected: ${socket.id}${socket.userId ? ` (user: ${socket.userId})` : ' (unauthenticated)'}`
       );

@@ -192,6 +192,12 @@ export interface SocketData {
   walletAddress?: string;
   /** Unix epoch (ms) at which the JWT expires. */
   tokenExpiresAt?: number;
+  /**
+   * Set by the handshake auth middleware when the supplied token is expired
+   * (Issue #846). The connection handler emits this as a typed `auth:error`
+   * and then disconnects gracefully.
+   */
+  authError?: AuthErrorPayload;
 }
 
 // ---------------------------------------------------------------------------

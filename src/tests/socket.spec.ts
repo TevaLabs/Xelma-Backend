@@ -11,6 +11,7 @@ import {
    beforeEach,
 } from '@jest/globals';
 import { createServer, Server as HttpServer } from 'http';
+import jwt from 'jsonwebtoken';
 import { io as ioClient, Socket } from 'socket.io-client';
 import { Server as SocketIOServer } from 'socket.io';
 import { createApp } from '../index';
@@ -19,6 +20,7 @@ import {
    chatRateLimiter,
    connectionRegistry,
    checkStaleConnections,
+   AUTH_TOKEN_EXPIRED,
    PING_INTERVAL,
    PING_TIMEOUT,
 } from '../socket';
@@ -200,6 +202,52 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
 
          client.connect();
          await expect(waitForConnect(client)).rejects.toBeDefined();
+         client.disconnect();
+      });
+
+      it('emits a typed auth:error before disconnecting a socket with an expired token (#846)', async () => {
+         // Same secret/options as generateToken, but already expired.
+         const expiredToken = jwt.sign(
+            {
+               userId: testUser.id,
+               walletAddress: testUser.walletAddress,
+               role: UserRole.USER,
+            },
+            process.env.JWT_SECRET as string,
+            {
+               expiresIn: -10,
+               ...(process.env.JWT_ISSUER
+                  ? { issuer: process.env.JWT_ISSUER }
+                  : {}),
+               ...(process.env.JWT_AUDIENCE
+                  ? { audience: process.env.JWT_AUDIENCE }
+                  : {}),
+            }
+         );
+
+         const client = ioClient(baseURL, {
+            auth: { token: expiredToken },
+            transports: ['websocket'],
+            autoConnect: false,
+         });
+
+         const authError = waitFor(client, 'auth:error');
+         const disconnected = waitForDisconnect(client);
+
+         client.connect();
+
+         const payload = await authError;
+         expect(payload).toMatchObject({ code: AUTH_TOKEN_EXPIRED });
+         expect(payload.message).toMatch(/expired/i);
+
+         // The server closes the connection after delivering the typed event
+         // instead of dropping the transport abruptly.
+         await expect(disconnected).resolves.toBeDefined();
+         expect(client.connected).toBe(false);
+
+         // Expired tokens never reach the user lookup or the registry.
+         expect(mockUserFindUnique).not.toHaveBeenCalled();
+
          client.disconnect();
       });
 
