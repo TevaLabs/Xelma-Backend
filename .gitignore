@@ -4,10 +4,12 @@ dist
 .env.local
 .DS_Store
 *.log
+temp_auto_push.bat
 coverage
 .prisma
 package-lock.json
 
 commit.sh
 pr.txt
-/docs
+/docs.gitignore
+branch_structure.json
