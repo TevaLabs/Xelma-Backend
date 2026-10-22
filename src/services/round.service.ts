@@ -10,6 +10,7 @@ import roundLifecycleService from "./round-lifecycle.service";
 import { Decimal } from "@prisma/client/runtime/library";
 import { toDecimal, toNumber } from "../utils/decimal.util";
 import { roundsStartedTotal } from "../metrics/application.metrics";
+import { withDistributedLockOrConflict } from "../utils/distributed-lock";
 import config from "../config";
 import {
   ActiveRoundSource,
@@ -35,117 +36,123 @@ export class RoundService {
     durationMinutes: number,
     customPriceRanges?: LegendsPriceRange[],
   ): Promise<any> {
-    try {
-      const gameMode = mode === "UP_DOWN" ? GameMode.UP_DOWN : GameMode.LEGENDS;
+    const lockName = `start-round-${mode.toLowerCase()}`;
+    const conflictMessage = `An active ${mode} round already exists`;
 
-      // Check for existing active round of the same mode
-      const existingActiveRound = await prisma.round.findFirst({
-        where: {
-          mode: gameMode,
-          status: "ACTIVE",
-        },
-      });
+    return withDistributedLockOrConflict(
+      lockName,
+      async () => {
+        const gameMode = mode === "UP_DOWN" ? GameMode.UP_DOWN : GameMode.LEGENDS;
 
-      if (existingActiveRound) {
-        throw new ConflictError(
-          `An active ${mode} round already exists (ID: ${existingActiveRound.id})`,
-          ErrorCode.ACTIVE_ROUND_EXISTS,
+        const startTime = new Date();
+        const endTime = new Date(
+          startTime.getTime() + durationMinutes * 60 * 1000,
         );
-      }
 
-      const startTime = new Date();
-      const endTime = new Date(
-        startTime.getTime() + durationMinutes * 60 * 1000,
-      );
+        let sorobanRoundId: string | null = null;
 
-      let sorobanRoundId: string | null = null;
+        const startPriceDecimal = toDecimal(startPrice);
+        const startPriceNumber = toNumber(startPriceDecimal);
 
-      const startPriceDecimal = toDecimal(startPrice);
-      const startPriceNumber = toNumber(startPriceDecimal);
-
-      // Mode 0 (UP_DOWN): Create round on Soroban contract
-      if (mode === "UP_DOWN") {
-        try {
-          await sorobanService.createRound(startPriceDecimal, 0);
-        } catch (e) {
-          sorobanService.applyMoneyPathFailure("createRound", e);
-        }
-      }
-
-      // Mode 1 (LEGENDS): Define price ranges
-      let priceRanges: any = null;
-      if (mode === "LEGENDS") {
-        const rangesToUse =
-          customPriceRanges && customPriceRanges.length > 0
-            ? customPriceRanges
-            : this.generateDefaultLegendsRanges(startPriceNumber);
-
-        this.validateLegendsRanges(rangesToUse);
-
-        priceRanges = rangesToUse.map((range) => ({
-          min: range.min,
-          max: range.max,
-          pool: 0,
-        }));
-      }
-
-      // Create round in database
-      const round = await prisma.round.create({
-        data: {
-          mode: gameMode,
-          // Rounds are instantiated directly in ACTIVE (open) state: creation
-          // bootstraps the machine rather than transitioning an existing row.
-          // Every *transition* out of ACTIVE routes through the lifecycle
-          // state machine (round-lifecycle.service).
-          status: "ACTIVE" as RoundStatus,
-          startTime,
-          endTime,
-          startPrice: startPriceDecimal,
-          sorobanRoundId,
-          isSoroban: mode === "UP_DOWN" && sorobanService.isReady(),
-          priceRanges: priceRanges
-            ? JSON.parse(JSON.stringify(priceRanges))
-            : null,
-        },
-      });
-
-      logger.info(
-        `Round created: ${round.id}, mode=${mode}, sorobanId=${sorobanRoundId}`,
-      );
-      roundsStartedTotal.inc({ mode });
-
-      // Emit round started event
-      websocketService.emitRoundStarted(round);
-
-      // Create and broadcast ROUND_START notification to all users
-      try {
-        const users = await prisma.user.findMany({
-          select: { id: true },
-        });
-
-        for (const user of users) {
-          const notif = await notificationService.createNotification({
-            userId: user.id,
-            type: "ROUND_START",
-            title: "New Round Started!",
-            message: `A new ${mode === "UP_DOWN" ? "Up/Down" : "Legends"} round has started! Place your prediction now. Starting price: $${startPriceDecimal.toFixed(4)}`,
-            data: { roundId: round.id, startPrice: startPriceNumber },
-          });
-
-          if (notif) {
-            websocketService.emitNotification(user.id, notif);
+        // Mode 0 (UP_DOWN): Create round on Soroban contract
+        if (mode === "UP_DOWN") {
+          try {
+            await sorobanService.createRound(startPriceDecimal, 0);
+          } catch (e) {
+            sorobanService.applyMoneyPathFailure("createRound", e);
           }
         }
-      } catch (error) {
-        logger.error("Failed to send round start notifications:", error);
-        // Don't throw - let the round creation succeed even if notifications fail
-      }
 
-      return round;
-    } catch (error) {
-      logger.error("Failed to start round:", error);
-      throw error;
-    }
+        // Mode 1 (LEGENDS): Define price ranges
+        let priceRanges: any = null;
+        if (mode === "LEGENDS") {
+          const rangesToUse =
+            customPriceRanges && customPriceRanges.length > 0
+              ? customPriceRanges
+              : this.generateDefaultLegendsRanges(startPriceNumber);
+
+          this.validateLegendsRanges(rangesToUse);
+
+          priceRanges = rangesToUse.map((range) => ({
+            min: range.min,
+            max: range.max,
+            pool: 0,
+          }));
+        }
+
+        // Transactional check + create to prevent concurrent creation races
+        const round = await prisma.$transaction(async (tx) => {
+          const existingActiveRound = await tx.round.findFirst({
+            where: {
+              mode: gameMode,
+              status: "ACTIVE",
+            },
+          });
+
+          if (existingActiveRound) {
+            throw new ConflictError(
+              `An active ${mode} round already exists (ID: ${existingActiveRound.id})`,
+              ErrorCode.ACTIVE_ROUND_EXISTS,
+            );
+          }
+
+          return tx.round.create({
+            data: {
+              mode: gameMode,
+              // Rounds are instantiated directly in ACTIVE (open) state: creation
+              // bootstraps the machine rather than transitioning an existing row.
+              // Every *transition* out of ACTIVE routes through the lifecycle
+              // state machine (round-lifecycle.service).
+              status: "ACTIVE" as RoundStatus,
+              startTime,
+              endTime,
+              startPrice: startPriceDecimal,
+              sorobanRoundId,
+              isSoroban: mode === "UP_DOWN" && sorobanService.isReady(),
+              priceRanges: priceRanges
+                ? JSON.parse(JSON.stringify(priceRanges))
+                : null,
+            },
+          });
+        });
+
+        logger.info(
+          `Round created: ${round.id}, mode=${mode}, sorobanId=${sorobanRoundId}`,
+        );
+        roundsStartedTotal.inc({ mode });
+
+        // Emit round started event
+        websocketService.emitRoundStarted(round);
+
+        // Create and broadcast ROUND_START notification to all users
+        try {
+          const users = await prisma.user.findMany({
+            select: { id: true },
+          });
+
+          for (const user of users) {
+            const notif = await notificationService.createNotification({
+              userId: user.id,
+              type: "ROUND_START",
+              title: "New Round Started!",
+              message: `A new ${mode === "UP_DOWN" ? "Up/Down" : "Legends"} round has started! Place your prediction now. Starting price: ${startPriceDecimal.toFixed(4)}`,
+              data: { roundId: round.id, startPrice: startPriceNumber },
+            });
+
+            if (notif) {
+              websocketService.emitNotification(user.id, notif);
+            }
+          }
+        } catch (error) {
+          logger.error("Failed to send round start notifications:", error);
+          // Don't throw - let the round creation succeed even if notifications fail
+        }
+
+        return round;
+      },
+      conflictMessage,
+      { ttlSeconds: 30, maxHoldSeconds: 120 }
+    );
   }
 
   /**

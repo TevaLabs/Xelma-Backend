@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'timers/promises';
 import logger from './logger';
 import { getConnectedRedisClient } from '../lib/redis';
+import { ConflictError, ErrorCode } from './errors';
 import {
    distributedLockAcquisitionsTotal,
    distributedLockHeldSeconds,
@@ -732,6 +733,44 @@ export async function withDistributedLock<T>(
             reason: error.reason,
          });
          return null;
+      }
+      throw error;
+   } finally {
+      await lock.release();
+   }
+}
+
+/**
+ * Executes a function under a distributed lock, throwing a 409 ConflictError
+ * if the lock cannot be acquired or was lost due to concurrency.
+ *
+ * Used for concurrent operation prevention (e.g., startRound race).
+ */
+export async function withDistributedLockOrConflict<T>(
+   lockName: string,
+   fn: (lock: LockHandle) => Promise<T>,
+   conflictMessage: string,
+   config: DistributedLockConfig = {}
+): Promise<T> {
+   const lock = new DistributedLock(lockName, config);
+   const result = await lock.acquire();
+
+   if (!result.acquired) {
+      throw new ConflictError(conflictMessage, ErrorCode.ACTIVE_ROUND_EXISTS);
+   }
+
+   try {
+      const value = await fn(lock.handle);
+
+      const confirmed = await lock.confirmStillHeld();
+      if (!confirmed) {
+         throw new ConflictError(conflictMessage, ErrorCode.ACTIVE_ROUND_EXISTS);
+      }
+
+      return value;
+   } catch (error) {
+      if (isLockLostError(error)) {
+         throw new ConflictError(conflictMessage, ErrorCode.ACTIVE_ROUND_EXISTS);
       }
       throw error;
    } finally {
