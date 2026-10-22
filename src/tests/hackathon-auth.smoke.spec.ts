@@ -261,7 +261,8 @@ jest.mock('../lib/prisma', () => ({
   },
 }));
 
-import { createApp } from '../app';
+import { createApp as createHackathonApp } from '../app';
+import { createApp as createMainApp } from '../index';
 import { extractRoutes, routeKey } from '../security/route-parity.registry';
 
 const VALID_WALLET = 'GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX';
@@ -297,7 +298,7 @@ describe('Hackathon wallet auth mount (issue #400)', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    app = createApp();
+    app = createHackathonApp();
     server = http.createServer(app);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as AddressInfo;
@@ -376,5 +377,112 @@ describe('Hackathon wallet auth mount (issue #400)', () => {
     const res = await postJson(baseUrl, '/api/auth/challenge', {});
     expect(res.status).not.toBe(404);
     expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+
+describe.each([
+  ['hackathon', createHackathonApp],
+  ['main', createMainApp],
+] as const)('Shared auth envelope contract — %s mode', (_mode, appFactory) => {
+  let app: Application;
+  let server: http.Server;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    app = appFactory();
+    server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    baseUrl = `http://127.0.0.1:${port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((err) => (err ? reject(err) : resolve()));
+    });
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAuthChallengeFindMany.mockResolvedValue([]);
+    mockAuthChallengeDeleteMany.mockResolvedValue({ count: 0 });
+    mockAuthChallengeCreate.mockResolvedValue({});
+    mockAuthChallengeUpdateMany.mockResolvedValue({ count: 1 });
+    mockAuthChallengeFindUnique.mockResolvedValue(null);
+    mockUserFindUnique.mockResolvedValue({
+      id: 'smoke-user',
+      walletAddress: VALID_WALLET,
+      createdAt: new Date(),
+      lastLoginAt: new Date(),
+      streak: 1,
+      virtualBalance: 1000,
+      role: 'USER',
+    });
+    mockUserUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 'smoke-user',
+      walletAddress: VALID_WALLET,
+      createdAt: new Date(),
+      lastLoginAt: (data.lastLoginAt as Date) || new Date(),
+      streak: (data.streak as number) || 1,
+      virtualBalance: 1000,
+      role: 'USER',
+    }));
+    mockTransactionCreate.mockResolvedValue({});
+  });
+
+  it('registers required auth routes on the inventory', () => {
+    const keys = extractRoutes(app).map(routeKey);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'POST /api/auth/challenge',
+        'POST /api/auth/connect',
+        'POST /api/auth/verify',
+      ]),
+    );
+  });
+
+  it('POST /api/auth/challenge returns canonical challenge envelope keys', async () => {
+    const res = await postJson(baseUrl, '/api/auth/challenge', {
+      walletAddress: VALID_WALLET,
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        challenge: expect.any(String),
+        domain: expect.any(String),
+        homeDomain: expect.any(String),
+        expiresAt: expect.any(String),
+      }),
+    );
+  });
+
+  it('POST /api/auth/connect returns canonical connect envelope keys', async () => {
+    const res = await postJson(baseUrl, '/api/auth/connect', {
+      walletAddress: VALID_WALLET,
+      challenge: 'smoke-challenge',
+      signature: 'smoke-signature',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        token: expect.any(String),
+        user: expect.objectContaining({
+          id: 'smoke-user',
+          walletAddress: VALID_WALLET,
+          createdAt: expect.any(String),
+          lastLoginAt: expect.any(String),
+        }),
+      }),
+    );
+  });
+
+  it('returns standard validation error envelope on invalid challenge request body', async () => {
+    const res = await postJson(baseUrl, '/api/auth/challenge', {});
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(res.body).toHaveProperty('message');
   });
 });
