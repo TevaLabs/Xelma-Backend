@@ -401,6 +401,36 @@ class NotificationService {
   }
 
   /**
+   * Delete notifications for a specific user older than specified days
+   */
+  async deleteUserOldNotifications(
+    userId: string,
+    daysOld: number,
+  ): Promise<number> {
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+
+      const result = await prisma.notification.deleteMany({
+        where: {
+          userId,
+          createdAt: {
+            lt: cutoffDate,
+          },
+        },
+      });
+
+      logger.info(
+        `Deleted ${result.count} notifications older than ${daysOld} days for user ${userId}`,
+      );
+      return result.count;
+    } catch (error) {
+      logger.error("Failed to delete user old notifications:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Delete notifications older than specified days
    * (Called by cron job)
    */

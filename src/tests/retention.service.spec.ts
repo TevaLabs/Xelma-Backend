@@ -289,27 +289,29 @@ describe("RetentionService", () => {
       const mockAuthResult = { count: 5 };
       const mockChatResult = { count: 100 };
       const mockAuditResult = { count: 75 };
+      const mockNotifResult = { count: 20 };
       
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue(mockAuthResult);
       jest.spyOn(prisma.message, "deleteMany").mockResolvedValue(mockChatResult);
       jest.spyOn(prisma.auditLog, "deleteMany").mockResolvedValue(mockAuditResult);
+      jest.spyOn(prisma.notification, "deleteMany").mockResolvedValue(mockNotifResult);
 
       const results = await retentionService.runAllPolicies();
 
-      expect(results).toHaveLength(4);
+      expect(results).toHaveLength(5);
       expect(results[0].entity).toBe("authChallenges");
       expect(results[0].deletedCount).toBe(5);
       expect(results[1].entity).toBe("chatMessages");
       expect(results[1].deletedCount).toBe(100);
       expect(results[2].entity).toBe("auditLogs");
       expect(results[2].deletedCount).toBe(75);
-      expect(results[3].entity).toBe("idempotencyKeys");
-      expect(results[3].deletedCount).toBe(0);
-      expect(results[3].entity).toBe("idempotencyKeys");
-      expect(results[3].deletedCount).toBe(0);
+      expect(results[3].entity).toBe("notifications");
+      expect(results[3].deletedCount).toBe(20);
+      expect(results[4].entity).toBe("idempotencyKeys");
+      expect(results[4].deletedCount).toBe(0);
       
       expect(logger.info).toHaveBeenCalledWith(
-        expect.stringContaining("180 total records deleted"),
+        expect.stringContaining("200 total records deleted"),
       );
     });
 
@@ -330,6 +332,7 @@ describe("RetentionService", () => {
         RETENTION_AUTH_CHALLENGES_ENABLED: "false",
         RETENTION_CHAT_MESSAGES_ENABLED: "false",
         RETENTION_AUDIT_LOGS_ENABLED: "false",
+        RETENTION_NOTIFICATIONS_ENABLED: "false",
       };
 
       // Need to reload service with new env
@@ -338,10 +341,11 @@ describe("RetentionService", () => {
 
       const results = await testRetentionService.runAllPolicies();
 
-      expect(results).toHaveLength(4);
+      expect(results).toHaveLength(5);
       expect(results[0].deletedCount).toBe(0);
       expect(results[1].deletedCount).toBe(0);
       expect(results[2].deletedCount).toBe(0);
+      expect(results[3].deletedCount).toBe(0);
 
       process.env = originalEnv;
     });
@@ -352,6 +356,7 @@ describe("RetentionService", () => {
       jest.spyOn(prisma.authChallenge, "count").mockResolvedValue(10);
       jest.spyOn(prisma.message, "count").mockResolvedValue(250);
       jest.spyOn(prisma.auditLog, "count").mockResolvedValue(75);
+      jest.spyOn(prisma.notification, "count").mockResolvedValue(30);
 
       const preview = await retentionService.getDeletionPreview();
 
@@ -361,6 +366,8 @@ describe("RetentionService", () => {
       expect(preview.chatMessages.cutoffDate).toBeInstanceOf(Date);
       expect(preview.auditLogs.count).toBe(75);
       expect(preview.auditLogs.cutoffDate).toBeInstanceOf(Date);
+      expect(preview.notifications.count).toBe(30);
+      expect(preview.notifications.cutoffDate).toBeInstanceOf(Date);
       
       // Verify cutoff dates are in the past
       const now = new Date();
@@ -373,12 +380,14 @@ describe("RetentionService", () => {
       jest.spyOn(prisma.authChallenge, "count").mockResolvedValue(0);
       jest.spyOn(prisma.message, "count").mockResolvedValue(0);
       jest.spyOn(prisma.auditLog, "count").mockResolvedValue(0);
+      jest.spyOn(prisma.notification, "count").mockResolvedValue(0);
 
       const preview = await retentionService.getDeletionPreview();
 
       expect(preview.authChallenges.count).toBe(0);
       expect(preview.chatMessages.count).toBe(0);
       expect(preview.auditLogs.count).toBe(0);
+      expect(preview.notifications.count).toBe(0);
     });
 
     it("should throw error on database failure", async () => {
@@ -442,11 +451,12 @@ describe("RetentionService", () => {
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue({ count: 5 });
       jest.spyOn(prisma.message, "deleteMany").mockResolvedValue({ count: 100 });
       jest.spyOn(prisma.auditLog, "deleteMany").mockResolvedValue({ count: 75 });
+      jest.spyOn(prisma.notification, "deleteMany").mockResolvedValue({ count: 20 });
 
       await retentionService.runAllPolicies();
 
       expect(logger.info).toHaveBeenCalledWith(
-        expect.stringContaining("180 total records deleted"),
+        expect.stringContaining("200 total records deleted"),
       );
       expect(logger.info).toHaveBeenCalledWith(
         expect.stringMatching(/\d+ms/),

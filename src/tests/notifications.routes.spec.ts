@@ -293,13 +293,13 @@ describe("Notifications Routes & Ownership (Issue #78)", () => {
     });
   });
 
-  describe("DELETE /api/notifications (delete all read)", () => {
+  describe("DELETE /api/notifications (delete all read or bulk delete old)", () => {
     it("should return 401 without auth", async () => {
       const res = await request(app).delete("/api/notifications");
       expect(res.status).toBe(401);
     });
 
-    it("should return 200 with deletedCount for authenticated user", async () => {
+    it("should return 200 with deletedCount for authenticated user when deleting all read", async () => {
       const res = await request(app)
         .delete("/api/notifications")
         .set("Authorization", `Bearer ${tokenA}`);
@@ -307,6 +307,59 @@ describe("Notifications Routes & Ownership (Issue #78)", () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(typeof res.body.deletedCount).toBe("number");
+    });
+
+    it("should bulk delete notifications older than specified threshold using olderThan", async () => {
+      mockNotificationDeleteMany.mockResolvedValueOnce({ count: 5 });
+
+      const res = await request(app)
+        .delete("/api/notifications?olderThan=30")
+        .set("Authorization", `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.deletedCount).toBe(5);
+      expect(res.body.message).toContain("older than 30 day(s)");
+      expect(mockNotificationDeleteMany).toHaveBeenCalledWith({
+        where: {
+          userId: USER_A_ID,
+          createdAt: {
+            lt: expect.any(Date),
+          },
+        },
+      });
+    });
+
+    it("should support 'days' alias for bulk deletion threshold", async () => {
+      mockNotificationDeleteMany.mockResolvedValueOnce({ count: 2 });
+
+      const res = await request(app)
+        .delete("/api/notifications?days=7")
+        .set("Authorization", `Bearer ${tokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.deletedCount).toBe(2);
+      expect(mockNotificationDeleteMany).toHaveBeenCalledWith({
+        where: {
+          userId: USER_A_ID,
+          createdAt: {
+            lt: expect.any(Date),
+          },
+        },
+      });
+    });
+
+    it("should return 400 when olderThan is less than 1 or greater than 365", async () => {
+      const resMin = await request(app)
+        .delete("/api/notifications?olderThan=0")
+        .set("Authorization", `Bearer ${tokenA}`);
+      expect(resMin.status).toBe(400);
+
+      const resMax = await request(app)
+        .delete("/api/notifications?olderThan=366")
+        .set("Authorization", `Bearer ${tokenA}`);
+      expect(resMax.status).toBe(400);
     });
   });
 

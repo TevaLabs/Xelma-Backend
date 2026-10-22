@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
 import { cleanupExpiredIdempotencyKeys } from "../utils/idempotency.util";
+import notificationService from "./notification.service";
 
 interface RetentionPolicy {
   enabled: boolean;
@@ -12,6 +13,7 @@ interface RetentionConfig {
   authChallenges: RetentionPolicy;
   chatMessages: RetentionPolicy;
   auditLogs: RetentionPolicy;
+  notifications: RetentionPolicy;
 }
 
 interface RetentionResult {
@@ -40,6 +42,16 @@ class RetentionService {
       auditLogs: {
         enabled: process.env.RETENTION_AUDIT_LOGS_ENABLED !== "false",
         ttlDays: parseInt(process.env.RETENTION_AUDIT_LOGS_TTL_DAYS || "90", 10),
+        batchSize: parseInt(process.env.RETENTION_BATCH_SIZE || "1000", 10),
+      },
+      notifications: {
+        enabled: process.env.RETENTION_NOTIFICATIONS_ENABLED !== "false",
+        ttlDays: parseInt(
+          process.env.RETENTION_NOTIFICATIONS_TTL_DAYS ||
+            process.env.NOTIFICATION_RETENTION_DAYS ||
+            "30",
+          10,
+        ),
         batchSize: parseInt(process.env.RETENTION_BATCH_SIZE || "1000", 10),
       },
     };
@@ -216,6 +228,53 @@ class RetentionService {
   }
 
   /**
+   * Clean up old notifications
+   */
+  async cleanupNotifications(): Promise<RetentionResult> {
+    const startTime = Date.now();
+    const policy = this.config.notifications;
+
+    if (!policy.enabled) {
+      logger.info("Notifications retention policy is disabled");
+      return {
+        entity: "notifications",
+        deletedCount: 0,
+        cutoffDate: new Date(),
+        executionTime: 0,
+      };
+    }
+
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - policy.ttlDays);
+
+      logger.info(
+        `Starting notifications cleanup (TTL: ${policy.ttlDays} days, cutoff: ${cutoffDate.toISOString()})`,
+      );
+
+      const deletedCount = await notificationService.cleanupOldNotifications(
+        policy.ttlDays,
+      );
+
+      const executionTime = Date.now() - startTime;
+
+      logger.info(
+        `Notifications cleanup completed: Deleted ${deletedCount} records in ${executionTime}ms`,
+      );
+
+      return {
+        entity: "notifications",
+        deletedCount,
+        cutoffDate,
+        executionTime,
+      };
+    } catch (error) {
+      logger.error("Failed to cleanup notifications:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Run all retention policies
    */
   async runAllPolicies(): Promise<RetentionResult[]> {
@@ -235,6 +294,10 @@ class RetentionService {
       // Run audit logs cleanup
       const auditResult = await this.cleanupAuditLogs();
       results.push(auditResult);
+
+      // Run notifications cleanup
+      const notificationResult = await this.cleanupNotifications();
+      results.push(notificationResult);
 
       // Run idempotency keys cleanup
       const idempotencyStartTime = Date.now();
@@ -267,6 +330,7 @@ class RetentionService {
     authChallenges: { count: number; cutoffDate: Date };
     chatMessages: { count: number; cutoffDate: Date };
     auditLogs: { count: number; cutoffDate: Date };
+    notifications: { count: number; cutoffDate: Date };
   }> {
     try {
       const authCutoff = new Date();
@@ -278,7 +342,10 @@ class RetentionService {
       const auditCutoff = new Date();
       auditCutoff.setDate(auditCutoff.getDate() - this.config.auditLogs.ttlDays);
 
-      const [authCount, chatCount, auditCount] = await Promise.all([
+      const notifCutoff = new Date();
+      notifCutoff.setDate(notifCutoff.getDate() - this.config.notifications.ttlDays);
+
+      const [authCount, chatCount, auditCount, notifCount] = await Promise.all([
         prisma.authChallenge.count({
           where: {
             OR: [
@@ -297,6 +364,11 @@ class RetentionService {
             timestamp: { lt: auditCutoff },
           },
         }),
+        prisma.notification.count({
+          where: {
+            createdAt: { lt: notifCutoff },
+          },
+        }),
       ]);
 
       return {
@@ -311,6 +383,10 @@ class RetentionService {
         auditLogs: {
           count: auditCount,
           cutoffDate: auditCutoff,
+        },
+        notifications: {
+          count: notifCount,
+          cutoffDate: notifCutoff,
         },
       };
     } catch (error) {
@@ -335,6 +411,10 @@ class RetentionService {
 
     if (this.config.auditLogs.ttlDays < 1) {
       errors.push("Audit logs TTL must be at least 1 day");
+    }
+
+    if (this.config.notifications.ttlDays < 1) {
+      errors.push("Notifications TTL must be at least 1 day");
     }
 
     if (this.config.authChallenges.batchSize < 1) {
