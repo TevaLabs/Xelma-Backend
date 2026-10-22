@@ -19,6 +19,8 @@ import { isPredictionCorrect } from "../utils/prediction-outcome.util";
 import {
   buildCursorMeta,
   buildOffsetMeta,
+  buildUnifiedCursorPagination,
+  buildUnifiedOffsetPagination,
   decodeCursor,
   trimSentinel,
 } from "../utils/pagination.util";
@@ -210,7 +212,7 @@ export async function getLeaderboard(
     leaderboard,
     userPosition,
     totalUsers: totalUsers ?? 0,
-    pagination: buildOffsetMeta(limit, offset, totalUsers ?? 0),
+    pagination: buildUnifiedOffsetPagination(limit, offset, totalUsers ?? 0),
   };
 
   await setJsonToCache(
@@ -289,7 +291,7 @@ export async function getLeaderboardCursor(
     });
   }
 
-  const pagination = buildCursorMeta(limit, userStats, (stat) => ({
+  const cursorMeta = buildCursorMeta(limit, userStats, (stat) => ({
     totalEarnings: stat.totalEarnings.toString(),
     userId: stat.userId,
   }));
@@ -308,7 +310,7 @@ export async function getLeaderboardCursor(
   const payload: LeaderboardCursorCachePayload = {
     leaderboard,
     userPosition,
-    pagination,
+    pagination: buildUnifiedCursorPagination(limit, cursorMeta.nextCursor),
   };
 
   await setJsonToCache(

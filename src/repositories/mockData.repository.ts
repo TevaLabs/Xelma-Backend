@@ -13,7 +13,9 @@ export class MockDataRepository {
   }
 
   async getPlatformStats(): Promise<MockPlatformStat | null> {
-    return prisma.mockPlatformStat.findFirst();
+    const stats = await prisma.mockPlatformStat.findFirst();
+    // Backward compatible: return the raw stats (Decimal will be serialized as string by Prisma)
+    return stats;
   }
 }
 

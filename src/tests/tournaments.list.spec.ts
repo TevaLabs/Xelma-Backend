@@ -79,6 +79,8 @@ describe("Tournament listing (#378)", () => {
         limit: 10,
         offset: 0,
         total: expect.any(Number),
+        hasNextPage: false,
+        totalPages: 1,
       });
       expect(res.body.meta.pagination.total).toBe(MOCK_TOURNAMENTS.length);
     });
@@ -120,6 +122,8 @@ describe("Tournament listing (#378)", () => {
         limit: 20,
         offset: 0,
         total: 1,
+        hasNextPage: false,
+        totalPages: 1,
       });
     });
 
@@ -145,6 +149,8 @@ describe("Tournament listing (#378)", () => {
         limit: 1,
         offset: 1,
         total: 2,
+        hasNextPage: false,
+        totalPages: 2,
       });
       // Second UP_DOWN tournament after offset 1
       expect(res.body.data[0].id).toBe("t-003");

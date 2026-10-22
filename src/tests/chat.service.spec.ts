@@ -1,4 +1,4 @@
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
 const mockMessageCreate = jest.fn();
 const mockMessageFindMany = jest.fn();
@@ -23,7 +23,8 @@ jest.mock('../services/websocket.service', () => ({
   },
 }));
 
-import chatService from '../services/chat.service';
+import chatService, { chatSanitizer } from '../services/chat.service';
+import { createSanitizePipeline } from '../utils/sanitization.util';
 import { encodeCursor } from '../utils/pagination.util';
 
 const USER_ID = 'user-123';
@@ -105,6 +106,24 @@ describe('ChatService — unit tests & XSS regression coverage (Issue #526)', ()
       expect(mockEmitChatMessage).not.toHaveBeenCalled();
     });
 
+    it('accepts a message of exactly 500 characters', async () => {
+      // Exactly at the limit, and shaped like a real sentence so the
+      // suspicious-content heuristic does not reject it first.
+      const content = 'word '.repeat(99) + 'end'.padEnd(5, '!'); // 495 + 5 = 500
+      mockMessageCreate.mockResolvedValue({
+        id: 'msg-500',
+        userId: USER_ID,
+        content,
+        createdAt: new Date('2026-08-28T12:00:00.000Z'),
+        user: { walletAddress: WALLET_ADDRESS },
+      });
+
+      await expect(
+        chatService.sendMessage(USER_ID, WALLET_ADDRESS, content),
+      ).resolves.toBeDefined();
+      expect(mockMessageCreate).toHaveBeenCalledTimes(1);
+    });
+
     it('rejects empty or whitespace-only messages', async () => {
       await expect(
         chatService.sendMessage(USER_ID, WALLET_ADDRESS, '   '),
@@ -113,6 +132,58 @@ describe('ChatService — unit tests & XSS regression coverage (Issue #526)', ()
       await expect(
         chatService.sendMessage(USER_ID, WALLET_ADDRESS, ''),
       ).rejects.toThrow();
+
+      expect(mockMessageCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('sendMessage — pluggable sanitize pipeline (issue #849)', () => {
+    const originalPipeline = chatSanitizer.pipeline;
+
+    afterEach(() => {
+      chatSanitizer.setPipeline(originalPipeline);
+    });
+
+    it('exposes the current pipeline', () => {
+      expect(typeof chatSanitizer.pipeline).toBe('function');
+      expect(chatSanitizer.sanitize('  hello   world ')).toBe('hello world');
+    });
+
+    it('applies a custom pipeline to outgoing messages', async () => {
+      chatSanitizer.setPipeline(
+        createSanitizePipeline([
+          (content) => content.trim(),
+          (content) => content.replace(/secret/gi, '[redacted]'),
+        ]),
+      );
+
+      mockMessageCreate.mockImplementation(({ data }: any) =>
+        Promise.resolve({
+          id: 'msg-custom',
+          userId: USER_ID,
+          content: data.content,
+          createdAt: new Date('2026-08-28T12:00:00.000Z'),
+          user: { walletAddress: WALLET_ADDRESS },
+        }),
+      );
+
+      await chatService.sendMessage(USER_ID, WALLET_ADDRESS, '  my secret plan  ');
+
+      expect(mockMessageCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ content: 'my [redacted] plan' }),
+        }),
+      );
+    });
+
+    it('propagates hook errors and does not persist the message', async () => {
+      chatSanitizer.setPipeline(
+        createSanitizePipeline([() => new Error('blocked by policy')]),
+      );
+
+      await expect(
+        chatService.sendMessage(USER_ID, WALLET_ADDRESS, 'hello'),
+      ).rejects.toThrow('blocked by policy');
 
       expect(mockMessageCreate).not.toHaveBeenCalled();
     });

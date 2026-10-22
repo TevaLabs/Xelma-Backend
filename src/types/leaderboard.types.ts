@@ -1,4 +1,4 @@
-import { CursorMeta, OffsetMeta } from "../utils/pagination.util";
+import { CursorMeta, OffsetMeta, UnifiedPagination } from "../utils/pagination.util";
 
 export interface ModeStats {
   wins: number;
@@ -20,20 +20,20 @@ export interface LeaderboardEntry {
   };
 }
 
-/** Offset-paginated leaderboard response (existing shape, now with pagination meta). */
+/** Offset-paginated leaderboard response (issue #340: unified pagination). */
 export interface LeaderboardResponse {
   leaderboard: LeaderboardEntry[];
   userPosition?: LeaderboardEntry;
   totalUsers: number;
   lastUpdated: string;
   /** Pagination metadata – always present so clients can detect page boundaries. */
-  pagination: OffsetMeta;
+  pagination: UnifiedPagination;
 }
 
-/** Cursor-paginated leaderboard response. */
+/** Cursor-paginated leaderboard response (issue #340: unified pagination). */
 export interface LeaderboardCursorResponse {
   leaderboard: LeaderboardEntry[];
   userPosition?: LeaderboardEntry;
   lastUpdated: string;
-  pagination: CursorMeta;
+  pagination: UnifiedPagination;
 }

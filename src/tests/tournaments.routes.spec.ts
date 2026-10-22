@@ -90,7 +90,13 @@ describe('Tournaments Routes (Issue #412)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBe(1);
-      expect(res.body.meta.pagination).toEqual({ limit: 1, offset: 1, total: 3 });
+      expect(res.body.meta.pagination).toEqual({
+        limit: 1,
+        offset: 1,
+        total: 3,
+        hasNextPage: true,
+        totalPages: 3,
+      });
     });
 
     it('rejects an invalid (negative) limit', async () => {

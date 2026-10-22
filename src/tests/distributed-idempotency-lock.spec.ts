@@ -9,9 +9,11 @@ import { ErrorCode } from "../utils/errors";
 
 jest.mock("../lib/redis", () => ({
   getConnectedRedisClient: jest.fn(),
+  isRedisConfigured: jest.fn(() => true),
 }));
 
 const mockGetConnectedRedisClient = getConnectedRedisClient as jest.Mock;
+const mockIsRedisConfigured = require("../lib/redis").isRedisConfigured as jest.Mock;
 
 function makeFakeClient() {
   return {
@@ -23,6 +25,7 @@ function makeFakeClient() {
 describe("distributed idempotency lock (fail-closed)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockIsRedisConfigured.mockReturnValue(true);
   });
 
   it("builds a lock key scoped to user + endpoint + idempotency key", () => {

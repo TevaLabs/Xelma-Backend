@@ -67,6 +67,7 @@ describe('MockDataRepository', () => {
 
       const result = await mockDataRepository.getPlatformStats();
       expect(prisma.mockPlatformStat.findFirst).toHaveBeenCalledTimes(1);
+      // Mock returns raw data; in production Decimal would serialize as string (issue #621)
       expect(result).toEqual(statsData);
     });
 

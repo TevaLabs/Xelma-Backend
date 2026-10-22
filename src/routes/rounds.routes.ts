@@ -375,22 +375,22 @@ const requireSimulationEnabled = (
  *                 roundId: { type: string }
  *                 simulatedPrice: { type: number }
  *                 mode: { type: string, enum: [UP_DOWN, LEGENDS] }
- *                 startPrice: { type: number }
+ *                 startPrice: { type: string, format: money }
  *                 winningSide: { type: string, nullable: true, enum: [UP, DOWN] }
  *                 winningRange:
  *                   type: object
  *                   nullable: true
  *                   properties:
- *                     min: { type: number }
- *                     max: { type: number }
+ *                     min: { type: string, format: money }
+ *                     max: { type: string, format: money }
  *                 predictions:
  *                   type: array
  *                   items:
  *                     type: object
  *                     properties:
  *                       won: { type: boolean, nullable: true }
- *                       payout: { type: number }
- *                       amount: { type: number }
+ *                       payout: { type: string, format: money }
+ *                       amount: { type: string, format: money }
  *                       side: { type: string, nullable: true, enum: [UP, DOWN] }
  *                 summary:
  *                   type: object

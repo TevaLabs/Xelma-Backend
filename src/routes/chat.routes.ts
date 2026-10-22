@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate.middleware';
 import { sendMessageSchema } from '../schemas/chat.schema';
 import { unifiedPaginationSchema } from '../schemas/pagination.schema';
 import { ValidationError } from '../utils/errors';
+import { buildUnifiedCursorPagination, buildUnifiedOffsetPagination } from '../utils/pagination.util';
 
 const router = Router();
 
@@ -17,6 +18,11 @@ const router = Router();
  *     summary: Send a chat message
  *     description: |
  *       Authenticated users only. Rate limit: **5 messages per minute per user**. On limit, responds with **429**.
+ *
+ *       Messages are limited to **500 characters** and are rejected with **400**
+ *       before any storage happens. Content is then passed through the
+ *       server-side sanitize pipeline (see `src/utils/sanitization.util.ts`),
+ *       which is pluggable via `chatSanitizer.setPipeline()`.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -29,7 +35,15 @@ const router = Router();
  *             properties:
  *               content:
  *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 500
  *     responses:
+ *       400:
+ *         description: Validation error (for example, content over 500 characters)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       201:
  *         description: Message created
  *       429:
@@ -108,12 +122,12 @@ router.get('/history', validate(unifiedPaginationSchema, 'query'), async (req: R
     const limit = Math.min(rawLimit, 50);
 
     if (cursor) {
-      // Cursor mode
+      // Cursor mode (issue #340: unified pagination)
       const result = await chatService.getHistoryCursor(limit, cursor);
       return res.json({
         success: true,
         messages: result.data,
-        pagination: result.pagination,
+        pagination: buildUnifiedCursorPagination(limit, result.pagination.nextCursor),
       });
     }
 
@@ -123,8 +137,8 @@ router.get('/history', validate(unifiedPaginationSchema, 'query'), async (req: R
     return res.json({
       success: true,
       messages: result.data,
-      pagination: result.pagination,
-      // Legacy fields kept for backward compatibility
+      pagination: buildUnifiedOffsetPagination(limit, offset, result.pagination.total),
+      // Legacy field kept for backward compatibility
       count: result.data.length,
     });
   } catch (error) {

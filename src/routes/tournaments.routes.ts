@@ -83,7 +83,10 @@ router.get(
     try {
       const query = req.query as unknown as TournamentListQuery;
       const result = await tournamentService.listTournaments(query);
-      return sendSuccess(res, result.data, { pagination: result.pagination });
+      // Issue #340: use unified pagination shape
+      return sendSuccess(res, result.data, {
+        pagination: buildUnifiedOffsetPagination(result.pagination.limit, result.pagination.offset, result.pagination.total),
+      });
     } catch (error) {
       return next(error);
     }

@@ -1,7 +1,11 @@
 import { prisma } from '../lib/prisma';
 import websocketService from './websocket.service';
 import logger from '../utils/logger';
-import { sanitizeChatContent, validateContentLength } from '../utils/sanitization.util';
+import {
+  createSanitizePipeline,
+  defaultChatSanitizePipeline,
+  validateContentLength,
+} from '../utils/sanitization.util';
 import { ChatMessage } from '../types/chat.types';
 import {
   buildCursorMeta,
@@ -26,6 +30,54 @@ const PROFANITY_LIST = [
   'cunt',
 ];
 
+/**
+ * Chat content sanitizer with pluggable hooks (issue #849).
+ *
+ * The sanitizer uses a configurable pipeline of SanitizeHook callbacks.
+ * By default it uses the standard chat sanitization pipeline, but this
+ * can be replaced with a custom pipeline at runtime for different policies.
+ *
+ * @example
+ * // Use default pipeline (already configured)
+ * chatSanitizer.sanitize(content)
+ *
+ * @example
+ * // Replace with custom pipeline (e.g., for stricter moderation)
+ * chatSanitizer.setPipeline(createSanitizePipeline([...
+ *   defaultChatSanitizeHooks,
+ *   customProfanityFilter,
+ *   spamDetector,
+ * ]));
+ */
+let currentPipeline = defaultChatSanitizePipeline;
+
+export const chatSanitizer = {
+  /**
+   * Current sanitization pipeline. Replace this to customize behavior.
+   * Default: standard chat sanitization (XSS escape, whitespace normalization).
+   */
+  get pipeline(): ReturnType<typeof createSanitizePipeline> {
+    return currentPipeline;
+  },
+
+  /**
+   * Sanitize chat content using the current pipeline.
+   * @param content - Raw chat message content
+   * @returns Sanitized content safe for storage and display
+   * @throws Error if content fails moderation checks
+   */
+  sanitize: (content: string): string => currentPipeline(content),
+
+  /**
+   * Replace the sanitization pipeline with a custom one.
+   * Useful for applying different moderation policies per environment or tenant.
+   * @param pipeline - New sanitization pipeline
+   */
+  setPipeline: (pipeline: ReturnType<typeof createSanitizePipeline>) => {
+    currentPipeline = pipeline;
+  },
+} as const;
+
 class ChatService {
   /**
    * Send a new chat message
@@ -41,13 +93,13 @@ class ChatService {
    */
   async sendMessage(userId: string, walletAddress: string, content: string): Promise<ChatMessage> {
     try {
-      // Step 1: Validate length constraints
+      // Step 1: Validate length constraints (enforce 500 char limit early - issue #849)
       validateContentLength(content, 500);
 
-      // Step 2: Sanitize content (normalize whitespace, escape HTML, check for suspicious patterns)
-      let sanitizedContent = sanitizeChatContent(content);
+      // Step 2: Sanitize content using pluggable pipeline (issue #849)
+      let sanitizedContent = chatSanitizer.sanitize(content);
 
-      // Step 3: Apply profanity filter
+      // Step 3: Apply profanity filter (additional hook layer)
       sanitizedContent = this.filterProfanity(sanitizedContent);
 
       logger.debug(`Message sanitized for user ${userId}`, {

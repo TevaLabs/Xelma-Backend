@@ -100,12 +100,12 @@ router.get(
 
     try {
       if (cursor) {
-        // Cursor mode
+        // Cursor mode (issue #340: unified pagination)
         const result = await getLeaderboardCursor(limit, cursor, userId);
         return res.json(result);
       }
 
-      // Offset mode (existing behaviour)
+      // Offset mode (issue #340: unified pagination)
       const result = await getLeaderboard(limit, offset, userId);
       return res.json(result);
     } catch (error) {

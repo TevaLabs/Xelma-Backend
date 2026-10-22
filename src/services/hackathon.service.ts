@@ -127,9 +127,9 @@ export class HackathonService {
           asset: r.asset,
           mode: r.mode,
           status: r.status,
-          startPrice: r.startPrice,
-          poolUp: r.poolUp,
-          poolDown: r.poolDown,
+          startPrice: toNumber(r.startPrice),
+          poolUp: toNumber(r.poolUp),
+          poolDown: toNumber(r.poolDown),
           closesAt: r.closesAt,
         };
       }
@@ -138,8 +138,8 @@ export class HackathonService {
         asset: r.asset,
         mode: r.mode,
         status: r.status,
-        startPrice: r.startPrice,
-        totalPool: r.totalPool,
+        startPrice: toNumber(r.startPrice),
+        totalPool: toNumber(r.totalPool),
         predictionCount: r.predictionCount,
         closesAt: r.closesAt,
       };
@@ -147,8 +147,8 @@ export class HackathonService {
   }
 
   async getLeaderboard() {
-    const users = await (prisma as any).mockLeaderboard.findMany({ orderBy: { xp: 'desc' } });
-    return users.slice(0, 10).map((u: any, index: number) => ({
+    const users = await prisma.mockLeaderboard.findMany({ orderBy: { xp: 'desc' } });
+    return users.slice(0, 10).map((u, index) => ({
       rank: index + 1,
       address: u.address,
       totalWins: u.totalWins,
@@ -156,12 +156,14 @@ export class HackathonService {
       winStreak: u.winStreak,
       xp: u.xp,
       rankTitle: u.rankTitle,
+      // Money is serialized as a string so clients never parse a float (issue #621)
+      balance: u.balance.toString(),
+      pendingWinnings: u.pendingWinnings.toString(),
     }));
   }
 
   async getUserStats(address: string) {
-    const mockPrisma = prisma as any;
-    const existing = await mockPrisma.mockLeaderboard.findUnique({ where: { address } });
+    const existing = await prisma.mockLeaderboard.findUnique({ where: { address } });
     if (existing) {
       return {
         address: existing.address,
@@ -184,7 +186,7 @@ export class HackathonService {
       xp: 410,
       rankTitle: 'Rookie',
     };
-    await mockPrisma.mockLeaderboard.create({
+    await prisma.mockLeaderboard.create({
       data: {
         address: defaultUser.address,
         rank: 0,
@@ -207,6 +209,10 @@ export class HackathonService {
     side?: 'UP' | 'DOWN',
     predictedPrice?: number,
   ): Promise<void> {
+    // Convert amounts to Decimal for precision-safe monetary operations (issue #621)
+    const decimalAmount = toDecimal(amount);
+    const decimalPredictedPrice = predictedPrice !== undefined ? toDecimal(predictedPrice) : undefined;
+
     await prisma.$transaction(async (tx) => {
       const existing = await tx.mockLeaderboard.findUnique({ where: { address } });
       if (!existing) {
@@ -225,19 +231,21 @@ export class HackathonService {
         });
       }
 
+      // Amounts are written as Decimal (issue #621) so mock-mode storage keeps
+      // the same precision contract as production money columns.
       await tx.mockBet.create({
         data: {
           roundId,
           address,
-          amount,
+          amount: decimalAmount,
           side,
-          predictedPrice,
+          predictedPrice: decimalPredictedPrice,
         },
       });
 
       await tx.mockLeaderboard.update({
         where: { address },
-        data: { balance: { decrement: amount } },
+        data: { balance: { decrement: decimalAmount } },
       });
 
       const round = await tx.mockRound.findUnique({ where: { id: roundId } });
@@ -247,14 +255,14 @@ export class HackathonService {
             where: { id: roundId },
             data:
               side === 'UP'
-                ? { poolUp: { increment: amount } }
-                : { poolDown: { increment: amount } },
+                ? { poolUp: { increment: decimalAmount } }
+                : { poolDown: { increment: decimalAmount } },
           });
         } else if (round.mode === 'precision') {
           await tx.mockRound.update({
             where: { id: roundId },
             data: {
-              totalPool: { increment: amount },
+              totalPool: { increment: decimalAmount },
               predictionCount: { increment: 1 },
             },
           });
