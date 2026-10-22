@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "@jest/globals";
 import request from "supertest";
 import { Express } from "express";
 import { createApp } from "../index";
+import { assertNoNumericMoney } from "../serializers/monetary.serializer";
 
 const mockGetRoundsForApi = jest.fn();
 
@@ -70,6 +71,9 @@ describe("Rounds Routes - active round sourcing", () => {
     expect(res.body.data.source).toBe("soroban");
     expect(res.body.data.rounds).toHaveLength(1);
     expect(res.body.data.rounds[0].id).toBe("soroban-1");
+    expect(res.body.data.rounds[0].poolUp).toBe("1.00000000");
+    expect(res.body.data.rounds[0].poolDown).toBe("2.00000000");
+    assertNoNumericMoney(res.body);
   });
 
   it("GET /api/rounds returns empty list when no active rounds", async () => {
@@ -84,5 +88,67 @@ describe("Rounds Routes - active round sourcing", () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.source).toBe("none");
     expect(res.body.data.rounds).toEqual([]);
+  });
+
+  it("GET /api/rounds/active returns active rounds with decimal-serialized pool totals (Issue #820)", async () => {
+    mockGetRoundsForApi.mockResolvedValueOnce({
+      source: "soroban",
+      rounds: [
+        {
+          id: "soroban-1",
+          sorobanRoundId: "1",
+          mode: "UP_DOWN",
+          status: "ACTIVE",
+          startPrice: 0.12,
+          poolUp: 125.5,
+          poolDown: 75.25,
+          isSoroban: true,
+          source: "soroban",
+        },
+      ],
+    });
+
+    const res = await request(app).get("/api/rounds/active");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.source).toBe("soroban");
+    expect(res.body.data.rounds).toHaveLength(1);
+
+    const round = res.body.data.rounds[0];
+    expect(round.id).toBe("soroban-1");
+    expect(typeof round.poolUp).toBe("string");
+    expect(round.poolUp).toBe("125.50000000");
+    expect(typeof round.poolDown).toBe("string");
+    expect(round.poolDown).toBe("75.25000000");
+
+    // Also assert top-level backward compatibility alias
+    expect(res.body.rounds).toHaveLength(1);
+    expect(res.body.rounds[0].poolUp).toBe("125.50000000");
+    expect(res.body.rounds[0].poolDown).toBe("75.25000000");
+
+    assertNoNumericMoney(res.body);
+  });
+
+  it("GET /api/rounds/active is registered before /:id and handles rounds with default zero pools", async () => {
+    mockGetRoundsForApi.mockResolvedValueOnce({
+      source: "database",
+      rounds: [
+        {
+          id: "round-without-pools",
+          mode: "UP_DOWN",
+          status: "ACTIVE",
+          startPrice: 0.5,
+        },
+      ],
+    });
+
+    const res = await request(app).get("/api/rounds/active");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.rounds[0].poolUp).toBe("0.00000000");
+    expect(res.body.data.rounds[0].poolDown).toBe("0.00000000");
+    assertNoNumericMoney(res.body);
   });
 });

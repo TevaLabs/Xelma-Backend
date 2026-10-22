@@ -286,6 +286,22 @@ describe('API Contract Tests - frontend-critical endpoints (Issue #333)', () => 
     });
   });
 
+  describe('GET /api/rounds/active', () => {
+    it('returns active rounds exposing decimal-serialized pool totals (Issue #820)', async () => {
+      const res = await request(app).get('/api/rounds/active');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('source');
+      expect(res.body.data).toHaveProperty('rounds');
+      expect(Array.isArray(res.body.data.rounds)).toBe(true);
+      for (const round of res.body.data.rounds) {
+        expect(typeof round.poolUp).toBe('string');
+        expect(typeof round.poolDown).toBe('string');
+      }
+    });
+  });
+
   describe('GET /api/leaderboard', () => {
     const leaderboardContract = z.object({
       success: z.literal(true),

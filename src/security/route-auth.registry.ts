@@ -44,6 +44,7 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
 
   // Rounds
   { method: "POST", path: "/api/rounds/start", auth: RouteAuthLevel.ADMIN },
+  { method: "GET", path: "/api/rounds/active", auth: RouteAuthLevel.PUBLIC },
   { method: "GET", path: "/api/rounds/:id", auth: RouteAuthLevel.PUBLIC },
   { method: "POST", path: "/api/rounds/:id/simulate", auth: RouteAuthLevel.ADMIN, notes: "QA-only; gated by ENABLE_SIMULATION (403 when off, even outside production)" },
   { method: "POST", path: "/api/rounds/:id/resolve", auth: RouteAuthLevel.ORACLE },
