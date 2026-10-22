@@ -6,11 +6,27 @@ import { ChatMessage } from '../types/chat.types';
 import {
   buildCursorMeta,
   buildOffsetMeta,
+  CursorMeta,
   CursorPage,
   decodeCursor,
   OffsetPage,
   trimSentinel,
 } from '../utils/pagination.util';
+
+/** Page metadata for the `before` timestamp cursor mode (Issue #848). */
+export interface TimestampCursorMeta extends CursorMeta {
+  /** The `before` value this page was filtered with (ISO 8601). */
+  before: string;
+  /**
+   * Timestamp to pass as `before` to load the next (older) page.
+   * `null` when this is the last page.
+   */
+  nextBefore: string | null;
+}
+
+export interface TimestampCursorPage<T> extends CursorPage<T> {
+  pagination: TimestampCursorMeta;
+}
 
 // Profanity blocklist - case-insensitive matching
 const PROFANITY_LIST = [
@@ -176,6 +192,64 @@ class ChatService {
     }));
 
     return { data: messages, pagination };
+  }
+
+  /**
+   * Get chat history older than a timestamp (Issue #848).
+   *
+   * `before` is an **exclusive** `createdAt` bound: only messages created
+   * strictly before it are returned. Messages are returned oldest-first within
+   * the page (natural chat order) and the response carries `nextBefore` for the
+   * following page. Because timestamps may collide at millisecond resolution,
+   * clients that need exact page boundaries should keep using the opaque
+   * `cursor` mode; `nextCursor` is included here for that purpose.
+   *
+   * @param limit  - page size (1–50)
+   * @param before - exclusive upper bound on `createdAt`
+   */
+  async getHistoryBefore(
+    limit: number = 50,
+    before: Date = new Date(),
+  ): Promise<TimestampCursorPage<ChatMessage>> {
+    // Fetch limit+1 rows to detect whether a next page exists (sentinel trick)
+    const rows = await prisma.message.findMany({
+      take: limit + 1,
+      where: { createdAt: { lt: before } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      include: {
+        user: {
+          select: { walletAddress: true },
+        },
+      },
+    });
+
+    const cursorMeta = buildCursorMeta(limit, rows, (row) => ({
+      createdAt: row.createdAt.toISOString(),
+      id: row.id,
+    }));
+
+    const pageRows = trimSentinel(rows, limit);
+
+    // Reverse so oldest message is first (natural chat order)
+    const messages: ChatMessage[] = pageRows.reverse().map((msg) => ({
+      id: msg.id,
+      userId: msg.userId,
+      walletAddress: this.maskWalletAddress(msg.user.walletAddress),
+      content: msg.content,
+      createdAt: msg.createdAt.toISOString(),
+    }));
+
+    return {
+      data: messages,
+      pagination: {
+        ...cursorMeta,
+        before: before.toISOString(),
+        nextBefore:
+          cursorMeta.hasNextPage && messages.length > 0
+            ? messages[0].createdAt // oldest message on this page
+            : null,
+      },
+    };
   }
 
   /**

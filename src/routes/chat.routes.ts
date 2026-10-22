@@ -3,8 +3,7 @@ import chatService from '../services/chat.service';
 import { authenticateUser, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { chatMessageRateLimiter } from '../middleware/rateLimiter.middleware';
 import { validate } from '../middleware/validate.middleware';
-import { sendMessageSchema } from '../schemas/chat.schema';
-import { unifiedPaginationSchema } from '../schemas/pagination.schema';
+import { chatHistoryQuerySchema, sendMessageSchema } from '../schemas/chat.schema';
 import { ValidationError } from '../utils/errors';
 
 const router = Router();
@@ -68,10 +67,16 @@ router.post('/send', authenticateUser, chatMessageRateLimiter, validate(sendMess
  *       previous response to load the next (older) page. Messages are returned
  *       oldest-first within each page.
  *
+ *       **Timestamp mode**: pass `before` (ISO 8601) to load messages created
+ *       strictly before that instant. The response returns
+ *       `pagination.nextBefore` for the following page. This is the
+ *       timestamp-only variant of the cursor; for exact page boundaries when
+ *       many messages share a millisecond, use `cursor`.
+ *
  *       **Offset mode**: pass `offset` to skip rows. Backward-compatible with
  *       existing clients that only pass `limit`.
  *
- *       When `cursor` is present, offset is ignored.
+ *       Mode precedence: `cursor` > `before` > `offset`.
  *     parameters:
  *       - in: query
  *         name: limit
@@ -82,9 +87,13 @@ router.post('/send', authenticateUser, chatMessageRateLimiter, validate(sendMess
  *         schema: { type: string }
  *         description: Opaque cursor from pagination.nextCursor (cursor mode)
  *       - in: query
+ *         name: before
+ *         schema: { type: string, format: date-time }
+ *         description: ISO 8601 timestamp; returns messages created strictly before it (timestamp mode)
+ *       - in: query
  *         name: offset
  *         schema: { type: integer, minimum: 0, default: 0 }
- *         description: Number of rows to skip (offset mode, ignored when cursor is present)
+ *         description: Number of rows to skip (offset mode, ignored when cursor or before is present)
  *     responses:
  *       200:
  *         description: Chat history page
@@ -95,13 +104,14 @@ router.post('/send', authenticateUser, chatMessageRateLimiter, validate(sendMess
  *       400:
  *         description: Validation error
  */
-router.get('/history', validate(unifiedPaginationSchema, 'query'), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/history', validate(chatHistoryQuerySchema, 'query'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     // After validate() the query is coerced and typed
-    const { limit: rawLimit, offset, cursor } = req.query as unknown as {
+    const { limit: rawLimit, offset, cursor, before } = req.query as unknown as {
       limit: number;
       offset: number;
       cursor?: string;
+      before?: string;
     };
 
     // Chat history caps at 50 messages per page
@@ -110,6 +120,17 @@ router.get('/history', validate(unifiedPaginationSchema, 'query'), async (req: R
     if (cursor) {
       // Cursor mode
       const result = await chatService.getHistoryCursor(limit, cursor);
+      return res.json({
+        success: true,
+        messages: result.data,
+        pagination: result.pagination,
+      });
+    }
+
+    if (before) {
+      // Timestamp cursor mode (Issue #848). The schema guarantees a parseable
+      // ISO 8601 string.
+      const result = await chatService.getHistoryBefore(limit, new Date(before));
       return res.json({
         success: true,
         messages: result.data,

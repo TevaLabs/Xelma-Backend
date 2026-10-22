@@ -4,7 +4,8 @@
  * Covers:
  *   - Offset mode (backward-compatible)
  *   - Cursor mode
- *   - Input validation (limit bounds, negative offset, bad cursor)
+ *   - Timestamp cursor mode (`before`, Issue #848)
+ *   - Input validation (limit bounds, negative offset, bad cursor, bad before)
  *   - Pagination meta shape in both modes
  */
 import { describe, it, expect, beforeAll, beforeEach } from "@jest/globals";
@@ -219,6 +220,85 @@ describe("GET /api/chat/history", () => {
       const cursor = encodeCursor({ id: "x" });
       const res = await request(app).get(`/api/chat/history?limit=0&cursor=${cursor}`);
       expect(res.status).toBe(400);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Timestamp cursor mode (Issue #848)
+  // -------------------------------------------------------------------------
+
+  describe("before timestamp mode", () => {
+    const before = "2026-06-01T12:00:00.000Z";
+
+    it("returns messages older than `before` with timestamp pagination meta", async () => {
+      mockMessageFindMany.mockResolvedValue(makeMessages(6)); // limit=5 + sentinel
+
+      const res = await request(app).get(
+        `/api/chat/history?limit=5&before=${encodeURIComponent(before)}`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.messages).toHaveLength(5);
+      expect(res.body.pagination).toMatchObject({
+        limit: 5,
+        before,
+        hasNextPage: true,
+      });
+      expect(typeof res.body.pagination.nextBefore).toBe("string");
+      expect(typeof res.body.pagination.nextCursor).toBe("string");
+      // Offset/total fields are not part of timestamp-cursor responses
+      expect(res.body.pagination.offset).toBeUndefined();
+      expect(res.body.pagination.total).toBeUndefined();
+
+      // The service filtered strictly before the supplied timestamp
+      const callArgs = mockMessageFindMany.mock.calls[0][0];
+      expect(callArgs.where.createdAt.lt.toISOString()).toBe(before);
+    });
+
+    it("nextBefore is null and hasNextPage false on the last page", async () => {
+      mockMessageFindMany.mockResolvedValue(makeMessages(3));
+
+      const res = await request(app).get(
+        `/api/chat/history?limit=5&before=${encodeURIComponent(before)}`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.pagination.hasNextPage).toBe(false);
+      expect(res.body.pagination.nextBefore).toBeNull();
+    });
+
+    it("returns 200 with an empty page when nothing predates `before`", async () => {
+      mockMessageFindMany.mockResolvedValue([]);
+
+      const res = await request(app).get(
+        `/api/chat/history?limit=10&before=${encodeURIComponent("2020-01-01T00:00:00.000Z")}`,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.messages).toHaveLength(0);
+      expect(res.body.pagination.hasNextPage).toBe(false);
+      expect(res.body.pagination.nextBefore).toBeNull();
+    });
+
+    it("returns 400 for a non-ISO `before` value", async () => {
+      const res = await request(app).get("/api/chat/history?before=not-a-timestamp");
+      expect(res.status).toBe(400);
+    });
+
+    it("prefers the opaque cursor over `before` when both are supplied", async () => {
+      mockMessageFindMany.mockResolvedValue(makeMessages(1));
+
+      const cursor = encodeCursor({ createdAt: before, id: "msg-0" });
+      const res = await request(app).get(
+        `/api/chat/history?limit=5&cursor=${cursor}&before=${encodeURIComponent(before)}`,
+      );
+
+      expect(res.status).toBe(200);
+      const callArgs = mockMessageFindMany.mock.calls[0][0];
+      // Cursor mode uses the Prisma keyset cursor, not a timestamp filter
+      expect(callArgs.cursor).toEqual({ id: "msg-0" });
+      expect(callArgs.where).toBeUndefined();
     });
   });
 });

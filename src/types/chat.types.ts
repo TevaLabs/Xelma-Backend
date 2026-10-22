@@ -34,6 +34,16 @@ export interface ChatHistoryPageResponse {
   pagination: CursorMeta;
 }
 
+/**
+ * Timestamp-cursor–paginated chat history response (Issue #848).
+ * `nextBefore` is the value to pass as `before` for the next (older) page.
+ */
+export interface ChatHistoryBeforeResponse {
+  success: true;
+  messages: ChatMessage[];
+  pagination: CursorMeta & { before: string; nextBefore: string | null };
+}
+
 /** Offset-paginated chat history response. */
 export interface ChatHistoryOffsetResponse {
   success: true;
