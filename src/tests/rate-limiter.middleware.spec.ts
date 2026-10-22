@@ -1,5 +1,5 @@
-import { describe, expect, it } from "@jest/globals";
-import { RATE_LIMIT_POLICIES } from "../middleware/rateLimiter.middleware";
+import { afterEach, describe, expect, it } from "@jest/globals";
+import { RATE_LIMIT_POLICIES, shouldPersistRateLimitHit } from "../middleware/rateLimiter.middleware";
 import { getRateLimitCategory } from "../security/rate-limit-endpoints";
 
 describe("rateLimiter.middleware", () => {
@@ -31,5 +31,36 @@ describe("rateLimiter.middleware", () => {
     expect(RATE_LIMIT_POLICIES.bet.max).toBeLessThan(
       RATE_LIMIT_POLICIES.predictionSubmit.max,
     );
+  });
+});
+
+describe("shouldPersistRateLimitHit", () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    process.env = { ...saved };
+  });
+
+  it("persists by default", () => {
+    delete process.env.RATE_LIMIT_METRICS_ENABLED;
+    delete process.env.RATE_LIMIT_METRICS_SAMPLE_RATE;
+    expect(shouldPersistRateLimitHit(() => 0.99)).toBe(true);
+  });
+
+  it("never persists when RATE_LIMIT_METRICS_ENABLED=false", () => {
+    process.env.RATE_LIMIT_METRICS_ENABLED = "false";
+    expect(shouldPersistRateLimitHit(() => 0)).toBe(false);
+  });
+
+  it("samples according to RATE_LIMIT_METRICS_SAMPLE_RATE", () => {
+    process.env.RATE_LIMIT_METRICS_SAMPLE_RATE = "0.25";
+    expect(shouldPersistRateLimitHit(() => 0.1)).toBe(true);
+    expect(shouldPersistRateLimitHit(() => 0.5)).toBe(false);
+  });
+
+  it("handles 0 and invalid sample rates", () => {
+    process.env.RATE_LIMIT_METRICS_SAMPLE_RATE = "0";
+    expect(shouldPersistRateLimitHit(() => 0)).toBe(false);
+    process.env.RATE_LIMIT_METRICS_SAMPLE_RATE = "abc";
+    expect(shouldPersistRateLimitHit(() => 0.99)).toBe(true);
   });
 });

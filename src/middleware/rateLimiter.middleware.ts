@@ -31,6 +31,26 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/**
+ * Whether a 429 hit should be persisted (DB / in-memory store) by the
+ * rate-limit metrics service. Prometheus counters are always updated.
+ *
+ * - RATE_LIMIT_METRICS_ENABLED (default true): set to `false` to disable persistence.
+ * - RATE_LIMIT_METRICS_SAMPLE_RATE (default 1): fraction in [0, 1] of hits persisted.
+ *
+ * Env is read per call so operators/tests can change it without a reload.
+ */
+export function shouldPersistRateLimitHit(random: () => number = Math.random): boolean {
+  if (!parseBooleanEnv(process.env.RATE_LIMIT_METRICS_ENABLED, true)) return false;
+  const raw = process.env.RATE_LIMIT_METRICS_SAMPLE_RATE;
+  if (raw === undefined || raw.trim() === '') return true;
+  const rate = Number(raw);
+  if (!Number.isFinite(rate)) return true;
+  if (rate >= 1) return true;
+  if (rate <= 0) return false;
+  return random() < rate;
+}
+
 type RateLimitPolicy = {
   windowMs: number;
   max: number;
@@ -125,12 +145,14 @@ function createRateLimiter(opts: {
 
       RateLimitMetricsService.recordHit(opts.name, req.method);
 
-      rateLimitMetricsService.recordHit({
-        endpoint: opts.name,
-        key: key,
-        ip: req.ip,
-        userId: userId,
-      }).catch(err => logger.error(`Failed to record hit for ${opts.name}:`, err));
+      if (shouldPersistRateLimitHit()) {
+        rateLimitMetricsService.recordHit({
+          endpoint: opts.name,
+          key: key,
+          ip: req.ip,
+          userId: userId,
+        }).catch(err => logger.error(`Failed to record hit for ${opts.name}:`, err));
+      }
 
       res.status(429).json({ error: 'Too Many Requests', message: opts.message, retryAfter: Math.ceil(opts.windowMs / 1000) });
     },
