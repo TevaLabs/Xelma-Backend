@@ -29,18 +29,29 @@ type ResolvedUser = {
   role: UserRole;
 };
 
-async function loadUserFromBearerToken(
+/**
+ * Error code returned when a cryptographically valid JWT references a user row
+ * that no longer exists (e.g. deleted account).
+ */
+export const AUTH_USER_NOT_FOUND = "AUTH_USER_NOT_FOUND";
+
+type BearerLookup =
+  | { status: "ok"; user: ResolvedUser }
+  | { status: "user_not_found"; userId: string }
+  | { status: "unauthenticated" };
+
+async function lookupBearerUser(
   authHeader: string | undefined,
-): Promise<ResolvedUser | null> {
+): Promise<BearerLookup> {
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return null;
+    return { status: "unauthenticated" };
   }
 
   const token = authHeader.substring(7);
   const decoded = verifyToken(token);
 
   if (!decoded) {
-    return null;
+    return { status: "unauthenticated" };
   }
 
   const user = await prisma.user.findUnique({
@@ -52,7 +63,18 @@ async function loadUserFromBearerToken(
     },
   });
 
-  return user;
+  if (!user) {
+    return { status: "user_not_found", userId: decoded.userId };
+  }
+
+  return { status: "ok", user };
+}
+
+async function loadUserFromBearerToken(
+  authHeader: string | undefined,
+): Promise<ResolvedUser | null> {
+  const lookup = await lookupBearerUser(authHeader);
+  return lookup.status === "ok" ? lookup.user : null;
 }
 
 function attachUser(req: Request, user: ResolvedUser): void {
@@ -113,7 +135,21 @@ export function requireRole(
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const requestId = (req as any).requestId;
     try {
-      const user = await loadUserFromBearerToken(req.headers.authorization);
+      const lookup = await lookupBearerUser(req.headers.authorization);
+
+      if (lookup.status === "user_not_found") {
+        logger.warn("Valid JWT references a missing user", {
+          userId: lookup.userId,
+          requestId,
+        });
+        res.status(401).json({
+          error: "User not found",
+          code: AUTH_USER_NOT_FOUND,
+        });
+        return;
+      }
+
+      const user = lookup.status === "ok" ? lookup.user : null;
 
       if (!user) {
         const hasHeader = Boolean(req.headers.authorization?.startsWith("Bearer "));

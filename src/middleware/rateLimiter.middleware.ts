@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { Request } from 'express';
 import { rateLimitMetricsService, RateLimitMetricsService } from '../services/rate-limit-metrics.service';
 import { getRateLimitCategory } from '../security/rate-limit-endpoints';
@@ -132,6 +132,12 @@ function createRateLimiter(opts: {
         userId: userId,
       }).catch(err => logger.error(`Failed to record hit for ${opts.name}:`, err));
 
+      const resetTime = (req as any).rateLimit?.resetTime as Date | undefined;
+      const retryAfterSeconds = resetTime
+        ? Math.max(1, Math.ceil((resetTime.getTime() - Date.now()) / 1000))
+        : Math.ceil(opts.windowMs / 1000);
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+
       res.status(429).json({ error: 'Too Many Requests', message: opts.message, retryAfter: Math.ceil(opts.windowMs / 1000) });
     },
   });
@@ -169,6 +175,30 @@ export const connectRateLimiter = createRateLimiter({
   max: 5,
   message: 'Too many authentication attempts from this IP, please try again after 15 minutes',
   name: 'auth/connect',
+});
+
+/**
+ * Composite IP + wallet key for /auth/connect. Throttles repeated attempts at
+ * one wallet from one client without letting a shared IP lock out other wallets.
+ * Falls back to IP only when the body carries no usable wallet address.
+ */
+export function connectWalletKey(req: Request): string {
+  const ip = ipKeyGenerator(req.ip || req.socket?.remoteAddress || 'unknown');
+  const wallet = req.body?.walletAddress;
+  const normalizedWallet =
+    typeof wallet === 'string' && wallet.length > 0 && wallet.length <= 128
+      ? wallet.trim().toUpperCase()
+      : 'no-wallet';
+  return `${ip}:${normalizedWallet}`;
+}
+
+// Per IP+wallet limit for connect/verify; responds 429 with Retry-After.
+export const connectWalletRateLimiter = createRateLimiter({
+  windowMs: parsePositiveInt(process.env.RATE_LIMIT_CONNECT_WALLET_WINDOW_MS, 15 * 60 * 1000),
+  max: parsePositiveInt(process.env.RATE_LIMIT_CONNECT_WALLET_MAX, 5),
+  message: 'Too many authentication attempts for this wallet, please try again later',
+  keyGenerator: connectWalletKey,
+  name: 'auth/connect-wallet',
 });
 
 export const authRateLimiter = createRateLimiter({

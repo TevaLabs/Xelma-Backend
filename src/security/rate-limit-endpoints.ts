@@ -7,6 +7,7 @@ export type RateLimitCategory = "auth" | "prediction" | "chat" | "admin" | "orac
 export const RATE_LIMIT_ENDPOINT_CATEGORIES: Record<string, RateLimitCategory> = {
   "auth/challenge": "auth",
   "auth/connect": "auth",
+  "auth/connect-wallet": "auth",
   "auth/general": "auth",
   "chat/message": "chat",
   "prediction/submit": "prediction",

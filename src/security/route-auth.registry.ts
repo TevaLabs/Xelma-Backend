@@ -31,7 +31,7 @@ export interface RouteAuthEntry {
  */
 export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   // Auth
-  { method: "POST", path: "/api/auth/challenge", auth: RouteAuthLevel.PUBLIC, notes: "Rate limited per IP" },
+  { method: "POST", path: "/api/auth/challenge", auth: RouteAuthLevel.PUBLIC, notes: "Rate limited per IP and per IP+wallet" },
   { method: "POST", path: "/api/auth/connect", auth: RouteAuthLevel.PUBLIC, notes: "Rate limited per IP" },
 
   // User

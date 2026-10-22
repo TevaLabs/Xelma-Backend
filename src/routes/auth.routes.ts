@@ -19,6 +19,7 @@ import {
 import {
   challengeRateLimiter,
   connectRateLimiter,
+  connectWalletRateLimiter,
   authRateLimiter,
 } from "../middleware/rateLimiter.middleware";
 import { validate } from "../middleware/validate.middleware";
@@ -553,6 +554,7 @@ const connectHandler = async (
 router.post(
   "/connect",
   connectRateLimiter || authRateLimiter,
+  connectWalletRateLimiter,
   validate(connectSchema),
   connectHandler,
 );
@@ -560,6 +562,7 @@ router.post(
 router.post(
   "/verify",
   connectRateLimiter,
+  connectWalletRateLimiter,
   validate(connectSchema),
   connectHandler,
 );
