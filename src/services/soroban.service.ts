@@ -542,7 +542,7 @@ export class SorobanService {
   /**
    * Gets the active round from Soroban (read-only simulation).
    * 
-   * Timeout: 10s for read-only queries (faster than write operations)
+   * Uses configurable simulation timeout with exactly 1 retry (max 2 attempts).
    */
   async getActiveRound(): Promise<any> {
     await this.ready;
@@ -555,9 +555,9 @@ export class SorobanService {
         return tx.result;
       },
       {
-        timeoutMs: 10000, // Shorter timeout for read-only
+        timeoutMs: config.soroban.simulationTimeoutMs,
         operationName: 'sorobanGetActiveRound',
-        retries: 1, // Only retry once for read-only
+        retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
       }
       ),
       null,
@@ -620,7 +620,7 @@ export class SorobanService {
    * Gets user balance from Soroban (read-only simulation).
    * Returns balance in XLM (converted from stroops).
    * 
-   * Timeout: 10s for read-only queries
+   * Uses configurable simulation timeout with exactly 1 retry (max 2 attempts).
    */
   async getBalance(userAddress: string): Promise<number> {
     await this.ready;
@@ -633,9 +633,9 @@ export class SorobanService {
         return Number(tx.result) / 10_000_000;
       },
       {
-        timeoutMs: 10000, // Shorter timeout for read-only
+        timeoutMs: config.soroban.simulationTimeoutMs,
         operationName: 'sorobanGetBalance',
-        retries: 1, // Only retry once for read-only
+        retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
       }
       ),
       0,
@@ -656,7 +656,7 @@ export class SorobanService {
    * Gets user stats from Soroban (read-only simulation).
    * Returns win/loss counts and streak data from the contract.
    *
-   * Timeout: 10s for read-only queries
+   * Uses configurable simulation timeout with exactly 1 retry (max 2 attempts).
    */
   async getUserStats(userAddress: string): Promise<UserStats | null> {
     await this.ready;
@@ -669,9 +669,9 @@ export class SorobanService {
           return tx.result;
         },
         {
-          timeoutMs: 10000,
+          timeoutMs: config.soroban.simulationTimeoutMs,
           operationName: 'sorobanGetUserStats',
-          retries: 1,
+          retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
         }
       ),
       null,
@@ -692,7 +692,7 @@ export class SorobanService {
    * Gets pending (claimable) winnings from Soroban (read-only simulation).
    * Returns the amount in stroops (1 XLM = 10^7 stroops).
    *
-   * Timeout: 10s for read-only queries
+   * Uses configurable simulation timeout with exactly 1 retry (max 2 attempts).
    */
   async getPendingWinnings(userAddress: string): Promise<bigint> {
     await this.ready;
@@ -705,9 +705,9 @@ export class SorobanService {
           return tx.result;
         },
         {
-          timeoutMs: 10000,
+          timeoutMs: config.soroban.simulationTimeoutMs,
           operationName: 'sorobanGetPendingWinnings',
-          retries: 1,
+          retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
         }
       ),
       BigInt(0),
@@ -758,9 +758,9 @@ export class SorobanService {
           return null;
         },
         {
-          timeoutMs: 10000,
+          timeoutMs: config.soroban.simulationTimeoutMs,
           operationName: 'sorobanGetUserPosition',
-          retries: 1,
+          retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
         }
       ),
       null,
@@ -835,6 +835,8 @@ export class SorobanService {
   /**
    * Checks the status of a transaction by its hash.
    * Used for reconciliation of stranded SUBMITTED bets.
+   *
+   * Uses configurable simulation timeout with AbortSignal support and 1 retry.
    */
   async getTransactionStatus(txHash: string): Promise<TransactionStatus> {
     await this.ensureInitialized();
@@ -890,9 +892,9 @@ export class SorobanService {
           };
         },
         {
-          timeoutMs: 10000,
+          timeoutMs: config.soroban.simulationTimeoutMs,
           operationName: 'sorobanGetTransactionStatus',
-          retries: 1,
+          retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
         }
       ),
       { confirmed: false, successful: false, error: 'RPC call failed' },
