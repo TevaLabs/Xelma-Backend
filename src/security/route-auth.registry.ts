@@ -59,6 +59,15 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   { method: "POST", path: "/api/bets/precision", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "POST", path: "/api/bets/claim", auth: RouteAuthLevel.AUTHENTICATED },
 
+  // Tournaments
+  { method: "GET", path: "/api/tournaments", auth: RouteAuthLevel.PUBLIC },
+  { method: "POST", path: "/api/tournaments", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "GET", path: "/api/tournaments/:id", auth: RouteAuthLevel.PUBLIC },
+  { method: "POST", path: "/api/tournaments/:id/join", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "POST", path: "/api/tournaments/:id/lock", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "POST", path: "/api/tournaments/:id/settle", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "POST", path: "/api/tournaments/:id/cancel", auth: RouteAuthLevel.AUTHENTICATED },
+
   // Predictions
   { method: "POST", path: "/api/predictions/submit", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "POST", path: "/api/predictions/batch-submit", auth: RouteAuthLevel.AUTHENTICATED },

@@ -571,6 +571,63 @@
           "stale",
           "timestamp"
         ]
+      },
+      "Tournament": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "UP_DOWN",
+              "LEGENDS"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "UPCOMING",
+              "ACTIVE",
+              "COMPLETED",
+              "CANCELLED"
+            ]
+          },
+          "entryFee": {
+            "$ref": "#/components/schemas/MoneyAmount"
+          },
+          "prizePool": {
+            "$ref": "#/components/schemas/MoneyAmount"
+          },
+          "maxParticipants": {
+            "type": "integer"
+          },
+          "currentParticipants": {
+            "type": "integer"
+          },
+          "startTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rounds": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   },
@@ -614,6 +671,10 @@
     {
       "name": "prices",
       "description": "Price feeds. GET /api/price is the XLM oracle; GET /api/prices is the multi-asset ticker — different payloads, not aliases."
+    },
+    {
+      "name": "tournaments",
+      "description": "Tournament listings and join"
     }
   ],
   "paths": {
@@ -888,6 +949,52 @@
         }
       }
     },
+    "/api/tournaments/{id}": {
+      "get": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Get tournament details",
+        "description": "Returns detailed information for a specific tournament by ID.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tournament details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Tournament"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tournament not found"
+          }
+        }
+      }
+    },
     "/api/tournaments/{id}/lock": {
       "post": {
         "tags": [
@@ -998,6 +1105,75 @@
           },
           "409": {
             "description": "Lifecycle violation (e.g. cancelling a COMPLETED tournament)"
+          }
+        }
+      }
+    },
+    "/api/tournaments/{id}/join": {
+      "post": {
+        "tags": [
+          "tournaments"
+        ],
+        "summary": "Join a tournament",
+        "description": "Join an upcoming tournament. Requires authentication.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Joined tournament successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "tournamentId",
+                        "currentParticipants"
+                      ],
+                      "properties": {
+                        "tournamentId": {
+                          "type": "string"
+                        },
+                        "currentParticipants": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Tournament not found"
+          },
+          "409": {
+            "description": "Tournament is full or already joined"
           }
         }
       }

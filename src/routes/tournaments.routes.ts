@@ -140,9 +140,30 @@ router.post(
 );
 
 /**
- * GET /api/tournaments/:id
- * Get tournament detail by id. Uses the mock seed for idempotent listing/detail
- * demos (as before); the saga write endpoints below are DB-backed via the service.
+ * @openapi
+ * /api/tournaments/{id}:
+ *   get:
+ *     tags: [tournaments]
+ *     summary: Get tournament details
+ *     description: Returns detailed information for a specific tournament by ID.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Tournament details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { $ref: '#/components/schemas/Tournament' }
+ *       404:
+ *         description: Tournament not found
  */
 router.get(
   "/:id",
