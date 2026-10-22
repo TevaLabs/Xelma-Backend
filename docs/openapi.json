@@ -79,6 +79,85 @@
           "code"
         ]
       },
+      "NotFoundResponse": {
+        "type": "object",
+        "description": "Standard 404 Not Found error response returned when an endpoint or resource is not found.",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "NotFoundError",
+            "description": "Error type name"
+          },
+          "message": {
+            "type": "string",
+            "example": "Route GET /api/unknown not found",
+            "description": "Human-readable description of the missing route or resource"
+          },
+          "code": {
+            "type": "string",
+            "example": "NOT_FOUND",
+            "description": "Machine-readable error code"
+          },
+          "path": {
+            "type": "string",
+            "example": "/api/unknown",
+            "description": "Request path that was not found"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the 404 occurred"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Optional incoming or assigned correlation request ID"
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "code",
+          "path",
+          "timestamp"
+        ]
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "description": "Standard pagination metadata returned with paginated collections.",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Page size limit requested or defaulted",
+            "example": 20
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset into the total collection (offset pagination mode)",
+            "example": 0
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total number of items in the collection",
+            "example": 100
+          },
+          "totalPages": {
+            "type": "integer",
+            "description": "Total number of pages given limit and total",
+            "example": 5
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor token for cursor-based pagination",
+            "example": "eyJpZCI6MTIzLCJjcmVhdGVkQXQiOiIyMDI2LTAxLTAxVDAwOjAwOjAwLjAwMFoifQ=="
+          },
+          "hasNextPage": {
+            "type": "boolean",
+            "description": "Whether another page of records exists",
+            "example": true
+          }
+        }
+      },
       "MoneyAmount": {
         "type": "string",
         "description": "Canonical monetary amount: a Decimal(20,8) serialized as a string with exactly 8 fractional digits. Never a JSON number — IEEE-754 floats cannot represent stroop-scale values safely.",
@@ -441,6 +520,148 @@
         "required": [
           "min",
           "max"
+        ],
+        "additionalProperties": false
+      },
+      "StartRoundRequest": {
+        "type": "object",
+        "description": "Admin payload to start a new prediction round. Mode selects between UP_DOWN (0) and LEGENDS (1). Duration is specified in minutes.",
+        "properties": {
+          "mode": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "0 for UP_DOWN mode or 1 for LEGENDS mode",
+            "example": 0
+          },
+          "startPrice": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "exclusiveMinimum": true
+              },
+              {
+                "type": "string",
+                "pattern": "^[0-9]+(\\.[0-9]+)?$"
+              }
+            ],
+            "description": "Initial asset price when the round begins (must be positive number or decimal string)",
+            "example": 0.285
+          },
+          "duration": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "description": "Round duration in minutes (must be positive, e.g. 1 or 5)",
+            "example": 1
+          },
+          "priceRanges": {
+            "type": "array",
+            "description": "Optional custom price ranges for LEGENDS mode only (mode=1). Must contain at least 2 non-overlapping ranges.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "min": {
+                  "type": "number",
+                  "description": "Inclusive minimum price"
+                },
+                "max": {
+                  "type": "number",
+                  "description": "Exclusive maximum price"
+                },
+                "pool": {
+                  "type": "number",
+                  "description": "Initial pool stake (default: 0)"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ]
+            }
+          }
+        },
+        "required": [
+          "mode",
+          "startPrice",
+          "duration"
+        ],
+        "additionalProperties": false
+      },
+      "StartRoundResponse": {
+        "type": "object",
+        "description": "Response payload when a new round is successfully started",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "round": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "UP_DOWN",
+                  "LEGENDS"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "PENDING",
+                  "ACTIVE",
+                  "LOCKED",
+                  "RESOLVED",
+                  "CANCELLED"
+                ]
+              },
+              "startTime": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endTime": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "startPrice": {
+                "$ref": "#/components/schemas/MoneyAmount"
+              },
+              "sorobanRoundId": {
+                "type": "string",
+                "nullable": true
+              },
+              "isSoroban": {
+                "type": "boolean"
+              },
+              "priceRanges": {
+                "type": "array",
+                "nullable": true,
+                "items": {
+                  "$ref": "#/components/schemas/LegendsPriceRange"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "mode",
+              "status",
+              "startTime",
+              "endTime",
+              "startPrice"
+            ]
+          }
+        },
+        "required": [
+          "success",
+          "round"
         ],
         "additionalProperties": false
       },
@@ -1043,9 +1264,10 @@
     "/api/rounds/start": {
       "post": {
         "summary": "Start a new prediction round",
-        "description": "Admin-only. Starts a new round for a given mode, start price, and duration.",
+        "description": "Admin-only endpoint to start a new prediction round. Mode selects between UP_DOWN (0) and LEGENDS (1). In UP_DOWN mode, an on-chain round is initialized via Soroban. In LEGENDS mode, discrete price brackets are configured (or default brackets generated). Timing: duration is specified in minutes; round startTime is recorded at creation and endTime is set to startTime + duration * 60s.\n",
         "tags": [
-          "rounds"
+          "rounds",
+          "Admin"
         ],
         "security": [
           {
@@ -1057,68 +1279,71 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "mode": {
-                    "type": "integer",
-                    "description": "0 (UP_DOWN) or 1 (LEGENDS)",
-                    "enum": [
-                      0,
-                      1
-                    ]
-                  },
-                  "startPrice": {
-                    "type": "number",
-                    "description": "Starting price (must be > 0)"
-                  },
-                  "duration": {
-                    "type": "integer",
-                    "description": "Duration in seconds (must be > 0)"
-                  },
-                  "priceRanges": {
-                    "type": "array",
-                    "description": "Optional LEGENDS-only custom ranges",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "min": {
-                          "type": "number"
-                        },
-                        "max": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "min",
-                        "max"
-                      ]
-                    }
-                  }
-                },
-                "required": [
-                  "mode",
-                  "startPrice",
-                  "duration"
-                ]
+                "$ref": "#/components/schemas/StartRoundRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Round started"
+            "description": "Round successfully started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartRoundResponse"
+                }
+              }
+            }
           },
           "400": {
-            "description": "Validation error"
+            "description": "Validation error (e.g. invalid mode, non-positive price/duration, overlapping ranges)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "Missing or invalid JWT",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "403": {
-            "description": "Forbidden"
+            "description": "Forbidden - caller does not have ADMIN role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "409": {
-            "description": "Conflict - active round exists"
+            "description": "Conflict - an active round already exists for the requested mode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests - rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitResponse"
+                }
+              }
+            }
           }
         }
       }

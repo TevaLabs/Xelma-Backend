@@ -237,6 +237,79 @@ export const swaggerSpec = swaggerJSDoc({
           required: ['min', 'max'],
           additionalProperties: false,
         },
+        StartRoundRequest: {
+          type: 'object',
+          description:
+            'Admin payload to start a new prediction round. Mode selects between UP_DOWN (0) and LEGENDS (1). Duration is specified in minutes.',
+          properties: {
+            mode: {
+              type: 'integer',
+              enum: [0, 1],
+              description: '0 for UP_DOWN mode or 1 for LEGENDS mode',
+              example: 0,
+            },
+            startPrice: {
+              oneOf: [
+                { type: 'number', minimum: 0, exclusiveMinimum: true },
+                { type: 'string', pattern: '^[0-9]+(\\.[0-9]+)?$' },
+              ],
+              description:
+                'Initial asset price when the round begins (must be positive number or decimal string)',
+              example: 0.285,
+            },
+            duration: {
+              type: 'number',
+              minimum: 0,
+              exclusiveMinimum: true,
+              description: 'Round duration in minutes (must be positive, e.g. 1 or 5)',
+              example: 1,
+            },
+            priceRanges: {
+              type: 'array',
+              description:
+                'Optional custom price ranges for LEGENDS mode only (mode=1). Must contain at least 2 non-overlapping ranges.',
+              items: {
+                type: 'object',
+                properties: {
+                  min: { type: 'number', description: 'Inclusive minimum price' },
+                  max: { type: 'number', description: 'Exclusive maximum price' },
+                  pool: { type: 'number', description: 'Initial pool stake (default: 0)' },
+                },
+                required: ['min', 'max'],
+              },
+            },
+          },
+          required: ['mode', 'startPrice', 'duration'],
+          additionalProperties: false,
+        },
+        StartRoundResponse: {
+          type: 'object',
+          description: 'Response payload when a new round is successfully started',
+          properties: {
+            success: { type: 'boolean', example: true },
+            round: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                mode: { type: 'string', enum: ['UP_DOWN', 'LEGENDS'] },
+                status: { type: 'string', enum: ['PENDING', 'ACTIVE', 'LOCKED', 'RESOLVED', 'CANCELLED'] },
+                startTime: { type: 'string', format: 'date-time' },
+                endTime: { type: 'string', format: 'date-time' },
+                startPrice: { $ref: '#/components/schemas/MoneyAmount' },
+                sorobanRoundId: { type: 'string', nullable: true },
+                isSoroban: { type: 'boolean' },
+                priceRanges: {
+                  type: 'array',
+                  nullable: true,
+                  items: { $ref: '#/components/schemas/LegendsPriceRange' },
+                },
+              },
+              required: ['id', 'mode', 'status', 'startTime', 'endTime', 'startPrice'],
+            },
+          },
+          required: ['success', 'round'],
+          additionalProperties: false,
+        },
         PriceResponse: {
           type: 'object',
           properties: {

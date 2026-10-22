@@ -59,12 +59,19 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
 });
 
 /**
- * @swagger
+ * @openapi
  * /api/rounds/start:
  *   post:
  *     summary: Start a new prediction round
- *     description: Admin-only. Starts a new round for a given mode, start price, and duration.
- *     tags: [rounds]
+ *     description: >
+ *       Admin-only endpoint to start a new prediction round. Mode selects between
+ *       UP_DOWN (0) and LEGENDS (1). In UP_DOWN mode, an on-chain round is initialized
+ *       via Soroban. In LEGENDS mode, discrete price brackets are configured (or default
+ *       brackets generated). Timing: duration is specified in minutes; round startTime is
+ *       recorded at creation and endTime is set to startTime + duration * 60s.
+ *     tags:
+ *       - rounds
+ *       - Admin
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -72,39 +79,44 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               mode:
- *                 type: integer
- *                 description: 0 (UP_DOWN) or 1 (LEGENDS)
- *                 enum: [0, 1]
- *               startPrice:
- *                 type: number
- *                 description: Starting price (must be > 0)
- *               duration:
- *                 type: integer
- *                 description: Duration in seconds (must be > 0)
- *               priceRanges:
- *                 type: array
- *                 description: Optional LEGENDS-only custom ranges
- *                 items:
- *                   type: object
- *                   properties:
- *                     min: { type: number }
- *                     max: { type: number }
- *                   required: [min, max]
- *             required: [mode, startPrice, duration]
+ *             $ref: '#/components/schemas/StartRoundRequest'
  *     responses:
  *       200:
- *         description: Round started
+ *         description: Round successfully started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/StartRoundResponse'
  *       400:
- *         description: Validation error
+ *         description: Validation error (e.g. invalid mode, non-positive price/duration, overlapping ranges)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       401:
- *         description: Unauthorized
+ *         description: Missing or invalid JWT
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       403:
- *         description: Forbidden
+ *         description: Forbidden - caller does not have ADMIN role
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       409:
- *         description: Conflict - active round exists
+ *         description: Conflict - an active round already exists for the requested mode
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       429:
+ *         description: Too many requests - rate limit exceeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RateLimitResponse'
  */
 router.post(
   "/start",
