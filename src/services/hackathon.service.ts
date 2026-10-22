@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import { BusinessRuleError, ErrorCode } from '../utils/errors';
 import logger from '../utils/logger';
+import websocketService from './websocket.service';
 
 export interface PlaceBetInput {
   userId: string;
@@ -260,6 +261,18 @@ export class HackathonService {
           });
         }
       }
+    });
+
+    // Emit bet:accepted event for UI parity with full mode (Issue #831)
+    const round = await prisma.mockRound.findUnique({ where: { id: roundId } });
+    const mode = round?.mode === 'updown' ? 'UP_DOWN' : 'PRECISION';
+    websocketService.emitBetAccepted({
+      roundId,
+      address,
+      amount: amount.toString(),
+      side,
+      mode,
+      state: 'stub',
     });
   }
 }
