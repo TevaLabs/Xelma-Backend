@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAdmin } from '../middleware/auth.middleware';
-import { getCorsOrigins, parseOriginList, CorsOriginConfig } from '../utils/cors';
+import { getCorsOrigins, getSocketCorsConfig, parseOriginList, CorsOriginConfig } from '../utils/cors';
 
 const router = Router();
 
@@ -52,15 +52,40 @@ router.get('/', requireAdmin, (req: Request, res: Response) => {
     return { allowAll: false, origins: [] };
   };
 
-  let resolved: { allowAll: boolean; origins: string[]; error?: string };
+  let httpResolved: { allowAll: boolean; origins: string[]; error?: string };
   try {
-    resolved = normalize(getCorsOrigins());
+    httpResolved = normalize(getCorsOrigins());
   } catch (e) {
-    resolved = { allowAll: false, origins: [], error: (e as Error).message };
+    httpResolved = { allowAll: false, origins: [], error: (e as Error).message };
   }
 
-  const http = resolved;
-  const socket = resolved;
+  let socketResolved: {
+    allowAll: boolean;
+    origins: string[];
+    methods: string[];
+    credentials: boolean;
+    error?: string;
+  };
+  try {
+    const socketConfig = getSocketCorsConfig();
+    const normalized = normalize(socketConfig.origin);
+    socketResolved = {
+      ...normalized,
+      methods: socketConfig.methods,
+      credentials: socketConfig.credentials,
+    };
+  } catch (e) {
+    socketResolved = {
+      allowAll: false,
+      origins: [],
+      methods: ['GET', 'POST'],
+      credentials: true,
+      error: (e as Error).message,
+    };
+  }
+
+  const http = httpResolved;
+  const socket = socketResolved;
 
   const testOrigin =
     typeof req.query.origin === 'string' ? req.query.origin : null;
