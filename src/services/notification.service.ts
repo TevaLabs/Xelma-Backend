@@ -1,7 +1,8 @@
-import { DispatchChannel } from "@prisma/client";
+import { DispatchChannel, NotificationType } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
 import deadLetterQueueService from "./dead-letter-queue.service";
+import { validateNotificationData } from "../schemas/notification.schema";
 import {
   buildCursorMeta,
   buildOffsetMeta,
@@ -19,9 +20,9 @@ interface NotificationPreferences {
   announcement?: boolean;
 }
 
-interface CreateNotificationInput {
+export interface CreateNotificationInput {
   userId: string;
-  type: "WIN" | "LOSS" | "ROUND_START" | "BONUS_AVAILABLE" | "ANNOUNCEMENT";
+  type: NotificationType | "WIN" | "LOSS" | "ROUND_START" | "BONUS_AVAILABLE" | "ANNOUNCEMENT";
   title: string;
   message: string;
   data?: any;
@@ -87,12 +88,18 @@ class NotificationService {
   }
 
   /**
-  /**
-   * Create a new notification
+   * Create a new notification.
+   *
+   * Validates `input.data` against the schema defined for `input.type` prior to
+   * evaluating preferences or persisting to the database. Unknown extra keys are stripped.
+   *
+   * @throws {NotificationDataValidationError} When `input.data` fails validation for its type.
    */
   async createNotification(
     input: CreateNotificationInput,
   ): Promise<any | null> {
+    const validatedData = validateNotificationData(input.type, input.data);
+
     try {
       // Check user preferences first
       const shouldNotify = await this.checkPreference(input.userId, input.type);
@@ -106,10 +113,10 @@ class NotificationService {
       const notification = await prisma.notification.create({
         data: {
           userId: input.userId,
-          type: input.type,
+          type: input.type as NotificationType,
           title: input.title,
           message: input.message,
-          data: input.data || null,
+          data: (validatedData as any) ?? null,
         },
       });
 
@@ -136,15 +143,19 @@ class NotificationService {
   /**
    * Replay handler for the DLQ. Skips the preference check because at
    * record time the caller already decided this notification should fire.
+   * Validates `input.data` against the schema defined for `input.type` prior to writing to DB.
+   *
+   * @throws {NotificationDataValidationError} When `input.data` fails validation for its type.
    */
   async createNotificationForRetry(input: CreateNotificationInput): Promise<any> {
+    const validatedData = validateNotificationData(input.type, input.data);
     return prisma.notification.create({
       data: {
         userId: input.userId,
-        type: input.type,
+        type: input.type as NotificationType,
         title: input.title,
         message: input.message,
-        data: input.data || null,
+        data: (validatedData as any) ?? null,
       },
     });
   }

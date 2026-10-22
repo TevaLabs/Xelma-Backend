@@ -65,6 +65,24 @@ export class ValidationError extends AppError {
   }
 }
 
+/** 400 – notification `data` payload failed schema validation for its NotificationType */
+export class NotificationDataValidationError extends ValidationError {
+  readonly notificationType: string;
+
+  constructor(
+    notificationType: string,
+    message?: string,
+    details?: ErrorDetail[],
+  ) {
+    super(
+      message ?? `Invalid notification data for type ${notificationType}`,
+      details,
+    );
+    this.name = "NotificationDataValidationError";
+    this.notificationType = notificationType;
+  }
+}
+
 /** 401 – missing or invalid credentials */
 export class AuthenticationError extends AppError {
   constructor(message: string, code: ErrorCode | string = ErrorCode.AUTHENTICATION_ERROR) {

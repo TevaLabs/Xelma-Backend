@@ -314,6 +314,13 @@ See [docs/architecture.md](docs/architecture.md) for the full architecture decis
 - **Types**: WIN, LOSS, ROUND_START, BONUS_AVAILABLE, ANNOUNCEMENT
 - **Channels**: Database storage + WebSocket emission
 - **Filtering**: Respects user notification preferences
+- **Payload Validation** (Issue #881): Notification `data` payloads are strictly validated against a typed Zod schema per `NotificationType` before database persistence or DLQ dispatch:
+  - `WIN`: `{ roundId: string, amount: number, predictionId?: string, txHash?: string }`
+  - `LOSS`: `{ roundId: string, amount?: number, predictionId?: string }`
+  - `ROUND_START`: `{ roundId: string, startPrice?: number }`
+  - `BONUS_AVAILABLE`: `{ amount: number, bonusType?: string, expiresAt?: string, streak?: number }`
+  - `ANNOUNCEMENT`: `{ link?: string, action?: string, category?: string, announcementId?: string }` (or `null`/empty object for data-less broadcasts)
+  Unknown extra fields are safely stripped, and invalid payloads throw a typed `NotificationDataValidationError` (HTTP 400).
 
 #### **10. Chat Service (`chat.service.ts`)**
 

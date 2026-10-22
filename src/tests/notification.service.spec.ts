@@ -40,6 +40,8 @@ jest.mock('../services/dead-letter-queue.service', () => ({
 
 import notificationService from '../services/notification.service';
 import { encodeCursor } from '../utils/pagination.util';
+import { NotificationDataValidationError, ValidationError } from '../utils/errors';
+import { NotificationType } from '@prisma/client';
 
 const USER_ID = 'user-test-id';
 const OTHER_USER_ID = 'user-other-id';
@@ -59,7 +61,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
         type: 'WIN',
         title: 'You Won!',
         message: 'Reward credited',
-        data: null,
+        data: { roundId: 'round-1', amount: 50 },
       });
 
       const result = await notificationService.createNotification({
@@ -67,6 +69,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
         type: 'WIN',
         title: 'You Won!',
         message: 'Reward credited',
+        data: { roundId: 'round-1', amount: 50 },
       });
 
       expect(result).not.toBeNull();
@@ -77,7 +80,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
           type: 'WIN',
           title: 'You Won!',
           message: 'Reward credited',
-          data: null,
+          data: { roundId: 'round-1', amount: 50 },
         },
       });
     });
@@ -93,6 +96,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
         type: 'WIN',
         title: 'Won',
         message: 'msg',
+        data: { roundId: 'r-1', amount: 100 },
       });
       expect(winResult).toBeNull();
       expect(mockNotificationCreate).not.toHaveBeenCalled();
@@ -102,6 +106,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
         type: 'ROUND_START',
         title: 'Round Started',
         message: 'msg',
+        data: { roundId: 'r-1', startPrice: 0.12 },
       });
       expect(roundStartResult).toBeNull();
 
@@ -110,6 +115,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
         type: 'BONUS_AVAILABLE',
         title: 'Bonus',
         message: 'msg',
+        data: { amount: 25 },
       });
       expect(bonusResult).toBeNull();
 
@@ -118,6 +124,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
         type: 'ANNOUNCEMENT',
         title: 'Announcement',
         message: 'msg',
+        data: null,
       });
       expect(announcementResult).toBeNull();
 
@@ -128,6 +135,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
         type: 'LOSS',
         title: 'Lost',
         message: 'msg',
+        data: { roundId: 'r-1', amount: 0 },
       });
       expect(lossResult).not.toBeNull();
     });
@@ -145,6 +153,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
         type: 'WIN',
         title: 'You Won!',
         message: 'Reward credited',
+        data: { roundId: 'round-1', amount: 50 },
       });
 
       expect(result).not.toBeNull();
@@ -161,6 +170,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
         type: 'WIN' as const,
         title: 'You Won!',
         message: 'Reward credited',
+        data: { roundId: 'round-1', amount: 50 },
       };
 
       await expect(notificationService.createNotification(input)).rejects.toThrow(dbError);
@@ -182,6 +192,7 @@ describe('NotificationService — unit tests (Issue #527)', () => {
         type: 'WIN' as const,
         title: 'Win',
         message: 'msg',
+        data: { roundId: 'round-1', amount: 50 },
       };
 
       const result = await notificationService.createNotificationForRetry(input);
@@ -386,6 +397,338 @@ describe('NotificationService — unit tests (Issue #527)', () => {
       expect(mockNotificationCount).toHaveBeenCalledWith({
         where: { userId: USER_ID, isRead: false },
       });
+    });
+  });
+
+  describe('Notification data validation per type (Issue #881)', () => {
+    it('accepts valid payload for each NotificationType', async () => {
+      mockUserFindUnique.mockResolvedValue({ id: USER_ID, notificationPreferences: null });
+
+      const validPayloads = [
+        {
+          type: NotificationType.WIN,
+          data: { roundId: 'r-win', amount: 125.5, predictionId: 'p-1', txHash: 'tx-1' },
+          expectedStored: { roundId: 'r-win', amount: 125.5, predictionId: 'p-1', txHash: 'tx-1' },
+        },
+        {
+          type: NotificationType.LOSS,
+          data: { roundId: 'r-loss', amount: 0, predictionId: 'p-2' },
+          expectedStored: { roundId: 'r-loss', amount: 0, predictionId: 'p-2' },
+        },
+        {
+          type: NotificationType.LOSS,
+          data: { roundId: 'r-loss-no-amount' },
+          expectedStored: { roundId: 'r-loss-no-amount' },
+        },
+        {
+          type: NotificationType.ROUND_START,
+          data: { roundId: 'r-start', startPrice: 0.1234 },
+          expectedStored: { roundId: 'r-start', startPrice: 0.1234 },
+        },
+        {
+          type: NotificationType.ROUND_START,
+          data: { roundId: 'r-start-no-price' },
+          expectedStored: { roundId: 'r-start-no-price' },
+        },
+        {
+          type: NotificationType.BONUS_AVAILABLE,
+          data: { amount: 50, bonusType: 'DAILY_STREAK', expiresAt: '2026-12-31T00:00:00Z', streak: 5 },
+          expectedStored: { amount: 50, bonusType: 'DAILY_STREAK', expiresAt: '2026-12-31T00:00:00Z', streak: 5 },
+        },
+        {
+          type: NotificationType.ANNOUNCEMENT,
+          data: { link: 'https://example.com/update', category: 'SYSTEM' },
+          expectedStored: { link: 'https://example.com/update', category: 'SYSTEM' },
+        },
+        {
+          type: NotificationType.ANNOUNCEMENT,
+          data: null,
+          expectedStored: null,
+        },
+        {
+          type: NotificationType.ANNOUNCEMENT,
+          data: undefined,
+          expectedStored: null,
+        },
+        {
+          type: NotificationType.ANNOUNCEMENT,
+          data: {},
+          expectedStored: {},
+        },
+      ];
+
+      for (const item of validPayloads) {
+        mockNotificationCreate.mockResolvedValueOnce({
+          id: `notif-${item.type}`,
+          userId: USER_ID,
+          type: item.type,
+          title: 'Test Title',
+          message: 'Test Message',
+          data: item.expectedStored,
+        });
+
+        const res = await notificationService.createNotification({
+          userId: USER_ID,
+          type: item.type,
+          title: 'Test Title',
+          message: 'Test Message',
+          data: item.data,
+        });
+
+        expect(res).not.toBeNull();
+        expect(mockNotificationCreate).toHaveBeenLastCalledWith({
+          data: {
+            userId: USER_ID,
+            type: item.type,
+            title: 'Test Title',
+            message: 'Test Message',
+            data: item.expectedStored,
+          },
+        });
+      }
+    });
+
+    it('strips unknown extra keys from valid object payloads without breaking', async () => {
+      mockUserFindUnique.mockResolvedValue({ id: USER_ID, notificationPreferences: null });
+      mockNotificationCreate.mockResolvedValueOnce({ id: 'notif-strip' });
+
+      await notificationService.createNotification({
+        userId: USER_ID,
+        type: 'WIN',
+        title: 'Win',
+        message: 'Won',
+        data: {
+          roundId: 'r-1',
+          amount: 10,
+          unexpectedKey: 'should-be-stripped',
+          extraData: 12345,
+        },
+      });
+
+      expect(mockNotificationCreate).toHaveBeenCalledWith({
+        data: {
+          userId: USER_ID,
+          type: 'WIN',
+          title: 'Win',
+          message: 'Won',
+          data: {
+            roundId: 'r-1',
+            amount: 10,
+          },
+        },
+      });
+    });
+
+    it('rejects missing required fields with NotificationDataValidationError', async () => {
+      // WIN missing amount
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'WIN',
+          title: 'Win',
+          message: 'Won',
+          data: { roundId: 'r-1' },
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      // WIN missing roundId
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'WIN',
+          title: 'Win',
+          message: 'Won',
+          data: { amount: 100 },
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      // LOSS missing roundId
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'LOSS',
+          title: 'Loss',
+          message: 'Lost',
+          data: { amount: 0 },
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      // ROUND_START missing roundId
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'ROUND_START',
+          title: 'Start',
+          message: 'Round start',
+          data: { startPrice: 10 },
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      // BONUS_AVAILABLE missing amount
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'BONUS_AVAILABLE',
+          title: 'Bonus',
+          message: 'Bonus ready',
+          data: { bonusType: 'DAILY' },
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+    });
+
+    it('rejects wrong field types', async () => {
+      // WIN with string amount
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'WIN',
+          title: 'Win',
+          message: 'Won',
+          data: { roundId: 'r-1', amount: 'one hundred' as any },
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      // ROUND_START with string startPrice
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'ROUND_START',
+          title: 'Start',
+          message: 'Round start',
+          data: { roundId: 'r-1', startPrice: 'high' as any },
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      // BONUS_AVAILABLE with negative amount
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'BONUS_AVAILABLE',
+          title: 'Bonus',
+          message: 'Bonus ready',
+          data: { amount: -10 },
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+    });
+
+    it('rejects unknown NotificationType at runtime', async () => {
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'INVALID_TYPE' as any,
+          title: 'Title',
+          message: 'Message',
+          data: { foo: 'bar' },
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+    });
+
+    it('rejects malformed data (non-object or null where not allowed)', async () => {
+      // WIN with null data
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'WIN',
+          title: 'Win',
+          message: 'Won',
+          data: null,
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      // WIN with undefined data
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'WIN',
+          title: 'Win',
+          message: 'Won',
+          data: undefined,
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      // LOSS with string data
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'LOSS',
+          title: 'Loss',
+          message: 'Lost',
+          data: 'invalid json' as any,
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      // ROUND_START with number primitive data
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'ROUND_START',
+          title: 'Start',
+          message: 'Start',
+          data: 12345 as any,
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      // ANNOUNCEMENT with primitive string or number (not object or null/undefined)
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'ANNOUNCEMENT',
+          title: 'Announcement',
+          message: 'Announcement msg',
+          data: 'some string' as any,
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      await expect(
+        notificationService.createNotification({
+          userId: USER_ID,
+          type: 'ANNOUNCEMENT',
+          title: 'Announcement',
+          message: 'Announcement msg',
+          data: 999 as any,
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+    });
+
+    it('ensures nothing is persisted to DB or DLQ when validation fails in createNotification', async () => {
+      try {
+        await notificationService.createNotification({
+          userId: USER_ID,
+          type: 'WIN',
+          title: 'Win',
+          message: 'Won',
+          data: { invalidField: true },
+        });
+        throw new Error('Expected createNotification to throw');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(NotificationDataValidationError);
+        expect(err).toBeInstanceOf(ValidationError);
+        expect(err.statusCode).toBe(400);
+        expect(err.code).toBe('VALIDATION_ERROR');
+        expect(err.notificationType).toBe('WIN');
+        expect(err.details).toBeDefined();
+        expect(Array.isArray(err.details)).toBe(true);
+        expect(err.details.length).toBeGreaterThan(0);
+      }
+
+      // Assert nothing was persisted
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
+      expect(mockUserFindUnique).not.toHaveBeenCalled();
+      expect(mockDlqRecord).not.toHaveBeenCalled();
+    });
+
+    it('ensures createNotificationForRetry rejects invalid payload without persisting to DB', async () => {
+      await expect(
+        notificationService.createNotificationForRetry({
+          userId: USER_ID,
+          type: 'WIN',
+          title: 'Win',
+          message: 'Won',
+          data: { roundId: 'r-1' }, // Missing amount
+        }),
+      ).rejects.toThrow(NotificationDataValidationError);
+
+      expect(mockNotificationCreate).not.toHaveBeenCalled();
     });
   });
 });

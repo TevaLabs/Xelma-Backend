@@ -226,6 +226,14 @@ interface NotificationNewPayload {
 }
 ```
 
+The `data` JSON payload is validated per `type` against the following schemas (Issue #881):
+
+- **`WIN`**: `{ roundId: string, amount: number, predictionId?: string, txHash?: string }`
+- **`LOSS`**: `{ roundId: string, amount?: number, predictionId?: string }`
+- **`ROUND_START`**: `{ roundId: string, startPrice?: number }`
+- **`BONUS_AVAILABLE`**: `{ amount: number, bonusType?: string, expiresAt?: string, streak?: number }`
+- **`ANNOUNCEMENT`**: `{ link?: string, action?: string, category?: string, announcementId?: string } | null`
+
 **`notification:unread-count`** — Updated unread count:
 
 ```typescript
