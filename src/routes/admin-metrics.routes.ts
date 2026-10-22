@@ -156,7 +156,8 @@ router.get('/rate-limits', requireAdmin, async (req: Request, res: Response) => 
 router.post('/rate-limits/clear', requireAdmin, async (req: Request, res: Response) => {
   try {
     const days = req.query.days ? parseInt(req.query.days as string) : 7;
-    const count = await rateLimitMetricsService.clearOldMetrics(days);
+    const endpoint = req.query.endpoint as string | undefined;
+    const count = await rateLimitMetricsService.clearOldMetrics(days, endpoint);
     res.json({ message: 'Success', deletedCount: count });
   } catch (error) {
     logger.error('Error clearing rate-limit metrics:', error);
