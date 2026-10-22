@@ -3297,6 +3297,64 @@
         ]
       }
     },
+    "/api/admin/dead-letter/{id}/abandon": {
+      "post": {
+        "summary": "Abandon a single DLQ entry with an audit reason",
+        "description": "Admin only. Marks the dead-letter queue entry as ABANDONED and logs\nan audit event with the supplied reason.\n",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "DLQ entry ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "Reason for abandoning the dead-letter entry"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Dead-letter entry abandoned successfully"
+          },
+          "400": {
+            "description": "Missing or invalid reason"
+          },
+          "404": {
+            "description": "Dead-letter entry not found"
+          },
+          "500": {
+            "description": "Failed to abandon dead-letter entry"
+          }
+        }
+      }
+    },
     "/api/admin/cors-diagnostics": {
       "get": {
         "summary": "Resolved CORS origin allowlist for HTTP and Socket.IO",

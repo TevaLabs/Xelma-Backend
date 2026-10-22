@@ -445,6 +445,48 @@ describe('AuditLogger', () => {
         })
       );
     });
+
+    it('should log DLQ abandoned event with operator reason and target metadata', () => {
+      auditLogger.logDlqAbandoned({
+        dlqId: 'dlq-456',
+        channel: 'WEBSOCKET_EMIT',
+        eventName: 'notification:new',
+        userId: 'target-user-789',
+        reason: 'Client disconnected permanently',
+        actorUserId: 'admin-admin-1',
+        actorWalletAddress: 'GADMIN999',
+        requestId: 'req-dlq-1',
+        ipAddress: '10.0.0.1',
+        userAgent: 'AdminPortal/1.0',
+      });
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audit: true,
+          eventType: AuditEventType.DLQ_ABANDONED,
+          severity: AuditSeverity.WARNING,
+          message: 'Dead-letter entry dlq-456 abandoned: Client disconnected permanently',
+          outcome: 'success',
+          actor: expect.objectContaining({
+            type: 'user',
+            userId: 'admin-admin-1',
+            walletAddress: 'GADMIN999',
+            ipAddress: '10.0.0.1',
+            userAgent: 'AdminPortal/1.0',
+          }),
+          resource: expect.objectContaining({
+            type: 'dlq_entry',
+            id: 'dlq-456',
+          }),
+          metadata: expect.objectContaining({
+            channel: 'WEBSOCKET_EMIT',
+            eventName: 'notification:new',
+            targetUserId: 'target-user-789',
+            reason: 'Client disconnected permanently',
+          }),
+        })
+      );
+    });
   });
 
   describe('Database Persistence', () => {
