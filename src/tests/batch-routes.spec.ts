@@ -119,7 +119,7 @@ describe("Batch Predictions Routes", () => {
       );
     });
 
-    it("should handle partial success in batch predictions", async () => {
+    it("should handle partial success in batch predictions with 207 status", async () => {
       const batchRequest = {
         predictions: [
           {
@@ -165,7 +165,7 @@ describe("Batch Predictions Routes", () => {
         .set("Authorization", `Bearer ${userAToken}`)
         .send(batchRequest);
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(207);
       expect(response.body.success).toBe(true);
       expect(response.body.results).toHaveLength(2);
       expect(response.body.results[0].success).toBe(true);

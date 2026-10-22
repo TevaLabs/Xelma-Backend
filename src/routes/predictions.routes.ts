@@ -203,6 +203,10 @@ router.post(
  *     summary: Submit multiple predictions at once
  *     description: |
  *       Batch submit up to 50 predictions. Rate limit: **3 batch requests per minute per user** (stricter than single submit). On limit, responds with **429**.
+ *
+ *       Response status codes:
+ *       - **200**: All predictions succeeded
+ *       - **207**: Partial success (some predictions failed) - check results array for individual item status
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -220,7 +224,9 @@ router.post(
  *                   required: [roundId, amount]
  *     responses:
  *       200:
- *         description: Predictions processed
+ *         description: All predictions processed successfully
+ *       207:
+ *         description: Partial success - some predictions failed
  *       429:
  *         description: Too many batch requests
  *         content:
@@ -242,7 +248,11 @@ router.post(
          predictions
       );
 
-      res.json({
+      // Return 207 if any prediction failed, 200 if all succeeded
+      const hasFailures = result.results.some(r => !r.success);
+      const statusCode = hasFailures ? 207 : 200;
+
+      res.status(statusCode).json({
          ...result,
          success: true,
       });
