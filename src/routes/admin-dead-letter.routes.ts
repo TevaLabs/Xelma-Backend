@@ -62,14 +62,12 @@ function parseDryRun(req: Request): boolean {
   return fromBody === true || fromBody === 'true';
 }
 
+// Summary, parameters, and list/retry/abandon examples for this operation live
+// in src/docs/openapi.ts so the published contract stays in one place (#857).
 /**
  * @openapi
  * /api/admin/dead-letter:
  *   get:
- *     summary: List failed notification/event dispatches
- *     description: |
- *       Returns the dead-letter queue contents, newest first. Admin only.
- *       Use `?status=` and `?channel=` to filter; defaults to all rows.
  *     tags:
  *       - Admin
  *     security:
@@ -94,8 +92,6 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
  * @openapi
  * /api/admin/dead-letter/retry-all:
  *   post:
- *     summary: Replay every pending/retrying dispatch in the DLQ
- *     description: Admin only. Returns a counts summary.
  *     tags:
  *       - Admin
  *     security:
@@ -122,7 +118,6 @@ router.post('/retry-all', requireAdmin, async (req: Request, res: Response) => {
  * @openapi
  * /api/admin/dead-letter/{id}/retry:
  *   post:
- *     summary: Replay a single DLQ entry
  *     tags:
  *       - Admin
  *     security:

@@ -44,7 +44,9 @@ const REQUIRED_OPERATIONS: RequiredOperation[] = [
 
   // Admin operational visibility
   { path: "/api/admin/metrics/rate-limits", method: "get", statuses: ["200"] },
-  { path: "/api/admin/dead-letter", method: "get", statuses: [] },
+  { path: "/api/admin/dead-letter", method: "get", statuses: ["200", "401", "403", "500"] },
+  { path: "/api/admin/dead-letter/{id}/retry", method: "post", statuses: ["200", "401", "403", "404", "500"] },
+  { path: "/api/admin/dead-letter/retry-all", method: "post", statuses: ["200", "401", "403", "500"] },
   { path: "/api/admin/cors-diagnostics", method: "get", statuses: ["200"] },
 
   // Health / metrics
@@ -102,6 +104,39 @@ describe("OpenAPI spec", () => {
     expect(pricesOp?.summary).toMatch(/multi-asset/i);
     expect(String(priceOp?.description ?? "")).toMatch(/Do not confuse with.*\/api\/prices/i);
     expect(String(pricesOp?.description ?? "")).toMatch(/Do not confuse with.*\/api\/price/i);
+  });
+
+  it("documents the DLQ list/retry/abandon contract", () => {
+    // WHY: the admin DLQ is the only way an operator can inspect and replay a
+    // failed notification/WebSocket dispatch. The routes existed but shipped
+    // with almost no published contract (#857), so an operator had to read the
+    // source to learn the filters, dry-run semantics, and what ABANDONED means.
+    const paths = (swaggerSpec as { paths?: Record<string, any> }).paths ?? {};
+    const list = paths["/api/admin/dead-letter"]?.get;
+    const retry = paths["/api/admin/dead-letter/{id}/retry"]?.post;
+    const retryAll = paths["/api/admin/dead-letter/retry-all"]?.post;
+
+    expect(list.parameters.map((parameter: any) => parameter.name)).toEqual(
+      expect.arrayContaining(["status", "channel", "limit", "offset"]),
+    );
+
+    const listExamples = list.responses["200"].content["application/json"].examples;
+    const listRows = Object.values(listExamples).flatMap((example: any) => example.value.entries);
+    expect(listRows.some((row: any) => row.status === "ABANDONED")).toBe(true);
+
+    // A retry can succeed, stay retryable, or hit the cap and become ABANDONED.
+    const retryExamples = retry.responses["200"].content["application/json"].examples;
+    expect(retryExamples.resolved.value.status).toBe("RESOLVED");
+    expect(retryExamples.abandoned.value.status).toBe("ABANDONED");
+    expect(retryExamples.dryRun.value.dryRun).toBe(true);
+
+    const retryAllExamples = retryAll.responses["200"].content["application/json"].examples;
+    expect(retryAllExamples.abandonedOnly.value.abandoned).toBeGreaterThan(0);
+    expect(retryAllExamples.dryRun.value.previews.length).toBeGreaterThan(0);
+
+    const dlqEntry = (swaggerSpec as { components?: { schemas?: Record<string, any> } })
+      .components?.schemas?.DlqEntry;
+    expect(dlqEntry.properties.status.enum).toContain("ABANDONED");
   });
 
   it("documents 429 response on batch prediction submit", () => {
