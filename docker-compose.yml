@@ -42,7 +42,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://xelma:xelma@postgres:5432/xelma}
       # Distributed idempotency locks (Issue #493) fail closed without Redis,
       # so the API service is wired to the compose Redis instance.
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
