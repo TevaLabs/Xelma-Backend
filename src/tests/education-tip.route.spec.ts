@@ -24,6 +24,37 @@ app.use(express.json());
 app.use("/api/education", educationRoutes);
 app.use(errorHandler);
 
+describe("GET /api/education/tip - Feature Flag Tests", () => {
+  const originalEnv = process.env.ENABLE_EDUCATION_TIPS;
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.ENABLE_EDUCATION_TIPS;
+    } else {
+      process.env.ENABLE_EDUCATION_TIPS = originalEnv;
+    }
+  });
+
+  it("should return 503 when ENABLE_EDUCATION_TIPS is false", async () => {
+    process.env.ENABLE_EDUCATION_TIPS = "false";
+    const res = await request(app)
+      .get("/api/education/tip")
+      .query({ roundId: "00000000-0000-0000-0000-000000000000" });
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("FeatureDisabledError");
+    expect(res.body.message).toBe("Educational tips feature is disabled");
+  });
+
+  it("should keep /api/education/guides functional when ENABLE_EDUCATION_TIPS is false", async () => {
+    process.env.ENABLE_EDUCATION_TIPS = "false";
+    const res = await request(app).get("/api/education/guides");
+
+    expect(res.status).toBe(200);
+    expect(res.body.guides).toBeDefined();
+  });
+});
+
 describeEducationTip("GET /api/education/tip - Integration Tests", () => {
   let testRoundId: string | undefined;
   let unresolvedRoundId: string | undefined;

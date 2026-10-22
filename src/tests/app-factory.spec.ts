@@ -54,6 +54,7 @@ describe("app factory", () => {
       expect(features.auth).toBe(true);
       expect(features.predictions).toBe(true);
       expect(features.education).toBe(true);
+      expect(features.educationTips).toBe(true);
       expect(features.adminRoutes).toBe(true);
       expect(features.errorCatalog).toBe(true);
       expect(features.versionedAlias).toBe(true);

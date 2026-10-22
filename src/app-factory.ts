@@ -87,6 +87,8 @@ export interface AppFeatures {
   predictions: boolean;
   /** Education guides and tips. `/api/education/*` */
   education: boolean;
+  /** Specific tip generation route within education. `/api/education/tip` */
+  educationTips: boolean;
   /** Machine-readable error catalog. `/api/errors` */
   errorCatalog: boolean;
   /** Admin surfaces: metrics, CORS diagnostics, dead-letter queue, bet audit. */
@@ -134,6 +136,7 @@ const FULL_FEATURES: AppFeatures = {
   auth: true,
   predictions: true,
   education: true,
+  educationTips: true,
   errorCatalog: true,
   adminRoutes: true,
   corsDiagnostics: true,
@@ -158,6 +161,7 @@ const HACKATHON_FEATURES: AppFeatures = {
   auth: true,
   predictions: false,
   education: false,
+  educationTips: false,
   errorCatalog: false,
   adminRoutes: false,
   corsDiagnostics: Boolean(process.env.ENABLE_CORS_DIAGNOSTICS),
@@ -183,6 +187,11 @@ export function resolveFeatures(
   if (overrides.multiplayerSocial === undefined) {
     resolved.multiplayerSocial =
       resolved.multiplayerSocial && config.app.enableMultiplayerSocial;
+  }
+
+  if (overrides.educationTips === undefined) {
+    resolved.educationTips =
+      resolved.educationTips && process.env.ENABLE_EDUCATION_TIPS !== 'false';
   }
 
   return resolved;

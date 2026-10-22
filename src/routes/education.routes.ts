@@ -272,6 +272,13 @@ router.get(
  */
 router.get("/tip", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    if (process.env.ENABLE_EDUCATION_TIPS === "false") {
+      return res.status(503).json({
+        error: "FeatureDisabledError",
+        message: "Educational tips feature is disabled",
+      });
+    }
+
     const { roundId } = req.query;
 
     // Validate roundId parameter
