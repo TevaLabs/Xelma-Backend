@@ -14,12 +14,16 @@ const WALLET = "GPROFILE_TEST_USER_WALLET_ADDRESS__________";
 
 const mockUserFindUnique = jest.fn();
 const mockUserUpdate = jest.fn();
+const mockUserFindMany = jest.fn();
+const mockUserCount = jest.fn();
 
 jest.mock("../lib/prisma", () => ({
   prisma: {
     user: {
       findUnique: (...args: any[]) => mockUserFindUnique(...args),
       update: (...args: any[]) => mockUserUpdate(...args),
+      findMany: (...args: any[]) => mockUserFindMany(...args),
+      count: (...args: any[]) => mockUserCount(...args),
     },
     transaction: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -28,7 +32,11 @@ jest.mock("../lib/prisma", () => ({
     userStats: {
       findUnique: jest.fn().mockResolvedValue(null),
     },
-    $transaction: jest.fn(),
+    $transaction: jest.fn((promises: any) => {
+      if (Array.isArray(promises)) return Promise.all(promises);
+      if (typeof promises === "function") return promises();
+      return Promise.resolve(promises);
+    }),
     $disconnect: jest.fn().mockResolvedValue(undefined),
   },
 }));
@@ -305,5 +313,204 @@ describe("PATCH /api/user/profile — input validation (Issue #137)", () => {
       .send({ nickname: "validnick" });
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe("GET /api/user/admin/users — list users by role (requireAdmin)", () => {
+  let app: Express;
+  const adminId = "admin-test-id";
+  const adminAddress = "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H";
+  const regularUserId = "regular-test-id";
+  const regularUserAddress = "GCWLQSOPFDNVHV657I5EWTEI6TYCDDWNXFGEW4S74WBHOPYANSM767V4";
+
+  const adminToken = generateToken(adminId, adminAddress, UserRole.ADMIN);
+  const userToken = generateToken(regularUserId, regularUserAddress, UserRole.USER);
+
+  beforeAll(() => {
+    app = createApp();
+  });
+
+  beforeEach(() => {
+    mockUserFindUnique.mockReset();
+    mockUserFindMany.mockReset();
+    mockUserCount.mockReset();
+  });
+
+  it("rejects unauthenticated requests with 401", async () => {
+    const res = await request(app).get("/api/user/admin/users");
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects non-admin users with 403", async () => {
+    mockUserFindUnique.mockResolvedValueOnce({
+      id: regularUserId,
+      walletAddress: regularUserAddress,
+      role: UserRole.USER,
+    });
+
+    const res = await request(app)
+      .get("/api/user/admin/users")
+      .set("Authorization", `Bearer ${userToken}`);
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 200 and paginated users for admin", async () => {
+    mockUserFindUnique.mockResolvedValueOnce({
+      id: adminId,
+      walletAddress: adminAddress,
+      role: UserRole.ADMIN,
+    });
+
+    const mockUsers = [
+      {
+        id: "u-1",
+        walletAddress: "GADDR1",
+        nickname: "oracle1",
+        avatarUrl: null,
+        role: UserRole.ORACLE,
+        virtualBalance: "1000",
+        wins: 5,
+        streak: 2,
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+        lastLoginAt: new Date("2026-01-02T00:00:00Z"),
+      },
+      {
+        id: "u-2",
+        walletAddress: "GADDR2",
+        nickname: "admin1",
+        avatarUrl: null,
+        role: UserRole.ADMIN,
+        virtualBalance: "2000",
+        wins: 10,
+        streak: 4,
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+        lastLoginAt: null,
+      },
+    ];
+
+    mockUserFindMany.mockResolvedValueOnce(mockUsers);
+    mockUserCount.mockResolvedValueOnce(2);
+
+    const res = await request(app)
+      .get("/api/user/admin/users")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.data[0].role).toBe("ORACLE");
+    expect(res.body.meta.pagination).toEqual({
+      limit: 20,
+      offset: 0,
+      total: 2,
+      totalPages: 1,
+    });
+  });
+
+  it("filters users by role (e.g. role=ORACLE)", async () => {
+    mockUserFindUnique.mockResolvedValueOnce({
+      id: adminId,
+      walletAddress: adminAddress,
+      role: UserRole.ADMIN,
+    });
+
+    const mockOracles = [
+      {
+        id: "u-1",
+        walletAddress: "GADDR1",
+        nickname: "oracle1",
+        avatarUrl: null,
+        role: UserRole.ORACLE,
+        virtualBalance: "1000",
+        wins: 5,
+        streak: 2,
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+        lastLoginAt: null,
+      },
+    ];
+
+    mockUserFindMany.mockResolvedValueOnce(mockOracles);
+    mockUserCount.mockResolvedValueOnce(1);
+
+    const res = await request(app)
+      .get("/api/user/admin/users?role=ORACLE")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].role).toBe("ORACLE");
+    expect(mockUserFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ role: UserRole.ORACLE }),
+      }),
+    );
+  });
+
+  it("supports cursor pagination mode", async () => {
+    mockUserFindUnique.mockResolvedValueOnce({
+      id: adminId,
+      walletAddress: adminAddress,
+      role: UserRole.ADMIN,
+    });
+
+    const cursorDate = new Date("2026-02-01T00:00:00Z");
+    const cursor = Buffer.from(cursorDate.toISOString()).toString("base64url");
+
+    const mockUsers = [
+      {
+        id: "u-1",
+        walletAddress: "GADDR1",
+        nickname: "user1",
+        avatarUrl: null,
+        role: UserRole.ADMIN,
+        virtualBalance: "1000",
+        wins: 0,
+        streak: 0,
+        createdAt: new Date("2026-01-15T00:00:00Z"),
+        lastLoginAt: null,
+      },
+    ];
+
+    mockUserFindMany.mockResolvedValueOnce(mockUsers);
+
+    const res = await request(app)
+      .get(`/api/user/admin/users?cursor=${cursor}&limit=1`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.meta).toHaveProperty("nextCursor");
+  });
+
+  it("rejects invalid cursor with 400", async () => {
+    mockUserFindUnique.mockResolvedValueOnce({
+      id: adminId,
+      walletAddress: adminAddress,
+      role: UserRole.ADMIN,
+    });
+
+    const res = await request(app)
+      .get("/api/user/admin/users?cursor=invalid-cursor!")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("rejects invalid role with 400", async () => {
+    mockUserFindUnique.mockResolvedValueOnce({
+      id: adminId,
+      walletAddress: adminAddress,
+      role: UserRole.ADMIN,
+    });
+
+    const res = await request(app)
+      .get("/api/user/admin/users?role=SUPERUSER")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(400);
   });
 });

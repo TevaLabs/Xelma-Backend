@@ -1,8 +1,31 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
-import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
+import { authenticateUser, requireAdmin, AuthenticatedRequest } from "../middleware/auth.middleware";
+import { UserRole } from "@prisma/client";
 import { validate } from "../middleware/validate.middleware";
+import { z } from "zod";
 import { updateProfileSchema } from "../schemas/user.schema";
+
+const adminListUsersQuerySchema = z.object({
+  role: z.enum(["USER", "ADMIN", "ORACLE"]).optional(),
+  limit: z
+    .preprocess((v) => {
+      if (typeof v === "string") return Number(v);
+      return v;
+    }, z.number().int())
+    .pipe(z.number().int().min(1).max(100))
+    .default(20),
+  offset: z
+    .preprocess((v) => {
+      if (typeof v === "string") return Number(v);
+      return v;
+    }, z.number().int())
+    .pipe(z.number().int().min(0))
+    .default(0),
+  cursor: z.string().optional(),
+});
+
+type AdminListUsersQueryParams = z.infer<typeof adminListUsersQuerySchema>;
 import { unifiedPaginationSchema, UnifiedPaginationParams, encodeCursor } from "../schemas/pagination.schema";
 import { NotFoundError, ConflictError } from "../utils/errors";
 import { invalidateNamespace } from "../lib/redis";
@@ -574,6 +597,108 @@ router.get(
           avatarUrl: user.avatarUrl,
           joinedAt: user.createdAt,
           stats: user.stats,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+
+/**
+ * GET /api/admin/users
+ * Returns a paginated list of users, optionally filtered by role (e.g. ORACLE, ADMIN, USER).
+ * Requires ADMIN role.
+ */
+router.get(
+  "/admin/users",
+  requireAdmin,
+  validate(adminListUsersQuerySchema, "query"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { role, limit, offset, cursor } = req.query as unknown as AdminListUsersQueryParams;
+
+      const where: { role?: UserRole; createdAt?: { lt: Date } } = {};
+      if (role) {
+        where.role = role as UserRole;
+      }
+
+      const userSelect = {
+        id: true,
+        walletAddress: true,
+        nickname: true,
+        avatarUrl: true,
+        role: true,
+        virtualBalance: true,
+        wins: true,
+        streak: true,
+        createdAt: true,
+        lastLoginAt: true,
+      };
+
+      const mapUser = (u: any) => ({
+        id: u.id,
+        walletAddress: u.walletAddress,
+        nickname: u.nickname,
+        avatarUrl: u.avatarUrl,
+        role: u.role,
+        virtualBalance: serializeMoney(u.virtualBalance),
+        wins: u.wins,
+        streak: u.streak,
+        createdAt: u.createdAt,
+        lastLoginAt: u.lastLoginAt,
+      });
+
+      if (cursor) {
+        let cursorDate: Date | undefined;
+        try {
+          cursorDate = new Date(Buffer.from(cursor, "base64url").toString("utf8"));
+          if (isNaN(cursorDate.getTime())) throw new Error("invalid date");
+        } catch {
+          return sendError(
+            res,
+            "Invalid cursor. Use the nextCursor value returned by a previous response.",
+            400,
+          );
+        }
+
+        where.createdAt = { lt: cursorDate };
+
+        const users = await prisma.user.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          take: limit + 1,
+          select: userSelect,
+        });
+
+        const hasNextPage = users.length > limit;
+        const page = hasNextPage ? users.slice(0, limit) : users;
+
+        const nextCursor = hasNextPage
+          ? Buffer.from(page[page.length - 1].createdAt.toISOString()).toString("base64url")
+          : null;
+
+        return sendSuccess(res, page.map(mapUser), { nextCursor });
+      }
+
+      const [users, total] = await prisma.$transaction([
+        prisma.user.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          skip: offset,
+          select: userSelect,
+        }),
+        prisma.user.count({ where }),
+      ]);
+
+      return sendSuccess(res, users.map(mapUser), {
+        pagination: {
+          limit,
+          offset,
+          total,
+          totalPages: Math.ceil(total / limit),
         },
       });
     } catch (error) {
