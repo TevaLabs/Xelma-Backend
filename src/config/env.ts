@@ -31,7 +31,10 @@ export function resolveEnv(
   return { value: undefined, source: null };
 }
 
-/** Canonical Soroban env names and accepted aliases (#404). */
+/**
+ * Canonical Soroban env names and accepted aliases (#404).
+ * Keep the README "Soroban env alias matrix" table in sync with this map.
+ */
 export const SOROBAN_ENV_ALIASES = {
   contractId: {
     canonical: "SOROBAN_CONTRACT_ID",

@@ -836,6 +836,27 @@ cp .env.hackathon.example .env
 
 See [`.env.example`](.env.example) for the full list of configurable variables. At minimum, set `DATABASE_URL` and `JWT_SECRET` before starting the server.
 
+#### Soroban env alias matrix
+
+Soroban settings accept a canonical `SOROBAN_*` name plus backward-compatible aliases so hackathon / Render templates (`CONTRACT_ID`, `STELLAR_RPC_URL`) and production names both work. Resolution is implemented by `resolveSorobanEnvVars` in [src/config/env.ts](src/config/env.ts) (issue #404):
+
+| Setting       | Canonical (preferred)          | Alias(es) accepted            |
+| ------------- | ------------------------------ | ----------------------------- |
+| Contract ID   | `SOROBAN_CONTRACT_ID`          | `CONTRACT_ID`                 |
+| Soroban RPC   | `SOROBAN_RPC_URL`              | `STELLAR_RPC_URL`             |
+| Network       | `SOROBAN_NETWORK`              | — (none)                      |
+| Admin secret  | `SOROBAN_ADMIN_SECRET`         | — (none)                      |
+| Oracle secret | `SOROBAN_ORACLE_SECRET`        | — (none)                      |
+
+**Resolution rules** (identical for every alias pair):
+
+1. The canonical `SOROBAN_*` name always wins when both it and its alias are set.
+2. An alias is used only when the canonical name is unset **or blank**.
+3. Empty / whitespace-only values are treated as unset, and resolved values are trimmed.
+4. The name that actually supplied the value is reported at startup as `contractIdSource` / `rpcUrlSource` in the redacted Soroban config log (secrets are never logged, only `[set]` / `[unset]`).
+
+Covered by `src/tests/soroban-env-aliases.spec.ts`.
+
 #### Price Oracle Tuning
 
 Operators can tune the oracle's behavior via environment variables to balance price freshness against API rate limits and network reliability:
