@@ -310,5 +310,5 @@ export function isChallengeWalletBindingValid(
   if (!parsed) return false;
   if (parsed.isLegacy) return true;
   if (!parsed.walletAddress) return true; // not bound – accept but log
-  return parsed.walletAddress === walletAddress;
+  return parsed.walletAddress.trim().toUpperCase() === walletAddress.trim().toUpperCase();
 }

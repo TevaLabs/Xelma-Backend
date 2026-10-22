@@ -8,6 +8,7 @@ import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
+import { normalizeStellarAddress } from '../utils/stellar-address.util';
 
 export interface UpDownBetInput {
   address: string;
@@ -654,10 +655,11 @@ export class BetService {
   }
 
   private async getOrCreateUserId(tx: Prisma.TransactionClient, address: string): Promise<string> {
-    let user = await tx.user.findUnique({ where: { walletAddress: address } });
+    const canonicalAddress = normalizeStellarAddress(address);
+    let user = await tx.user.findUnique({ where: { walletAddress: canonicalAddress } });
     if (!user) {
       user = await tx.user.create({
-        data: { walletAddress: address },
+        data: { walletAddress: canonicalAddress },
       });
     }
     return user.id;

@@ -25,12 +25,22 @@ import { ValidationError } from './errors';
  * input: non-strings, empty strings, and malformed values all return false
  * instead of throwing.
  */
+export function normalizeStellarAddress(address: unknown): string {
+  if (typeof address !== 'string') {
+    return '';
+  }
+  return address.trim().toUpperCase();
+}
+
+/** Alias for normalizeStellarAddress for clarity in StrKey-specific write paths. */
+export const toCanonicalStellarAddress = normalizeStellarAddress;
+
 export function isValidStellarAddress(address: unknown): address is string {
-  if (typeof address !== 'string' || address.length === 0) {
+  if (typeof address !== 'string' || address.trim().length === 0) {
     return false;
   }
   try {
-    return strKeyIsValid(address);
+    return strKeyIsValid(normalizeStellarAddress(address));
   } catch {
     return false;
   }
@@ -39,6 +49,7 @@ export function isValidStellarAddress(address: unknown): address is string {
 /**
  * Factory that creates a Zod schema for a required Stellar address field
  * with a customisable field name in the error message.
+ * Transforms and normalizes the address to canonical uppercase StrKey.
  *
  * @example
  *   const schema = createStellarAddressSchema('walletAddress');
@@ -47,7 +58,9 @@ export function isValidStellarAddress(address: unknown): address is string {
 export function createStellarAddressSchema(fieldName = 'address') {
   return z
     .string({ error: `${fieldName} is required` })
+    .trim()
     .min(1, `${fieldName} is required`)
+    .transform((val) => normalizeStellarAddress(val))
     .refine(isValidStellarAddress, 'Invalid Stellar wallet address format');
 }
 
@@ -61,6 +74,7 @@ export const optionalStellarAddressSchema = stellarAddressSchema.optional();
  * Express route guard that rejects a request whose `:<paramName>` route
  * parameter is not a valid Stellar address, forwarding a 400
  * `VALIDATION_ERROR` to the centralized error handler. Defaults to `address`.
+ * Normalizes the parameter in place to canonical uppercase StrKey form.
  *
  * Use on routes that take a wallet address in the path, e.g.
  *   router.get('/:address/stats', validateStellarAddressParam('address'), handler)
@@ -75,6 +89,7 @@ export function validateStellarAddressParam(paramName = 'address') {
         ])
       );
     }
+    req.params[paramName] = normalizeStellarAddress(value);
     next();
   };
 }

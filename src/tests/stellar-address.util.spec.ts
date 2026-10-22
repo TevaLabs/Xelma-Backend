@@ -17,6 +17,8 @@ jest.mock('../services/stellar.service', () => ({
 
 import {
   isValidStellarAddress,
+  normalizeStellarAddress,
+  toCanonicalStellarAddress,
   stellarAddressSchema,
   optionalStellarAddressSchema,
   validateStellarAddressParam,
@@ -128,6 +130,15 @@ describe('validateStellarAddressParam (route guard)', () => {
     expect(next.mock.calls[0]).toHaveLength(0);
   });
 
+  it('normalizes mixed-case and whitespace route param to canonical uppercase StrKey in place', () => {
+    mockIsValidEd25519.mockReturnValue(true);
+    const params = { address: `  ${ADDR.toLowerCase()}  ` };
+    const next = run(params);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next.mock.calls[0]).toHaveLength(0);
+    expect(params.address).toBe(ADDR);
+  });
+
   // ── Negative / edge-case tests ──────────────────────────────────────────
 
   it('rejects null param value with 400', () => {
@@ -223,4 +234,41 @@ describe('createStellarAddressSchema (factory)', () => {
       expect(parsed.error.issues[0].message).toBe('walletAddress is required');
     }
   });
+
+  it('normalizes mixed-case address to canonical uppercase StrKey', () => {
+    mockIsValidEd25519.mockReturnValue(true);
+    const schema = createStellarAddressSchema('walletAddress');
+    const mixed = '  gbrpyhil2ci3fnq4bxlfmndlfjunpu2hy3zmfshonuceoasw7qc7ox2h  ';
+    const parsed = schema.safeParse(mixed);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data).toBe(ADDR);
+    }
+    expect(mockIsValidEd25519).toHaveBeenCalledWith(ADDR);
+  });
 });
+
+describe('normalizeStellarAddress & toCanonicalStellarAddress', () => {
+  it('converts lowercase addresses to uppercase canonical StrKey', () => {
+    expect(normalizeStellarAddress(ADDR.toLowerCase())).toBe(ADDR);
+    expect(toCanonicalStellarAddress(ADDR.toLowerCase())).toBe(ADDR);
+  });
+
+  it('converts mixed-case addresses to uppercase canonical StrKey', () => {
+    const mixed = 'gBrPyHiL2Ci3FnQ4BxLfMnDLfJuNpU2Hy3ZmFsHoNuCeOaSw7Qc7Ox2H';
+    expect(normalizeStellarAddress(mixed)).toBe(ADDR);
+    expect(toCanonicalStellarAddress(mixed)).toBe(ADDR);
+  });
+
+  it('trims leading and trailing whitespace', () => {
+    expect(normalizeStellarAddress(`  \t${ADDR}\n `)).toBe(ADDR);
+  });
+
+  it('returns empty string for non-string or falsy input', () => {
+    for (const bad of ['', null, undefined, 12345, {}, []]) {
+      expect(normalizeStellarAddress(bad)).toBe('');
+      expect(toCanonicalStellarAddress(bad)).toBe('');
+    }
+  });
+});
+
