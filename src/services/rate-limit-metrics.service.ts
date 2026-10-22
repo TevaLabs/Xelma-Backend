@@ -385,7 +385,7 @@ export class RateLimitMetricsService {
    * Clears old metrics (optional, for maintenance).
    * Clears both Prisma records (when available) and in-memory records.
    */
-  async clearOldMetrics(days: number = 7): Promise<number> {
+  async clearOldMetrics(days: number = 7, endpoint?: string): Promise<number> {
     const date = new Date();
     date.setDate(date.getDate() - days);
 
@@ -393,12 +393,16 @@ export class RateLimitMetricsService {
 
     // Clear from Prisma if available
     try {
-      const result = await prisma.rateLimitMetric.deleteMany({
-        where: {
-          timestamp: {
-            lt: date,
-          },
+      const where: any = {
+        timestamp: {
+          lt: date,
         },
+      };
+      if (endpoint) {
+        where.endpoint = endpoint;
+      }
+      const result = await prisma.rateLimitMetric.deleteMany({
+        where,
       });
       deletedCount += result.count;
     } catch (error) {
@@ -408,7 +412,7 @@ export class RateLimitMetricsService {
     // Clear from in-memory store
     const beforeLength = inMemoryStore.length;
     for (let i = inMemoryStore.length - 1; i >= 0; i--) {
-      if (inMemoryStore[i].timestamp < date) {
+      if (inMemoryStore[i].timestamp < date && (!endpoint || inMemoryStore[i].endpoint === endpoint)) {
         inMemoryStore.splice(i, 1);
       }
     }
