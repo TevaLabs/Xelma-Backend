@@ -15,21 +15,29 @@ RUN npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production
+WORKDIR /app
+
+# Install production dependencies only (omit devDependencies)
 COPY package.json package-lock.json ./
 COPY vendor ./vendor
-RUN npm ci --omit=dev && npm install prisma@^5.8.0 --no-save
+RUN npm ci --omit=dev
+
 COPY prisma ./prisma
 COPY scripts ./scripts
-COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+# Copy prisma CLI binaries from deps to run prisma generate without pulling devDependencies
+COPY --from=deps /app/node_modules/prisma ./node_modules/prisma
+COPY --from=deps /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
+RUN npx prisma generate
+
 COPY --from=build /app/dist ./dist
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
 
-# Health probe path.  The full app (dist/index.js) serves a detailed health
+# Health probe path. The full app (dist/index.js) serves a detailed health
 # check at GET /health; the hackathon app (dist/server.js) serves a
-# lightweight check at GET /api/health.  Override HEALTHCHECK_PATH at
+# lightweight check at GET /api/health. Override HEALTHCHECK_PATH at
 # runtime when switching modes (the entrypoint also sets this automatically
 # when API_MODE=hackathon).
 ENV HEALTHCHECK_PATH=/health

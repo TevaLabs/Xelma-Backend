@@ -53,6 +53,80 @@ export const sharedComponents = {
       },
       required: ['error', 'message', 'code'],
     },
+    NotFoundResponse: {
+      type: 'object',
+      description: 'Standard 404 Not Found error response returned when an endpoint or resource is not found.',
+      properties: {
+        error: {
+          type: 'string',
+          example: 'NotFoundError',
+          description: 'Error type name',
+        },
+        message: {
+          type: 'string',
+          example: 'Route GET /api/unknown not found',
+          description: 'Human-readable description of the missing route or resource',
+        },
+        code: {
+          type: 'string',
+          example: 'NOT_FOUND',
+          description: 'Machine-readable error code',
+        },
+        path: {
+          type: 'string',
+          example: '/api/unknown',
+          description: 'Request path that was not found',
+        },
+        timestamp: {
+          type: 'string',
+          format: 'date-time',
+          description: 'Timestamp when the 404 occurred',
+        },
+        requestId: {
+          type: 'string',
+          description: 'Optional incoming or assigned correlation request ID',
+        },
+      },
+      required: ['error', 'message', 'code', 'path', 'timestamp'],
+    },
+    PaginationMeta: {
+      type: 'object',
+      description: 'Standard pagination metadata returned with paginated collections.',
+      properties: {
+        limit: {
+          type: 'integer',
+          description: 'Page size limit requested or defaulted',
+          example: 20,
+        },
+        offset: {
+          type: 'integer',
+          description: 'Offset into the total collection (offset pagination mode)',
+          example: 0,
+        },
+        total: {
+          type: 'integer',
+          description: 'Total number of items in the collection',
+          example: 100,
+        },
+        totalPages: {
+          type: 'integer',
+          description: 'Total number of pages given limit and total',
+          example: 5,
+        },
+        nextCursor: {
+          type: 'string',
+          nullable: true,
+          description: 'Opaque cursor token for cursor-based pagination',
+          example: 'eyJpZCI6MTIzLCJjcmVhdGVkQXQiOiIyMDI2LTAxLTAxVDAwOjAwOjAwLjAwMFoifQ==',
+        },
+        hasNextPage: {
+          type: 'boolean',
+          description: 'Whether another page of records exists',
+          example: true,
+        },
+      },
+    },
+
     MoneyAmount: {
       type: 'string',
       description:

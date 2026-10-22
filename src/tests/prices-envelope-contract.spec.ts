@@ -19,6 +19,7 @@ import { createApp as createMainApp } from '../index';
 import { createApp as createHackathonApp } from '../app';
 import * as priceService from '../services/priceService';
 import { resetPriceCache } from '../services/priceService';
+import { pricesCacheTtlSeconds } from '../utils/http-cache';
 import { swaggerSpec } from '../docs/openapi';
 import { hackathonSwaggerSpec } from '../docs/hackathon-openapi';
 
@@ -88,7 +89,12 @@ describe('GET /api/prices contract — both apps return identical envelope', () 
   });
 });
 
-const PUBLIC_30S = 'public, max-age=30, s-maxage=30, stale-while-revalidate=30';
+/**
+ * The price endpoints own their cache TTL (Issue #871), so the expected header
+ * is derived from the resolved TTL instead of a hardcoded literal.
+ */
+const publicCacheHeader = (ttl: number): string =>
+  `public, max-age=${ttl}, s-maxage=${ttl}, stale-while-revalidate=${ttl}`;
 
 describe.each([
   ['main', createMainApp, swaggerSpec],
@@ -102,6 +108,7 @@ describe.each([
 
   afterEach(() => {
     jest.restoreAllMocks();
+    delete process.env.PRICES_CACHE_TTL_SECONDS;
   });
 
   it('returns exactly { success, data } with the ticker fields and cache header', async () => {
@@ -120,7 +127,17 @@ describe.each([
         lastUpdatedAt: expect.any(String),
       },
     });
-    expect(res.headers['cache-control']).toBe(PUBLIC_30S);
+    expect(res.headers['cache-control']).toBe(publicCacheHeader(pricesCacheTtlSeconds()));
+  });
+
+  it('honours PRICES_CACHE_TTL_SECONDS (Issue #871)', async () => {
+    process.env.PRICES_CACHE_TTL_SECONDS = '120';
+    mockedAxios.get.mockResolvedValueOnce({ data: mockCoinGecko });
+
+    const res = await request(buildApp()).get('/api/prices');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toBe(publicCacheHeader(120));
   });
 
   it('returns the same 503 failure envelope when no price data is available', async () => {
@@ -132,7 +149,7 @@ describe.each([
 
     expect(res.status).toBe(503);
     expect(res.body).toEqual({ success: false, error: 'Price data unavailable' });
-    expect(res.headers['cache-control']).toBe(PUBLIC_30S);
+    expect(res.headers['cache-control']).toBe(publicCacheHeader(pricesCacheTtlSeconds()));
   });
 
   it('OpenAPI documents the envelope the route actually returns', async () => {

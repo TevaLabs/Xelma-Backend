@@ -123,6 +123,21 @@ async function checkOracle(): Promise<{
   }
 }
 
+/**
+ * Kubernetes Readiness / Health Probe: GET / (mounted at /health in full mode)
+ *
+ * READINESS VS LIVENESS PROBE GUIDELINES:
+ * - Readiness Probe: Point Kubernetes readinessProbe to /health (or /metrics/readiness).
+ *   Performs deep health checks across database (PostgreSQL), cache (Redis),
+ *   smart contract RPC (Soroban), and oracle feeds. If critical dependencies
+ *   fail, Kubernetes stops routing user traffic to this pod without killing it.
+ * - Liveness Probe: Point Kubernetes livenessProbe to a lightweight endpoint
+ *   (such as root GET /) rather than full dependency checks.
+ *   Liveness failure triggers container restart; failing liveness on downstream
+ *   dependency outages causes cascading pod restart storms.
+ *
+ * See docs/runtime-modes.md for Kubernetes YAML manifest examples.
+ */
 router.get(
   '/',
   asyncHandler(async (_req: Request, res: Response) => {

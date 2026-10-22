@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { getRepositories } from "../repositories";
 import { sendSuccess, sendError } from "../utils/response";
 import logger from "../utils/logger";
-import { setPublicCache } from "../utils/http-cache";
+import { setPublicCache, setNoStore, statsCacheTtlSeconds } from "../utils/http-cache";
 
 const router = Router();
 
@@ -42,7 +42,7 @@ const router = Router();
  *   }
  * }
  *
- * Cache TTL: 30 seconds (in-process).
+ * Cache TTL: short (default 5 seconds, override with STATS_CACHE_TTL_SECONDS).
  *
  * Behaviour:
  *   DATA_MODE=mock            → returns MOCK_PLATFORM_STATS with isFallback=true
@@ -53,14 +53,19 @@ const router = Router();
  *
  * An empty production database returns legitimate zeros (isFallback=false)
  * so dashboards can distinguish "no data yet" from mock constants.
+ *
+ * CDN behaviour (Issue #876): the success response carries a *short* public
+ * Cache-Control so a CDN can revalidate the counters quickly instead of
+ * pinning stale numbers for a full minute. Failures are never publicly
+ * cached — a transient database error must not be pinned by the edge.
  */
 router.get("/", async (_req: Request, res: Response) => {
   try {
     const stats = await getRepositories().stats.getPlatformStats();
-    setPublicCache(res, 30);
+    setPublicCache(res, statsCacheTtlSeconds());
     return sendSuccess(res, stats);
   } catch (err) {
-    setPublicCache(res, 30);
+    setNoStore(res);
     logger.error("[GET /api/stats] Unexpected error:", {
       error: err instanceof Error ? err.message : String(err),
     });

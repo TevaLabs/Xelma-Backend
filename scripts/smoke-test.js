@@ -9,7 +9,7 @@
  * treat the deployment as broken — even when the process itself started fine.
  *
  * Endpoints verified (all public / no auth required):
- *   GET /health                  → { status: "healthy" | "degraded" }
+ *   GET /health (or HEALTHCHECK_PATH) → { status: "healthy" | "degraded" } or enveloped { data: { status } }
  *   GET /api/rounds/active       → 200 or 404 (both valid — no active round is OK)
  *   GET /api/price               → { asset, price_usd }
  *   GET /api/leaderboard         → array or { data: array }
@@ -31,6 +31,7 @@
  *   SMOKE_RETRIES       Retry count for transient failures (default: 3)
  *   SMOKE_RETRY_DELAY   Delay between retries in ms (default: 3000)
  *   SMOKE_SOCKET        Set to "false" to skip the WebSocket check
+ *   HEALTHCHECK_PATH    Health path (default: /health, e.g. /api/health in hackathon mode)
  */
 
 'use strict';
@@ -46,6 +47,9 @@ const TIMEOUT_MS   = Number(process.env.SMOKE_TIMEOUT_MS  ?? 10_000);
 const RETRIES      = Number(process.env.SMOKE_RETRIES     ?? 3);
 const RETRY_DELAY  = Number(process.env.SMOKE_RETRY_DELAY ?? 3_000);
 const SKIP_SOCKET  = (process.env.SMOKE_SOCKET ?? 'true') === 'false';
+const HEALTHCHECK_PATH = (process.env.HEALTHCHECK_PATH || '/health').startsWith('/')
+  ? (process.env.HEALTHCHECK_PATH || '/health')
+  : `/${process.env.HEALTHCHECK_PATH}`;
 
 if (!BASE_URL) {
   console.error('');
@@ -132,21 +136,24 @@ async function withRetry(fn, label) {
  */
 
 async function checkHealth() {
-  const { status, body } = await get('/health');
+  const { status, body } = await get(HEALTHCHECK_PATH);
 
   // Accept 200 (healthy) or 503 (degraded but responding).
   // A 503 with a valid body means the server is up but a dependency is
   // struggling — still better than a network error / deploy crash.
   const responding = status === 200 || status === 503;
-  const hasStatus  = body && typeof body.status === 'string';
+  const healthStatus = body?.status ?? body?.data?.status;
+  const hasStatus  = typeof healthStatus === 'string';
 
   // Treat "degraded" as a warning rather than a hard failure so a transient
   // DB blip does not permanently fail the pipeline.
-  const healthy    = status === 200 && body?.status === 'healthy';
-  const degraded   = status === 503 && hasStatus;
+  const healthy    = status === 200 && (healthStatus === 'healthy' || healthStatus === 'ok');
+  const degraded   = (status === 503 || healthStatus === 'degraded') && hasStatus;
+
+  const uptime = body?.uptime ?? body?.data?.uptime;
 
   return {
-    name:     'GET /health',
+    name:     `GET ${HEALTHCHECK_PATH}`,
     required: true,
     passed:   responding && hasStatus,
     warn:     degraded,
@@ -155,8 +162,8 @@ async function checkHealth() {
       : !hasStatus
         ? 'Response body missing `status` field'
         : degraded
-          ? `Service is degraded (status=${body.status}) — dependency issue`
-          : `status=${body.status}, uptime=${body.uptime?.toFixed(1)}s`,
+          ? `Service is degraded (status=${healthStatus}) — dependency issue`
+          : `status=${healthStatus}${uptime !== undefined ? `, uptime=${typeof uptime === 'number' ? uptime.toFixed(1) : uptime}s` : ''}`,
   };
 }
 
@@ -310,7 +317,7 @@ async function runChecks() {
   console.log('');
 
   const checkFns = [
-    { fn: checkHealth,       label: '/health' },
+    { fn: checkHealth,       label: HEALTHCHECK_PATH },
     { fn: checkActiveRound,  label: '/api/rounds' },
     { fn: checkPrice,        label: '/api/price' },
     { fn: checkLeaderboard,  label: '/api/leaderboard' },
