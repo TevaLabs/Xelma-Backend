@@ -28,10 +28,22 @@
  * - `OUTBOX_BATCH_SIZE`            – rows per poll cycle (default 50).
  * - `OUTBOX_MAX_ATTEMPTS`          – before escalating to DLQ (default 3).
  * - `OUTBOX_RETENTION_DAYS`        – days to keep PROCESSED rows (default 7).
+ * - `OUTBOX_DB_RETRY_MAX_ATTEMPTS` – DB retries per poller query (default 3).
+ * - `OUTBOX_DB_RETRY_INITIAL_DELAY_MS` – first backoff delay (default 250).
+ * - `OUTBOX_DB_RETRY_MAX_DELAY_MS` – backoff ceiling (default 5000).
+ *
+ * ## DB failure policy (Issue #853)
+ * Every database call in the poll loop goes through `withRetry` from
+ * `retry.util`, which retries with exponential backoff and a capped delay.
+ * Without it a failing/overloaded database turns each poll into an immediate
+ * retry (and a log storm) at the scheduler's cadence; a short backoff gives
+ * the connection pool time to recover and keeps the poller from becoming a
+ * self-inflicted load generator.
  */
 import { OutboxEventStatus, OutboxEventType, DispatchChannel } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
+import { withRetry } from '../utils/retry.util';
 import deadLetterQueueService from './dead-letter-queue.service';
 
 // ─── tunables ────────────────────────────────────────────────────────────────
@@ -58,6 +70,25 @@ export function getOutboxRetentionDays(): number {
   const raw = process.env.OUTBOX_RETENTION_DAYS;
   const n = raw ? parseInt(raw, 10) : NaN;
   return Number.isFinite(n) && n > 0 ? n : 7;
+}
+
+/** Upper bound on DB retry attempts so a misconfiguration cannot stall a poll forever. */
+export function getOutboxDbRetryMaxAttempts(): number {
+  const raw = process.env.OUTBOX_DB_RETRY_MAX_ATTEMPTS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 10) : 3;
+}
+
+export function getOutboxDbRetryInitialDelayMs(): number {
+  const raw = process.env.OUTBOX_DB_RETRY_INITIAL_DELAY_MS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 30_000) : 250;
+}
+
+export function getOutboxDbRetryMaxDelayMs(): number {
+  const raw = process.env.OUTBOX_DB_RETRY_MAX_DELAY_MS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 60_000) : 5_000;
 }
 
 // ─── payload shapes ──────────────────────────────────────────────────────────
@@ -163,6 +194,45 @@ export interface ProcessOutboxResult {
 
 class OutboxService {
   /**
+   * Run one database operation with exponential backoff (Issue #853).
+   *
+   * Poller DB calls previously surfaced the first failure immediately: the
+   * scheduler caught it, logged it, and the next cron tick retried right away.
+   * On a DB outage that is a tight, noisy loop. `withRetry` backs off between
+   * attempts and gives up after a bounded number so the poll cycle ends and
+   * the next scheduled tick starts a fresh, later attempt.
+   */
+  private async runDbOperation<T>(
+    operationName: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const result = await withRetry(operation, `outbox.${operationName}`, {
+      maxAttempts: getOutboxDbRetryMaxAttempts(),
+      initialDelayMs: getOutboxDbRetryInitialDelayMs(),
+      maxDelayMs: getOutboxDbRetryMaxDelayMs(),
+      backoffMultiplier: 2,
+      // Everything wrapped here is a database read/write. Connection resets,
+      // pool exhaustion and driver-level errors do not always carry a Prisma
+      // error code, so treat every rejection as retryable rather than
+      // depending on retry.util's default code allow-list.
+      isRetryable: () => true,
+    });
+
+    if (!result.success) {
+      logger.error(
+        `Outbox poller: ${operationName} failed after ${result.attemptsUsed} attempt(s)`,
+        {
+          error: result.error?.message,
+          totalDurationMs: result.totalDurationMs,
+        },
+      );
+      throw result.error ?? new Error(`${operationName} failed`);
+    }
+
+    return result.data as T;
+  }
+
+  /**
    * Poll for PENDING outbox events and dispatch them.
    * Called by the scheduler; safe to call concurrently across instances
    * because each row is claimed with a PROCESSING status update before
@@ -177,11 +247,13 @@ class OutboxService {
   ): Promise<ProcessOutboxResult> {
     const result: ProcessOutboxResult = { processed: 0, failed: 0, escalated: 0 };
 
-    const rows = await prisma.outboxEvent.findMany({
-      where: { status: OutboxEventStatus.PENDING },
-      orderBy: { createdAt: 'asc' },
-      take: batchSize,
-    });
+    const rows = await this.runDbOperation('findPending', () =>
+      prisma.outboxEvent.findMany({
+        where: { status: OutboxEventStatus.PENDING },
+        orderBy: { createdAt: 'asc' },
+        take: batchSize,
+      }),
+    );
 
     if (rows.length === 0) return result;
 
@@ -190,12 +262,12 @@ class OutboxService {
     for (const row of rows) {
       // Claim the row — mark PROCESSING so a concurrent poller skips it.
       // If the update races and the row was already claimed, skip it.
-      const claimed = await prisma.outboxEvent
-        .updateMany({
+      const claimed = await this.runDbOperation('claim', () =>
+        prisma.outboxEvent.updateMany({
           where: { id: row.id, status: OutboxEventStatus.PENDING },
           data: { status: OutboxEventStatus.PROCESSING, updatedAt: new Date() },
-        })
-        .catch(() => ({ count: 0 }));
+        }),
+      );
 
       if (claimed.count === 0) {
         // Another poller instance claimed it first — skip.
@@ -205,14 +277,16 @@ class OutboxService {
       try {
         await this.dispatch(row, handlers);
 
-        await prisma.outboxEvent.update({
-          where: { id: row.id },
-          data: {
-            status: OutboxEventStatus.PROCESSED,
-            processedAt: new Date(),
-            updatedAt: new Date(),
-          },
-        });
+        await this.runDbOperation('markProcessed', () =>
+          prisma.outboxEvent.update({
+            where: { id: row.id },
+            data: {
+              status: OutboxEventStatus.PROCESSED,
+              processedAt: new Date(),
+              updatedAt: new Date(),
+            },
+          }),
+        );
 
         result.processed += 1;
         logger.debug(`Outbox: dispatched event ${row.id} (${row.eventType})`);
@@ -220,15 +294,17 @@ class OutboxService {
         const nextAttempts = row.attempts + 1;
         const exhausted = nextAttempts >= maxAttempts;
 
-        await prisma.outboxEvent.update({
-          where: { id: row.id },
-          data: {
-            status: exhausted ? OutboxEventStatus.FAILED : OutboxEventStatus.PENDING,
-            attempts: nextAttempts,
-            lastError: truncateError(err),
-            updatedAt: new Date(),
-          },
-        });
+        await this.runDbOperation('markFailed', () =>
+          prisma.outboxEvent.update({
+            where: { id: row.id },
+            data: {
+              status: exhausted ? OutboxEventStatus.FAILED : OutboxEventStatus.PENDING,
+              attempts: nextAttempts,
+              lastError: truncateError(err),
+              updatedAt: new Date(),
+            },
+          }),
+        );
 
         result.failed += 1;
 
@@ -296,12 +372,14 @@ class OutboxService {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - retentionDays);
 
-    const result = await prisma.outboxEvent.deleteMany({
-      where: {
-        status: OutboxEventStatus.PROCESSED,
-        processedAt: { lt: cutoff },
-      },
-    });
+    const result = await this.runDbOperation('cleanupProcessed', () =>
+      prisma.outboxEvent.deleteMany({
+        where: {
+          status: OutboxEventStatus.PROCESSED,
+          processedAt: { lt: cutoff },
+        },
+      }),
+    );
 
     if (result.count > 0) {
       logger.info(`Outbox cleanup: deleted ${result.count} processed event(s) older than ${retentionDays} day(s)`);

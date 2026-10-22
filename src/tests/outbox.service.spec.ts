@@ -10,7 +10,7 @@
  *   - The poller skips rows that were already claimed by another instance
  *     (updateMany returns count=0).
  */
-import { describe, it, expect, beforeEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 // ─── mock prisma ─────────────────────────────────────────────────────────────
 
@@ -293,6 +293,72 @@ describe('OutboxService', () => {
 
       const updateArgs: any = mockUpdate.mock.calls[0][0];
       expect(updateArgs.data.lastError.length).toBeLessThanOrEqual(1000);
+    });
+  });
+
+  // ─── DB failure backoff (Issue #853) ────────────────────────────────────────
+
+  describe('database failure backoff', () => {
+    const originalEnv = process.env;
+
+    beforeEach(() => {
+      process.env = {
+        ...originalEnv,
+        OUTBOX_DB_RETRY_MAX_ATTEMPTS: '3',
+        // Keep delays tiny so the suite stays fast while still exercising the
+        // exponential-backoff path inside retry.util.
+        OUTBOX_DB_RETRY_INITIAL_DELAY_MS: '1',
+        OUTBOX_DB_RETRY_MAX_DELAY_MS: '5',
+      };
+    });
+
+    afterEach(() => {
+      process.env = originalEnv;
+    });
+
+    it('retries a transient DB read failure instead of failing the poll', async () => {
+      mockFindMany
+        .mockRejectedValueOnce(new Error('connection reset by peer'))
+        .mockResolvedValueOnce([]);
+
+      const result = await outboxService.processOutbox(makeHandlers());
+
+      expect(result).toEqual({ processed: 0, failed: 0, escalated: 0 });
+      expect(mockFindMany).toHaveBeenCalledTimes(2);
+    });
+
+    it('gives up after the configured attempts and surfaces the DB error', async () => {
+      mockFindMany.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:5432'));
+
+      await expect(outboxService.processOutbox(makeHandlers())).rejects.toThrow(
+        'connect ECONNREFUSED',
+      );
+      expect(mockFindMany).toHaveBeenCalledTimes(3);
+    });
+
+    it('retries a claim failure instead of silently treating it as a lost race', async () => {
+      const row = makeRow();
+      mockFindMany.mockResolvedValue([row]);
+      mockUpdateMany
+        .mockRejectedValueOnce(new Error('deadlock detected'))
+        .mockResolvedValueOnce({ count: 1 });
+      mockUpdate.mockResolvedValue({ ...row, status: 'PROCESSED' });
+
+      const handlers = makeHandlers();
+      const result = await outboxService.processOutbox(handlers, 50, 3);
+
+      expect(result).toEqual({ processed: 1, failed: 0, escalated: 0 });
+      expect(mockUpdateMany).toHaveBeenCalledTimes(2);
+      expect(handlers.notificationCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a cleanup DB failure', async () => {
+      mockDeleteMany
+        .mockRejectedValueOnce(new Error('connection terminated unexpectedly'))
+        .mockResolvedValueOnce({ count: 2 });
+
+      await expect(outboxService.cleanupProcessed(7)).resolves.toBe(2);
+      expect(mockDeleteMany).toHaveBeenCalledTimes(2);
     });
   });
 
