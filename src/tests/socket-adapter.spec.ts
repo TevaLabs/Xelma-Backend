@@ -3,6 +3,7 @@ import { createServer, Server as HTTPServer } from 'http';
 import {
    initializeSocketAdapter,
    isUsingRedisAdapter,
+   SOCKET_ADAPTER_DEFAULTS,
 } from '../utils/socket-adapter';
 import logger from '../utils/logger';
 
@@ -135,6 +136,15 @@ describe('Socket Adapter', () => {
          );
 
          process.env.REDIS_URL = originalRedisUrl;
+      });
+
+      it('should expose documented defaults in SOCKET_ADAPTER_DEFAULTS', () => {
+         expect(SOCKET_ADAPTER_DEFAULTS).toEqual({
+            keyPrefix: 'xelma:socket.io',
+            connectTimeout: 2000,
+            maxReconnectAttempts: 10,
+            reconnectBackoffMs: 500,
+         });
       });
 
       it('should handle Redis connection errors gracefully', async () => {
