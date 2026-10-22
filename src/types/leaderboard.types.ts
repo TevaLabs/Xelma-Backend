@@ -24,6 +24,7 @@ export interface LeaderboardEntry {
 export interface LeaderboardResponse {
   leaderboard: LeaderboardEntry[];
   userPosition?: LeaderboardEntry;
+  viewerRank?: number | null;
   totalUsers: number;
   lastUpdated: string;
   /** Pagination metadata – always present so clients can detect page boundaries. */
@@ -34,6 +35,7 @@ export interface LeaderboardResponse {
 export interface LeaderboardCursorResponse {
   leaderboard: LeaderboardEntry[];
   userPosition?: LeaderboardEntry;
+  viewerRank?: number | null;
   lastUpdated: string;
   pagination: CursorMeta;
 }

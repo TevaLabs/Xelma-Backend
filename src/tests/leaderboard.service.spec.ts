@@ -43,6 +43,7 @@ import {
   getLeaderboard,
   getLeaderboardCursor,
   getUserPosition,
+  getViewerRank,
   updateUserStatsForRound,
 } from "../services/leaderboard.service";
 import { toDecimal } from "../utils/decimal.util";
@@ -135,6 +136,7 @@ describe("Leaderboard Service", () => {
     expect(result.leaderboard).toEqual([]);
     expect(result.totalUsers).toBe(0);
     expect(result.userPosition).toBeUndefined();
+    expect(result.viewerRank).toBeUndefined();
     expect(result.lastUpdated).toBeDefined();
   });
 
@@ -151,9 +153,10 @@ describe("Leaderboard Service", () => {
     expect(result.leaderboard[1].userId).toBe("u2");
     expect(result.leaderboard[2].userId).toBe("u3");
     expect(result.totalUsers).toBe(3);
+    expect(result.viewerRank).toBeUndefined();
   });
 
-  it("includes authenticated user position in leaderboard response (DB fallback)", async () => {
+  it("includes authenticated user position and viewerRank in leaderboard response (DB fallback)", async () => {
     userStatsFindMany.mockResolvedValue(sampleStats);
     userStatsFindUnique.mockResolvedValue(sampleStats[1]);
     userStatsCount.mockImplementation((args: any) => {
@@ -167,9 +170,10 @@ describe("Leaderboard Service", () => {
     expect(result.userPosition?.userId).toBe("u2");
     expect(result.userPosition?.rank).toBe(2);
     expect(result.userPosition?.totalEarnings).toBe("90.00000000");
+    expect(result.viewerRank).toBe(2);
   });
 
-  it("returns undefined user position when the requested user is not found", async () => {
+  it("returns undefined user position and viewerRank null when the requested user is not found", async () => {
     userStatsFindMany.mockResolvedValue(sampleStats);
     userStatsFindUnique.mockResolvedValue(null);
     userStatsCount.mockResolvedValue(3);
@@ -177,6 +181,7 @@ describe("Leaderboard Service", () => {
     const result = await getLeaderboard(3, 0, "unknown-user");
 
     expect(result.userPosition).toBeUndefined();
+    expect(result.viewerRank).toBeNull();
   });
 
   it("calculates user rank correctly when there are ties in earnings (DB fallback)", async () => {
@@ -420,7 +425,66 @@ describe("Leaderboard Service", () => {
 
       expect(result.leaderboard).toHaveLength(1);
       expect(result.leaderboard[0].userId).toBe("u1");
+      expect(result.viewerRank).toBeUndefined();
       expect(userStatsFindMany).not.toHaveBeenCalled();
+    });
+
+    it("includes viewerRank when userId is provided and user has stats", async () => {
+      userStatsFindMany.mockResolvedValue([
+        {
+          userId: "u1",
+          totalEarnings: 100,
+          totalPredictions: 10,
+          correctPredictions: 6,
+          upDownWins: 4,
+          upDownLosses: 2,
+          upDownEarnings: 60,
+          legendsWins: 2,
+          legendsLosses: 2,
+          legendsEarnings: 40,
+          user: { id: "u1", walletAddress: "G1234567890123" },
+        },
+      ]);
+      userStatsCount.mockImplementation((args: any) => {
+        if (args?.where?.totalEarnings?.gt !== undefined) return Promise.resolve(0);
+        return Promise.resolve(0);
+      });
+      userStatsFindUnique.mockResolvedValue(sampleStats[0]);
+
+      const result = await getLeaderboardCursor(1, undefined, "u1");
+
+      expect(result.viewerRank).toBe(1);
+      expect(result.userPosition).toBeDefined();
+    });
+
+    it("returns viewerRank null when userId is provided and user has no stats", async () => {
+      userStatsFindMany.mockResolvedValue([]);
+      userStatsCount.mockResolvedValue(0);
+      userStatsFindUnique.mockResolvedValue(null);
+
+      const result = await getLeaderboardCursor(1, undefined, "unknown-user");
+
+      expect(result.viewerRank).toBeNull();
+      expect(result.userPosition).toBeUndefined();
+    });
+  });
+
+  describe("getViewerRank", () => {
+    it("returns 1-based rank when user exists", async () => {
+      userStatsFindUnique.mockResolvedValue(sampleStats[1]);
+      userStatsCount.mockResolvedValue(1);
+
+      const rank = await getViewerRank("u2");
+
+      expect(rank).toBe(2);
+    });
+
+    it("returns null when user has no stats/entry", async () => {
+      userStatsFindUnique.mockResolvedValue(null);
+
+      const rank = await getViewerRank("missing-user");
+
+      expect(rank).toBeNull();
     });
   });
 });

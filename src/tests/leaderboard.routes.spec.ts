@@ -111,19 +111,20 @@ describe("Leaderboard Routes", () => {
     expect(response.body.leaderboard).toHaveLength(3);
     expect(response.body.totalUsers).toBe(3);
     expect(response.body.userPosition).toBeUndefined();
+    expect(response.body.viewerRank).toBeUndefined();
     expect(response.body.lastUpdated).toBeDefined();
     expect(response.body.leaderboard[0].rank).toBe(1);
   });
 
-  it("should include authenticated user position when token is provided", async () => {
+  it("should include authenticated user position and viewerRank when token is provided", async () => {
     mockUserStatsFindMany.mockImplementation(({ take, skip }: any) =>
       Promise.resolve(sampleStats.slice(skip, skip + take)),
     );
     mockUserStatsFindUnique.mockResolvedValue(sampleStats[1]);
-    // getUserPosition calls count first (rank), then getLeaderboard calls count (totalUsers)
-    mockUserStatsCount
-      .mockResolvedValueOnce(1)   // rank: 1 user has higher earnings than u2 → rank=2
-      .mockResolvedValueOnce(3);  // totalUsers
+    mockUserStatsCount.mockImplementation((args: any) => {
+      if (args?.where?.totalEarnings?.gt !== undefined) return Promise.resolve(1);
+      return Promise.resolve(3);
+    });
 
     const response = await request(app)
       .get("/api/leaderboard")
@@ -133,6 +134,41 @@ describe("Leaderboard Routes", () => {
     expect(response.body.userPosition).toBeDefined();
     expect(response.body.userPosition.userId).toBe("u2");
     expect(response.body.userPosition.rank).toBe(2);
+    expect(response.body.viewerRank).toBe(2);
+  });
+
+  it("should return viewerRank as null when authenticated user has no stats entry", async () => {
+    mockUserStatsFindMany.mockImplementation(({ take, skip }: any) =>
+      Promise.resolve(sampleStats.slice(skip, skip + take)),
+    );
+    mockUserStatsFindUnique.mockResolvedValue(null);
+    mockUserStatsCount.mockResolvedValue(3);
+
+    const response = await request(app)
+      .get("/api/leaderboard")
+      .set("Authorization", `Bearer ${userToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.leaderboard).toHaveLength(3);
+    expect(response.body.userPosition).toBeUndefined();
+    expect(response.body.viewerRank).toBeNull();
+  });
+
+  it("should omit viewerRank when invalid or expired token is provided", async () => {
+    mockUserStatsFindMany.mockImplementation(({ take, skip }: any) =>
+      Promise.resolve(sampleStats.slice(skip, skip + take)),
+    );
+    mockUserStatsCount.mockResolvedValue(3);
+    mockUserStatsFindUnique.mockResolvedValue(null);
+
+    const response = await request(app)
+      .get("/api/leaderboard")
+      .set("Authorization", "Bearer invalid-or-expired-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body.leaderboard).toHaveLength(3);
+    expect(response.body.userPosition).toBeUndefined();
+    expect(response.body.viewerRank).toBeUndefined();
   });
 
   it("should respect pagination and return the correct offset slice", async () => {
@@ -155,7 +191,7 @@ describe("Leaderboard Routes", () => {
     const response = await request(app).get("/api/leaderboard?limit=1000");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe("ValidationError");
+    expect(response.body.code).toBe("VALIDATION_ERROR");
     // Zod v4 message format: "Too big: expected number to be <=500"
     expect(response.body.details[0].field).toBe("limit");
   });
@@ -164,7 +200,7 @@ describe("Leaderboard Routes", () => {
     const response = await request(app).get("/api/leaderboard?offset=-1");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe("ValidationError");
+    expect(response.body.code).toBe("VALIDATION_ERROR");
     // Zod v4 message format: "Too small: expected number to be >=0"
     expect(response.body.details[0].field).toBe("offset");
   });
@@ -176,7 +212,7 @@ describe("Leaderboard Routes", () => {
 
     expect(response.status).toBe(500);
     expect(response.body.message).toBe("Failed to fetch leaderboard");
-    expect(response.body.error).toBe("AppError");
+    expect(response.body.code).toBe("LEADERBOARD_FETCH_FAILED");
   });
 
   // -------------------------------------------------------------------------
@@ -271,6 +307,40 @@ describe("Leaderboard Routes", () => {
 
       expect(response.status).toBe(200);
       expect(response.body.pagination.offset).toBeUndefined();
+      expect(response.body.viewerRank).toBeUndefined();
+    });
+
+    it("cursor mode: includes viewerRank when valid token is provided", async () => {
+      mockUserStatsFindMany.mockResolvedValue(sampleStats.slice(0, 2));
+      mockUserStatsCount.mockImplementation((args: any) => {
+        if (args?.where?.totalEarnings?.gt !== undefined) return Promise.resolve(1);
+        return Promise.resolve(0);
+      });
+      mockUserStatsFindUnique.mockResolvedValue(sampleStats[1]);
+
+      const cursor = encodeCursor({ totalEarnings: "100", userId: "u1" });
+      const response = await request(app)
+        .get(`/api/leaderboard?limit=3&cursor=${cursor}`)
+        .set("Authorization", `Bearer ${userToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.viewerRank).toBe(2);
+      expect(response.body.userPosition).toBeDefined();
+    });
+
+    it("cursor mode: returns viewerRank as null when authenticated user has no stats", async () => {
+      mockUserStatsFindMany.mockResolvedValue(sampleStats.slice(0, 2));
+      mockUserStatsCount.mockResolvedValue(0);
+      mockUserStatsFindUnique.mockResolvedValue(null);
+
+      const cursor = encodeCursor({ totalEarnings: "100", userId: "u1" });
+      const response = await request(app)
+        .get(`/api/leaderboard?limit=3&cursor=${cursor}`)
+        .set("Authorization", `Bearer ${userToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.viewerRank).toBeNull();
+      expect(response.body.userPosition).toBeUndefined();
     });
   });
 });

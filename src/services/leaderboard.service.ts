@@ -199,16 +199,19 @@ export async function getLeaderboard(
     totalUsers = await prisma.userStats.count();
   }
 
-  // ── 4. Resolve authenticated user position ────────────────────────────────
+  // ── 4. Resolve authenticated user position & viewer rank ──────────────────
   let userPosition: LeaderboardEntry | undefined;
+  let viewerRank: number | null | undefined;
   if (userId) {
     userPosition = await getUserPosition(userId);
+    viewerRank = userPosition ? userPosition.rank : null;
   }
 
   // ── 5. Store in versioned JSON cache ──────────────────────────────────────
   const payload: LeaderboardCachePayload = {
     leaderboard,
     userPosition,
+    ...(userId !== undefined ? { viewerRank } : {}),
     totalUsers: totalUsers ?? 0,
     pagination: buildOffsetMeta(limit, offset, totalUsers ?? 0),
   };
@@ -301,13 +304,16 @@ export async function getLeaderboardCursor(
   );
 
   let userPosition: LeaderboardEntry | undefined;
+  let viewerRank: number | null | undefined;
   if (userId) {
     userPosition = await getUserPosition(userId);
+    viewerRank = userPosition ? userPosition.rank : null;
   }
 
   const payload: LeaderboardCursorCachePayload = {
     leaderboard,
     userPosition,
+    ...(userId !== undefined ? { viewerRank } : {}),
     pagination,
   };
 
@@ -322,6 +328,15 @@ export async function getLeaderboardCursor(
     ...payload,
     lastUpdated: new Date().toISOString(),
   };
+}
+
+/**
+ * Return a user's 1-based leaderboard rank, or null if the user has no stats/entry.
+ * Resolves rank efficiently via sorted set (fast path) or indexed count query (fallback).
+ */
+export async function getViewerRank(userId: string): Promise<number | null> {
+  const position = await getUserPosition(userId);
+  return position ? position.rank : null;
 }
 
 /**

@@ -286,6 +286,11 @@
             "$ref": "#/components/schemas/LeaderboardEntry",
             "nullable": true
           },
+          "viewerRank": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Viewer's 1-based rank on the leaderboard when authenticated with a valid JWT, or null if the viewer has no leaderboard entry. Omitted when unauthenticated."
+          },
           "totalUsers": {
             "type": "number"
           },
@@ -1864,7 +1869,7 @@
             "description": "Internal server error"
           }
         },
-        "description": "Returns the global leaderboard. Bearer authentication is **optional**; if provided,\nthe API includes the requesting user's position.\n\nSupports two pagination modes:\n\n**Cursor mode** (recommended for large datasets): pass `cursor` from a previous\nresponse's `pagination.nextCursor` to load the next page. Efficient for deep pages.\n\n**Offset mode**: pass `offset` to skip rows. Backward-compatible with existing clients.\n\nWhen `cursor` is present, `offset` is ignored.\n",
+        "description": "Returns the global leaderboard. Bearer authentication is **optional**; if provided,\nthe API includes the requesting user's position and viewerRank.\n\nSupports two pagination modes:\n\n**Cursor mode** (recommended for large datasets): pass `cursor` from a previous\nresponse's `pagination.nextCursor` to load the next page. Efficient for deep pages.\n\n**Offset mode**: pass `offset` to skip rows. Backward-compatible with existing clients.\n\nWhen `cursor` is present, `offset` is ignored.\n",
         "parameters": [
           {
             "in": "query",

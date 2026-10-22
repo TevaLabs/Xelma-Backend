@@ -44,7 +44,7 @@ const leaderboardQuerySchema = z.object({
  *     summary: Get the global leaderboard
  *     description: |
  *       Returns the global leaderboard. Bearer authentication is **optional**; if provided,
- *       the API includes the requesting user's position.
+ *       the API includes the requesting user's position and viewerRank.
  *
  *       Supports two pagination modes:
  *

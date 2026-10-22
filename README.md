@@ -1434,10 +1434,13 @@ GET /api/leaderboard?limit=100&offset=0
     }
   ],
   "userPosition": null,
+  "viewerRank": null,
   "totalUsers": 150,
   "lastUpdated": "2026-02-23T12:00:00.000Z"
 }
 ```
+
+> **Note**: Bearer authentication is optional on `GET /api/leaderboard`. When a valid JWT is provided, the response includes `viewerRank` indicating the requesting user's 1-based rank (or `null` if the user has no leaderboard entry). If no valid JWT is present, `viewerRank` is omitted.
 
 ---
 

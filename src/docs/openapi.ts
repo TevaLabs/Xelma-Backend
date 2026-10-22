@@ -170,6 +170,11 @@ export const swaggerSpec = swaggerJSDoc({
           properties: {
             leaderboard: { type: 'array', items: { $ref: '#/components/schemas/LeaderboardEntry' } },
             userPosition: { $ref: '#/components/schemas/LeaderboardEntry', nullable: true },
+            viewerRank: {
+              type: 'integer',
+              nullable: true,
+              description: "Viewer's 1-based rank on the leaderboard when authenticated with a valid JWT, or null if the viewer has no leaderboard entry. Omitted when unauthenticated.",
+            },
             totalUsers: { type: 'number' },
             lastUpdated: { type: 'string' },
           },
