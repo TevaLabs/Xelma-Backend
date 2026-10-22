@@ -65,6 +65,14 @@ class SchedulerService {
          })
       );
 
+      // Scheduled purge of expired AuthChallenge rows (daily at 3:15 AM).
+      logger.info('Starting auth challenge purge scheduler (daily at 3:15 AM)');
+      this.cronTasks.push(
+         cron.schedule('15 3 * * *', async () => {
+            await this.purgeExpiredAuthChallenges();
+         })
+      );
+
       // Outbox poller — runs every OUTBOX_POLL_INTERVAL_SECONDS (default 10s).
       // Dispatches PENDING outbox events written atomically with business
       // transactions (Issue #18). Runs regardless of API_ONLY mode because
@@ -426,6 +434,60 @@ class SchedulerService {
          logger.error('Error in retention policy scheduler:', error);
          schedulerRunsTotal.inc({
             job: 'retention_policies',
+            outcome: 'failure',
+         });
+      }
+   }
+
+   /**
+    * Purge expired AuthChallenge rows.
+    * Protected by distributed lock to prevent duplicate cleanup across instances.
+    * @visibleForTesting
+    */
+   async purgeExpiredAuthChallenges(): Promise<void> {
+      await withDistributedLock(
+         'purge-expired-auth-challenges',
+         lock => this.purgeExpiredAuthChallengesInternal(lock),
+         { ttlSeconds: 60, maxHoldSeconds: 900 }
+      );
+   }
+
+   /**
+    * Internal implementation of auth challenge purge
+    * Wrapped by purgeExpiredAuthChallenges with distributed lock
+    */
+   private async purgeExpiredAuthChallengesInternal(
+      lock: LockHandle
+   ): Promise<void> {
+      try {
+         lock.assertHeld();
+         const deletedCount = await retentionService.purgeExpiredAuthChallenges();
+         logger.info(
+            `Auth challenge purge completed: deleted ${deletedCount} expired challenge(s)`
+         );
+         schedulerItemsProcessedTotal.inc(
+            { job: 'auth_challenge_purge', outcome: 'success' },
+            deletedCount
+         );
+         schedulerRunsTotal.inc({
+            job: 'auth_challenge_purge',
+            outcome: 'success',
+         });
+      } catch (error) {
+         if (isLockLostError(error)) {
+            logger.warn('Aborted auth challenge purge: distributed lock lost', {
+               reason: error.reason,
+            });
+            schedulerRunsTotal.inc({
+               job: 'auth_challenge_purge',
+               outcome: 'aborted',
+            });
+            return;
+         }
+
+         logger.error('Error in auth challenge purge scheduler:', error);
+         schedulerRunsTotal.inc({
+            job: 'auth_challenge_purge',
             outcome: 'failure',
          });
       }
