@@ -31,6 +31,9 @@ export enum AuditEventType {
   // User events
   USER_CREATED = 'auth.user.created',
   USER_LOGIN = 'auth.user.login',
+
+  // Dead-letter queue events
+  DLQ_ABANDONED = 'dlq.abandoned',
 }
 
 /**
@@ -69,7 +72,7 @@ export interface AuditContext {
  * Resource information (what was affected)
  */
 export interface AuditResource {
-  type: 'challenge' | 'user' | 'session';
+  type: 'challenge' | 'user' | 'session' | 'dlq_entry';
   id?: string;
   walletAddress?: string;
 }
@@ -627,6 +630,52 @@ class AuditLogger {
       },
       metadata: {
         failureReason: params.reason,
+      },
+    });
+  }
+
+  /**
+   * Log DLQ entry abandoned by operator
+   */
+  logDlqAbandoned(params: {
+    dlqId: string;
+    channel?: string;
+    eventName?: string | null;
+    userId?: string | null;
+    reason: string;
+    actorUserId?: string;
+    actorWalletAddress?: string;
+    requestId?: string;
+    ipAddress?: string;
+    userAgent?: string;
+  }): void {
+    this.log({
+      eventType: AuditEventType.DLQ_ABANDONED,
+      severity: AuditSeverity.WARNING,
+      message: `Dead-letter entry ${params.dlqId} abandoned: ${params.reason}`,
+      outcome: 'success',
+      actor: {
+        type: params.actorUserId ? 'user' : 'system',
+        userId: params.actorUserId,
+        walletAddress: params.actorWalletAddress,
+        ipAddress: params.ipAddress,
+        userAgent: params.userAgent,
+      },
+      context: {
+        requestId: params.requestId,
+        endpoint: `/api/admin/dead-letter/${params.dlqId}/abandon`,
+        method: 'POST',
+        timestamp: new Date().toISOString(),
+      },
+      resource: {
+        type: 'dlq_entry',
+        id: params.dlqId,
+      },
+      metadata: {
+        channel: params.channel,
+        eventName: params.eventName,
+        targetUserId: params.userId,
+        reason: params.reason,
       },
     });
   }

@@ -352,4 +352,86 @@ describe('DeadLetterQueueService', () => {
       expect(args.where.resolvedAt.lt).toBeInstanceOf(Date);
     });
   });
+
+  describe('abandon', () => {
+    it('returns null if DLQ entry is not found', async () => {
+      mockFindUnique.mockResolvedValue(null);
+      const result = await deadLetterQueueService.abandon('not-found-id', 'Irrelevant event');
+      expect(result).toBeNull();
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('updates status to ABANDONED and stores reason in lastError', async () => {
+      mockFindUnique.mockResolvedValue({
+        id: 'dlq-abandon-1',
+        channel: 'WEBSOCKET_EMIT',
+        eventName: 'notification:new',
+        userId: 'user-123',
+        status: 'PENDING',
+        attempts: 2,
+        lastError: 'connection refused',
+      });
+      mockUpdate.mockResolvedValue({
+        id: 'dlq-abandon-1',
+        channel: 'WEBSOCKET_EMIT',
+        eventName: 'notification:new',
+        userId: 'user-123',
+        status: 'ABANDONED',
+        attempts: 2,
+        lastError: '[ABANDONED] Manual operator triage: client uninstalled app',
+      });
+
+      const result = await deadLetterQueueService.abandon(
+        'dlq-abandon-1',
+        'Manual operator triage: client uninstalled app',
+      );
+
+      expect(mockFindUnique).toHaveBeenCalledWith({ where: { id: 'dlq-abandon-1' } });
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'dlq-abandon-1' },
+        data: {
+          status: 'ABANDONED',
+          lastError: '[ABANDONED] Manual operator triage: client uninstalled app',
+        },
+        select: {
+          id: true,
+          channel: true,
+          eventName: true,
+          userId: true,
+          status: true,
+          attempts: true,
+          lastError: true,
+        },
+      });
+      expect(result).toEqual({
+        id: 'dlq-abandon-1',
+        channel: 'WEBSOCKET_EMIT',
+        eventName: 'notification:new',
+        userId: 'user-123',
+        status: 'ABANDONED',
+        attempts: 2,
+        lastError: '[ABANDONED] Manual operator triage: client uninstalled app',
+      });
+    });
+
+    it('truncates oversized abandon reasons to fit column limit', async () => {
+      mockFindUnique.mockResolvedValue({
+        id: 'dlq-abandon-2',
+        channel: 'NOTIFICATION_CREATE',
+        status: 'RETRYING',
+        attempts: 3,
+      });
+      mockUpdate.mockResolvedValue({
+        id: 'dlq-abandon-2',
+        status: 'ABANDONED',
+      });
+
+      const longReason = 'A'.repeat(2000);
+      await deadLetterQueueService.abandon('dlq-abandon-2', longReason);
+
+      const updateArgs: any = mockUpdate.mock.calls[0][0];
+      expect(updateArgs.data.lastError.length).toBeLessThanOrEqual(1000);
+      expect(updateArgs.data.lastError.startsWith('[ABANDONED] AAAA')).toBe(true);
+    });
+  });
 });

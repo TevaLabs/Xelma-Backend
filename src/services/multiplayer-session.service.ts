@@ -18,6 +18,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
 import { withRoomLock } from '../utils/room-lock';
+import { normalizeStellarAddress } from '../utils/stellar-address.util';
 
 /** Maximum number of rooms we will persist in `rooms` per session. */
 export const MAX_PERSISTED_ROOMS = 32;
@@ -101,6 +102,7 @@ class MultiplayerSessionService {
     const { userId, walletAddress, socketId } = params;
     try {
       const now = new Date();
+      const canonicalWallet = normalizeStellarAddress(walletAddress);
       // Snapshot the prior row (if any) BEFORE upserting so the caller can
       // resume from the last known good state.
       const prior = await prisma.multiplayerSession.findUnique({
@@ -111,7 +113,7 @@ class MultiplayerSessionService {
         where: { userId },
         create: {
           userId,
-          walletAddress,
+          walletAddress: canonicalWallet,
           socketId,
           rooms: [],
           connectedAt: now,
@@ -119,7 +121,7 @@ class MultiplayerSessionService {
           disconnectedAt: null,
         },
         update: {
-          walletAddress,
+          walletAddress: canonicalWallet,
           socketId,
           lastSeenAt: now,
           disconnectedAt: null,

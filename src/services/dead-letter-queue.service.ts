@@ -60,6 +60,16 @@ export interface RetryResult {
   attempts: number;
 }
 
+export interface AbandonResult {
+  id: string;
+  channel: DispatchChannel;
+  eventName: string | null;
+  userId: string | null;
+  status: DispatchStatus;
+  attempts: number;
+  lastError: string;
+}
+
 export interface RetryDryRunResult {
   dryRun: true;
   id: string;
@@ -312,6 +322,46 @@ class DeadLetterQueueService {
       },
     });
     return result.count;
+  }
+
+  /**
+   * Manually abandon a DLQ entry with an operator reason.
+   * Flips status to ABANDONED and records the reason in lastError.
+   * Returns null if entry not found.
+   */
+  async abandon(id: string, reason: string): Promise<AbandonResult | null> {
+    const row = await prisma.failedDispatch.findUnique({ where: { id } });
+    if (!row) {
+      logger.warn(`DLQ abandon: entry ${id} not found`);
+      return null;
+    }
+
+    const updated = await prisma.failedDispatch.update({
+      where: { id },
+      data: {
+        status: DispatchStatus.ABANDONED,
+        lastError: truncateError(`[ABANDONED] ${reason}`),
+      },
+      select: {
+        id: true,
+        channel: true,
+        eventName: true,
+        userId: true,
+        status: true,
+        attempts: true,
+        lastError: true,
+      },
+    });
+
+    logger.warn(`DLQ entry abandoned by operator`, {
+      id,
+      reason,
+      channel: updated.channel,
+      eventName: updated.eventName,
+      userId: updated.userId,
+    });
+
+    return updated;
   }
 }
 

@@ -15,6 +15,7 @@ import deadLetterQueueService, {
 import notificationService from '../services/notification.service';
 import websocketService from '../services/websocket.service';
 import logger from '../utils/logger';
+import auditLogger from '../utils/audit-logger';
 
 const router = Router();
 
@@ -145,6 +146,92 @@ router.post('/:id/retry', requireAdmin, async (req: Request, res: Response) => {
   } catch (err) {
     logger.error('DLQ retry failed', { error: err, id: req.params.id });
     res.status(500).json({ error: 'Failed to replay dead-letter entry' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/admin/dead-letter/{id}/abandon:
+ *   post:
+ *     summary: Abandon a single DLQ entry with an audit reason
+ *     description: |
+ *       Admin only. Marks the dead-letter queue entry as ABANDONED and logs
+ *       an audit event with the supplied reason.
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: DLQ entry ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - reason
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 description: Reason for abandoning the dead-letter entry
+ *     responses:
+ *       200:
+ *         description: Dead-letter entry abandoned successfully
+ *       400:
+ *         description: Missing or invalid reason
+ *       404:
+ *         description: Dead-letter entry not found
+ *       500:
+ *         description: Failed to abandon dead-letter entry
+ */
+router.post('/:id/abandon', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { reason } = req.body || {};
+    if (!reason || typeof reason !== 'string' || reason.trim() === '') {
+      res.status(400).json({ error: 'reason is required to abandon a dead-letter entry' });
+      return;
+    }
+
+    const trimmedReason = reason.trim();
+    const result = await deadLetterQueueService.abandon(req.params.id, trimmedReason);
+    if (!result) {
+      res.status(404).json({ error: 'Dead-letter entry not found' });
+      return;
+    }
+
+    const adminUser = (req as any).user;
+    const requestId = (req as any).requestId;
+    const ipAddress = req.ip || req.socket?.remoteAddress;
+    const userAgent = req.get('user-agent');
+
+    auditLogger.logDlqAbandoned({
+      dlqId: req.params.id,
+      channel: result.channel,
+      eventName: result.eventName,
+      userId: result.userId,
+      reason: trimmedReason,
+      actorUserId: adminUser?.userId || adminUser?.id,
+      actorWalletAddress: adminUser?.walletAddress,
+      requestId,
+      ipAddress,
+      userAgent,
+    });
+
+    res.json({
+      id: result.id,
+      status: result.status,
+      attempts: result.attempts,
+      lastError: result.lastError,
+    });
+  } catch (err) {
+    logger.error('DLQ abandon failed', { error: err, id: req.params.id });
+    res.status(500).json({ error: 'Failed to abandon dead-letter entry' });
   }
 });
 
