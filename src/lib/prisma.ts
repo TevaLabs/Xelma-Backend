@@ -17,6 +17,18 @@ function sanitizeDatabaseUrl(raw: string): string {
   }
 }
 
+/**
+ * Default options for interactive `prisma.$transaction(async tx => ...)` calls,
+ * driven by DB_TX_TIMEOUT_MS / DB_TX_MAX_WAIT_MS so long payouts can be tuned
+ * in one place instead of per call site (#861).
+ */
+export function getTransactionOptions(): { timeout: number; maxWait: number } {
+  return {
+    timeout: config.database.transactionTimeoutMs,
+    maxWait: config.database.transactionMaxWaitMs,
+  };
+}
+
 export const prisma = (() => {
   if (
     process.env.NODE_ENV === 'test' &&
@@ -148,6 +160,7 @@ export const prisma = (() => {
       db: { url: config.database.url },
     },
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    transactionOptions: getTransactionOptions(),
   });
 })();
 
@@ -159,6 +172,7 @@ if (!globalForPrisma.prisma && config.app.dataStore !== 'memory') {
       poolTimeoutSeconds: config.database.poolTimeoutSeconds,
       connectTimeoutSeconds: config.database.connectTimeoutSeconds,
       statementTimeoutMs: config.database.statementTimeoutMs,
+      transaction: getTransactionOptions(),
       pgbouncer: config.database.pgbouncer,
     },
   });
