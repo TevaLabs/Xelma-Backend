@@ -16,7 +16,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "Paste a JWT like: Bearer <token>"
+        "description": "JWT access token issued by `POST /api/auth/connect`, sent as `Authorization: Bearer <token>`.\n\nClaims are documented in the [`JwtPayload`](#/components/schemas/JwtPayload) schema. `iat`/`exp` are NumericDate timestamps in integer **seconds** (not milliseconds). Expiry is validated against the **server** clock with zero tolerance (`clockTolerance: 0`, the jsonwebtoken default), so there is no leeway for client clock skew: a token is rejected with 401 `Invalid or expired token` as soon as server time reaches `exp`. Do not decide expiry from the client clock — on 401, re-run the challenge/connect flow instead of retrying with the same token. Default lifetime is `JWT_EXPIRY` (7d)."
       }
     },
     "schemas": {
@@ -176,7 +176,7 @@
         "properties": {
           "token": {
             "type": "string",
-            "description": "JWT access token"
+            "description": "Signed JWT access token. Send it as `Authorization: Bearer <token>`; its decoded claims are documented in the JwtPayload schema."
           },
           "user": {
             "type": "object",
@@ -208,6 +208,61 @@
         "required": [
           "token",
           "user"
+        ],
+        "additionalProperties": false
+      },
+      "JwtPayload": {
+        "type": "object",
+        "title": "JwtPayload",
+        "description": "Claims carried by the JWT returned from POST /api/auth/connect and verified on every authenticated request. `iat`/`exp` are NumericDate timestamps (integer seconds since the Unix epoch — never milliseconds). Clock skew: `exp` is checked strictly against the **server** clock with zero tolerance (`clockTolerance: 0`, the jsonwebtoken default), so no leeway is granted for a client whose clock differs — a token is rejected with 401 `Invalid or expired token` as soon as server time reaches `exp`. `iat` is recorded at issue time but not independently validated (no `maxAge` is configured). Clients must not decide expiry from their own clock; on 401, re-run the challenge/connect flow.",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "Platform user id the token authenticates.",
+            "example": "clx9k2v0p0000z9a4b5c6d7e8f"
+          },
+          "walletAddress": {
+            "type": "string",
+            "description": "Stellar wallet public key (G...) the token was issued for.",
+            "example": "GDRHOLGIIVOGHNURCNVVGUXBUJCVTSKH2V7ACB4E4ZOR7KC3XGIBK5CT"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "ADMIN",
+              "ORACLE"
+            ],
+            "description": "Privilege level enforced by role-gated routes.",
+            "example": "USER"
+          },
+          "iat": {
+            "type": "integer",
+            "description": "Issued-at: NumericDate (integer seconds since the Unix epoch) set by the server when the token was signed.",
+            "example": 1725148800
+          },
+          "exp": {
+            "type": "integer",
+            "description": "Expiry: NumericDate (integer seconds since the Unix epoch) equal to `iat + JWT_EXPIRY` (default 7d). Validated against the server clock with zero tolerance — see the schema description for clock-skew handling.",
+            "example": 1730336000
+          },
+          "iss": {
+            "type": "string",
+            "description": "Optional issuer. Present only when `JWT_ISSUER` is configured; verified when set.",
+            "example": "xelma"
+          },
+          "aud": {
+            "type": "string",
+            "description": "Optional audience. Present only when `JWT_AUDIENCE` is configured; verified when set.",
+            "example": "xelma-api"
+          }
+        },
+        "required": [
+          "userId",
+          "walletAddress",
+          "role",
+          "iat",
+          "exp"
         ],
         "additionalProperties": false
       },

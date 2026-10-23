@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
+import { UserRole } from "@prisma/client";
 import { swaggerSpec } from "../docs/openapi";
 import { isValidStellarAddress } from "../utils/stellar-address.util";
 
@@ -125,5 +126,39 @@ describe("OpenAPI spec", () => {
     expect(isValidStellarAddress(challengeExample)).toBe(true);
     expect(isValidStellarAddress(connectExample)).toBe(true);
     expect(isValidStellarAddress(jwtExample)).toBe(true);
+  });
+
+  it("documents JWT claims (JwtPayload) and clock-skew handling on bearerAuth", () => {
+    // WHY: consumers need to know what the access token actually carries and
+    // that expiry is judged by the *server* clock with no leeway, otherwise
+    // clients wrongly expire tokens from their own (possibly skewed) clock.
+    const components = (swaggerSpec as { components?: Record<string, any> }).components ?? {};
+    const schema = components.schemas?.JwtPayload;
+
+    expect(schema).toBeDefined();
+    expect(Object.keys(schema.properties ?? {})).toEqual(
+      expect.arrayContaining(["userId", "walletAddress", "role", "iat", "exp"])
+    );
+    expect(schema.required ?? []).toEqual(
+      expect.arrayContaining(["userId", "walletAddress", "role", "iat", "exp"])
+    );
+
+    // role claim must mirror the Prisma enum the runtime enforces
+    expect(schema.properties.role.enum).toEqual(Object.values(UserRole));
+
+    // NumericDate claims are integer seconds, never milliseconds
+    expect(schema.properties.iat.type).toBe("integer");
+    expect(schema.properties.exp.type).toBe("integer");
+    expect(`${schema.description}`).toMatch(/second/i);
+    expect(`${schema.description}`).toMatch(/clock/i);
+
+    const bearer = components.securitySchemes?.bearerAuth;
+    expect(bearer?.type).toBe("http");
+    expect(bearer?.scheme).toBe("bearer");
+    expect(bearer?.bearerFormat).toBe("JWT");
+    const bearerDescription = `${bearer?.description ?? ""}`;
+    expect(bearerDescription).toMatch(/JwtPayload/i);
+    expect(bearerDescription).toMatch(/zero tolerance|no leeway/i);
+    expect(bearerDescription).toMatch(/server/i);
   });
 });
