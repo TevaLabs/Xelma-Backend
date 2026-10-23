@@ -1,10 +1,7 @@
 node_modules
 dist
-.env
-.env.local
 .DS_Store
 *.log
-temp_auto_push.bat
 coverage
 .prisma
 package-lock.json
@@ -13,3 +10,4 @@ commit.sh
 pr.txt
 /docs.gitignore
 branch_structure.json
+config.bat
