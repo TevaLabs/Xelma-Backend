@@ -175,6 +175,10 @@ model Tournament {
 
   @@index([status])
   @@index([mode])
+  @@index([startTime(sort: Desc)])
+  @@index([status, startTime(sort: Desc)])
+  @@index([mode, startTime(sort: Desc)])
+  @@index([status, mode, startTime(sort: Desc)])
 }
 
 model TournamentParticipant {
