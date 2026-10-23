@@ -48,6 +48,22 @@ jobs:
       - name: Run production-readiness scorecard
         run: npm run scorecard
 
+  scan-migrations:
+    name: scan migrations (DROP risk)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Scan migrations for DROP risk
+        run: npm run scan:migrations
+
   build:
     name: build
     runs-on: ubuntu-latest

@@ -112,6 +112,9 @@ describe("production-readiness scorecard heuristics (#632)", () => {
         /PASS\s+Architecture documentation exists \(docs\/architecture\.md\) \[required\]/,
       );
       expect(result.stdout).toMatch(
+        /PASS\s+Migrations are free of unapproved DROP risk \[required\]/,
+      );
+      expect(result.stdout).toMatch(
         /PASS\s+Auth routes expose a JWT refresh endpoint \[required\]/,
       );
       expect(result.stdout).toMatch(

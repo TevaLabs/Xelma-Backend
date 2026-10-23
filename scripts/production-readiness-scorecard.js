@@ -147,6 +147,9 @@ const CRITICAL_ENV_VARS = [
 // to avoid hoisting issues. New checks are added to the `checks` array.
 const { statSync, readdirSync } = fs;
 
+// Import drop risk scanner for migration safety check
+const { scanSqlContent } = require("./scan-migration-drop-risk");
+
 function migrationDirs() {
   const dir = path.join(ROOT, "prisma", "migrations");
   if (!fs.existsSync(dir)) return [];
@@ -316,6 +319,25 @@ const newChecks = [
     },
     detail:
       "The most recent migration directory is missing migration.sql. It may be corrupt. Run `npx prisma migrate dev` to regenerate.",
+  },
+  {
+    name: "Migrations are free of unapproved DROP risk",
+    required: true,
+    run: () => {
+      const dirs = migrationDirs();
+      for (const dir of dirs) {
+        const sqlPath = path.join(dir, "migration.sql");
+        if (fs.existsSync(sqlPath)) {
+          const sql = fs.readFileSync(sqlPath, "utf8");
+          if (scanSqlContent(sql).length > 0) {
+            return false;
+          }
+        }
+      }
+      return true;
+    },
+    detail:
+      "Destructive DROP operation (e.g. DROP TABLE/COLUMN) detected in prisma/migrations. Dropping tables or columns poses data loss risk. Annotate with `-- allow-drop: <reason>` if intentional.",
   },
 
   // ── Recurring production gaps (#632) ──────────────────────────────

@@ -10,6 +10,7 @@
     "start:hackathon": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "lint": "tsc --noEmit",
+    "scan:migrations": "node scripts/scan-migration-drop-risk.js",
     "scorecard": "node scripts/production-readiness-scorecard.js",
     "check:bindings": "node scripts/install-bindings.js --check",
     "check:bindings:abi": "node dist/scripts/check-bindings.js",
