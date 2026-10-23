@@ -1372,7 +1372,7 @@ Idempotency-Key: a5b7-c9d8-e2f4-77a8-33b2
 
 #### Bet Creation Idempotency
 
-Both `/api/bets/up-down` and `/api/bets/precision` endpoints support safe client retries using the optional `Idempotency-Key` header.
+The `/api/bets/up-down`, `/api/bets/precision` and `/api/bets/claim` endpoints (and the round-scoped bet routes that share the same execution path) support safe client retries using the optional `Idempotency-Key` header. All of them go through the shared `runIdempotent()` helper in `src/utils/idempotency.util.ts`, backed by the `IdempotencyKey` model, so their semantics cannot drift.
 
 - **Idempotency-Key Header**: Optional. Standard string format (alphanumeric with hyphens/underscores, 8-255 characters).
 - **TTL (Time-To-Live)**: 24 hours. Stored idempotency records are kept for 24 hours (or as configured via `BET_IDEMPOTENCY_TTL_HOURS` environment variable) and then pruned by the daily scheduler.
@@ -1382,6 +1382,9 @@ Both `/api/bets/up-down` and `/api/bets/precision` endpoints support safe client
   - **Mutation Check (Same Key, Different Body)**: Returns HTTP 409 Conflict with code `CONFLICT` and error code `IDEMPOTENCY_KEY_CONFLICT` to protect against unintentional reuse of keys across different operations.
   - **Concurrency Protection**: Simultaneous concurrent requests with the identical key are coordinated by a two-layer mechanism. A Redis distributed lock keyed by `userId + endpoint + idempotencyKey` (see [Distributed idempotency locking](#distributed-idempotency-locking)) serializes the race across all API replicas first; the existing database-level lock (`prisma.idempotencyKey` row) remains the source of truth underneath. Only one request executes the operation; every other concurrent retry waits for the lock, then replays the stored database response. This prevents double-betting even when multiple horizontally-scaled replicas receive the same `Idempotency-Key` simultaneously.
   - **Failures/Retries**: If the initial operation fails (e.g., Soroban network error or database timeout), the temporary lock is automatically released, allowing subsequent retries to execute the bet again instead of caching a failed state.
+  - **Replay Marker**: Replayed responses carry the `Idempotent-Replayed: true` response header so clients can tell a replay from a fresh execution.
+  - **Invalid Key**: A malformed key (or a repeated `Idempotency-Key` header) is rejected with HTTP 400 before any bet or claim is attempted.
+  - **Store Failure After Execution**: If the bet/claim succeeded but its result could not be persisted, the request returns HTTP 503 and the key stays locked until it expires, so a retry can never execute the side effect twice.
 
 #### Distributed idempotency locking (multi-replica)
 

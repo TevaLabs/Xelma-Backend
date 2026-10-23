@@ -1,6 +1,16 @@
 import { createHash } from 'crypto';
 import logger from './logger';
 import { prisma } from '../lib/prisma';
+import {
+   ConflictError,
+   ErrorCode,
+   ExternalServiceError,
+   ValidationError,
+} from './errors';
+import {
+   DistributedIdempotencyLockUnavailableError,
+   withDistributedIdempotencyLock,
+} from './distributed-idempotency-lock';
 
 /**
  * Configuration for idempotency key handling
@@ -618,5 +628,167 @@ export async function releaseIdempotencyLock(
          endpoint,
          idempotencyKey,
       });
+   }
+}
+
+/**
+ * Canonical name of the client-supplied idempotency header. Express lowercases
+ * incoming header names, so lookups use {@link readIdempotencyKey}.
+ */
+export const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
+
+/**
+ * Response header set to `true` when a response is replayed from the
+ * idempotency store instead of being produced by a fresh execution.
+ */
+export const IDEMPOTENT_REPLAYED_HEADER = 'Idempotent-Replayed';
+
+/**
+ * Reads the `Idempotency-Key` header from an incoming request's headers.
+ *
+ * - Missing or blank header -> `undefined` (idempotency is opt-in).
+ * - Value is trimmed.
+ * - Repeated headers (array values) are joined with `,`, which is never a
+ *   valid key character, so they are rejected by {@link isValidIdempotencyKey}
+ *   instead of silently picking one of the values.
+ */
+export function readIdempotencyKey(
+   headers: Record<string, string | string[] | undefined>
+): string | undefined {
+   const raw = headers[IDEMPOTENCY_KEY_HEADER.toLowerCase()];
+   if (raw === undefined) return undefined;
+
+   const value = (Array.isArray(raw) ? raw.join(',') : raw).trim();
+   return value.length > 0 ? value : undefined;
+}
+
+export interface IdempotentResponse<TRes> {
+   status: number;
+   body: TRes;
+}
+
+export interface RunIdempotentOptions<TReq, TRes> {
+   userId: string;
+   /** Idempotency scope; must be stable per logical endpoint. */
+   endpoint: string;
+   /** Client key, already read via {@link readIdempotencyKey}. Optional. */
+   idempotencyKey: string | undefined;
+   /** Request body used for mutation detection (key reuse with a new body). */
+   requestBody: TReq;
+   ttlHours?: number;
+   /** The side-effecting operation. Runs at most once per key. */
+   operation: () => Promise<IdempotentResponse<TRes>>;
+}
+
+export interface RunIdempotentResult<TRes> extends IdempotentResponse<TRes> {
+   /** `true` when the response was replayed from the idempotency store. */
+   replayed: boolean;
+}
+
+/**
+ * Runs a side-effecting operation behind the shared idempotency model
+ * (`IdempotencyKey` rows / in-memory store) and the fail-closed Redis
+ * distributed lock.
+ *
+ * Without a key the operation simply runs. With a key:
+ * - an invalid key format -> `ValidationError` (400)
+ * - a completed key with the same body -> cached response, `replayed: true`
+ * - key reuse with a different body / in-flight timeout -> `ConflictError` (409)
+ * - store or distributed lock unavailable -> `ExternalServiceError` (503)
+ *
+ * The pending lock is released only if the operation itself did not complete,
+ * so a failure while persisting the result never re-opens the key for a
+ * second execution of a side effect that already happened.
+ */
+export async function runIdempotent<TReq = unknown, TRes = unknown>({
+   userId,
+   endpoint,
+   idempotencyKey,
+   requestBody,
+   ttlHours = 24,
+   operation,
+}: RunIdempotentOptions<TReq, TRes>): Promise<RunIdempotentResult<TRes>> {
+   if (!idempotencyKey) {
+      const response = await operation();
+      return { ...response, replayed: false };
+   }
+
+   if (!isValidIdempotencyKey(idempotencyKey)) {
+      throw new ValidationError(
+         'Invalid Idempotency-Key format. Must be 8-255 alphanumeric characters.'
+      );
+   }
+
+   let lockAcquired = false;
+   let operationCompleted = false;
+
+   const execute = async (): Promise<RunIdempotentResult<TRes>> => {
+      const lockResult = await acquireIdempotencyLock<TReq, TRes>(
+         userId,
+         endpoint,
+         idempotencyKey,
+         requestBody,
+         ttlHours
+      );
+
+      if (lockResult.isIdempotent && lockResult.cachedResponse) {
+         return { ...lockResult.cachedResponse, replayed: true };
+      }
+
+      if (lockResult.error === IDEMPOTENCY_STORE_UNAVAILABLE) {
+         throw new ExternalServiceError(
+            'Idempotency store unavailable. Please try again.',
+            ErrorCode.EXTERNAL_SERVICE_ERROR
+         );
+      }
+
+      if (lockResult.error) {
+         throw new ConflictError(lockResult.error, ErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+      }
+
+      lockAcquired = !!lockResult.lockAcquired;
+
+      const response = await operation();
+      operationCompleted = true;
+
+      if (lockAcquired) {
+         await storeIdempotencyResult(
+            userId,
+            endpoint,
+            idempotencyKey,
+            requestBody,
+            response.status,
+            response.body,
+            { ttlHours }
+         );
+      }
+
+      return { ...response, replayed: false };
+   };
+
+   try {
+      // Fail-closed distributed lock (Redis) in front of the store flow so
+      // concurrent replicas cannot both process the same key.
+      return await withDistributedIdempotencyLock(userId, endpoint, idempotencyKey, execute);
+   } catch (error) {
+      if (lockAcquired && !operationCompleted) {
+         await releaseIdempotencyLock(userId, endpoint, idempotencyKey);
+      }
+
+      if (error instanceof DistributedIdempotencyLockUnavailableError) {
+         throw new ExternalServiceError(
+            'Distributed idempotency lock unavailable. Please try again.',
+            ErrorCode.EXTERNAL_SERVICE_ERROR
+         );
+      }
+
+      if (error instanceof IdempotencyStoreUnavailableError) {
+         throw new ExternalServiceError(
+            'Idempotency store unavailable. Please try again.',
+            ErrorCode.EXTERNAL_SERVICE_ERROR
+         );
+      }
+
+      throw error;
    }
 }
