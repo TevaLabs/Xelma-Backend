@@ -8,6 +8,7 @@ import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
+import { withClaimLock } from '../utils/claim-lock';
 
 export interface UpDownBetInput {
   address: string;
@@ -698,40 +699,44 @@ export class BetService {
     } else {
       logger.info('Claiming winnings on-chain', { address, idempotencyKey, requestId });
 
-      // Track every claim in the Claim ledger (Issue #492) so the payout
-      // reconciliation worker can detect and sweep stuck submissions. An
-      // open SUBMITTED row means a claim tx is already in flight for this
-      // wallet — return it instead of double-submitting on-chain.
-      const openClaim = await prisma.claim.findFirst({
-        where: {
-          walletAddress: address,
-          status: { in: [ClaimStatus.PENDING, ClaimStatus.SUBMITTED, ClaimStatus.FAILED] },
-        },
-        orderBy: { createdAt: 'asc' },
-      });
-
-      if (openClaim?.status === ClaimStatus.SUBMITTED) {
-        logger.info('Claim already in flight; returning existing submission', {
-          address,
-          claimId: openClaim.id,
-          txHash: openClaim.txHash,
-          requestId,
+      // Acquire a per-wallet advisory lock before touching the Claim ledger.
+      // This eliminates the TOCTOU race between concurrent claim requests for
+      // the same wallet address: only one caller can hold the lock at a time,
+      // so the findFirst check and the on-chain submission are effectively atomic.
+      result = await withClaimLock(address, async () => {
+        // Re-read inside the lock so we see the authoritative state.
+        const openClaim = await prisma.claim.findFirst({
+          where: {
+            walletAddress: address,
+            status: { in: [ClaimStatus.PENDING, ClaimStatus.SUBMITTED, ClaimStatus.FAILED] },
+          },
+          orderBy: { createdAt: 'asc' },
         });
-        result = {
-          state: 'already-submitted',
-          amount: toNumber(openClaim.amount),
-          txHash: openClaim.txHash ?? undefined,
-        };
-      } else {
+
+        if (openClaim?.status === ClaimStatus.SUBMITTED) {
+          logger.info('Claim already in flight; returning existing submission', {
+            address,
+            claimId: openClaim.id,
+            txHash: openClaim.txHash,
+            requestId,
+          });
+          return {
+            state: 'already-submitted',
+            amount: toNumber(openClaim.amount),
+            txHash: openClaim.txHash ?? undefined,
+          };
+        }
+
         try {
-          result = await sorobanService.claimWinnings(address);
-          await this.recordClaimSubmission(address, result, openClaim?.id ?? null);
+          const claimResult = await sorobanService.claimWinnings(address);
+          await this.recordClaimSubmission(address, claimResult, openClaim?.id ?? null);
           payoutClaimsSubmittedTotal.inc({ source: 'user' });
+          return claimResult;
         } catch (error) {
           await this.recordClaimFailure(address, error, openClaim?.id ?? null);
           throw error;
         }
-      }
+      });
     }
 
     const correlationId = requestId && result.txHash ? `${requestId}:${result.txHash}` : requestId ?? result.txHash;
