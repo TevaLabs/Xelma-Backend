@@ -3230,6 +3230,84 @@
         }
       }
     },
+    "/api/admin/metrics/outbox": {
+      "get": {
+        "summary": "Transactional outbox backlog",
+        "description": "Returns outbox row counts by status (PENDING, PROCESSING, PROCESSED,\nFAILED) and the age of the oldest PENDING row, so operators can see\nwhether the outbox poller is keeping up. A growing PENDING count or\noldest-pending age means dispatch is stuck or behind; FAILED rows have\nbeen escalated to the dead-letter queue. Admin only.\n",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Outbox backlog snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "backlog": {
+                      "type": "object",
+                      "properties": {
+                        "counts": {
+                          "type": "object",
+                          "description": "Row count for every status (0 when empty)",
+                          "properties": {
+                            "PENDING": {
+                              "type": "integer"
+                            },
+                            "PROCESSING": {
+                              "type": "integer"
+                            },
+                            "PROCESSED": {
+                              "type": "integer"
+                            },
+                            "FAILED": {
+                              "type": "integer"
+                            }
+                          }
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "oldestPendingAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true,
+                          "description": "createdAt of the oldest PENDING row, null when none"
+                        },
+                        "oldestPendingAgeSeconds": {
+                          "type": "integer",
+                          "nullable": true,
+                          "description": "Age of the oldest PENDING row in seconds, null when none"
+                        },
+                        "generatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/api/admin/metrics/rate-limit-summary": {
       "get": {
         "summary": "Structured rate-limit metrics summary",

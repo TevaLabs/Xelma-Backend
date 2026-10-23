@@ -46,6 +46,13 @@ jest.mock('../lib/prisma', () => ({
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     claim: { groupBy: jest.fn().mockResolvedValue([]) },
+    outboxEvent: {
+      groupBy: jest.fn().mockResolvedValue([
+        { status: 'PENDING', _count: { status: 3 } },
+        { status: 'FAILED', _count: { status: 1 } },
+      ]),
+      findFirst: jest.fn().mockResolvedValue({ createdAt: new Date(Date.now() - 90_000) }),
+    },
     $disconnect: jest.fn().mockResolvedValue(undefined),
   },
 }));
@@ -106,6 +113,7 @@ const ADMIN_METRICS_ROUTES: ReadonlyArray<{
   { name: 'prometheus scrape', method: 'get', path: '/api/admin/metrics/metrics' },
   { name: 'payout reconciliation', method: 'get', path: '/api/admin/metrics/payout-reconciliation' },
   { name: 'rate-limit summary', method: 'get', path: '/api/admin/metrics/rate-limit-summary' },
+  { name: 'outbox backlog', method: 'get', path: '/api/admin/metrics/outbox' },
 ];
 
 describe('Rate Limit Visibility', () => {
@@ -217,6 +225,25 @@ describe('Rate Limit Visibility', () => {
     );
     expect(match).toBeDefined();
     expect(match.hits).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should expose the outbox backlog (counts by status + oldest PENDING age) to admins', async () => {
+    const response = await request(app)
+      .get('/api/admin/metrics/outbox')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.backlog.counts).toEqual({
+      PENDING: 3,
+      PROCESSING: 0,
+      PROCESSED: 0,
+      FAILED: 1,
+    });
+    expect(response.body.backlog.total).toBe(4);
+    expect(typeof response.body.backlog.oldestPendingAt).toBe('string');
+    expect(response.body.backlog.oldestPendingAgeSeconds).toBeGreaterThanOrEqual(89);
+    expect(response.body.backlog.oldestPendingAgeSeconds).toBeLessThan(120);
   });
 
   it('should deny rate-limit-summary to regular users', async () => {

@@ -155,6 +155,20 @@ function truncateError(err: unknown): string {
 
 // ─── service ─────────────────────────────────────────────────────────────────
 
+/** Operator-facing snapshot of the outbox backlog (Issue #852). */
+export interface OutboxBacklogMetrics {
+  /** Row count for every status; statuses with no rows are reported as 0. */
+  counts: Record<OutboxEventStatus, number>;
+  /** Sum of `counts`. */
+  total: number;
+  /** `createdAt` of the oldest PENDING row, or null when nothing is pending. */
+  oldestPendingAt: string | null;
+  /** Age of that row in whole seconds (never negative), or null when nothing is pending. */
+  oldestPendingAgeSeconds: number | null;
+  /** When this snapshot was taken. */
+  generatedAt: string;
+}
+
 export interface ProcessOutboxResult {
   processed: number;
   failed: number;
@@ -286,6 +300,49 @@ class OutboxService {
       default:
         throw new Error(`Unknown outbox event type: ${row.eventType}`);
     }
+  }
+
+  /**
+   * Backlog visibility for operators (Issue #852): row counts per status plus
+   * the age of the oldest PENDING row. A growing PENDING count or age means the
+   * poller is stuck or behind; a non-zero FAILED count means events were
+   * escalated to the dead-letter queue.
+   *
+   * Two cheap indexed reads (`@@index([status, createdAt])`), no row payloads.
+   */
+  async getBacklogMetrics(now: Date = new Date()): Promise<OutboxBacklogMetrics> {
+    const [groups, oldestPending] = await Promise.all([
+      prisma.outboxEvent.groupBy({
+        by: ['status'],
+        _count: { status: true },
+      }),
+      prisma.outboxEvent.findFirst({
+        where: { status: OutboxEventStatus.PENDING },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+    ]);
+
+    const counts: Record<OutboxEventStatus, number> = {
+      [OutboxEventStatus.PENDING]: 0,
+      [OutboxEventStatus.PROCESSING]: 0,
+      [OutboxEventStatus.PROCESSED]: 0,
+      [OutboxEventStatus.FAILED]: 0,
+    };
+    for (const group of groups) {
+      counts[group.status] = group._count.status;
+    }
+    const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+
+    return {
+      counts,
+      total,
+      oldestPendingAt: oldestPending ? oldestPending.createdAt.toISOString() : null,
+      oldestPendingAgeSeconds: oldestPending
+        ? Math.max(0, Math.floor((now.getTime() - oldestPending.createdAt.getTime()) / 1000))
+        : null,
+      generatedAt: now.toISOString(),
+    };
   }
 
   /**
