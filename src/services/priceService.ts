@@ -20,6 +20,91 @@ interface CacheEntry {
   fetchedAt: number;
 }
 
+export interface ProviderHealth {
+  name: string;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+}
+
+export interface PriceProviderHealth {
+  providers: ProviderHealth[];
+  /** Provider that served the most recent successful fetch, if any. */
+  activeProvider: string | null;
+  lastSuccessAt: string | null;
+  /**
+   * True when the most recent fetch round failed on every provider, i.e. the
+   * service is serving cached/static prices. False before any fetch happens.
+   */
+  degraded: boolean;
+}
+
+interface ProviderRecord {
+  lastSuccessAt: number | null;
+  lastFailureAt: number | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+}
+
+const providerRecords = new Map<string, ProviderRecord>();
+let activeProvider: string | null = null;
+let lastRoundFailed = false;
+
+function getRecord(name: string): ProviderRecord {
+  let rec = providerRecords.get(name);
+  if (!rec) {
+    rec = { lastSuccessAt: null, lastFailureAt: null, lastError: null, consecutiveFailures: 0 };
+    providerRecords.set(name, rec);
+  }
+  return rec;
+}
+
+function recordSuccess(name: string): void {
+  const rec = getRecord(name);
+  rec.lastSuccessAt = Date.now();
+  rec.consecutiveFailures = 0;
+  rec.lastError = null;
+  activeProvider = name;
+  lastRoundFailed = false;
+}
+
+function recordFailure(name: string, err: unknown): void {
+  const rec = getRecord(name);
+  rec.lastFailureAt = Date.now();
+  rec.consecutiveFailures += 1;
+  rec.lastError = err instanceof Error ? err.message : String(err);
+}
+
+const iso = (ms: number | null): string | null => (ms === null ? null : new Date(ms).toISOString());
+
+/**
+ * Per-provider last success/failure for the multi-asset price chain, so
+ * /health can surface silently stale prices (#869).
+ */
+export function getPriceProviderHealth(): PriceProviderHealth {
+  const providersList = getProviders().map((p) => {
+    const rec = getRecord(p.name);
+    return {
+      name: p.name,
+      lastSuccessAt: iso(rec.lastSuccessAt),
+      lastFailureAt: iso(rec.lastFailureAt),
+      lastError: rec.lastError,
+      consecutiveFailures: rec.consecutiveFailures,
+    };
+  });
+  const successes = providersList
+    .map((p) => p.lastSuccessAt)
+    .filter((t): t is string => t !== null)
+    .sort();
+  return {
+    providers: providersList,
+    activeProvider,
+    lastSuccessAt: successes.length ? successes[successes.length - 1] : null,
+    degraded: lastRoundFailed,
+  };
+}
+
 let cache: CacheEntry | null = null;
 let providers: PriceProvider[] | null = null;
 
@@ -68,9 +153,12 @@ async function fetchAssetPricesWithFailover(): Promise<AssetPriceSet> {
 
   for (const provider of getProviders()) {
     try {
-      return await provider.fetchAssetPrices();
+      const prices = await provider.fetchAssetPrices();
+      recordSuccess(provider.name);
+      return prices;
     } catch (err) {
       lastError = err;
+      recordFailure(provider.name, err);
       logger.warn(`Multi-asset price fetch failed for provider ${provider.name}, trying next`, {
         provider: provider.name,
         error: err instanceof Error ? err.message : String(err),
@@ -78,12 +166,16 @@ async function fetchAssetPricesWithFailover(): Promise<AssetPriceSet> {
     }
   }
 
+  lastRoundFailed = true;
   throw lastError instanceof Error ? lastError : new Error('All configured price providers failed');
 }
 
 /** Reset in-memory cache (for tests). */
 export function resetPriceCache(): void {
   cache = null;
+  providerRecords.clear();
+  activeProvider = null;
+  lastRoundFailed = false;
 }
 
 export const getPrices = async (): Promise<PriceResponse> => {
