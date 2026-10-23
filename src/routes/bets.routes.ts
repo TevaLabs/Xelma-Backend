@@ -10,24 +10,11 @@ import { upDownBetSchema, precisionBetSchema, claimWinningsSchema } from "../sch
 import betService from "../services/bet.service";
 import { BetStatus } from "@prisma/client";
 import {
-  acquireIdempotencyLock,
-  IDEMPOTENCY_STORE_UNAVAILABLE,
-  IdempotencyStoreUnavailableError,
-  releaseIdempotencyLock,
-  storeIdempotencyResult,
-  isValidIdempotencyKey,
+  IDEMPOTENT_REPLAYED_HEADER,
+  readIdempotencyKey,
+  runIdempotent,
 } from "../utils/idempotency.util";
-import {
-  DistributedIdempotencyLockUnavailableError,
-  withDistributedIdempotencyLock,
-} from "../utils/distributed-idempotency-lock";
-import {
-  ConflictError,
-  ValidationError,
-  ErrorCode,
-  ExternalServiceError,
-  NotFoundError,
-} from "../utils/errors";
+import { ValidationError, NotFoundError } from "../utils/errors";
 import { serializeBet } from "../serializers/monetary.serializer";
 import { prisma } from "../lib/prisma";
 import { executeBet } from "./bet-execution";
@@ -42,6 +29,16 @@ const router = Router();
  *     tags: [bets]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: Idempotency-Key
+ *         required: false
+ *         schema: { type: string, minLength: 8, maxLength: 255, pattern: "^[a-zA-Z0-9_-]+$" }
+ *         description: >
+ *           Optional client key for safe retries. Retrying with the same key and
+ *           body replays the original response (with `Idempotent-Replayed: true`)
+ *           instead of placing a second bet. Keys are scoped per user and endpoint
+ *           and kept for 24 hours.
  *     requestBody:
  *       required: true
  *       content:
@@ -60,6 +57,10 @@ const router = Router();
  *         description: Missing or invalid JWT
  *       400:
  *         description: Validation error
+ *       409:
+ *         description: Idempotency key reused with a different body, or still in flight
+ *       503:
+ *         description: Idempotency store / distributed lock unavailable
  */
 router.post(
   "/up-down",
@@ -83,6 +84,16 @@ router.post(
  *     tags: [bets]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: Idempotency-Key
+ *         required: false
+ *         schema: { type: string, minLength: 8, maxLength: 255, pattern: "^[a-zA-Z0-9_-]+$" }
+ *         description: >
+ *           Optional client key for safe retries. Retrying with the same key and
+ *           body replays the original response (with `Idempotent-Replayed: true`)
+ *           instead of placing a second bet. Keys are scoped per user and endpoint
+ *           and kept for 24 hours.
  *     requestBody:
  *       required: true
  *       content:
@@ -101,6 +112,10 @@ router.post(
  *         description: Missing or invalid JWT
  *       400:
  *         description: Validation error
+ *       409:
+ *         description: Idempotency key reused with a different body, or still in flight
+ *       503:
+ *         description: Idempotency store / distributed lock unavailable
  */
 router.post(
   "/precision",
@@ -144,8 +159,10 @@ router.post(
  *         description: Missing or invalid JWT
  *       403:
  *         description: Wallet address mismatch
+ *       400:
+ *         description: Invalid Idempotency-Key format
  *       409:
- *         description: Idempotency key conflict
+ *         description: Idempotency key reused with a different body, or still in flight
  *       422:
  *         description: No claimable winnings / invalid contract state
  *       503:
@@ -161,111 +178,44 @@ router.post(
   bindAuthenticatedWallet,
   validate(claimWinningsSchema),
   (async (req: Request, res: Response, next: NextFunction) => {
-    const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
-    const userId = req.user!.userId;
-    const endpoint = "/api/bets/claim";
-    let lockAcquired = false;
-
-    const execute = async () => {
-      if (idempotencyKey) {
-        if (!isValidIdempotencyKey(idempotencyKey)) {
-          throw new ValidationError(
-            "Invalid Idempotency-Key format. Must be 8-255 alphanumeric characters."
-          );
-        }
-
-        const lockResult = await acquireIdempotencyLock(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          24
-        );
-
-        if (lockResult.isIdempotent && lockResult.cachedResponse) {
-          return res
-            .status(lockResult.cachedResponse.status)
-            .json(lockResult.cachedResponse.body);
-        }
-
-        if (lockResult.error === IDEMPOTENCY_STORE_UNAVAILABLE) {
-          throw new ExternalServiceError(
-            "Idempotency store unavailable. Please try again.",
-            ErrorCode.EXTERNAL_SERVICE_ERROR
-          );
-        }
-
-        if (lockResult.error) {
-          throw new ConflictError(
-            lockResult.error,
-            ErrorCode.IDEMPOTENCY_KEY_CONFLICT
-          );
-        }
-
-        lockAcquired = !!lockResult.lockAcquired;
-      }
-
-      const requestId = (req as any).requestId as string | undefined;
-      const result = await betService.claimWinnings(req.body.address, idempotencyKey, requestId);
-      const responseBody = {
-        success: true,
-        message:
-          result.state === "stub"
-            ? "Claim recorded (stub)"
-            : "Winnings claimed on-chain",
-        state: result.state,
-        amount: result.amount,
-        ...(result.txHash ? { txHash: result.txHash } : {}),
-        ...(requestId ? { requestId } : {}),
-      };
-
-      if (idempotencyKey && lockAcquired) {
-        await storeIdempotencyResult(
-          userId,
-          endpoint,
-          idempotencyKey,
-          req.body,
-          200,
-          responseBody,
-          { ttlHours: 24 }
-        );
-      }
-
-      return res.json(responseBody);
-    };
+    const idempotencyKey = readIdempotencyKey(req.headers);
+    const requestId = (req as any).requestId as string | undefined;
 
     try {
-      if (idempotencyKey) {
-        // Fail-closed distributed lock (Redis) in front of the Prisma flow so
-        // concurrent replicas cannot both process the same key.
-        await withDistributedIdempotencyLock(
-          userId,
-          endpoint,
-          idempotencyKey,
-          execute
-        );
-      } else {
-        await execute();
-      }
-    } catch (error: any) {
-      if (idempotencyKey && lockAcquired) {
-        await releaseIdempotencyLock(userId, endpoint, idempotencyKey);
-      }
+      const result = await runIdempotent({
+        userId: req.user!.userId,
+        endpoint: "/api/bets/claim",
+        idempotencyKey,
+        requestBody: req.body,
+        ttlHours: 24,
+        operation: async () => {
+          const claim = await betService.claimWinnings(
+            req.body.address,
+            idempotencyKey,
+            requestId,
+          );
+          return {
+            status: 200,
+            body: {
+              success: true,
+              message:
+                claim.state === "stub"
+                  ? "Claim recorded (stub)"
+                  : "Winnings claimed on-chain",
+              state: claim.state,
+              amount: claim.amount,
+              ...(claim.txHash ? { txHash: claim.txHash } : {}),
+              ...(requestId ? { requestId } : {}),
+            },
+          };
+        },
+      });
 
-      if (error instanceof DistributedIdempotencyLockUnavailableError) {
-        return next(new ExternalServiceError(
-          "Distributed idempotency lock unavailable. Please try again.",
-          ErrorCode.EXTERNAL_SERVICE_ERROR
-        ));
+      if (result.replayed) {
+        res.setHeader(IDEMPOTENT_REPLAYED_HEADER, "true");
       }
-
-      if (error instanceof IdempotencyStoreUnavailableError) {
-        return next(new ExternalServiceError(
-          "Idempotency store unavailable. Please try again.",
-          ErrorCode.EXTERNAL_SERVICE_ERROR
-        ));
-      }
-
+      return res.status(result.status).json(result.body);
+    } catch (error) {
       return next(error);
     }
   }),
