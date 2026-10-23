@@ -1,6 +1,7 @@
 /**
  * Assertion test: both hackathon and production apps produce the same
- * HTTP request log shape (method, path, status, durationMs, requestId).
+ * HTTP request log shape (method, path, status, durationMs, requestId,
+ * headers).
  *
  * Run:  npx jest src/tests/http-logger-unified.spec.ts
  */
@@ -57,7 +58,7 @@ jest.mock('../middleware/rateLimiter.middleware', () => {
 
 jest.mock('../lib/prisma', () => ({ prisma: {} }));
 
-const EXPECTED_FIELDS = ['method', 'path', 'status', 'durationMs', 'requestId'];
+const EXPECTED_FIELDS = ['method', 'path', 'status', 'durationMs', 'requestId', 'headers'];
 
 function getLastHttpLog(): Record<string, any> | undefined {
   const calls = mockLogInfo.mock.calls;

@@ -87,6 +87,27 @@ Filter with:
 requestId=123e4567-e89b-12d3-a456-426614174000 AND txHash=abc123
 ```
 
+## Credential redaction in HTTP logs
+
+Every `http request` log line (`src/middleware/httpLogger.middleware.ts`) carries a `headers` field, and credential values in it are replaced with `[REDACTED]` (Issue #886). The header key is kept, so you can still see that a request was authenticated:
+
+```json
+{
+  "message": "http request",
+  "requestId": "123e4567-e89b-12d3-a456-426614174000",
+  "method": "GET",
+  "path": "/api/rounds",
+  "status": 200,
+  "durationMs": 12,
+  "headers": { "authorization": "[REDACTED]", "cookie": "[REDACTED]", "user-agent": "curl/8.5.0" }
+}
+```
+
+- Redacted headers (case-insensitive) are listed in `SENSITIVE_HEADERS` in `src/utils/log-redaction.util.ts`. Any other header whose value starts with a `Bearer`/`Basic`/`Digest`/`Token` credential is redacted too.
+- `path` never includes the query string. The error handler logs the full URL, and sensitive query parameters in it (`token`, `access_token`, `api_key`, `signature`, …; see `SENSITIVE_QUERY_PARAMS`) are redacted.
+- Redaction works on a copy, so `req.headers` is never changed and auth middleware still sees the real token.
+- When logging anything new that comes from a request, pass it through `sanitizeHeaders` / `redactUrl` first. `src/tests/http-logger-redaction.spec.ts` checks that no raw credential reaches the logger through either entrypoint.
+
 ## Testing
 
 - `src/tests/requestId.middleware.spec.ts` verifies `requestId` propagation via AsyncLocalStorage.
