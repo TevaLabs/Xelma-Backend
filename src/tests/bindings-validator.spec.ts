@@ -3,10 +3,10 @@
  *
  * Originally #191 (is the vendor present at all?); extended to assert the
  * contract surface soroban.service.ts depends on. The check must distinguish
- * "completely missing", "partial install", "wrong package name", "pinned
- * commit drifted", "TypeScript surface drifted", "runtime build is stale" and
- * "the embedded contract ABI no longer declares the method" — the last of
- * which `tsc` cannot see.
+ * "completely missing", "partial install", "wrong package name", "package
+ * version drifted", "pinned commit drifted", "TypeScript surface drifted",
+ * "runtime build is stale" and "the embedded contract ABI no longer declares
+ * the method" — the last of which `tsc` cannot see.
  */
 import { describe, it, expect, afterEach } from "@jest/globals";
 import fs from "fs";
@@ -22,6 +22,7 @@ import {
 } from "../utils/bindings-validator";
 
 const PINNED_SHA = "a".repeat(40);
+const PINNED_VERSION = "1.1.0";
 
 /** Minimal but realistic slice of the generated dist/index.d.ts. */
 const DTS = `
@@ -150,7 +151,7 @@ interface Layout {
   esm?: boolean;
   cjs?: boolean;
   types?: boolean;
-  pkg?: { name?: string } | null;
+  pkg?: { name?: string; version?: string } | null;
   commitSha?: string | null;
   pin?: Record<string, unknown> | null;
   dts?: string;
@@ -165,7 +166,7 @@ function makeVendor(layout: Layout = {}): string {
     esm = true,
     cjs = true,
     types = true,
-    pkg = { name: BINDINGS_PACKAGE_NAME },
+    pkg = { name: BINDINGS_PACKAGE_NAME, version: PINNED_VERSION },
     commitSha = PINNED_SHA,
     pin = {},
     dts = DTS,
@@ -185,6 +186,7 @@ function makeVendor(layout: Layout = {}): string {
           ref: "main",
           commitSha: PINNED_SHA,
           packageName: BINDINGS_PACKAGE_NAME,
+          packageVersion: PINNED_VERSION,
           requiredArtifacts: ["package.json", "dist/index.js", "dist/index.d.ts", "dist/cjs/index.js"],
           requiredValueExports: ["Client", "RoundMode"],
           requiredTypeExports: ["Round", "BetSide", "OraclePayload", "UserStats"],
@@ -276,6 +278,66 @@ describe("validateVendoredBindings — vendor integrity", () => {
     const result = validateVendoredBindings(cwdRoot);
     expect(result.ok).toBe(false);
     expect(result.errors.some((e) => e.includes(BINDINGS_PACKAGE_NAME))).toBe(true);
+  });
+});
+
+describe("validateVendoredBindings — package version pin", () => {
+  it("passes when the vendored manifest declares the pinned version", () => {
+    cwdRoot = makeVendor();
+    const result = validateVendoredBindings(cwdRoot);
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("fails when the vendored version drifts from the pinned version", () => {
+    cwdRoot = makeVendor({
+      pkg: { name: BINDINGS_PACKAGE_NAME, version: "9.9.9" },
+    });
+    const result = validateVendoredBindings(cwdRoot);
+    expect(result.ok).toBe(false);
+    expect(
+      result.errors.some(
+        (e) => e.includes("Bindings package version skew") && e.includes("9.9.9"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails when the vendored manifest declares no version at all", () => {
+    cwdRoot = makeVendor({ pkg: { name: BINDINGS_PACKAGE_NAME } });
+    const result = validateVendoredBindings(cwdRoot);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes("declares no version"))).toBe(
+      true,
+    );
+  });
+
+  it("fails when the vendored version is not a semantic version", () => {
+    cwdRoot = makeVendor({
+      pkg: { name: BINDINGS_PACKAGE_NAME, version: "latest" },
+    });
+    const result = validateVendoredBindings(cwdRoot);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes("not a semantic version"))).toBe(
+      true,
+    );
+  });
+
+  it("rejects a pin that omits packageVersion rather than passing silently", () => {
+    cwdRoot = makeVendor({ pin: { packageVersion: undefined } });
+    const result = validateVendoredBindings(cwdRoot);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes('"packageVersion"'))).toBe(
+      true,
+    );
+  });
+
+  it("rejects a pin whose packageVersion is malformed", () => {
+    cwdRoot = makeVendor({ pin: { packageVersion: "one" } });
+    const result = validateVendoredBindings(cwdRoot);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes("semantic version"))).toBe(
+      true,
+    );
   });
 });
 
@@ -429,11 +491,24 @@ describe("loadBindingsPin", () => {
   it("reads the repo-level pin used by the installer and the validator", () => {
     const pin = loadBindingsPin(path.resolve(__dirname, "..", ".."));
     expect(pin.packageName).toBe(BINDINGS_PACKAGE_NAME);
+    expect(pin.packageVersion).toMatch(/^\d+\.\d+\.\d+/);
     expect(pin.commitSha).toMatch(/^[0-9a-f]{40}$/);
     // The pin must cover every method soroban.service.ts calls.
     expect(Object.keys(pin.requiredMethods).sort()).toEqual(
       Object.keys(METHOD_ARGS).sort(),
     );
+  });
+
+  it("agrees with the checked-in vendored manifest version", () => {
+    const repoRoot = path.resolve(__dirname, "..", "..");
+    const pin = loadBindingsPin(repoRoot);
+    const pkg = JSON.parse(
+      fs.readFileSync(
+        path.join(repoRoot, "vendor", "xelma-bindings", "package.json"),
+        "utf8",
+      ),
+    );
+    expect(pkg.version).toBe(pin.packageVersion);
   });
 });
 

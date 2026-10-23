@@ -3,9 +3,10 @@
  * CI/local gate for vendored-bindings skew.
  *
  * Runs the full validation in src/utils/bindings-validator.ts — pinned commit,
- * build artifacts, TypeScript surface and the embedded Soroban contract ABI —
- * against bindings.pin.json, and exits non-zero on any mismatch so a drifted
- * vendor/xelma-bindings can never reach production traffic.
+ * package version, build artifacts, TypeScript surface and the embedded
+ * Soroban contract ABI — against bindings.pin.json, and exits non-zero on any
+ * mismatch so a drifted vendor/xelma-bindings can never reach production
+ * traffic.
  *
  *   npm run build && npm run check:bindings:abi
  *

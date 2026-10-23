@@ -155,6 +155,16 @@ function readPin() {
       `${path.relative(process.cwd(), PIN_PATH)} must declare repository, ref, and a 40-character commitSha.`,
     );
   }
+  if (
+    typeof pin.packageVersion !== "string" ||
+    !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/.test(
+      pin.packageVersion,
+    )
+  ) {
+    throw new Error(
+      `${path.relative(process.cwd(), PIN_PATH)} must declare packageVersion as a semantic version (e.g. "1.1.0").`,
+    );
+  }
   return pin;
 }
 
@@ -171,6 +181,28 @@ function checkPin() {
   if (marker !== pin.commitSha) {
     throw new Error(
       `Binding pin drift: ${path.relative(process.cwd(), markerPath)} is ${marker || "empty"}, expected ${pin.commitSha}.`,
+    );
+  }
+
+  const manifestPath = path.join(DEST, "package.json");
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(
+      `Missing ${path.relative(process.cwd(), manifestPath)}. Run npm run install-bindings.`,
+    );
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Invalid ${path.relative(process.cwd(), manifestPath)}: ${error.message}`,
+    );
+  }
+  if (manifest.version !== pin.packageVersion) {
+    throw new Error(
+      `Binding pin drift: vendor/xelma-bindings/package.json declares version ` +
+        `${JSON.stringify(manifest.version ?? null)}, expected ${pin.packageVersion} ` +
+        `(packageVersion in bindings.pin.json).`,
     );
   }
 
@@ -196,7 +228,7 @@ function checkPin() {
 
   console.log(
     `[install-bindings] Pin verified: ${pin.commitSha} ` +
-      `(${declared.length} required contract methods declared).`,
+      `(package ${pin.packageVersion}, ${declared.length} required contract methods declared).`,
   );
   console.log(
     "[install-bindings] Run `npm run build && npm run check:bindings:abi` for the " +
