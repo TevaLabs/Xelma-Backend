@@ -49,7 +49,7 @@ export class CircuitBreaker {
     this.openBackoffMs = options.openBackoffMs ?? 30_000;
     this.halfOpenMaxCalls = options.halfOpenMaxCalls ?? 1;
     this.now = options.now ?? Date.now;
-    circuitBreakerState.set({ breaker: this.options.name, state: this.state }, 1);
+    circuitBreakerState?.set({ breaker: this.options.name, state: this.state }, 1);
   }
 
   async execute<T>(operation: () => Promise<T>): Promise<T> {
@@ -150,9 +150,9 @@ export class CircuitBreaker {
     const timestamp = new Date(this.now()).toISOString();
     const errorMessage = error instanceof Error ? error.message : error ? String(error) : undefined;
 
-    circuitBreakerState.set({ breaker: this.options.name, state: previousState }, 0);
-    circuitBreakerState.set({ breaker: this.options.name, state: nextState }, 1);
-    circuitBreakerStateChangesTotal.inc({
+    circuitBreakerState?.set({ breaker: this.options.name, state: previousState }, 0);
+    circuitBreakerState?.set({ breaker: this.options.name, state: nextState }, 1);
+    circuitBreakerStateChangesTotal?.inc({
       breaker: this.options.name,
       from_state: previousState,
       to_state: nextState,

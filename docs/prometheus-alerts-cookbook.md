@@ -20,8 +20,9 @@ wallet addresses, user IDs, round IDs, request bodies, or secrets.
 | `oracle_resolve_blocked_total` | `reason` | Resolution attempts blocked by oracle safety checks |
 | `soroban_rpc_calls_total` | `operation`, `outcome` | RPC calls by operation and `success`, `failure`, or `breaker_open` |
 | `soroban_rpc_duration_seconds` | `operation` | RPC latency, including retries and breaker overhead |
-| `circuit_breaker_state` | `breaker`, `state` | One-hot current breaker state (`closed`, `open`, `half-open`) |
+| `circuit_breaker_state` | `breaker`, `state` | One-hot current breaker state (`closed`, `open`, `half-open`) for `soroban-rpc` and `redis` |
 | `circuit_breaker_state_changes_total` | `breaker`, `from_state`, `to_state`, `reason` | Breaker transitions |
+| `redis_cache_bypass_reasons_total` | `reason` | Redis cache bypass counts by reason (`unconfigured`, `disabled`, `circuit_open`, `error`) |
 
 Scheduler leader-election metrics (`distributed_lock_*`) and their alert rules
 live in [multi-instance-deployment.md](./multi-instance-deployment.md).
@@ -156,6 +157,21 @@ groups:
           description: >-
             Breaker {{ $labels.breaker }} changed state repeatedly. Investigate
             intermittent RPC failures, timeouts, or an unhealthy upstream.
+
+  - name: xelma-redis
+    rules:
+      - alert: XelmaRedisCircuitBreakerOpen
+        expr: |
+          circuit_breaker_state{job="xelma-backend", breaker="redis", state="open"} == 1
+        for: 1m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: Xelma Redis cache circuit breaker is open
+          description: >-
+            Redis caching is in bypass mode due to repeated connection or command failures.
+            Check Redis server health and error logs.
 ```
 
 ## Recommended thresholds

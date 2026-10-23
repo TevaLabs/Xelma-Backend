@@ -60,3 +60,45 @@ describe('GET /readiness', () => {
     expect(res.body).toEqual(payload);
   });
 });
+
+describe('GET /cache & GET /redis telemetry endpoints', () => {
+  it('returns Redis cache telemetry on GET /cache', async () => {
+    const res = await request(app).get('/cache');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('status');
+    expect(res.body).toHaveProperty('enabled');
+    expect(res.body).toHaveProperty('configured');
+    expect(res.body).toHaveProperty('circuitBreaker');
+    expect(res.body.circuitBreaker).toMatchObject({
+      name: 'redis',
+      state: expect.stringMatching(/^(closed|open|half-open)$/),
+      failureCount: expect.any(Number),
+    });
+    expect(res.body).toHaveProperty('metrics');
+    expect(res.body.metrics).toMatchObject({
+      hits: expect.any(Number),
+      misses: expect.any(Number),
+      sets: expect.any(Number),
+      invalidations: expect.any(Number),
+      bypasses: expect.any(Number),
+      errors: expect.any(Number),
+      hitRatio: expect.any(Number),
+    });
+    expect(res.body).toHaveProperty('bypassReasons');
+    expect(res.body.bypassReasons).toMatchObject({
+      unconfigured: expect.any(Number),
+      disabled: expect.any(Number),
+      circuit_open: expect.any(Number),
+      error: expect.any(Number),
+    });
+    expect(res.body).toHaveProperty('cooldownMs');
+  });
+
+  it('returns identical telemetry on GET /redis alias', async () => {
+    const resCache = await request(app).get('/cache');
+    const resRedis = await request(app).get('/redis');
+    expect(resRedis.status).toBe(200);
+    expect(resRedis.body).toEqual(resCache.body);
+  });
+});
+

@@ -488,6 +488,7 @@ rejects the request: the user is queued on a persistent waitlist
 - `GET /` - Health check with timestamp
 - `GET /health` - Detailed health check (uptime, status)
 - `GET /metrics` - Prometheus metrics for HTTP, schedulers, oracle, predictions, WebSocket, rate limits, and DB pool settings
+- `GET /metrics/cache` (or `/metrics/redis`) - Redis cache health, standardized circuit-breaker state, granular bypass reasons, and hit-ratio telemetry (protected by metrics auth)
 - `GET /api/price` - **Production only.** Current XLM/USD oracle price as a decimal string (`price_usd`) with staleness / provider info. **Not** an alias of `/api/prices`.
 - `GET /api/prices` - Multi-asset BTC / ETH / XLM ticker (CoinGecko, 30 s cache). Both apps return the same `{ success, data }` envelope (and `503 { success: false, error }` when no price data is available). **Not** an alias of `/api/price`.
 - `GET /api-docs` - Swagger UI documentation
@@ -958,6 +959,9 @@ Core application metrics include:
 | `websocket_emits_total`                | `event`, `outcome`               | WebSocket dispatch attempts                                                       |
 | `websocket_connection_events_total`    | `event`, `authenticated`         | Socket connect/disconnect events                                                  |
 | `rate_limit_store_fallbacks_total`     | `limiter`                        | Requests counted by the per-process fallback because the Redis rate-limit store was unreachable (Issue #520) |
+| `circuit_breaker_state`                | `breaker`, `state`               | One-hot gauge of circuit breaker status (`closed`, `open`, `half-open`) for `soroban-rpc` and `redis` |
+| `circuit_breaker_state_changes_total`  | `breaker`, `from_state`, `to_state`, `reason` | Total circuit breaker state transitions |
+| `redis_cache_bypass_reasons_total`     | `reason`                         | Redis cache bypass occurrences by granular reason: `unconfigured`, `disabled`, `circuit_open`, `error` |
 
 ### 3. Set Up Database
 

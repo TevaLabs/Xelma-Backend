@@ -6,7 +6,7 @@ import {
    Gauge,
 } from 'prom-client';
 import config from '../config';
-import { getCacheMetrics } from '../lib/redis';
+import { getCacheMetrics, getRedisCacheTelemetry } from '../lib/redis';
 
 export const metricsRegistry = new Registry();
 
@@ -358,6 +358,20 @@ export const redisCacheHitRatio = new Gauge({
       const m = getCacheMetrics();
       const total = m.hits + m.misses;
       this.set(total > 0 ? m.hits / total : 0);
+   }
+});
+
+export const redisCacheBypassReasonsTotal = new Gauge({
+   name: 'redis_cache_bypass_reasons_total',
+   help: 'Redis cache bypasses by reason (unconfigured, disabled, circuit_open, error)',
+   labelNames: ['reason'] as const,
+   registers: [metricsRegistry],
+   collect() {
+      const telemetry = getRedisCacheTelemetry();
+      this.set({ reason: 'unconfigured' }, telemetry.bypassReasons.unconfigured);
+      this.set({ reason: 'disabled' }, telemetry.bypassReasons.disabled);
+      this.set({ reason: 'circuit_open' }, telemetry.bypassReasons.circuit_open);
+      this.set({ reason: 'error' }, telemetry.bypassReasons.error);
    }
 });
 
