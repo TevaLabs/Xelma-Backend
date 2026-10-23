@@ -4,7 +4,6 @@ dist
 .env.local
 .DS_Store
 *.log
-temp_auto_push.bat
 coverage
 .prisma
 package-lock.json
