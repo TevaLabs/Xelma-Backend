@@ -35,6 +35,9 @@ jest.mock("../lib/prisma", () => ({
     auditLog: {
       create: jest.fn().mockResolvedValue({ id: "audit-123" }),
     },
+    betAuditEvent: {
+      create: jest.fn().mockResolvedValue({ id: "bet-audit-evt-1" }),
+    },
     bet: {
       create: jest.fn().mockImplementation((args: any) => Promise.resolve({ id: "bet-1", ...args.data, createdAt: new Date(), updatedAt: new Date() })),
       findUnique: jest.fn(),
@@ -96,6 +99,7 @@ import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
 
 const mockAuditLogCreate = prisma.auditLog.create as any;
+const mockBetAuditCreate = prisma.betAuditEvent.create as any;
 
 const VALID_ADDRESS = "GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890";
 
@@ -357,6 +361,180 @@ describe("BetAuditService", () => {
           error: "Database connection failed",
         }),
       );
+    });
+  });
+
+  // --------------------------------------------------------------
+  // Issue #835: optional BetAuditEvent persistence + memory fallback
+  // --------------------------------------------------------------
+  describe("BetAuditEvent persistence (Issue #835)", () => {
+    const waitForAsync = () =>
+      new Promise((resolve) => setTimeout(resolve, 10));
+
+    beforeEach(() => {
+      // Isolate from any persistent mock state set by earlier tests.
+      mockBetAuditCreate.mockResolvedValue({ id: "bet-audit-evt-1" });
+      mockAuditLogCreate.mockResolvedValue({ id: "audit-123" });
+    });
+
+    afterEach(() => {
+      delete process.env.BET_AUDIT_STORAGE;
+    });
+
+    it("does not touch the BetAuditEvent table in memory mode (default)", async () => {
+      delete process.env.BET_AUDIT_STORAGE;
+
+      betAuditService.emitBetAccepted({
+        address: VALID_ADDRESS,
+        amount: 100,
+        side: "UP",
+        mode: "UP_DOWN",
+        result: "stub",
+      });
+
+      await waitForAsync();
+
+      expect(betAuditService.storageMode).toBe("memory");
+      expect(mockBetAuditCreate).not.toHaveBeenCalled();
+      expect(betAuditService.getEvents()).toHaveLength(1);
+    });
+
+    describe("database mode", () => {
+      beforeEach(() => {
+        process.env.BET_AUDIT_STORAGE = "database";
+      });
+
+      it("persists a bet event row with the full event schema", async () => {
+        betAuditService.emitBetAccepted({
+          betId: "bet-42",
+          address: VALID_ADDRESS,
+          amount: 100,
+          side: "UP",
+          mode: "UP_DOWN",
+          result: "on-chain-success",
+          status: "CONFIRMED",
+          txHash: "0xdeadbeef",
+        });
+
+        await waitForAsync();
+
+        expect(mockBetAuditCreate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              event: "BET_ACCEPTED",
+              roundId: "round-1",
+              betId: "bet-42",
+              address: VALID_ADDRESS,
+              amount: 100,
+              side: "UP",
+              mode: "UP_DOWN",
+              result: "on-chain-success",
+              status: "CONFIRMED",
+              txHash: "0xdeadbeef",
+              createdAt: expect.any(Date),
+            }),
+          }),
+        );
+      });
+
+      it("keeps writing the legacy AuditLog row alongside the new table", async () => {
+        betAuditService.emitBetAccepted({
+          address: VALID_ADDRESS,
+          amount: 100,
+          side: "UP",
+          mode: "UP_DOWN",
+          result: "stub",
+        });
+
+        await waitForAsync();
+
+        expect(mockBetAuditCreate).toHaveBeenCalledTimes(1);
+        expect(mockAuditLogCreate).toHaveBeenCalledTimes(1);
+      });
+
+      it("persists CLAIM_ACCEPTED events to the BetAuditEvent table", async () => {
+        betAuditService.emitClaimAccepted({
+          address: VALID_ADDRESS,
+          amount: 10,
+          result: "on-chain-success",
+          txHash: "0xclaim",
+        });
+
+        await waitForAsync();
+
+        expect(mockBetAuditCreate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              event: "CLAIM_ACCEPTED",
+              address: VALID_ADDRESS,
+              amount: 10,
+              result: "on-chain-success",
+              txHash: "0xclaim",
+            }),
+          }),
+        );
+      });
+
+      it("falls back to memory when the table write fails (never throws)", async () => {
+        mockBetAuditCreate.mockRejectedValue(new Error("connection refused"));
+
+        expect(() =>
+          betAuditService.emitBetAccepted({
+            address: VALID_ADDRESS,
+            amount: 100,
+            side: "UP",
+            mode: "UP_DOWN",
+            result: "stub",
+          }),
+        ).not.toThrow();
+
+        await waitForAsync();
+
+        // The event is still recorded in memory and the failure is logged…
+        expect(betAuditService.getEvents()).toHaveLength(1);
+        expect(logger.error).toHaveBeenCalledWith(
+          "Failed to persist bet audit event to BetAuditEvent table",
+          expect.objectContaining({ error: "connection refused" }),
+        );
+        // …and the legacy AuditLog write is still attempted.
+        expect(mockAuditLogCreate).toHaveBeenCalledTimes(1);
+      });
+
+      it("warns once (not per event) and stays in memory when the table is missing", async () => {
+        const missing: any = new Error(
+          'The table "main"."BetAuditEvent" does not exist.',
+        );
+        missing.code = "P2021";
+        mockBetAuditCreate.mockRejectedValue(missing);
+
+        betAuditService.emitBetAccepted({
+          address: VALID_ADDRESS,
+          amount: 100,
+          side: "UP",
+          mode: "UP_DOWN",
+          result: "stub",
+        });
+        betAuditService.emitBetAccepted({
+          address: VALID_ADDRESS,
+          amount: 200,
+          side: "DOWN",
+          mode: "UP_DOWN",
+          result: "stub",
+        });
+
+        await waitForAsync();
+
+        expect(betAuditService.getEvents()).toHaveLength(2);
+        expect(logger.warn).toHaveBeenCalledTimes(1);
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining("npm run db:migrate"),
+          expect.objectContaining({ storageMode: "memory-fallback" }),
+        );
+        expect(logger.error).not.toHaveBeenCalledWith(
+          "Failed to persist bet audit event to BetAuditEvent table",
+          expect.anything(),
+        );
+      });
     });
   });
 
