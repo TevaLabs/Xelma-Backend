@@ -28,6 +28,9 @@
  * - `OUTBOX_BATCH_SIZE`            – rows per poll cycle (default 50).
  * - `OUTBOX_MAX_ATTEMPTS`          – before escalating to DLQ (default 3).
  * - `OUTBOX_RETENTION_DAYS`        – days to keep PROCESSED rows (default 7).
+ * - `OUTBOX_PROCESSING_TTL_SECONDS` – how long a row may sit in PROCESSING before
+ *                                    it is treated as abandoned by a crashed
+ *                                    poller and recovered (default 300).
  */
 import { OutboxEventStatus, OutboxEventType, DispatchChannel } from '@prisma/client';
 import { prisma } from '../lib/prisma';
@@ -58,6 +61,12 @@ export function getOutboxRetentionDays(): number {
   const raw = process.env.OUTBOX_RETENTION_DAYS;
   const n = raw ? parseInt(raw, 10) : NaN;
   return Number.isFinite(n) && n > 0 ? n : 7;
+}
+
+export function getOutboxProcessingTtlSeconds(): number {
+  const raw = process.env.OUTBOX_PROCESSING_TTL_SECONDS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 300;
 }
 
 // ─── payload shapes ──────────────────────────────────────────────────────────
@@ -161,7 +170,85 @@ export interface ProcessOutboxResult {
   escalated: number;
 }
 
+export interface RecoverStaleResult {
+  /** Rows reset from PROCESSING back to PENDING for another attempt. */
+  recovered: number;
+  /** Rows that had no attempts left, marked FAILED and escalated to the DLQ. */
+  failed: number;
+}
+
 class OutboxService {
+  /**
+   * Recover rows stranded in PROCESSING (Issue #855).
+   *
+   * `processOutbox` claims a row by setting it to PROCESSING (stamping
+   * `updatedAt`) before dispatching. If the process crashes between the claim
+   * and the PROCESSED/PENDING/FAILED write, nothing ever picks the row up
+   * again and the side-effect is silently lost. Any row that has been
+   * PROCESSING for longer than `ttlSeconds` is therefore treated as abandoned:
+   *
+   *  - it goes back to PENDING so the poller retries it; or
+   *  - if that interrupted dispatch used up its last attempt, it is marked
+   *    FAILED and escalated to the dead-letter queue, so an event that keeps
+   *    crashing the poller cannot loop forever.
+   *
+   * The interrupted dispatch counts as an attempt. Each row is reset with a
+   * guard on its exact `updatedAt`, so a row another instance has reclaimed
+   * or finished in the meantime is left alone.
+   */
+  async recoverStaleProcessing(
+    ttlSeconds: number = getOutboxProcessingTtlSeconds(),
+    maxAttempts: number = getOutboxMaxAttempts(),
+    batchSize: number = getOutboxBatchSize(),
+    now: Date = new Date(),
+  ): Promise<RecoverStaleResult> {
+    const result: RecoverStaleResult = { recovered: 0, failed: 0 };
+    const cutoff = new Date(now.getTime() - ttlSeconds * 1000);
+
+    const stale = await prisma.outboxEvent.findMany({
+      where: { status: OutboxEventStatus.PROCESSING, updatedAt: { lt: cutoff } },
+      orderBy: { updatedAt: 'asc' },
+      take: batchSize,
+    });
+
+    for (const row of stale) {
+      const nextAttempts = row.attempts + 1;
+      const exhausted = nextAttempts >= maxAttempts;
+      const note = `Recovered after being stuck in PROCESSING for over ${ttlSeconds}s (poller likely crashed)`;
+
+      const updated = await prisma.outboxEvent.updateMany({
+        where: { id: row.id, status: OutboxEventStatus.PROCESSING, updatedAt: row.updatedAt },
+        data: {
+          status: exhausted ? OutboxEventStatus.FAILED : OutboxEventStatus.PENDING,
+          attempts: nextAttempts,
+          lastError: note,
+          updatedAt: now,
+        },
+      });
+      if (updated.count === 0) continue; // someone else got to it first
+
+      if (exhausted) {
+        await deadLetterQueueService.record({
+          channel:
+            row.eventType === OutboxEventType.NOTIFICATION_CREATE
+              ? DispatchChannel.NOTIFICATION_CREATE
+              : DispatchChannel.WEBSOCKET_EMIT,
+          eventName: (row.payload as any)?.eventName ?? row.eventType,
+          userId: (row.payload as any)?.userId ?? null,
+          payload: row.payload,
+          error: new Error(note),
+        });
+        result.failed += 1;
+        logger.warn(`Outbox: stale event ${row.id} had no attempts left; marked FAILED and escalated to DLQ`);
+      } else {
+        result.recovered += 1;
+        logger.warn(`Outbox: recovered stale PROCESSING event ${row.id} (attempt ${nextAttempts}/${maxAttempts})`);
+      }
+    }
+
+    return result;
+  }
+
   /**
    * Poll for PENDING outbox events and dispatch them.
    * Called by the scheduler; safe to call concurrently across instances

@@ -503,6 +503,19 @@ betAccepted: async (payload) => {
    private async pollOutboxInternal(lock: LockHandle): Promise<void> {
       try {
          lock.assertHeld();
+         // Free rows stranded in PROCESSING by a crashed poller (Issue #855).
+         // Best-effort: a failure here must never stop the poll below.
+         try {
+            const recovery = await outboxService.recoverStaleProcessing();
+            if (recovery.recovered > 0 || recovery.failed > 0) {
+               logger.info('Outbox stale-row recovery completed', recovery);
+            }
+         } catch (recoverError) {
+            logger.warn('Outbox stale-row recovery failed; continuing with poll', {
+               error: recoverError instanceof Error ? recoverError.message : String(recoverError),
+            });
+         }
+         lock.assertHeld();
          const result = await outboxService.processOutbox(this.buildOutboxHandlers());
          if (result.processed > 0 || result.failed > 0) {
             logger.info('Outbox poll completed', result);

@@ -305,8 +305,9 @@ See [docs/architecture.md](docs/architecture.md) for the full architecture decis
   1. Business transactions (payout, prediction) write `OutboxEvent` rows _inside_ the same `prisma.$transaction()` call â€” atomically with the state change.
   2. A background poller (cron, every `OUTBOX_POLL_INTERVAL_SECONDS`) reads `PENDING` rows and dispatches them.
   3. On success the row is marked `PROCESSED`. On failure `attempts` is incremented; once `OUTBOX_MAX_ATTEMPTS` is reached the row is marked `FAILED` and escalated to the existing DLQ.
+  4. If a poller crashes after claiming a row, the row would sit in `PROCESSING` forever. Each poll first resets rows that have been `PROCESSING` for longer than `OUTBOX_PROCESSING_TTL_SECONDS` (default 300) back to `PENDING`; the interrupted dispatch counts as an attempt, and a row with no attempts left is marked `FAILED` and escalated to the DLQ instead (Issue #855).
 - **Why this matters**: Before this change, notifications fired _after_ the transaction committed. A process crash between commit and notification call silently dropped the event. Now the event is durable from the moment the transaction commits.
-- **Env vars**: `OUTBOX_POLL_INTERVAL_SECONDS`, `OUTBOX_BATCH_SIZE`, `OUTBOX_MAX_ATTEMPTS`, `OUTBOX_RETENTION_DAYS`
+- **Env vars**: `OUTBOX_POLL_INTERVAL_SECONDS`, `OUTBOX_BATCH_SIZE`, `OUTBOX_MAX_ATTEMPTS`, `OUTBOX_RETENTION_DAYS`, `OUTBOX_PROCESSING_TTL_SECONDS`
 
 #### **9. Notification Service (`notification.service.ts`)**
 
