@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAdmin } from '../middleware/auth.middleware';
+import { auditAdminAction } from '../middleware/admin-audit.middleware';
 import { getCorsOrigins, parseOriginList, CorsOriginConfig } from '../utils/cors';
 
 const router = Router();
@@ -32,7 +33,11 @@ const router = Router();
  *       200:
  *         description: Resolved CORS configuration
  */
-router.get('/', requireAdmin, (req: Request, res: Response) => {
+router.get(
+  '/',
+  requireAdmin,
+  auditAdminAction('admin.cors_diagnostics.read'),
+  (req: Request, res: Response) => {
   const nodeEnv = process.env.NODE_ENV ?? 'development';
   const clientUrl = process.env.CLIENT_URL ?? null;
   const allowedOrigins = parseOriginList(process.env.ALLOWED_ORIGINS);

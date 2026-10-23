@@ -23,6 +23,21 @@ export function toDecimal(
 export const MONEY_SCALE = 8;
 export const ZERO_MONEY = "0.00000000";
 
+/**
+ * Largest value a `Decimal(18, 8)` column can hold (price/pool/bet columns).
+ * Request bodies must stay inside this bound or Prisma silently rounds them.
+ */
+export const DECIMAL_18_8_MAX = "9999999999.99999999";
+
+/**
+ * True when `value` fits in a numeric column with `places` fractional digits.
+ * Uses Decimal string parsing so 1.123456789 is rejected while 0.12 is not.
+ */
+export function fitsDecimalPlaces(value: number, places: number = MONEY_SCALE): boolean {
+  if (!Number.isFinite(value)) return false;
+  return toDecimal(value.toString()).decimalPlaces() <= places;
+}
+
 /** Safely convert a Prisma Decimal to a JS number (internal math / DB increments only — never API JSON) */
 export function toNumber(value: Decimal | number | null | undefined): number {
   if (value === null || value === undefined) return 0;

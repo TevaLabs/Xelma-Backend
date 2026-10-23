@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MONEY_SCALE, fitsDecimalPlaces } from "./decimal.util";
 
 /** Default cap, in XLM (the same unit as every `amount` field in the API). */
 export const DEFAULT_MAX_STAKE = 1_000_000;
@@ -19,6 +20,9 @@ export function stakeAmountSchema(requiredMessage = "amount is required", invali
   return z
     .number({ message: requiredMessage })
     .positive(invalidMessage)
+    .refine((value) => fitsDecimalPlaces(value, MONEY_SCALE), {
+      message: `amount must have at most ${MONEY_SCALE} decimal places`,
+    })
     .refine((value) => value <= getMaxStake(), {
       message: `amount must not exceed the maximum stake of ${getMaxStake()} XLM`,
     });

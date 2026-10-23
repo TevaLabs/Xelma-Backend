@@ -208,6 +208,13 @@ export class HackathonService {
     predictedPrice?: number,
   ): Promise<void> {
     await prisma.$transaction(async (tx) => {
+      // Resolve the round up front so a bad id fails the whole transaction
+      // instead of leaving an orphan bet behind (MockBet has no FK to MockRound).
+      const round = await tx.mockRound.findUnique({ where: { id: roundId } });
+      if (!round) {
+        throw new BusinessRuleError("Round not found", ErrorCode.NOT_FOUND);
+      }
+
       const existing = await tx.mockLeaderboard.findUnique({ where: { address } });
       if (!existing) {
         await tx.mockLeaderboard.create({
@@ -240,25 +247,22 @@ export class HackathonService {
         data: { balance: { decrement: amount } },
       });
 
-      const round = await tx.mockRound.findUnique({ where: { id: roundId } });
-      if (round) {
-        if (round.mode === 'updown' && side) {
-          await tx.mockRound.update({
-            where: { id: roundId },
-            data:
-              side === 'UP'
-                ? { poolUp: { increment: amount } }
-                : { poolDown: { increment: amount } },
-          });
-        } else if (round.mode === 'precision') {
-          await tx.mockRound.update({
-            where: { id: roundId },
-            data: {
-              totalPool: { increment: amount },
-              predictionCount: { increment: 1 },
-            },
-          });
-        }
+      if (round.mode === 'updown' && side) {
+        await tx.mockRound.update({
+          where: { id: roundId },
+          data:
+            side === 'UP'
+              ? { poolUp: { increment: amount } }
+              : { poolDown: { increment: amount } },
+        });
+      } else if (round.mode === 'precision') {
+        await tx.mockRound.update({
+          where: { id: roundId },
+          data: {
+            totalPool: { increment: amount },
+            predictionCount: { increment: 1 },
+          },
+        });
       }
     });
   }
