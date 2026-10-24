@@ -270,7 +270,7 @@ Real-time fanout across replicas requires the same `REDIS_URL`.
   # Join both clients to the same room (e.g. round:abc) and emit via websocketService; both should receive the event
   ```
 
-- **ACL hardening:** `src/socket.ts:isAuthorizedPrivateRoomJoin` ensures `user:<id>` rooms are only joinable by the owning `userId`. Unauthorized `join:notifications` with a foreign `user:<otherId>` is rejected with an `error` event and logged as a warning. Auto-join on connect still runs (`socket.join(user:<own>)`) so `websocketService.emitNotification(userId, …)` reaches the correct tenant even across adapters.
+- **ACL hardening:** `join:notifications` always joins the room derived from the verified JWT (`user:<jwtUserId>`) and never joins a client-supplied room name. A payload that names another user, or is malformed, is rejected with `{ code: "FORBIDDEN" }`: through the optional ack, and as an `error` event. The attempt is logged as a warning (Issue #850). `src/socket.ts:isAuthorizedPrivateRoomJoin` also filters the rooms restored on session resume, so a persisted foreign `user:<otherId>` room is never rejoined. Auto-join on connect still runs (`socket.join(user:<own>)`) so `websocketService.emitNotification(userId, …)` reaches the correct tenant even across adapters.
 
 - **Monitoring:** `GET /metrics` exposes `websocket_connection_events_total` and `socket:io` metrics. After scale-up, `isUsingRedisAdapter(io)` should be `true` on every replica; otherwise broadcasts are instance-local.
 

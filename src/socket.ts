@@ -25,6 +25,7 @@ import type {
    ResumePayload,
    ChatSendPayload,
    ChatAckPayload,
+   JoinNotificationsAckPayload,
    SessionCheckpointPayload,
 } from './types/socket-events';
 
@@ -35,14 +36,65 @@ let ioInstance: SocketIOServer | null = null;
 export { getCorsOrigins } from './utils/cors';
 import { getCorsOrigins } from './utils/cors';
 
+/** Prefix of per-user private rooms; notifications are emitted to `user:<userId>`. */
+const USER_ROOM_PREFIX = 'user:';
+
+/** Name of the private notification room owned by `userId`. */
+export function userRoom(userId: string): string {
+   return `${USER_ROOM_PREFIX}${userId}`;
+}
+
 function isAuthorizedPrivateRoomJoin(
    socket: AuthenticatedSocket,
    room: string,
 ): boolean {
-   if (!room.startsWith('user:')) return true;
+   if (!room.startsWith(USER_ROOM_PREFIX)) return true;
    if (!socket.userId) return false;
-   const expectedRoom = `user:${socket.userId}`;
-   return room === expectedRoom;
+   return room === userRoom(socket.userId);
+}
+
+/**
+ * Normalize a client-supplied user id so `42` and `'42'` compare equal.
+ * Returns null for anything that is not a non-empty string or safe integer.
+ */
+function normalizeUserId(value: unknown): string | null {
+   if (typeof value === 'number') {
+      return Number.isSafeInteger(value) ? String(value) : null;
+   }
+   if (typeof value !== 'string') return null;
+   const trimmed = value.trim();
+   return trimmed.length > 0 ? trimmed : null;
+}
+
+/** Parse `'user:<id>'` or a bare `'<id>'` / `<id>` into a normalized user id. */
+function parseTargetString(value: string | number): string | null {
+   const id = normalizeUserId(value);
+   if (id === null || !id.startsWith(USER_ROOM_PREFIX)) return id;
+   return normalizeUserId(id.slice(USER_ROOM_PREFIX.length));
+}
+
+/**
+ * Work out which user's notification room a `join:notifications` request
+ * targets. Accepted forms: nothing, `'user:<id>'`, `'<id>'`, `<id>`,
+ * `{ userId }` and `{ room }`.
+ *
+ * @returns `undefined` when no target was named (join own room), the
+ *          normalized user id when one was, or `null` when it is malformed.
+ */
+export function parseNotificationTarget(
+   data: unknown,
+): string | null | undefined {
+   if (data === undefined || data === null) return undefined;
+   if (typeof data === 'string' || typeof data === 'number') {
+      return parseTargetString(data);
+   }
+   if (typeof data === 'object' && !Array.isArray(data)) {
+      const { userId, room } = data as { userId?: unknown; room?: unknown };
+      if (userId !== undefined) return normalizeUserId(userId);
+      if (typeof room === 'string') return parseTargetString(room);
+      return room === undefined ? undefined : null;
+   }
+   return null;
 }
 
 // Extended socket with walletAddress attached directly alongside SocketData
@@ -469,10 +521,20 @@ export async function initializeSocket(
                // Auto-rejoin rooms the user occupied before the drop. The
                // client also receives the resume payload so it can update
                // local UI state without a round-trip.
-               for (const room of resume.rooms) {
+               // Persisted rooms are re-checked so a stale or tampered entry
+               // can never put this socket in another user's private room.
+               const rooms = resume.rooms.filter(room => {
+                  if (isAuthorizedPrivateRoomJoin(socket, room)) return true;
+                  logger.warn(
+                     `Skipped unauthorized resume room for socket ${socket.id}` +
+                        ` (user: ${socket.userId})`,
+                  );
+                  return false;
+               });
+               for (const room of rooms) {
                   socket.join(room);
                }
-               socket.emit('session:resume', resume as ResumePayload);
+               socket.emit('session:resume', { ...resume, rooms } as ResumePayload);
 
                // Issue #555: reconcile DB rooms against the adapter.
                // If a previous instance crashed between a DB write and an adapter
@@ -671,44 +733,55 @@ export async function initializeSocket(
          }
       );
 
-      // Join user notification room (for authenticated users)
-      socket.on('join:notifications', (room?: string) => {
-         if (!socket.userId) {
-            const errPayload: GenericErrorPayload = {
-               message: 'Authentication required for notifications',
-            };
+      // Join the caller's own notification room (Issue #850). The room is
+      // always derived from the verified JWT userId; a client-supplied target
+      // is only compared against it and is never joined directly.
+      socket.on('join:notifications', (data?: unknown, callback?: unknown) => {
+         // Clients may pass the ack as the only argument.
+         if (typeof data === 'function' && callback === undefined) {
+            callback = data;
+            data = undefined;
+         }
+         const ack = (payload: JoinNotificationsAckPayload): void => {
+            if (typeof callback === 'function') callback(payload);
+         };
+         const reject = (
+            code: 'AUTH_REQUIRED' | 'FORBIDDEN',
+            message: string,
+         ): void => {
+            const errPayload: GenericErrorPayload = { code, message };
             socket.emit('error', errPayload);
+            ack({ ok: false, code, error: message });
+         };
+
+         if (!socket.userId) {
+            reject('AUTH_REQUIRED', 'Authentication required for notifications');
             return;
          }
 
-         const targetRoom =
-            typeof room === 'string' && room.trim().length > 0
-               ? room.trim()
-               : `user:${socket.userId}`;
-
-         if (!isAuthorizedPrivateRoomJoin(socket, targetRoom)) {
-            const errPayload: GenericErrorPayload = {
-               message: `Unauthorized room join: ${targetRoom}. You can only join your own private room.`,
-            };
-            socket.emit('error', errPayload);
+         const target = parseNotificationTarget(data);
+         if (target !== undefined && target !== String(socket.userId)) {
+            const requested =
+               target === null ? 'malformed' : JSON.stringify(target.slice(0, 64));
             logger.warn(
-               `Blocked unauthorized room join for socket ${socket.id}: ${targetRoom} (user: ${socket.userId})`,
+               `Blocked unauthorized notification room join for socket ${socket.id}` +
+                  ` (user: ${socket.userId}, requested: ${requested})`,
+            );
+            reject(
+               'FORBIDDEN',
+               'Unauthorized room join: you can only join your own notification room',
             );
             return;
          }
 
-         socket.join(targetRoom);
-         // Ack with generic 'notifications' for backwards-compat when joining own room;
-         // if caller explicitly asked for a room name, echo that room so tests and
-         // multi-room clients can correlate.
-         const ackRoom =
-            targetRoom === `user:${socket.userId}` ? 'notifications' : targetRoom;
-         const joinedNotif: RoomEventPayload = { room: ackRoom as any };
-         // Also emit the concrete room for clients that track exact rooms (useful for testing ACL denial)
-         // To keep backwards-compat, we emit 'notifications' for the default case but the socket is
-         // actually in `user:${userId}`; multi-node emit via websocket.service still targets `user:${userId}`.
+         const ownRoom = userRoom(socket.userId);
+         socket.join(ownRoom);
+         // Clients see the generic 'notifications' room name; the socket is in
+         // `user:<userId>`, which websocket.service targets for notifications.
+         const joinedNotif: RoomEventPayload = { room: 'notifications' };
          socket.emit('room:joined', joinedNotif);
-         void multiplayerSessionService.addRoom(socket.userId, targetRoom);
+         ack({ ok: true, room: 'notifications' });
+         void multiplayerSessionService.addRoom(socket.userId, ownRoom);
       });
 
       // Issue #194: clients can checkpoint opaque session metadata
