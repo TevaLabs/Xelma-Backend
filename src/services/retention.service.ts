@@ -53,7 +53,7 @@ class RetentionService {
   }
 
   /**
-   * Clean up expired auth challenges
+   * Clean up expired auth challenges in batches
    */
   async cleanupAuthChallenges(): Promise<RetentionResult> {
     const startTime = Date.now();
@@ -77,33 +77,48 @@ class RetentionService {
         `Starting auth challenges cleanup (TTL: ${policy.ttlDays} days, cutoff: ${cutoffDate.toISOString()})`,
       );
 
-      // Delete expired challenges (both by expiresAt and by createdAt for safety)
-      const result = await prisma.authChallenge.deleteMany({
-        where: {
-          OR: [
-            {
-              expiresAt: {
-                lt: new Date(), // Already expired by design
-              },
-            },
-            {
-              createdAt: {
-                lt: cutoffDate, // Older than retention period
-              },
-            },
-          ],
-        },
-      });
+      const where = {
+        OR: [
+          { expiresAt: { lt: new Date() } },
+          { createdAt: { lt: cutoffDate } },
+        ],
+      };
+
+      let totalDeleted = 0;
+      // Delete in batches to avoid long-lived transactions and lock contention
+      // especially when challenges have accumulated.
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const batch = await prisma.authChallenge.findMany({
+          where,
+          select: { id: true },
+          take: policy.batchSize,
+        });
+
+        if (batch.length === 0) {
+          break;
+        }
+
+        const ids = batch.map((challenge) => challenge.id);
+        const result = await prisma.authChallenge.deleteMany({
+          where: { id: { in: ids } },
+        });
+        totalDeleted += result.count;
+
+        if (batch.length < policy.batchSize) {
+          break;
+        }
+      }
 
       const executionTime = Date.now() - startTime;
 
       logger.info(
-        `Auth challenges cleanup completed: Deleted ${result.count} records in ${executionTime}ms`,
+        `Auth challenges cleanup completed: Deleted ${totalDeleted} records in ${executionTime}ms`,
       );
 
       return {
         entity: "authChallenges",
-        deletedCount: result.count,
+        deletedCount: totalDeleted,
         cutoffDate,
         executionTime,
       };
