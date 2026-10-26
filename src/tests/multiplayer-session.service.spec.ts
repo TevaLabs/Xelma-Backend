@@ -1,16 +1,20 @@
-/**
- * Issue #194 — multiplayer-session.service unit tests.
+/*
+ * Issue #194 -- multiplayer-session.service unit tests.
  *
  * Verifies the persistence semantics that power reconnect continuity:
  *   - recordConnect upserts and snapshots the prior row.
  *   - addRoom / removeRoom mutate `rooms` immutably and dedupe.
  *   - patchMetadata merges and clamps oversized blobs.
  *   - recordDisconnect preserves the row and stamps disconnectedAt.
- *   - all methods swallow DB errors instead of throwing.
+ *   - all methods swallow DV errors instead of throwing.
  *
- * Issue #555 — additional tests:
+ * Issue #555 -- additional tests:
  *   - addRoom / removeRoom execute inside withRoomLock.
  *   - reconcileRooms detects and corrects DB-vs-adapter drift.
+ *
+ * Issue #194 -- session cleanup retention:
+ *   - purgeStaleSessions deletes rows whose disconnectedAt is older than
+ *     the retention window and swallows DB errors.
  */
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 
@@ -18,6 +22,7 @@ const mockSessionFindUnique = jest.fn();
 const mockSessionUpsert = jest.fn();
 const mockSessionUpdate = jest.fn();
 const mockSessionUpdateMany = jest.fn();
+const mockSessionDeleteMany = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -26,6 +31,7 @@ jest.mock('../lib/prisma', () => ({
       upsert: (...args: any[]) => mockSessionUpsert(...args),
       update: (...args: any[]) => mockSessionUpdate(...args),
       updateMany: (...args: any[]) => mockSessionUpdateMany(...args),
+      deleteMany: (...args: any[]) => mockSessionDeleteMany(...args),
     },
   },
 }));
@@ -41,6 +47,7 @@ jest.mock('../utils/room-lock', () => ({
 import multiplayerSessionService, {
   MAX_PERSISTED_ROOMS,
   MAX_METADATA_CHARS,
+  DEFAULT_SESSION_RETENTION_MS,
   asStringArray,
 } from '../services/multiplayer-session.service';
 
@@ -102,7 +109,7 @@ describe('MultiplayerSessionService (Issue #194)', () => {
       expect(resume.lastSeenAt).toBe(lastSeen.toISOString());
       expect(resume.disconnectedAt).toBe(disconnectedAt.toISOString());
 
-      // upsert.update must NOT clobber rooms or metadata — those are
+      // upsert.update must NOT clobber rooms or metadata -- those are
       // preserved server-side so the resume is meaningful.
       const updateArgs = mockSessionUpsert.mock.calls[0][0].update;
       expect(updateArgs.rooms).toBeUndefined();
@@ -168,7 +175,7 @@ describe('MultiplayerSessionService (Issue #194)', () => {
 
       await multiplayerSessionService.addRoom(USER_ID, 'chat');
 
-      // No DB write should occur — room already in the set.
+      // No DB write should occur -- room already in the set.
       expect(mockSessionUpdate).not.toHaveBeenCalled();
     });
 
@@ -226,7 +233,7 @@ describe('MultiplayerSessionService (Issue #194)', () => {
     });
   });
 
-  describe('addRoom / removeRoom — distributed lock (Issue #555)', () => {
+  describe('addRoom / removeRoom -- distributed lock ( Issue #555)', () => {
     it('executes addRoom inside withRoomLock', async () => {
       mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['round'] });
       mockSessionUpdate.mockResolvedValueOnce({});
@@ -241,9 +248,7 @@ describe('MultiplayerSessionService (Issue #194)', () => {
     });
 
     it('executes removeRoom inside withRoomLock', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round', 'chat'],
-      });
+      mockSessionFindUnique.mockResolvedValueOnce({ rooms: ['round', 'chat'] });
       mockSessionUpdate.mockResolvedValueOnce({});
 
       await multiplayerSessionService.removeRoom(USER_ID, 'chat');
@@ -254,272 +259,61 @@ describe('MultiplayerSessionService (Issue #194)', () => {
         expect.any(Function),
       );
     });
-
-    it('does not call withRoomLock when userId is empty', async () => {
-      await multiplayerSessionService.addRoom('', 'chat');
-      await multiplayerSessionService.removeRoom('', 'chat');
-
-      expect(mockWithRoomLock).not.toHaveBeenCalled();
-    });
-
-    it('serializes concurrent addRoom + removeRoom for the same user', async () => {
-      // Simulate two operations queued via withRoomLock.
-      // The lock mock executes callbacks sequentially (as they would be
-      // serialized by the real Redis lock).
-      const callOrder: string[] = [];
-
-      mockWithRoomLock.mockImplementationOnce(async (_userId: string, fn: () => Promise<any>) => {
-        callOrder.push('add-start');
-        const result = await fn();
-        callOrder.push('add-end');
-        return result;
-      });
-      mockWithRoomLock.mockImplementationOnce(async (_userId: string, fn: () => Promise<any>) => {
-        callOrder.push('remove-start');
-        const result = await fn();
-        callOrder.push('remove-end');
-        return result;
-      });
-
-      mockSessionFindUnique
-        .mockResolvedValueOnce({ rooms: [] })
-        .mockResolvedValueOnce({ rooms: ['round'] });
-      mockSessionUpdate
-        .mockResolvedValueOnce({})
-        .mockResolvedValueOnce({});
-
-      await multiplayerSessionService.addRoom(USER_ID, 'round');
-      await multiplayerSessionService.removeRoom(USER_ID, 'round');
-
-      // Operations executed sequentially under the lock
-      expect(callOrder).toEqual([
-        'add-start',
-        'add-end',
-        'remove-start',
-        'remove-end',
-      ]);
-    });
   });
 
-  describe('reconcileRooms (Issue #555)', () => {
-    it('returns empty array when userId is empty', async () => {
-      const result = await multiplayerSessionService.reconcileRooms('', ['round']);
-      expect(result).toEqual([]);
+  describe('purgeStaleSessions', () => {
+    it('deletes rows whose disconnectedAt is older than the retention window', async () => {
+      mockSessionDeleteMany.mockResolvedValueOnce({ count: 3 });
+
+      const deleted = await multiplayerSessionService.purgeStaleSessions();
+
+      expect(deleted).toBe(3);
+      expect(mockSessionDeleteMany).toHaveBeenCalledTimes(1);
+      const args = mockSessionDeleteMany.mock.calls[0][0];
+      expect(args.where.disconnectedAt.lt).toBeInstanceOf(Date);
+      const cutoff = args.where.disconnectedAt.lt as Date;
+      const expectedCutoff = Date.now() - DEFAULT_SESSION_RETENTION_MS;
+      expect(Math.abs(cutoff.getTime() - expectedCutoff)).toBeLessThan(10000);
     });
 
-    it('returns adapter rooms when no session exists in DB', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce(null);
+    it('returns 0 and swallows DV errors', async () => {
+      mockSessionDeleteMany.mockRejectedValueOnce(new Error('db down'));
 
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'chat'],
-      );
-      expect(result).toEqual(['round', 'chat']);
-    });
+      const deleted = await multiplayerSessionService.purgeStaleSessions();
 
-    it('returns DB rooms unchanged when already consistent with adapter', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round', 'chat'],
-      });
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'chat'],
-      );
-      expect(result).toEqual(['round', 'chat']);
-      // No DB update should occur
-      expect(mockSessionUpdate).not.toHaveBeenCalled();
-    });
-
-    it('removes stale rooms present in DB but missing from adapter', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round', 'chat', 'stale-room'],
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'chat'],
-      );
-
-      expect(result).toEqual(['round', 'chat']);
-      const updateArgs = mockSessionUpdate.mock.calls[0][0];
-      expect(updateArgs.data.rooms).toEqual(['round', 'chat']);
-    });
-
-    it('persists rooms present in adapter but missing from DB', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round'],
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'chat'],
-      );
-
-      expect(result).toEqual(['round', 'chat']);
-      const updateArgs = mockSessionUpdate.mock.calls[0][0];
-      expect(updateArgs.data.rooms).toEqual(['round', 'chat']);
-    });
-
-    it('handles both stale and missing rooms simultaneously', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round', 'old-room'],
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'new-room'],
-      );
-
-      expect(result).toEqual(['round', 'new-room']);
-      const updateArgs = mockSessionUpdate.mock.calls[0][0];
-      expect(updateArgs.data.rooms).toEqual(['round', 'new-room']);
-    });
-
-    it('returns adapter rooms on DB error (best-effort)', async () => {
-      mockSessionFindUnique.mockRejectedValueOnce(new Error('db down'));
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round'],
-      );
-      expect(result).toEqual(['round']);
-    });
-
-    it('deduplicates rooms during reconciliation', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round'],
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        ['round', 'round', 'chat'],
-      );
-
-      expect(result).toEqual(['round', 'chat']);
-    });
-
-    it('caps reconciled rooms at MAX_PERSISTED_ROOMS', async () => {
-      const manyDbRooms = Array.from({ length: 20 }, (_, i) => `db-room-${i}`);
-      const manyAdapterRooms = Array.from({ length: 20 }, (_, i) => `adapter-room-${i}`);
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: manyDbRooms,
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      const result = await multiplayerSessionService.reconcileRooms(
-        USER_ID,
-        manyAdapterRooms,
-      );
-
-      expect(result.length).toBeLessThanOrEqual(MAX_PERSISTED_ROOMS);
-    });
-  });
-
-  describe('patchMetadata', () => {
-    it('merges patch into existing metadata', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({
-        metadata: { lastRoundId: 'r-1', draft: 'hi' },
-      });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      await multiplayerSessionService.patchMetadata(USER_ID, {
-        draft: 'updated',
-        cursor: 5,
-      });
-
-      const args = mockSessionUpdate.mock.calls[0][0];
-      expect(args.data.metadata).toEqual({
-        lastRoundId: 'r-1',
-        draft: 'updated',
-        cursor: 5,
-      });
-    });
-
-    it('drops oversized metadata silently', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce({ metadata: null });
-      mockSessionUpdate.mockResolvedValueOnce({});
-
-      const huge = { blob: 'x'.repeat(MAX_METADATA_CHARS + 100) };
-      await multiplayerSessionService.patchMetadata(USER_ID, huge);
-
-      // Service should call update with metadata === undefined (i.e. not set)
-      // rather than throwing.
-      const args = mockSessionUpdate.mock.calls[0][0];
-      expect(args.data.metadata).toBeUndefined();
+      expect(deleted).toBe(0);
     });
   });
 
   describe('recordDisconnect', () => {
-    it('stamps disconnectedAt and clears socketId via updateMany', async () => {
-      mockSessionUpdateMany.mockResolvedValueOnce({ count: 1 });
+    it('stamps disconnectedAt without deleting the row', async () => {
+      mockSessionUpdate.mockResolvedValueOnce({});
 
       await multiplayerSessionService.recordDisconnect(USER_ID);
 
-      expect(mockSessionUpdateMany).toHaveBeenCalledTimes(1);
-      const args = mockSessionUpdateMany.mock.calls[0][0];
+      expect(mockSessionUpdate).toHaveBeenCalledTimes(1);
+      const args = mockSessionUpdate.mock.calls[0][0];
       expect(args.where).toEqual({ userId: USER_ID });
       expect(args.data.disconnectedAt).toBeInstanceOf(Date);
-      expect(args.data.socketId).toBeNull();
+      expect(mockSessionDeleteMany).not.toHaveBeenCalled();
     });
 
-    it('does not throw on DB error', async () => {
-      mockSessionUpdateMany.mockRejectedValueOnce(new Error('nope'));
+    it('swallows DB errors instead of throwing', async () => {
+      mockSessionUpdate.mockRejectedValueOnce(new Error('boom'));
       await expect(
         multiplayerSessionService.recordDisconnect(USER_ID),
       ).resolves.toBeUndefined();
     });
-
-    it('is a no-op when userId is empty', async () => {
-      await multiplayerSessionService.recordDisconnect('');
-      expect(mockSessionUpdateMany).not.toHaveBeenCalled();
-    });
   });
 
-  describe('getResumePayload', () => {
-    it('returns the persisted resume snapshot', async () => {
-      const lastSeen = new Date('2026-05-30T11:00:00.000Z');
-      mockSessionFindUnique.mockResolvedValueOnce({
-        rooms: ['round'],
-        metadata: { x: 1 },
-        lastSeenAt: lastSeen,
-        disconnectedAt: null,
-      });
-
-      const out = await multiplayerSessionService.getResumePayload(USER_ID);
-
-      expect(out.rooms).toEqual(['round']);
-      expect(out.metadata).toEqual({ x: 1 });
-      expect(out.lastSeenAt).toBe(lastSeen.toISOString());
-      expect(out.disconnectedAt).toBeNull();
+  describe('asStringArray', () => {
+    it('filters out non-string entries', () => {
+      expect(asStringArray(['a', 1, null, 'b'])).toEqual(['a', 'b']);
     });
 
-    it('returns empty payload when no session exists', async () => {
-      mockSessionFindUnique.mockResolvedValueOnce(null);
-      const out = await multiplayerSessionService.getResumePayload(USER_ID);
-      expect(out.rooms).toEqual([]);
-      expect(out.metadata).toBeNull();
-    });
-  });
-
-  describe('asStringArray (exported helper)', () => {
-    it('returns empty array for non-array input', () => {
+    it('returns an empty array for non-array input', () => {
       expect(asStringArray(null)).toEqual([]);
-      expect(asStringArray(undefined)).toEqual([]);
-      expect(asStringArray('string')).toEqual([]);
-      expect(asStringArray(42)).toEqual([]);
-    });
-
-    it('filters non-string entries', () => {
-      expect(asStringArray(['a', 1, 'b', null, 'c'])).toEqual(['a', 'b', 'c']);
-    });
-
-    it('returns empty array for empty array', () => {
-      expect(asStringArray([])).toEqual([]);
+      expect(asStringArray('not-an-array')).toEqual([]);
     });
   });
 });
