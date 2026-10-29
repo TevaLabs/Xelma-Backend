@@ -29,6 +29,74 @@ const LEADERBOARD_CACHE_TTL_SECONDS = parseInt(
   10,
 );
 
+interface MemoryCacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+const memoryCache = new Map<string, MemoryCacheEntry<any>>();
+
+export function clearLeaderboardMemoryCache(): void {
+  memoryCache.clear();
+}
+
+export function getLeaderboardMemoryCacheSize(): number {
+  return memoryCache.size;
+}
+
+function isCacheEnabled(): boolean {
+  const enabledEnv = process.env.REDIS_CACHE_ENABLED;
+  if (enabledEnv && enabledEnv.toLowerCase() === "false") return false;
+  return true;
+}
+
+function getFromMemoryCache<T>(key: string): T | null {
+  if (!isCacheEnabled()) return null;
+  const entry = memoryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    memoryCache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setToMemoryCache<T>(key: string, data: T, ttlSeconds: number): void {
+  if (!isCacheEnabled()) return;
+  memoryCache.set(key, {
+    data,
+    expiresAt: Date.now() + ttlSeconds * 1000,
+  });
+}
+
+/**
+ * Invalidate all leaderboard cache layers:
+ * 1. In-memory cache keys (for leaderboard pages and cursor queries).
+ * 2. Versioned Redis JSON namespace keys (`leaderboard`).
+ * 3. Materialized Redis sorted set (`leaderboard:zset`).
+ *
+ * Call this when a round resolves or user stats are updated to prevent stale ranks.
+ */
+export async function invalidateLeaderboardCache(): Promise<void> {
+  clearLeaderboardMemoryCache();
+  try {
+    const res = invalidateNamespace(LEADERBOARD_CACHE_NAMESPACE);
+    if (res && typeof (res as any).catch === "function") {
+      await res;
+    }
+  } catch {
+    // Non-blocking: safe when Redis is unavailable or unconfigured
+  }
+  try {
+    const res = invalidateLeaderboardSortedSet();
+    if (res && typeof (res as any).catch === "function") {
+      await res;
+    }
+  } catch {
+    // Non-blocking: safe when Redis is unavailable or unconfigured
+  }
+}
+
 /**
  * Redis cache key format (versioned namespace):
  * - Namespace: `leaderboard`
@@ -133,13 +201,22 @@ export async function getLeaderboard(
 
   type LeaderboardCachePayload = Omit<LeaderboardResponse, "lastUpdated">;
 
-  // ── 1. Try the versioned JSON cache first ──────────────────────────────────
+  // ── 1. Try memory cache and versioned JSON cache ───────────────────────────
+  const memCached = getFromMemoryCache<LeaderboardCachePayload>(rawKey);
+  if (memCached) {
+    return {
+      ...memCached,
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+
   const cached = await getJsonFromCache<LeaderboardCachePayload>(
     LEADERBOARD_CACHE_NAMESPACE,
     rawKey,
   );
 
   if (cached) {
+    setToMemoryCache(rawKey, cached, LEADERBOARD_CACHE_TTL_SECONDS);
     return {
       ...cached,
       lastUpdated: new Date().toISOString(),
@@ -205,13 +282,15 @@ export async function getLeaderboard(
     userPosition = await getUserPosition(userId);
   }
 
-  // ── 5. Store in versioned JSON cache ──────────────────────────────────────
+  // ── 5. Store in versioned JSON cache and in-memory cache ──────────────────
   const payload: LeaderboardCachePayload = {
     leaderboard,
     userPosition,
     totalUsers: totalUsers ?? 0,
     pagination: buildOffsetMeta(limit, offset, totalUsers ?? 0),
   };
+
+  setToMemoryCache(rawKey, payload, LEADERBOARD_CACHE_TTL_SECONDS);
 
   await setJsonToCache(
     LEADERBOARD_CACHE_NAMESPACE,
@@ -243,6 +322,14 @@ export async function getLeaderboardCursor(
 
   type LeaderboardCursorCachePayload = Omit<LeaderboardCursorResponse, "lastUpdated">;
 
+  const memCached = getFromMemoryCache<LeaderboardCursorCachePayload>(rawKey);
+  if (memCached) {
+    return {
+      ...memCached,
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+
   // Try versioned JSON cache first
   const cached = await getJsonFromCache<LeaderboardCursorCachePayload>(
     LEADERBOARD_CACHE_NAMESPACE,
@@ -250,6 +337,7 @@ export async function getLeaderboardCursor(
   );
 
   if (cached) {
+    setToMemoryCache(rawKey, cached, LEADERBOARD_CACHE_TTL_SECONDS);
     return {
       ...cached,
       lastUpdated: new Date().toISOString(),
@@ -310,6 +398,8 @@ export async function getLeaderboardCursor(
     userPosition,
     pagination,
   };
+
+  setToMemoryCache(rawKey, payload, LEADERBOARD_CACHE_TTL_SECONDS);
 
   await setJsonToCache(
     LEADERBOARD_CACHE_NAMESPACE,
@@ -470,10 +560,7 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
 
   // All DB writes are done. Invalidate both cache layers so the next
   // leaderboard read rebuilds from the freshly updated DB rows.
-  void invalidateNamespace("leaderboard").catch(() => {});
-  void invalidateLeaderboardSortedSet().catch(() => {
-    // Already logged inside invalidateLeaderboardSortedSet.
-  });
+  void invalidateLeaderboardCache().catch(() => {});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
