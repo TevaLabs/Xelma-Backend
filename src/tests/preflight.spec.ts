@@ -273,3 +273,75 @@ describe('assertPreflightOrExit', () => {
     }
   });
 });
+
+describe('runPreflightChecks — REQUIRE_SOROBAN (#992)', () => {
+  it('fails when REQUIRE_SOROBAN=true and neither SOROBAN_RPC_URL nor STELLAR_RPC_URL is set', () => {
+    const env = {
+      ...FULL_ENV,
+      REQUIRE_SOROBAN: 'true',
+      SOROBAN_RPC_URL: undefined,
+      STELLAR_RPC_URL: undefined,
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(
+      result.errors.some(e =>
+        e.includes('REQUIRE_SOROBAN=true but Soroban RPC URL is not set'),
+      ),
+    ).toBe(true);
+  });
+
+  it('fails when REQUIRE_SOROBAN=true and SOROBAN_RPC_URL is whitespace', () => {
+    const env = {
+      ...FULL_ENV,
+      REQUIRE_SOROBAN: 'true',
+      SOROBAN_RPC_URL: '   ',
+      STELLAR_RPC_URL: undefined,
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(false);
+    expect(
+      result.errors.some(e =>
+        e.includes('REQUIRE_SOROBAN=true but Soroban RPC URL is not set'),
+      ),
+    ).toBe(true);
+  });
+
+  it('passes when REQUIRE_SOROBAN=true and SOROBAN_RPC_URL is set', () => {
+    const env = {
+      ...FULL_ENV,
+      REQUIRE_SOROBAN: 'true',
+      SOROBAN_RPC_URL: 'https://soroban-testnet.stellar.org',
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(true);
+  });
+
+  it('passes when REQUIRE_SOROBAN=true and alias STELLAR_RPC_URL is set', () => {
+    const env = {
+      ...FULL_ENV,
+      REQUIRE_SOROBAN: 'true',
+      STELLAR_RPC_URL: 'https://soroban-testnet.stellar.org',
+    };
+    const result = runPreflightChecks(env);
+    expect(result.ok).toBe(true);
+  });
+
+  it('passes when REQUIRE_SOROBAN is unset or false', () => {
+    const env1 = { ...FULL_ENV, REQUIRE_SOROBAN: undefined };
+    const env2 = { ...FULL_ENV, REQUIRE_SOROBAN: 'false' };
+    expect(runPreflightChecks(env1).ok).toBe(true);
+    expect(runPreflightChecks(env2).ok).toBe(true);
+  });
+
+  it('assertPreflightOrExit throws PreflightError in test environment when REQUIRE_SOROBAN=true without RPC URL', () => {
+    const env = {
+      ...FULL_ENV,
+      REQUIRE_SOROBAN: 'true',
+      SOROBAN_RPC_URL: undefined,
+      STELLAR_RPC_URL: undefined,
+      JEST_WORKER_ID: '1',
+    };
+    expect(() => assertPreflightOrExit(env)).toThrow(PreflightError);
+  });
+});

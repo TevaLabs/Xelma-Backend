@@ -66,6 +66,8 @@ export interface SorobanConfig {
   breakerOpenBackoffMs: number;
   /** Max concurrent Soroban RPC calls; extras are rejected with 503. */
   moneyPathMaxInFlight: number;
+  /** Timeout in ms for Soroban RPC read-only / simulation requests. */
+  simulationTimeoutMs: number;
 }
 
 export interface SchedulerConfig {
@@ -255,6 +257,11 @@ function buildConfig(): Config {
       env.SOROBAN_MONEY_PATH_MAX_IN_FLIGHT,
       "SOROBAN_MONEY_PATH_MAX_IN_FLIGHT",
       8,
+    ),
+    simulationTimeoutMs: v.positiveInt(
+      env.SOROBAN_SIMULATION_TIMEOUT_MS,
+      "SOROBAN_SIMULATION_TIMEOUT_MS",
+      5000,
     ),
   };
 
