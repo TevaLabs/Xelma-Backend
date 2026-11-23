@@ -61,6 +61,21 @@ export interface BetQuery {
   status?: BetStatus;
 }
 
+/** A bet whose status disagrees with its on-chain reconciliation fields. */
+export interface RoundReconciliationMismatch {
+  betId: string;
+  status: BetStatus;
+  reason: string;
+}
+
+/** Admin report for one round, built from the same records the audit list uses. */
+export interface RoundReconciliationReport {
+  roundId: string;
+  total: number;
+  counts: Record<BetStatus, number>;
+  mismatches: RoundReconciliationMismatch[];
+}
+
 export class BetService {
   private isStubMode(): boolean {
     return process.env.BET_STUB_MODE === 'true';
@@ -510,6 +525,61 @@ export class BetService {
       summary[c.status] = c._count.status;
     }
     return summary;
+  }
+
+  /**
+   * Build an admin reconciliation report for a single round. Counts are scoped
+   * to the round (unlike the global summary) and mismatches call out bets whose
+   * lifecycle fields disagree with their status, for example a CONFIRMED bet
+   * with no transaction hash or a FAILED bet with no failure reason.
+   */
+  async getRoundReconciliationReport(
+    roundId: string,
+  ): Promise<RoundReconciliationReport> {
+    const bets = await this.getBets({ roundId });
+    const counts: Record<BetStatus, number> = {
+      [BetStatus.ACCEPTED]: 0,
+      [BetStatus.SUBMITTED]: 0,
+      [BetStatus.CONFIRMED]: 0,
+      [BetStatus.RESOLVED]: 0,
+      [BetStatus.FAILED]: 0,
+    };
+    const mismatches: RoundReconciliationMismatch[] = [];
+
+    for (const bet of bets) {
+      counts[bet.status] = (counts[bet.status] ?? 0) + 1;
+      const reasons: string[] = [];
+
+      if (
+        (bet.status === BetStatus.SUBMITTED ||
+          bet.status === BetStatus.CONFIRMED ||
+          bet.status === BetStatus.RESOLVED) &&
+        !bet.txHash
+      ) {
+        reasons.push(`${bet.status} bet has no txHash`);
+      }
+      if (bet.status === BetStatus.ACCEPTED && bet.txHash) {
+        reasons.push("accepted bet already has a txHash");
+      }
+      if (bet.status === BetStatus.FAILED && !bet.failureReason) {
+        reasons.push("failed bet has no failureReason");
+      }
+      if (
+        (bet.status === BetStatus.FAILED || bet.status === BetStatus.CONFIRMED) &&
+        bet.resolvedAt
+      ) {
+        reasons.push(`${bet.status} bet has a resolvedAt timestamp`);
+      }
+      if (bet.status === BetStatus.SUBMITTED && (bet.confirmedAt || bet.resolvedAt)) {
+        reasons.push("submitted bet has a confirmation or resolution timestamp");
+      }
+
+      for (const reason of reasons) {
+        mismatches.push({ betId: bet.id, status: bet.status, reason });
+      }
+    }
+
+    return { roundId, total: bets.length, counts, mismatches };
   }
 
   /**

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { stellarAddressSchema } from "../utils/stellar-address.util";
-import { stakeAmountSchema } from "../utils/max-stake.util";
+import { precisionPriceSchema, stakeAmountSchema } from "../utils/max-stake.util";
 
 export const upDownBetSchema = z.object({
   address: stellarAddressSchema,
@@ -13,9 +13,7 @@ export const upDownBetSchema = z.object({
 export const precisionBetSchema = z.object({
   address: stellarAddressSchema,
   amount: stakeAmountSchema(),
-  predictedPrice: z
-    .number({ message: "predictedPrice is required" })
-    .positive("predictedPrice must be a positive number"),
+  predictedPrice: precisionPriceSchema(),
 });
 
 /** Claim body: address is bound from JWT via bindAuthenticatedWallet before validate. */

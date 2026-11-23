@@ -58,4 +58,29 @@ describe("max stake guard", () => {
     process.env.MAX_PREDICTION_AMOUNT = "50";
     expect(getMaxStake()).toBe(50);
   });
+
+  it("caps precision bet prices with the same limit as stake amounts", () => {
+    process.env.MAX_STAKE = "500";
+    const base = { address: ADDRESS, amount: 5 };
+
+    expect(precisionBetSchema.safeParse({ ...base, predictedPrice: 500 }).success).toBe(true);
+    for (const badPrice of [500.01, 1e15]) {
+      const result = precisionBetSchema.safeParse({ ...base, predictedPrice: badPrice });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues[0].path).toEqual(["predictedPrice"]);
+    }
+  });
+
+  it("rejects precision bet amounts and prices beyond the Decimal(20, 8) scale", () => {
+    const base = { address: ADDRESS };
+    const amount = precisionBetSchema.safeParse({ ...base, amount: 0.123456789, predictedPrice: 0.12 });
+    expect(amount.success).toBe(false);
+    if (!amount.success) expect(amount.error.issues[0].path).toEqual(["amount"]);
+
+    const price = precisionBetSchema.safeParse({ ...base, amount: 5, predictedPrice: 0.123456789 });
+    expect(price.success).toBe(false);
+    if (!price.success) expect(price.error.issues[0].path).toEqual(["predictedPrice"]);
+
+    expect(precisionBetSchema.safeParse({ ...base, amount: 0.12345678, predictedPrice: 0.12345678 }).success).toBe(true);
+  });
 });
