@@ -65,6 +65,9 @@ describe("RetentionService", () => {
   describe("cleanupAuthChallenges", () => {
     it("should delete expired auth challenges", async () => {
       const mockDeleteResult = { count: 5 };
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue(
+        Array.from({ length: mockDeleteResult.count }, (_, index) => ({ id: `challenge-${index}` })) as any,
+      );
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue(mockDeleteResult);
 
       const result = await retentionService.cleanupAuthChallenges();
@@ -73,21 +76,19 @@ describe("RetentionService", () => {
       expect(result.deletedCount).toBe(5);
       expect(result.cutoffDate).toBeInstanceOf(Date);
       expect(result.executionTime).toBeGreaterThanOrEqual(0);
-      expect(prisma.authChallenge.deleteMany).toHaveBeenCalledWith({
+      expect(prisma.authChallenge.findMany).toHaveBeenCalledWith({
         where: {
           OR: [
-            {
-              expiresAt: {
-                lt: expect.any(Date),
-              },
-            },
-            {
-              createdAt: {
-                lt: expect.any(Date),
-              },
-            },
+            { expiresAt: { lt: expect.any(Date) } },
+            { createdAt: { lt: expect.any(Date) } },
           ],
         },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+        take: retentionService.getConfig().authChallenges.batchSize,
+      });
+      expect(prisma.authChallenge.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ["challenge-0", "challenge-1", "challenge-2", "challenge-3", "challenge-4"] } },
       });
       expect(logger.info).toHaveBeenCalledWith(
         expect.stringContaining("Auth challenges cleanup completed"),
@@ -127,6 +128,7 @@ describe("RetentionService", () => {
 
     it("should throw error on database failure", async () => {
       const mockError = new Error("Database connection failed");
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue([{ id: "challenge-1" }] as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockRejectedValue(mockError);
 
       await expect(retentionService.cleanupAuthChallenges()).rejects.toThrow(
