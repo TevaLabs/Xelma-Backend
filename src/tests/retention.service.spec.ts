@@ -65,6 +65,9 @@ describe("RetentionService", () => {
   describe("cleanupAuthChallenges", () => {
     it("should delete expired auth challenges", async () => {
       const mockDeleteResult = { count: 5 };
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue(
+        Array.from({ length: mockDeleteResult.count }, (_, index) => ({ id: `challenge-${index}` })) as any,
+      );
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue(mockDeleteResult);
 
       const result = await retentionService.cleanupAuthChallenges();
@@ -73,29 +76,53 @@ describe("RetentionService", () => {
       expect(result.deletedCount).toBe(5);
       expect(result.cutoffDate).toBeInstanceOf(Date);
       expect(result.executionTime).toBeGreaterThanOrEqual(0);
-      expect(prisma.authChallenge.deleteMany).toHaveBeenCalledWith({
+      expect(prisma.authChallenge.findMany).toHaveBeenCalledWith({
         where: {
           OR: [
-            {
-              expiresAt: {
-                lt: expect.any(Date),
-              },
-            },
-            {
-              createdAt: {
-                lt: expect.any(Date),
-              },
-            },
+            { expiresAt: { lt: expect.any(Date) } },
+            { createdAt: { lt: expect.any(Date) } },
           ],
         },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+        take: retentionService.getConfig().authChallenges.batchSize,
+      });
+      expect(prisma.authChallenge.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ["challenge-0", "challenge-1", "challenge-2", "challenge-3", "challenge-4"] } },
       });
       expect(logger.info).toHaveBeenCalledWith(
         expect.stringContaining("Auth challenges cleanup completed"),
       );
     });
 
+    it("deletes expired challenges across multiple bounded batches", async () => {
+      const firstBatch = Array.from({ length: 1000 }, (_, index) => ({ id: `first-${index}` }));
+      const secondBatch = [{ id: "second-1" }];
+      jest.spyOn(prisma.authChallenge, "findMany")
+        .mockResolvedValueOnce(firstBatch as any)
+        .mockResolvedValueOnce(secondBatch as any);
+      jest.spyOn(prisma.authChallenge, "deleteMany")
+        .mockResolvedValueOnce({ count: 1000 })
+        .mockResolvedValueOnce({ count: 1 });
+
+      const result = await retentionService.cleanupAuthChallenges();
+
+      expect(result.deletedCount).toBe(1001);
+      expect(prisma.authChallenge.findMany).toHaveBeenCalledTimes(2);
+      expect(prisma.authChallenge.deleteMany).toHaveBeenCalledTimes(2);
+      expect(prisma.authChallenge.findMany).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ take: 1000 }),
+      );
+      expect(prisma.authChallenge.findMany).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ take: 1000 }),
+      );
+    });
+
     it("should handle zero deletions", async () => {
       const mockDeleteResult = { count: 0 };
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue([] as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue(mockDeleteResult);
 
       const result = await retentionService.cleanupAuthChallenges();
@@ -106,6 +133,7 @@ describe("RetentionService", () => {
 
     it("should respect cutoff date boundaries", async () => {
       const mockDeleteResult = { count: 3 };
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue([{ id: "challenge-1" }, { id: "challenge-2" }, { id: "challenge-3" }] as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue(mockDeleteResult);
 
       const beforeCleanup = new Date();
@@ -127,6 +155,7 @@ describe("RetentionService", () => {
 
     it("should throw error on database failure", async () => {
       const mockError = new Error("Database connection failed");
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue([{ id: "challenge-1" }] as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockRejectedValue(mockError);
 
       await expect(retentionService.cleanupAuthChallenges()).rejects.toThrow(
@@ -290,6 +319,7 @@ describe("RetentionService", () => {
       const mockChatResult = { count: 100 };
       const mockAuditResult = { count: 75 };
       
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue(Array.from({ length: mockAuthResult.count }, (_, index) => ({ id: `challenge-${index}` })) as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue(mockAuthResult);
       jest.spyOn(prisma.message, "deleteMany").mockResolvedValue(mockChatResult);
       jest.spyOn(prisma.auditLog, "deleteMany").mockResolvedValue(mockAuditResult);
@@ -314,6 +344,7 @@ describe("RetentionService", () => {
     });
 
     it("should handle partial failures gracefully", async () => {
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue(Array.from({ length: 5 }, (_, index) => ({ id: `challenge-${index}` })) as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue({ count: 5 });
       jest.spyOn(prisma.message, "deleteMany").mockRejectedValue(new Error("DB error"));
 
@@ -428,6 +459,7 @@ describe("RetentionService", () => {
 
   describe("Performance and metrics", () => {
     it("should track execution time", async () => {
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue(Array.from({ length: 5 }, (_, index) => ({ id: `challenge-${index}` })) as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockImplementation(
         (() => new Promise(resolve => setTimeout(() => resolve({ count: 5 }), 20))) as any,
       );
