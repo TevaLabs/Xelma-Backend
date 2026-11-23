@@ -1,5 +1,5 @@
 import rateLimit from 'express-rate-limit';
-import { Request } from 'express';
+import { Request, RequestHandler } from 'express';
 import { rateLimitMetricsService, RateLimitMetricsService } from '../services/rate-limit-metrics.service';
 import { getRateLimitCategory } from '../security/rate-limit-endpoints';
 import { rateLimitHitsTotal, rateLimitStoreFallbacksTotal } from './metrics.middleware';
@@ -132,9 +132,63 @@ function createRateLimiter(opts: {
         userId: userId,
       }).catch(err => logger.error(`Failed to record hit for ${opts.name}:`, err));
 
-      res.status(429).json({ error: 'Too Many Requests', message: opts.message, retryAfter: Math.ceil(opts.windowMs / 1000) });
+      // Always advertise when the caller may retry. The JSON body carries the
+      // same value, but machine clients (and proxies) read the header.
+      const retryAfterSeconds = Math.ceil(opts.windowMs / 1000);
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      res.status(429).json({ error: 'Too Many Requests', message: opts.message, retryAfter: retryAfterSeconds });
     },
   });
+}
+
+/**
+ * Run limiters in sequence, stopping as soon as one rejects the request.
+ *
+ * Express can take an array of handlers in one slot, but exporting a single
+ * middleware keeps the public surface (and every existing test mock, which
+ * replaces the whole module) unchanged.
+ */
+function chainLimiters(...limiters: RequestHandler[]): RequestHandler {
+  return (req, res, next) => {
+    let index = 0;
+
+    const runNext = (err?: unknown): void => {
+      if (err) {
+        next(err);
+        return;
+      }
+
+      const limiter = limiters[index];
+      index += 1;
+
+      if (!limiter) {
+        next();
+        return;
+      }
+
+      limiter(req, res, runNext);
+    };
+
+    runNext();
+  };
+}
+
+/**
+ * Key for the wallet-scoped connect limiter.
+ *
+ * The wallet is the subject of the authentication attempt, so throttling by it
+ * stops one wallet from spraying signatures across rotating IPs. Requests with
+ * no usable address fall back to the IP so malformed traffic still shares the
+ * IP budget instead of bypassing throttling entirely.
+ */
+function connectWalletKey(req: Request): string {
+  const raw = (req.body as { walletAddress?: unknown } | undefined)?.walletAddress;
+
+  if (typeof raw === 'string' && raw.trim()) {
+    return `wallet:${raw.trim().toUpperCase()}`;
+  }
+
+  return `ip:${req.ip || 'unknown'}`;
 }
 
 // Baseline per-IP limit for all public `/api` traffic
@@ -164,12 +218,32 @@ export const challengeRateLimiter = createRateLimiter({
   name: 'auth/challenge',
 });
 
-export const connectRateLimiter = createRateLimiter({
+/**
+ * `/api/auth/connect` (and the legacy `/verify` alias) are throttled twice:
+ * once per client IP and once per wallet address. The per-IP budget stops a
+ * single host hammering the endpoint; the per-wallet budget stops the same
+ * wallet being attacked (or attacking) from many hosts. Both respond 429 with
+ * a `Retry-After` header via the shared handler above.
+ */
+const connectIpRateLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 5,
   message: 'Too many authentication attempts from this IP, please try again after 15 minutes',
   name: 'auth/connect',
 });
+
+const connectWalletRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Too many authentication attempts for this wallet, please try again after 15 minutes',
+  name: 'auth/connect/wallet',
+  keyGenerator: connectWalletKey,
+});
+
+export const connectRateLimiter = chainLimiters(
+  connectIpRateLimiter,
+  connectWalletRateLimiter,
+);
 
 export const authRateLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,

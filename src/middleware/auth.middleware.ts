@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import logger from "../utils/logger";
 import { AuthRequest, AuthenticatedRequest, JwtPayload } from "../types/auth.types";
 import { ORACLE_ALLOWED_ROLES } from "../security/route-auth.registry";
+import { ErrorCode } from "../utils/errors";
 import config from "../config";
 
 // Re-export UserRole for backwards compatibility
@@ -29,18 +30,24 @@ type ResolvedUser = {
   role: UserRole;
 };
 
+type BearerAuthFailure = "missing_token" | "invalid_token" | "user_not_found";
+
+type BearerAuthResult =
+  | { ok: true; user: ResolvedUser }
+  | { ok: false; reason: BearerAuthFailure };
+
 async function loadUserFromBearerToken(
   authHeader: string | undefined,
-): Promise<ResolvedUser | null> {
+): Promise<BearerAuthResult> {
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return null;
+    return { ok: false, reason: "missing_token" };
   }
 
   const token = authHeader.substring(7);
   const decoded = verifyToken(token);
 
   if (!decoded) {
-    return null;
+    return { ok: false, reason: "invalid_token" };
   }
 
   const user = await prisma.user.findUnique({
@@ -52,7 +59,36 @@ async function loadUserFromBearerToken(
     },
   });
 
-  return user;
+  // A valid JWT only proves the token was minted for a user that existed at
+  // login time. If the row is gone (deleted/erased account) we must fail
+  // closed rather than let a stale token keep acting as that user (#969).
+  if (!user) {
+    return { ok: false, reason: "user_not_found" };
+  }
+
+  return { ok: true, user };
+}
+
+/**
+ * Send the 401 for a failed bearer-token resolution.
+ *
+ * `user_not_found` is deliberately distinct from `invalid_token`: the JWT is
+ * cryptographically valid but its subject no longer exists, so clients should
+ * discard the token and run the wallet sign-in flow again instead of retrying.
+ */
+function sendBearerFailure(res: Response, reason: BearerAuthFailure): void {
+  if (reason === "user_not_found") {
+    res.status(401).json({
+      error: "User not found",
+      message: "User associated with this token no longer exists",
+      code: ErrorCode.AUTH_USER_NOT_FOUND,
+    });
+    return;
+  }
+
+  res.status(401).json({
+    error: reason === "missing_token" ? "No token provided" : "Invalid or expired token",
+  });
 }
 
 function attachUser(req: Request, user: ResolvedUser): void {
@@ -113,22 +149,19 @@ export function requireRole(
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const requestId = (req as any).requestId;
     try {
-      const user = await loadUserFromBearerToken(req.headers.authorization);
+      const auth = await loadUserFromBearerToken(req.headers.authorization);
 
-      if (!user) {
-        const hasHeader = Boolean(req.headers.authorization?.startsWith("Bearer "));
-        res.status(401).json({
-          error: hasHeader ? "Invalid or expired token" : "No token provided",
-        });
+      if (!auth.ok) {
+        sendBearerFailure(res, auth.reason);
         return;
       }
 
-      if (!userHasAnyRole(user, allowedRoles)) {
+      if (!userHasAnyRole(auth.user, allowedRoles)) {
         res.status(403).json({ error: forbiddenMessage });
         return;
       }
 
-      attachUser(req, user);
+      attachUser(req, auth.user);
       next();
     } catch (error) {
       logger.error("Role authentication error:", { error, requestId });
@@ -157,10 +190,10 @@ export const optionalAuthentication = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const user = await loadUserFromBearerToken(req.headers.authorization);
+    const auth = await loadUserFromBearerToken(req.headers.authorization);
 
-    if (user) {
-      attachUser(req, user);
+    if (auth.ok) {
+      attachUser(req, auth.user);
     }
 
     next();

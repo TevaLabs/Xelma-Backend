@@ -79,6 +79,85 @@
           "code"
         ]
       },
+      "NotFoundResponse": {
+        "type": "object",
+        "description": "Standard 404 Not Found error response returned when an endpoint or resource is not found.",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "NotFoundError",
+            "description": "Error type name"
+          },
+          "message": {
+            "type": "string",
+            "example": "Route GET /api/unknown not found",
+            "description": "Human-readable description of the missing route or resource"
+          },
+          "code": {
+            "type": "string",
+            "example": "NOT_FOUND",
+            "description": "Machine-readable error code"
+          },
+          "path": {
+            "type": "string",
+            "example": "/api/unknown",
+            "description": "Request path that was not found"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the 404 occurred"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Optional incoming or assigned correlation request ID"
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "code",
+          "path",
+          "timestamp"
+        ]
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "description": "Standard pagination metadata returned with paginated collections.",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Page size limit requested or defaulted",
+            "example": 20
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset into the total collection (offset pagination mode)",
+            "example": 0
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total number of items in the collection",
+            "example": 100
+          },
+          "totalPages": {
+            "type": "integer",
+            "description": "Total number of pages given limit and total",
+            "example": 5
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor token for cursor-based pagination",
+            "example": "eyJpZCI6MTIzLCJjcmVhdGVkQXQiOiIyMDI2LTAxLTAxVDAwOjAwOjAwLjAwMFoifQ=="
+          },
+          "hasNextPage": {
+            "type": "boolean",
+            "description": "Whether another page of records exists",
+            "example": true
+          }
+        }
+      },
       "MoneyAmount": {
         "type": "string",
         "description": "Canonical monetary amount: a Decimal(20,8) serialized as a string with exactly 8 fractional digits. Never a JSON number — IEEE-754 floats cannot represent stroop-scale values safely.",
@@ -1043,7 +1122,7 @@
     "/api/rounds/start": {
       "post": {
         "summary": "Start a new prediction round",
-        "description": "Admin-only. Starts a new round for a given mode, start price, and duration.",
+        "description": "Admin-only. Starts a new round for a given mode, start price, and duration.\\n\n`mode: 0` starts an UP_DOWN round; `mode: 1` starts a LEGENDS round, which\nrequires at least two non-overlapping `priceRanges`. The server rejects a\nsecond start while a round is already active.\\n\nRequires an Admin JWT (`403` for USER/ORACLE tokens) and is rate limited\nper IP; on limit it responds `429` with a `Retry-After` header.\n",
         "tags": [
           "rounds"
         ],
@@ -1077,7 +1156,7 @@
                   },
                   "priceRanges": {
                     "type": "array",
-                    "description": "Optional LEGENDS-only custom ranges",
+                    "description": "Optional LEGENDS-only custom ranges (min 2, must not overlap)",
                     "items": {
                       "type": "object",
                       "properties": {
@@ -1100,27 +1179,190 @@
                   "startPrice",
                   "duration"
                 ]
+              },
+              "examples": {
+                "upDown": {
+                  "summary": "Minimal UP_DOWN round",
+                  "value": {
+                    "mode": 0,
+                    "startPrice": 0.23,
+                    "duration": 60
+                  }
+                },
+                "legends": {
+                  "summary": "LEGENDS round with custom ranges",
+                  "value": {
+                    "mode": 1,
+                    "startPrice": 0.23,
+                    "duration": 120,
+                    "priceRanges": [
+                      {
+                        "min": 0.2,
+                        "max": 0.22
+                      },
+                      {
+                        "min": 0.22,
+                        "max": 0.24
+                      }
+                    ]
+                  }
+                }
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Round started"
+            "description": "Round started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "round"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "round": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "mode",
+                        "status",
+                        "startTime",
+                        "endTime",
+                        "startPrice"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "UP_DOWN",
+                            "LEGENDS"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "ACTIVE",
+                            "LOCKED",
+                            "RESOLVED"
+                          ]
+                        },
+                        "startTime": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "endTime": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "startPrice": {
+                          "type": "string",
+                          "description": "Decimal(20",
+                          "8) string": null
+                        },
+                        "priceRanges": {
+                          "type": "array",
+                          "nullable": true,
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "min": {
+                                "type": "number"
+                              },
+                              "max": {
+                                "type": "number"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
-            "description": "Validation error"
+            "description": "Validation error (bad mode, non-positive price/duration, overlapping LEGENDS ranges)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Validation error",
+                  "message": "Invalid start price",
+                  "code": "VALIDATION_ERROR",
+                  "path": "/api/rounds/start"
+                }
+              }
+            }
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "Missing or invalid JWT",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No token provided"
+                }
+              }
+            }
           },
           "403": {
-            "description": "Forbidden"
+            "description": "Authenticated but not an Admin",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Admin access required"
+                }
+              }
+            }
           },
           "409": {
-            "description": "Conflict - active round exists"
+            "description": "Conflict - an active round already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many round-start requests from this IP",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitResponse"
+                }
+              }
+            }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X POST \"$API_BASE_URL/api/rounds/start\" \\\\\n  -H \"Authorization: Bearer $ADMIN_TOKEN\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"mode\":0,\"startPrice\":0.23,\"duration\":60}'\n"
+          }
+        ]
       }
     },
     "/api/rounds/{id}": {

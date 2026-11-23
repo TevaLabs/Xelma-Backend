@@ -260,6 +260,19 @@ const connectHandler = async (
   try {
     const { walletAddress, challenge, signature }: ConnectRequestBody = req.body;
 
+    // Every failed connect attests one aggregate AUTH_FAILED audit event in
+    // addition to the challenge-lifecycle event below. Reasons are fixed
+    // enum-like strings: the challenge and signature values are never logged.
+    const auditFailedConnect = (reason: string): void => {
+      auditLogger.logAuthFailed({
+        walletAddress,
+        reason,
+        requestId,
+        ipAddress,
+        userAgent,
+      });
+    };
+
     // Use atomic update to consume challenge (prevent race conditions)
     const now = new Date();
     const updateResult = await prisma.authChallenge.updateMany({
@@ -286,14 +299,16 @@ const connectHandler = async (
 
         if (!existingChallenge || existingChallenge.walletAddress !== walletAddress) {
           // Audit log: Challenge not found or wallet mismatch
+          const reason = existingChallenge ? 'wallet_mismatch' : 'challenge_not_found';
           auditLogger.logChallengeFailed({
             walletAddress,
             challengeId: challenge,
-            reason: existingChallenge ? 'wallet_mismatch' : 'challenge_not_found',
+            reason,
             requestId,
             ipAddress,
             userAgent,
           });
+          auditFailedConnect(reason);
           
           return next(new AuthenticationError("Invalid or expired challenge", ErrorCode.INVALID_CHALLENGE));
         }
@@ -308,6 +323,7 @@ const connectHandler = async (
             ipAddress,
             userAgent,
           });
+          auditFailedConnect('challenge_used');
           
           return next(new AuthenticationError("Challenge has already been used", ErrorCode.CHALLENGE_USED));
         }
@@ -321,6 +337,7 @@ const connectHandler = async (
             requestId,
             ipAddress,
           });
+          auditFailedConnect('challenge_expired');
           
           return next(new AuthenticationError("Challenge has expired. Please request a new one.", ErrorCode.CHALLENGE_EXPIRED));
         }
@@ -334,6 +351,7 @@ const connectHandler = async (
           ipAddress,
           userAgent,
         });
+        auditFailedConnect('challenge_not_found');
         
         return next(new AuthenticationError("Invalid or expired challenge", ErrorCode.INVALID_CHALLENGE));
       }
@@ -354,6 +372,7 @@ const connectHandler = async (
           ipAddress,
           userAgent,
         });
+        auditFailedConnect('invalid_signature');
         
         return next(new AuthenticationError("Invalid signature", ErrorCode.INVALID_SIGNATURE));
       }
