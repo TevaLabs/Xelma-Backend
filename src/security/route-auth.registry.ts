@@ -86,6 +86,15 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   { method: "DELETE", path: "/api/notifications/:id", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "DELETE", path: "/api/notifications", auth: RouteAuthLevel.AUTHENTICATED },
 
+  // Tournaments
+  { method: "GET", path: "/api/tournaments", auth: RouteAuthLevel.PUBLIC },
+  { method: "GET", path: "/api/tournaments/:id", auth: RouteAuthLevel.PUBLIC },
+  { method: "POST", path: "/api/tournaments", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "POST", path: "/api/tournaments/:id/lock", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "POST", path: "/api/tournaments/:id/settle", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "POST", path: "/api/tournaments/:id/cancel", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "POST", path: "/api/tournaments/:id/join", auth: RouteAuthLevel.AUTHENTICATED },
+
   // Admin
   { method: "GET", path: "/api/admin/metrics/rate-limits", auth: RouteAuthLevel.ADMIN },
   { method: "POST", path: "/api/admin/metrics/rate-limits/clear", auth: RouteAuthLevel.ADMIN },

@@ -144,6 +144,23 @@ router.post(
  * Get tournament detail by id. Uses the mock seed for idempotent listing/detail
  * demos (as before); the saga write endpoints below are DB-backed via the service.
  */
+/**
+ * @openapi
+ * /api/tournaments/{id}:
+ *   get:
+ *     tags: [tournaments]
+ *     summary: Get tournament detail
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Tournament detail
+ *       404:
+ *         description: Tournament not found
+ */
 router.get(
   "/:id",
   validate(joinTournamentParamsSchema, "params"),
@@ -275,6 +292,29 @@ router.post(
  * waitlist and the response says so (`status: "WAITLISTED"` plus the queue
  * position), which keeps the queue deterministic and lets the client show
  * "you are #2 in line" instead of a dead-end 409.
+ */
+/**
+ * @openapi
+ * /api/tournaments/{id}/join:
+ *   post:
+ *     tags: [tournaments]
+ *     summary: Join a tournament (or be waitlisted when full)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Joined, or WAITLISTED with a waitlistPosition when full
+ *       401:
+ *         description: Authentication required
+ *       404:
+ *         description: Tournament not found
+ *       409:
+ *         description: Lifecycle violation
  */
 router.post(
   "/:id/join",

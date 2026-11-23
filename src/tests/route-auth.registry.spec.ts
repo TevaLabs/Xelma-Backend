@@ -38,4 +38,20 @@ describe("route-auth.registry", () => {
     expect(batchPrediction?.auth).toBe(RouteAuthLevel.AUTHENTICATED);
     expect(batchLeaderboard?.auth).toBe(RouteAuthLevel.AUTHENTICATED);
   });
+
+  it("registers every tournament route with the right auth level", () => {
+    const map = getRegistryByPath();
+    const expected: Array<[string, RouteAuthLevel]> = [
+      ["GET /api/tournaments", RouteAuthLevel.PUBLIC],
+      ["GET /api/tournaments/:id", RouteAuthLevel.PUBLIC],
+      ["POST /api/tournaments", RouteAuthLevel.AUTHENTICATED],
+      ["POST /api/tournaments/:id/lock", RouteAuthLevel.AUTHENTICATED],
+      ["POST /api/tournaments/:id/settle", RouteAuthLevel.AUTHENTICATED],
+      ["POST /api/tournaments/:id/cancel", RouteAuthLevel.AUTHENTICATED],
+      ["POST /api/tournaments/:id/join", RouteAuthLevel.AUTHENTICATED],
+    ];
+    for (const [key, level] of expected) {
+      expect(map.get(key)?.auth).toBe(level);
+    }
+  });
 });
