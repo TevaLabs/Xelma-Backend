@@ -25,6 +25,13 @@ const REDIS_RATE_LIMIT_FAIL_OPEN = parseBooleanEnv(
   true,
 );
 
+/** Whether to persist rate-limit hits to the database (Issue #1020).
+ * Off by default so metrics are optional; opt in with RATE_LIMIT_METRICS_ENABLED=true.
+ */
+function isRateLimitMetricsEnabled(): boolean {
+  return parseBooleanEnv(process.env.RATE_LIMIT_METRICS_ENABLED, false);
+}
+
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
@@ -125,12 +132,17 @@ function createRateLimiter(opts: {
 
       RateLimitMetricsService.recordHit(opts.name, req.method);
 
-      rateLimitMetricsService.recordHit({
-        endpoint: opts.name,
-        key: key,
-        ip: req.ip,
-        userId: userId,
-      }).catch(err => logger.error(`Failed to record hit for ${opts.name}:`, err));
+      // Persist the hit to the database only when metrics are enabled (Issue #1020).
+      if (isRateLimitMetricsEnabled()) {
+        rateLimitMetricsService
+          .recordHit({
+            endpoint: opts.name,
+            key: key,
+            ip: req.ip,
+            userId: userId,
+          })
+          .catch((err) => logger.error(`Failed to record hit for ${opts.name}:`, err));
+      }
 
       res.status(429).json({ error: 'Too Many Requests', message: opts.message, retryAfter: Math.ceil(opts.windowMs / 1000) });
     },

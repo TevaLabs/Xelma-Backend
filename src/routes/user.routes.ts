@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
-import { updateProfileSchema } from "../schemas/user.schema";
+import { updateProfileSchema, notificationPreferencesSchema } from "../schemas/user.schema";
 import { unifiedPaginationSchema, UnifiedPaginationParams, encodeCursor } from "../schemas/pagination.schema";
 import { NotFoundError, ConflictError } from "../utils/errors";
 import { invalidateNamespace } from "../lib/redis";
@@ -257,6 +257,53 @@ router.patch(
       if (error?.code === "P2002") {
         return next(new ConflictError("Nickname is already taken"));
       }
+      next(error);
+    }
+  }) as any,
+);
+
+/**
+ * PATCH /api/user/notification-preferences
+ * Update the authenticated user's notification preferences.
+ * Merges provided fields into the existing notificationPreferences JSON.
+ */
+router.patch(
+  "/notification-preferences",
+  authenticateUser,
+  validate(notificationPreferencesSchema),
+  (async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user.userId;
+      const updates = req.body as Record<string, boolean>;
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { notificationPreferences: true },
+      });
+
+      if (!user) {
+        return next(new NotFoundError("User not found"));
+      }
+
+      const current: Record<string, boolean> = (user.notificationPreferences as Record<string, boolean>) ?? {};
+      const updatedPreferences = { ...current, ...updates };
+
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          notificationPreferences: updatedPreferences,
+        },
+        select: {
+          notificationPreferences: true,
+        },
+      });
+
+      void invalidateNamespace("profile").catch(() => {});
+
+      return sendSuccess(res, {
+        notificationPreferences: updatedUser.notificationPreferences,
+      });
+    } catch (error) {
       next(error);
     }
   }) as any,
