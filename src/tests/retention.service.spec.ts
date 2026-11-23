@@ -95,6 +95,31 @@ describe("RetentionService", () => {
       );
     });
 
+    it("deletes expired challenges across multiple bounded batches", async () => {
+      const firstBatch = Array.from({ length: 1000 }, (_, index) => ({ id: `first-${index}` }));
+      const secondBatch = [{ id: "second-1" }];
+      jest.spyOn(prisma.authChallenge, "findMany")
+        .mockResolvedValueOnce(firstBatch as any)
+        .mockResolvedValueOnce(secondBatch as any);
+      jest.spyOn(prisma.authChallenge, "deleteMany")
+        .mockResolvedValueOnce({ count: 1000 })
+        .mockResolvedValueOnce({ count: 1 });
+
+      const result = await retentionService.cleanupAuthChallenges();
+
+      expect(result.deletedCount).toBe(1001);
+      expect(prisma.authChallenge.findMany).toHaveBeenCalledTimes(2);
+      expect(prisma.authChallenge.deleteMany).toHaveBeenCalledTimes(2);
+      expect(prisma.authChallenge.findMany).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ take: 1000 }),
+      );
+      expect(prisma.authChallenge.findMany).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ take: 1000 }),
+      );
+    });
+
     it("should handle zero deletions", async () => {
       const mockDeleteResult = { count: 0 };
       jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue([] as any);
