@@ -30,6 +30,9 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      - name: Run ESLint
+        run: npm run lint:eslint
+
   scorecard:
     name: production-readiness scorecard
     runs-on: ubuntu-latest
