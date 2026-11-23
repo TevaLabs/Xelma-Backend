@@ -220,7 +220,33 @@ router.post(
  *                   required: [roundId, amount]
  *     responses:
  *       200:
- *         description: Predictions processed
+ *         description: Batch processed. Per-item outcomes are returned even
+ *           when some (or all) predictions fail; the HTTP status stays 200.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, results]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   description: True when at least one prediction succeeded.
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     required: [index, success]
+ *                     properties:
+ *                       index:
+ *                         type: integer
+ *                       success:
+ *                         type: boolean
+ *                       prediction:
+ *                         type: object
+ *                         nullable: true
+ *                       error:
+ *                         type: string
+ *                         nullable: true
  *       429:
  *         description: Too many batch requests
  *         content:
@@ -242,10 +268,12 @@ router.post(
          predictions
       );
 
-      res.json({
-         ...result,
-         success: true,
-      });
+      // Partial failures are reported per item in `results[]`. The service's
+      // `success` flag reflects whether *any* item succeeded — never overwrite
+      // it with a constant `true`, which would mark an all-failed batch as a
+      // success. The whole request still returns HTTP 200 so callers can read
+      // every per-item outcome in one pass (all-or-nothing was the old bug).
+      res.json(result);
    })
 );
 
