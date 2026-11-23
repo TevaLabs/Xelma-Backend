@@ -110,6 +110,11 @@ class RetentionService {
 
         deletedCount += result.count;
 
+        // Avoid spinning if rows were concurrently removed after selection.
+        if (result.count === 0) {
+          break;
+        }
+
         // A short batch means there are no more matching rows to process.
         if (expiredChallenges.length < policy.batchSize) {
           break;
