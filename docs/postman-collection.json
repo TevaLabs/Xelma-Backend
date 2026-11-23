@@ -5721,8 +5721,12 @@
               }
             },
             {
-              "id": "5e2eb2b1-ea01-43bc-b238-4e68dc7f7867",
-              "name": "Query bet records and their on-chain reconciliation state",
+              "id": "a1f4c2b6-3d5e-4a7f-9b12-6c8d0e2f4a91",
+              "name": "reconciliation",
+              "item": [
+                {
+                  "id": "5e2eb2b1-ea01-43bc-b238-4e68dc7f7867",
+                  "name": "Query bet records and their on-chain reconciliation state",
               "request": {
                 "name": "Query bet records and their on-chain reconciliation state",
                 "description": {
@@ -5988,6 +5992,60 @@
                   "cookie": [],
                   "_postman_previewlanguage": "text"
                 }
+              ],
+              "event": [],
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              }
+            },
+            {
+              "id": "5bfc8d8c-7e41-4cb2-b5c2-94827ed6c53c",
+              "name": "Reconciliation report for one round",
+              "request": {
+                "name": "Reconciliation report for one round",
+                "description": {
+                  "content": "Admin-only. Returns per-status counts for the round plus a list of bets whose status and on-chain fields do not agree, so operators can spot mismatches without scanning raw records.\n",
+                  "type": "text/plain"
+                },
+                "url": {
+                  "path": [
+                    "api",
+                    "bets",
+                    "reconciliation",
+                    "round",
+                    ":roundId"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": [
+                    {
+                      "disabled": false,
+                      "type": "any",
+                      "value": "<string>",
+                      "key": "roundId",
+                      "description": "(Required) Round whose bets should be reconciled"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{bearerToken}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [],
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              }
+            }
               ],
               "event": [],
               "protocolProfileBehavior": {

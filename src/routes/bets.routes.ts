@@ -42,6 +42,12 @@ const router = Router();
  *     tags: [bets]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: Idempotency-Key
+ *         schema: { type: string }
+ *         required: false
+ *         description: Replaying the same key and body returns the original response without recording another bet
  *     requestBody:
  *       required: true
  *       content:
@@ -60,6 +66,8 @@ const router = Router();
  *         description: Missing or invalid JWT
  *       400:
  *         description: Validation error
+ *       409:
+ *         description: Idempotency key conflict
  */
 router.post(
   "/up-down",
@@ -345,6 +353,45 @@ router.get(
         count: bets.length,
         bets: bets.map((bet) => serializeBet(bet as unknown as Record<string, unknown>)),
       });
+    } catch (error) {
+      next(error);
+    }
+  }),
+);
+
+/**
+ * @swagger
+ * /api/bets/reconciliation/round/{roundId}:
+ *   get:
+ *     summary: Reconciliation report for one round
+ *     description: >
+ *       Admin-only. Returns per-status counts for the round plus a list of
+ *       bets whose status and on-chain fields do not agree, so operators can
+ *       spot mismatches without scanning raw records.
+ *     tags: [bets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: roundId
+ *         required: true
+ *         schema: { type: string }
+ *         description: Round whose bets should be reconciled
+ *     responses:
+ *       200:
+ *         description: Per-status counts and mismatch list for the round
+ *       401:
+ *         description: Missing or invalid JWT
+ *       403:
+ *         description: Admin access required
+ */
+router.get(
+  "/reconciliation/round/:roundId",
+  requireAdmin,
+  (async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const report = await betService.getRoundReconciliationReport(req.params.roundId);
+      res.json({ success: true, report });
     } catch (error) {
       next(error);
     }

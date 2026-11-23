@@ -89,6 +89,12 @@ paths.
 **Affected endpoints:** `POST /api/bets/*`, `POST /api/rounds/:id/bet*`,
 `POST /api/predictions/submit` and batch, and legends predictions.
 
+Precision bet `predictedPrice` uses the same cap and the same 8-decimal scale
+as `amount` (`Decimal(20, 8)` in storage). Values above the cap or with more
+than 8 decimal places are rejected with a `400` field error on
+`predictedPrice`, so a request accepted by validation can always be stored
+without rounding.
+
 ### Data retention (expired challenges and idempotency keys)
 
 `SchedulerService` runs `retentionService.runAllPolicies()` daily at 03:00 under
