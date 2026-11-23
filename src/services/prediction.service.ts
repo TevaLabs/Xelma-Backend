@@ -252,7 +252,10 @@ export class PredictionService {
                      poolDown: side === 'DOWN' ? { increment: amountNum } : undefined,
                   },
                });
-               // No Soroban call or outbox events yet. Will be done in phase 2 and 3.
+               // Pool changed inside this transaction: fan the new pool state out through
+               // the outbox (WEBSOCKET_EMIT) so it commits atomically with the pool update.
+               // prediction:placed is emitted after chain confirmation (finalizeChainSuccess).
+               await this.emitRoundUpdateOutbox(tx, updatedRoundResult);
             } else if (round.mode === 'LEGENDS') {
                const ranges = parseRoundPriceRanges(round.priceRanges);
                const updatedRanges = updateRangePool(ranges, priceRange!.min, priceRange!.max, amount);
@@ -365,6 +368,40 @@ export class PredictionService {
       } catch (error) {
          logger.error('Failed to submit prediction:', error);
          throw error;
+      }
+   }
+
+   /**
+    * Writes the `round_update` WEBSOCKET_EMIT outbox events (per-round room and
+    * the global `round` room) for a round whose pools just changed. Must be
+    * called with the same `tx` that updated the round.
+    */
+   private async emitRoundUpdateOutbox(
+      tx: Prisma.TransactionClient,
+      round: Prisma.RoundGetPayload<{}>
+   ): Promise<void> {
+      const data = {
+         id: round.id,
+         mode: round.mode,
+         status: round.status,
+         startTime: round.startTime.toISOString(),
+         endTime: round.endTime.toISOString(),
+         startPrice: serializeMoney(round.startPrice),
+         endPrice: serializeNullableMoney(round.endPrice),
+         poolUp: serializeMoney(round.poolUp),
+         poolDown: serializeMoney(round.poolDown),
+         priceRanges: round.priceRanges,
+         resolvedAt: round.resolvedAt ? round.resolvedAt.toISOString() : null,
+      };
+      for (const room of [`round:${round.id}`, 'round']) {
+         await tx.outboxEvent.create({
+            data: {
+               eventType: OutboxEventType.WEBSOCKET_EMIT,
+               aggregateId: round.id,
+               aggregateType: 'round',
+               payload: { eventName: 'round_update', room, data },
+            },
+         });
       }
    }
 
@@ -516,13 +553,15 @@ export class PredictionService {
          });
 
          if (pred.round.mode === 'UP_DOWN') {
-            await tx.round.update({
+            const rolledBackRound = await tx.round.update({
                where: { id: pred.roundId },
                data: {
                   poolUp: pred.side === 'UP' ? { decrement: pred.amount } : undefined,
                   poolDown: pred.side === 'DOWN' ? { decrement: pred.amount } : undefined,
                },
             });
+            // Pools were announced on submit; announce the rollback too.
+            await this.emitRoundUpdateOutbox(tx, rolledBackRound);
          }
 
          await tx.prediction.update({
