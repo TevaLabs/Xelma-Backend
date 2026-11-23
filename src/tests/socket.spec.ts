@@ -24,6 +24,7 @@ import {
 } from '../socket';
 import { generateToken } from '../utils/jwt.util';
 import { UserRole } from '@prisma/client';
+import { metricsRegistry } from '../metrics/application.metrics';
 
 const SOCKET_USER_ID = 'socket-test-user-id';
 const SOCKET_WALLET = 'GSOCKET_TEST_USER___________________________';
@@ -672,6 +673,37 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
          await new Promise(r => setTimeout(r, 50));
 
          expect(connectionRegistry.has(socketId)).toBe(false);
+      });
+
+      it('should track socket_connections_active gauge on connect and disconnect', async () => {
+         const readGauge = async (): Promise<number> => {
+            const metric = (await metricsRegistry.getMetricsAsJSON()).find(
+               m => m.name === 'socket_connections_active'
+            );
+            return (metric?.values[0]?.value as number) ?? 0;
+         };
+
+         const baseline = await readGauge();
+         expect(baseline).toBe(connectionRegistry.size);
+
+         const client = ioClient(baseURL, {
+            auth: { token: validToken },
+            transports: ['websocket'],
+            autoConnect: false,
+         });
+         client.connect();
+         await waitForConnect(client);
+
+         expect(await readGauge()).toBe(baseline + 1);
+         expect(await readGauge()).toBe(connectionRegistry.size);
+
+         const disconnected = waitForDisconnect(client);
+         client.disconnect();
+         await disconnected;
+         await new Promise(r => setTimeout(r, 50));
+
+         expect(await readGauge()).toBe(baseline);
+         expect(await readGauge()).toBe(connectionRegistry.size);
       });
 
       it('should update lastSeenAt when the socket emits an event', async () => {
