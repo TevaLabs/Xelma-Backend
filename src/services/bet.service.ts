@@ -6,8 +6,9 @@ import betAuditService from './bet-audit.service';
 import outboxService, { BetAcceptedOutboxPayload, BetConfirmedOutboxPayload, BetResolvedOutboxPayload, BetFailedOutboxPayload } from './outbox.service';
 import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
-import { NotFoundError, ValidationError } from '../utils/errors';
+import { ExternalServiceError, NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
+import config from '../config';
 
 export interface UpDownBetInput {
   address: string;
@@ -67,6 +68,21 @@ export class BetService {
   }
 
   /**
+   * Reject on-chain (non-stub) bets when no Soroban contract id is configured.
+   * Without it the chain call cannot succeed, so fail fast with a clear error
+   * before any bet row is written.
+   */
+  private assertContractConfigured(stubMode: boolean): void {
+    if (stubMode) return;
+    if (!config.soroban?.contractId) {
+      throw new ExternalServiceError(
+        'Soroban contract id is not configured (set SOROBAN_CONTRACT_ID); cannot place on-chain bets',
+        'SOROBAN_CONTRACT_NOT_CONFIGURED'
+      );
+    }
+  }
+
+  /**
    * Resolve which round a bet belongs to.
    *
    * When the caller names a round explicitly (round-scoped endpoints such as
@@ -118,6 +134,7 @@ export class BetService {
   ): Promise<BetResult> {
     const requestId = explicitRequestId ?? getRequestId();
     const stubMode = this.isStubMode();
+    this.assertContractConfigured(stubMode);
 
     if (stubMode) {
       logger.info('UP/DOWN bet recorded (stub mode)', { ...input, idempotencyKey, requestId });
@@ -259,6 +276,7 @@ export class BetService {
   ): Promise<BetResult> {
     const requestId = explicitRequestId ?? getRequestId();
     const stubMode = this.isStubMode();
+    this.assertContractConfigured(stubMode);
 
     if (stubMode) {
       logger.info('Precision bet recorded (stub mode)', { ...input, idempotencyKey, requestId });
