@@ -110,6 +110,58 @@ Prisma is the single database ORM and migration tool. The schema lives in
 and apply migrations, or use `npm run prisma:migrate` when changing the schema.
 See the README "Migration story" section for more detail.
 
+The full safety guide lives in
+[`prisma/migrations/README.md`](prisma/migrations/README.md). Every migration PR
+must go through its checklist; the essentials are repeated here.
+
+### Migration checklist
+
+Copy this into the PR description and tick every item before merging a
+migration:
+
+```markdown
+- [ ] Migration folder name is timestamped and descriptive
+- [ ] `migration.sql` read line by line; destructive statements (`DROP TABLE`,
+      `DROP COLUMN`, renames, type changes) are called out explicitly
+- [ ] Application code tolerates both the pre- and post-migration schema
+      during the rollout (two-phase deploy for breaking changes)
+- [ ] `ADD COLUMN … NOT NULL` has a `DEFAULT`, or is added nullable and
+      backfilled first
+- [ ] `CREATE INDEX` uses `CONCURRENTLY` for tables over 100 k rows
+- [ ] Rollback SQL written, reviewed, and tested on staging
+- [ ] `GET /metrics/readiness` returns `{ "ready": true }` after deploy
+- [ ] No `prisma migrate reset` in production
+```
+
+### Rollback SQL template
+
+Prisma does not roll back automatically, so every migration must carry its
+inverse SQL. Put the rollback in the migration file header and paste the same
+statements into the PR description:
+
+```sql
+-- ============================================================
+-- Migration: <timestamp>_<name>
+-- Description: <one-line summary>
+--
+-- Apply  : prisma migrate deploy
+-- Rollback:
+--   <exact SQL to undo this migration>
+--   DELETE FROM _prisma_migrations WHERE migration_name = '<timestamp>_<name>';
+-- ============================================================
+
+-- Forward migration
+ALTER TABLE "example" ADD COLUMN "new_field" TEXT;
+```
+
+A rollback that only undoes part of a migration is worse than none — make sure
+it reverses every statement, restores dropped data from a backup where needed,
+and removes the `_prisma_migrations` row so a re-deploy applies the migration
+again. Test it on staging before it is ever needed in production.
+
+> `prisma migrate reset` drops all data. Never run it against a production
+database; apply the inverse SQL manually instead.
+
 ## Keeping the repo root clean
 
 Accidental empty files at the repo root (e.g. `src*.ts` leftovers from misplacing
@@ -123,9 +175,11 @@ make sure it is created there — not at the repository root.
 1. Branch off `main`.
 2. Make your change and add tests.
 3. Run `npm run lint` and `npm test` locally.
-4. Fill out every section of the pull request template, including the
+4. If the change includes a migration, complete the [migration
+   checklist](#migration-checklist) and include the rollback SQL in the PR.
+5. Fill out every section of the pull request template, including the
    **Affected endpoints** list and the entrypoint-verification checklist.
-5. Reference the issue you are closing (`Closes #123`).
+6. Reference the issue you are closing (`Closes #123`).
 
 The pull request template is applied automatically to new PRs from
 [.github/pull_request_template.md](.github/pull_request_template.md).
