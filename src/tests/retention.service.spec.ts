@@ -97,6 +97,7 @@ describe("RetentionService", () => {
 
     it("should handle zero deletions", async () => {
       const mockDeleteResult = { count: 0 };
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue([] as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue(mockDeleteResult);
 
       const result = await retentionService.cleanupAuthChallenges();
@@ -107,6 +108,7 @@ describe("RetentionService", () => {
 
     it("should respect cutoff date boundaries", async () => {
       const mockDeleteResult = { count: 3 };
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue([{ id: "challenge-1" }, { id: "challenge-2" }, { id: "challenge-3" }] as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue(mockDeleteResult);
 
       const beforeCleanup = new Date();
@@ -292,6 +294,7 @@ describe("RetentionService", () => {
       const mockChatResult = { count: 100 };
       const mockAuditResult = { count: 75 };
       
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue(Array.from({ length: mockAuthResult.count }, (_, index) => ({ id: `challenge-${index}` })) as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue(mockAuthResult);
       jest.spyOn(prisma.message, "deleteMany").mockResolvedValue(mockChatResult);
       jest.spyOn(prisma.auditLog, "deleteMany").mockResolvedValue(mockAuditResult);
@@ -316,6 +319,7 @@ describe("RetentionService", () => {
     });
 
     it("should handle partial failures gracefully", async () => {
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue(Array.from({ length: 5 }, (_, index) => ({ id: `challenge-${index}` })) as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockResolvedValue({ count: 5 });
       jest.spyOn(prisma.message, "deleteMany").mockRejectedValue(new Error("DB error"));
 
@@ -430,6 +434,7 @@ describe("RetentionService", () => {
 
   describe("Performance and metrics", () => {
     it("should track execution time", async () => {
+      jest.spyOn(prisma.authChallenge, "findMany").mockResolvedValue(Array.from({ length: 5 }, (_, index) => ({ id: `challenge-${index}` })) as any);
       jest.spyOn(prisma.authChallenge, "deleteMany").mockImplementation(
         (() => new Promise(resolve => setTimeout(() => resolve({ count: 5 }), 20))) as any,
       );
