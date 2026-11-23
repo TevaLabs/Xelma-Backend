@@ -63,7 +63,13 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
  * /api/rounds/start:
  *   post:
  *     summary: Start a new prediction round
- *     description: Admin-only. Starts a new round for a given mode, start price, and duration.
+ *     description: |
+ *       Admin-only. Starts a new round for a given mode, start price, and duration.\n
+ *       `mode: 0` starts an UP_DOWN round; `mode: 1` starts a LEGENDS round, which
+ *       requires at least two non-overlapping `priceRanges`. The server rejects a
+ *       second start while a round is already active.\n
+ *       Requires an Admin JWT (`403` for USER/ORACLE tokens) and is rate limited
+ *       per IP; on limit it responds `429` with a `Retry-After` header.
  *     tags: [rounds]
  *     security:
  *       - bearerAuth: []
@@ -86,7 +92,7 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
  *                 description: Duration in seconds (must be > 0)
  *               priceRanges:
  *                 type: array
- *                 description: Optional LEGENDS-only custom ranges
+ *                 description: Optional LEGENDS-only custom ranges (min 2, must not overlap)
  *                 items:
  *                   type: object
  *                   properties:
@@ -94,17 +100,95 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
  *                     max: { type: number }
  *                   required: [min, max]
  *             required: [mode, startPrice, duration]
+ *           examples:
+ *             upDown:
+ *               summary: Minimal UP_DOWN round
+ *               value: { mode: 0, startPrice: 0.23, duration: 60 }
+ *             legends:
+ *               summary: LEGENDS round with custom ranges
+ *               value:
+ *                 mode: 1
+ *                 startPrice: 0.23
+ *                 duration: 120
+ *                 priceRanges:
+ *                   - { min: 0.2, max: 0.22 }
+ *                   - { min: 0.22, max: 0.24 }
  *     responses:
  *       200:
  *         description: Round started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, round]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 round:
+ *                   type: object
+ *                   required: [id, mode, status, startTime, endTime, startPrice]
+ *                   properties:
+ *                     id: { type: string, format: uuid }
+ *                     mode: { type: string, enum: [UP_DOWN, LEGENDS] }
+ *                     status: { type: string, enum: [ACTIVE, LOCKED, RESOLVED] }
+ *                     startTime: { type: string, format: date-time }
+ *                     endTime: { type: string, format: date-time }
+ *                     startPrice: { type: string, description: Decimal(20,8) string }
+ *                     priceRanges:
+ *                       type: array
+ *                       nullable: true
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           min: { type: number }
+ *                           max: { type: number }
  *       400:
- *         description: Validation error
+ *         description: Validation error (bad mode, non-positive price/duration, overlapping LEGENDS ranges)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               error: Validation error
+ *               message: 'Invalid start price'
+ *               code: VALIDATION_ERROR
+ *               path: /api/rounds/start
  *       401:
- *         description: Unauthorized
+ *         description: Missing or invalid JWT
+ *         content:
+ *           application/json:
+ *             example:
+ *               error: No token provided
  *       403:
- *         description: Forbidden
+ *         description: Authenticated but not an Admin
+ *         content:
+ *           application/json:
+ *             example:
+ *               error: Admin access required
  *       409:
- *         description: Conflict - active round exists
+ *         description: Conflict - an active round already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       429:
+ *         description: Too many round-start requests from this IP
+ *         headers:
+ *           Retry-After:
+ *             schema: { type: integer }
+ *             description: Seconds to wait before retrying
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RateLimitResponse'
+ *     x-codeSamples:
+ *       - lang: cURL
+ *         source: |
+ *           curl -X POST "$API_BASE_URL/api/rounds/start" \\
+ *             -H "Authorization: Bearer $ADMIN_TOKEN" \\
+ *             -H "Content-Type: application/json" \\
+ *             -d '{"mode":0,"startPrice":0.23,"duration":60}'
  */
 router.post(
   "/start",
