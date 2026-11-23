@@ -1647,12 +1647,14 @@ At minimum, migration PRs should include:
 | `npm run dev`                   | Start the **production** development server (`src/index.ts`) with hot-reload — use this for all feature work                                                                                                          |
 | `npm run dev:hackathon`         | Start the hackathon demo server (`src/server.ts`) — mock data only, no database required                                                                                                                              |
 | `npm run build`                 | Compile TypeScript to JavaScript                                                                                                                                                                                      |
+| `npm run lint`                  | Typecheck with `tsc --noEmit`                                                                                                                                                                                         |
+| `npm run lint:eslint`           | Run ESLint static analysis over `src/**/*.ts` (also runs in CI)                                                                                                                                                       |
 | `npm test`                      | Run Jest test suite                                                                                                                                                                                                   |
 | `npm run test:coverage`         | Run Jest with coverage reporting and thresholds                                                                                                                                                                       |
 | `npm run test:unit:coverage`    | Run unit tests with coverage reporting and thresholds                                                                                                                                                                 |
 | `npm run test:watch`            | Run tests in watch mode                                                                                                                                                                                               |
 | `npm run test:load`             | Run load baselines plus overload 429/503 backpressure checks                                                                                                                                                          |
-| `npm run ci`                    | Run lint, build, unit coverage, and integration tests                                                                                                                                                                 |
+| `npm run ci`                    | Run typecheck, ESLint, build, unit coverage, and integration tests                                                                                                                                                    |
 | `npm run prisma:generate`       | Generate Prisma client                                                                                                                                                                                                |
 | `npm run prisma:migrate`        | Run database migrations                                                                                                                                                                                               |
 | `npm run db:seed:mock`          | Seed database with mock data                                                                                                                                                                                          |
@@ -1680,6 +1682,17 @@ node scripts/publish-pr.js --fix-existing
 ```
 
 Or: `npm run pr:publish --fix-existing` / `npm run pr:publish --title="..." --issue=500` (equals-form flags). The script rewrites HEAD with `git commit-tree` (so Cursor cannot re-inject the trailer), force-with-lease pushes the `fork` remote, and creates or updates the upstream PR.
+
+### Linting
+
+Two checks run on every pull request: `npm run lint` (the TypeScript typecheck) and `npm run lint:eslint` (static analysis via ESLint). To see and auto-fix what ESLint reports locally:
+
+```bash
+npm run lint:eslint          # list violations (file:line and rule name)
+npm run lint:eslint -- --fix # apply safe automatic fixes
+```
+
+The rule set lives in `.eslintrc.cjs`. Rules that had pre-existing violations when ESLint was introduced are explicitly baselined off there, with comments explaining why; tighten them one at a time as those files are touched. Do not disable a rule just to silence a new violation without noting it in the PR.
 
 ---
 

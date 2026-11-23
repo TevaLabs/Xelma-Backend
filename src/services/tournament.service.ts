@@ -27,6 +27,7 @@ import {
   compareTournamentStandings,
 } from "../types/tournament.types";
 import { tournamentTransitionFailuresTotal } from "../metrics/application.metrics";
+import config from "../config";
 import logger from "../utils/logger";
 
 export interface TournamentListItem {
@@ -99,14 +100,50 @@ export const MOCK_TOURNAMENTS: TournamentListItem[] = [
 
 export type TournamentListSource = "mock" | "prisma";
 
+/** Set once Prisma is known to be unusable, so list and join keep using one source. */
+let prismaUnavailable = false;
+
+/** Reset the cached fallback and in-memory join state (used by tests). */
+export function resetTournamentDataSource(): void {
+  prismaUnavailable = false;
+  mockJoinState.clear();
+  for (const tournament of MOCK_TOURNAMENTS) {
+    tournament.currentParticipants =
+      MOCK_PARTICIPANT_COUNTS.get(tournament.id) ?? tournament.currentParticipants;
+  }
+}
+
+/**
+ * Pick the single data source used by tournament list and join.
+ *
+ * `DATA_MODE=mock` (or the in-memory data store) selects the seed store; live
+ * mode uses Prisma unless `TOURNAMENTS_SOURCE` explicitly overrides it. If a
+ * Prisma list call fails at runtime we latch the fallback so joins also use
+ * the seed store instead of pointing at rows the client never saw.
+ */
 export function resolveTournamentListSource(
   override?: TournamentListSource,
 ): TournamentListSource {
   if (override) return override;
+  if (prismaUnavailable) return "mock";
+
   const raw = process.env.TOURNAMENTS_SOURCE?.toLowerCase();
   if (raw === "prisma" || raw === "db" || raw === "postgres") return "prisma";
-  return "mock";
+  if (raw === "mock") return "mock";
+
+  return config.app.dataMode === "mock" || config.app.dataStore === "memory"
+    ? "mock"
+    : "prisma";
 }
+
+/** In-memory join ledger mirroring the Prisma participant/waitlist tables. */
+const mockJoinState = new Map<string, { participants: string[]; waitlist: string[] }>();
+const MOCK_PARTICIPANT_COUNTS = new Map(
+  MOCK_TOURNAMENTS.map((tournament) => [
+    tournament.id,
+    tournament.currentParticipants,
+  ]),
+);
 
 /**
  * Apply mode/status filters to an in-memory tournament list.
@@ -160,7 +197,9 @@ function mapPrismaTournament(row: {
 export class TournamentService {
   /**
    * List tournaments with optional mode/status filters and offset pagination.
-   * Defaults to mock seed data; set TOURNAMENTS_SOURCE=prisma for DB-backed lists.
+   * Uses the configured runtime source: Prisma in live mode, the seed store in
+   * mock mode. A Prisma outage latches the mock fallback for both lists and
+   * joins so clients never list rows they cannot join.
    */
   async listTournaments(
     query: TournamentListQuery,
@@ -172,7 +211,14 @@ export class TournamentService {
     const { limit, offset, mode, status } = query;
 
     if (source === "prisma") {
-      return this.listFromPrisma({ limit, offset, mode, status });
+      try {
+        return await this.listFromPrisma({ limit, offset, mode, status });
+      } catch (error) {
+        logger.warn("Tournament list failed against Prisma, using mock store", {
+          error,
+        });
+        prismaUnavailable = true;
+      }
     }
     return this.listFromMock({ limit, offset, mode, status });
   }
@@ -214,10 +260,60 @@ export class TournamentService {
     return item ? serializeTournament(item) : undefined;
   }
 
+  /**
+   * Join a seed tournament. Mirrors the saga rules used by the Prisma path:
+   * terminal states are rejected, duplicates conflict, full tournaments queue
+   * on a deterministic waitlist, and the visible participant count advances.
+   */
+  private joinMockTournament(
+    userId: string,
+    tournamentId: string,
+  ): TournamentJoinResult {
+    const tournament = MOCK_TOURNAMENTS.find((t) => t.id === tournamentId);
+    if (!tournament) {
+      throw new NotFoundError("Tournament not found");
+    }
+    this.assertJoinable(tournament.status as TournamentStatus);
+
+    let state = mockJoinState.get(tournamentId);
+    if (!state) {
+      state = { participants: [], waitlist: [] };
+      mockJoinState.set(tournamentId, state);
+    }
+
+    if (state.participants.includes(userId)) {
+      throw new ConflictError("Already joined this tournament");
+    }
+    if (state.waitlist.includes(userId)) {
+      throw new ConflictError("Already on the tournament waitlist");
+    }
+
+    if (tournament.currentParticipants < tournament.maxParticipants) {
+      state.participants.push(userId);
+      tournament.currentParticipants += 1;
+      return {
+        currentParticipants: tournament.currentParticipants,
+        status: "CONFIRMED",
+      };
+    }
+
+    state.waitlist.push(userId);
+    return {
+      currentParticipants: tournament.currentParticipants,
+      status: "WAITLISTED",
+      waitlistPosition: state.waitlist.length,
+    };
+  }
+
   async joinTournament(
     userId: string,
     tournamentId: string,
+    source: TournamentListSource = resolveTournamentListSource(),
   ): Promise<TournamentJoinResult> {
+    if (source === "mock") {
+      return this.joinMockTournament(userId, tournamentId);
+    }
+
     // Non-race-sensitive checks stay outside the transaction
     const tournament = await prisma.tournament.findUnique({
       where: { id: tournamentId },

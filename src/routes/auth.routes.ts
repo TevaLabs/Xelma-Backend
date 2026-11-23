@@ -16,12 +16,14 @@ import {
   ConnectRequestBody,
   ConnectResponse,
 } from "../types/auth.types";
+import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
 import {
   challengeRateLimiter,
   connectRateLimiter,
   authRateLimiter,
 } from "../middleware/rateLimiter.middleware";
 import { validate } from "../middleware/validate.middleware";
+import { asyncHandler } from "../middleware/errorHandler.middleware";
 import { challengeSchema, connectSchema } from "../schemas/auth.schema";
 import { AuthenticationError, ErrorCode } from "../utils/errors";
 import { auditLogger } from "../utils/audit-logger";
@@ -562,6 +564,56 @@ router.post(
   connectRateLimiter,
   validate(connectSchema),
   connectHandler,
+);
+
+/**
+ * @swagger
+ * /api/auth/me:
+ *   get:
+ *     summary: Probe the current JWT session
+ *     description: |
+ *       Cheap session check for clients. Returns the identity claims resolved
+ *       from the authenticated JWT plus its expiry (`exp`, seconds since the
+ *       Unix epoch), so the client can decide when to refresh without calling
+ *       a heavier profile endpoint. Uses the same bearer auth as all other
+ *       protected routes; see the `BearerAuth` scheme and `JwtPayload` schema
+ *       for claim semantics and clock-skew guidance.
+ *     tags: [auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current session identity and expiry
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/JwtPayload'
+ *             example:
+ *               userId: 2f7a0f7e-7c1f-4b0e-9a1d-6e9c1f2a3b4c
+ *               walletAddress: GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN
+ *               role: USER
+ *               exp: 1799999999
+ *       401:
+ *         description: Missing, invalid, or expired JWT
+ *         content:
+ *           application/json:
+ *             example: { error: "No token provided" }
+ */
+router.get(
+  "/me",
+  authenticateUser,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : "";
+    const decoded = verifyToken(token);
+
+    return res.status(200).json({
+      userId: req.user.userId,
+      walletAddress: req.user.walletAddress,
+      role: req.user.role,
+      exp: decoded?.exp ?? null,
+    });
+  }),
 );
 
 /**

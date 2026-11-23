@@ -17,6 +17,12 @@
         "scheme": "bearer",
         "bearerFormat": "JWT",
         "description": "Paste a JWT like: Bearer <token>"
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT access token obtained from POST /api/auth/connect. Send it as `Authorization: Bearer <token>`. Tokens carry the claims in #/components/schemas/JwtPayload. Verification uses the standard JWT `exp` check with no additional clock-skew tolerance, so client and server clocks must be kept in sync (NTP). A token is rejected as soon as `exp` passes; refresh or re-authenticate before then."
       }
     },
     "schemas": {
@@ -79,6 +85,85 @@
           "code"
         ]
       },
+      "NotFoundResponse": {
+        "type": "object",
+        "description": "Standard 404 Not Found error response returned when an endpoint or resource is not found.",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "NotFoundError",
+            "description": "Error type name"
+          },
+          "message": {
+            "type": "string",
+            "example": "Route GET /api/unknown not found",
+            "description": "Human-readable description of the missing route or resource"
+          },
+          "code": {
+            "type": "string",
+            "example": "NOT_FOUND",
+            "description": "Machine-readable error code"
+          },
+          "path": {
+            "type": "string",
+            "example": "/api/unknown",
+            "description": "Request path that was not found"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the 404 occurred"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Optional incoming or assigned correlation request ID"
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "code",
+          "path",
+          "timestamp"
+        ]
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "description": "Standard pagination metadata returned with paginated collections.",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Page size limit requested or defaulted",
+            "example": 20
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset into the total collection (offset pagination mode)",
+            "example": 0
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total number of items in the collection",
+            "example": 100
+          },
+          "totalPages": {
+            "type": "integer",
+            "description": "Total number of pages given limit and total",
+            "example": 5
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor token for cursor-based pagination",
+            "example": "eyJpZCI6MTIzLCJjcmVhdGVkQXQiOiIyMDI2LTAxLTAxVDAwOjAwOjAwLjAwMFoifQ=="
+          },
+          "hasNextPage": {
+            "type": "boolean",
+            "description": "Whether another page of records exists",
+            "example": true
+          }
+        }
+      },
       "MoneyAmount": {
         "type": "string",
         "description": "Canonical monetary amount: a Decimal(20,8) serialized as a string with exactly 8 fractional digits. Never a JSON number — IEEE-754 floats cannot represent stroop-scale values safely.",
@@ -102,6 +187,48 @@
           "error": "AppError",
           "message": "Too many requests from this IP, please try again after 15 minutes",
           "code": "RATE_LIMIT_EXCEEDED"
+        }
+      },
+      "JwtPayload": {
+        "type": "object",
+        "description": "Signed JWT claims. `exp` is the standard expiry claim in seconds since the Unix epoch. There is no explicit clock-skew tolerance, so keep client/server clocks synchronized and refresh before `exp`.",
+        "required": [
+          "userId",
+          "walletAddress",
+          "role"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal user id this token was issued for.",
+            "example": "2f7a0f7e-7c1f-4b0e-9a1d-6e9c1f2a3b4c"
+          },
+          "walletAddress": {
+            "type": "string",
+            "description": "Stellar Ed25519 public key the user signed in with.",
+            "example": "GDRHOLGIIVOGHNURCNVVGUXBUJCVTSKH2V7ACB4E4ZOR7KC3XGIBK5CT"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "ADMIN",
+              "ORACLE"
+            ],
+            "description": "Role recorded when the token was issued.",
+            "example": "USER"
+          },
+          "iat": {
+            "type": "integer",
+            "description": "Standard issued-at claim, seconds since the Unix epoch.",
+            "example": 1799900000
+          },
+          "exp": {
+            "type": "integer",
+            "description": "Standard expiry claim, seconds since the Unix epoch. Tokens are rejected once this time passes; no extra clock-skew grace is applied.",
+            "example": 1799999999
+          }
         }
       },
       "AuthChallengeRequest": {
@@ -2869,6 +2996,48 @@
             "source": "curl -X POST \"$API_BASE_URL/api/auth/connect\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"walletAddress\":\"GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX\",\"challenge\":\"Xelma Authentication\\nDomain: xelma.io\\n...\",\"signature\":\"base64-or-hex-signature\"}'\n"
           }
         ]
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "summary": "Probe the current JWT session",
+        "description": "Cheap session check for clients. Returns the identity claims resolved\nfrom the authenticated JWT plus its expiry (`exp`, seconds since the\nUnix epoch), so the client can decide when to refresh without calling\na heavier profile endpoint. Uses the same bearer auth as all other\nprotected routes; see the `BearerAuth` scheme and `JwtPayload` schema\nfor claim semantics and clock-skew guidance.\n",
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current session identity and expiry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JwtPayload"
+                },
+                "example": {
+                  "userId": "2f7a0f7e-7c1f-4b0e-9a1d-6e9c1f2a3b4c",
+                  "walletAddress": "GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN",
+                  "role": "USER",
+                  "exp": 1799999999
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired JWT",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No token provided"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/auth/refresh": {
