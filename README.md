@@ -560,9 +560,42 @@ npm run db:rebuild:user-stats -- --user <userId>
 
 # Apply: rewrite the drifted rows
 npm run db:rebuild:user-stats:apply
+
+# Aggregate drift only (no per-user detail), e.g. for a cron / alerting job
+npm run db:rebuild:user-stats -- --summary
+
+# Large databases: tune the history page size and cap the per-user output
+npm run db:rebuild:user-stats -- --batch-size 5000 --max-details 20
+
+# Machine-readable report (includes the full aggregate and per-user drift)
+npm run db:rebuild:user-stats -- --json
 ```
 
-The rebuild lives in `src/services/stats.service.ts` (`rebuildUserStats`); `scripts/rebuild-user-stats.ts` is only the command-line wrapper.
+| Flag | Meaning |
+|---|---|
+| `--dry-run` | Report drift, write nothing (default) |
+| `--apply` | Rewrite the drifted `UserStats` rows |
+| `--user <id>` | Scope the run to one user (repeatable) |
+| `--batch-size <n>` | Predictions read per query while scanning the history (default `1000`) |
+| `--max-details <n>` | Print at most `n` per-user drift entries in text mode |
+| `--summary` | Print only the aggregate drift summary in text mode |
+| `--json` | Print the full report as JSON |
+
+Exit code is `1` when a dry run finds drift (or the run fails), `0` otherwise — so the dry run can gate CI or a scheduled job.
+
+**Aggregate drift.** Besides the per-user field diffs, every report carries an `aggregate` section: for each of the nine projection fields, the number of users whose value drifted, the sum of the rebuilt values (`expectedTotal`), the sum of the stored values (`storedTotal`, a missing row counts as 0) and `delta = storedTotal - expectedTotal` (positive = the projection over-counts, negative = it under-counts; money fields as 8-dp strings). It also counts `missingRows` (users with settled predictions but no row) and `orphanRows` (non-zero rows whose user has no settled prediction). Example text output:
+
+```
+UserStats rebuild (dry run): 1200 user(s) examined, 3 with drift, 9 drifted field(s)
+
+  Aggregate drift (stored - expected): 1 missing row(s), 0 orphan row(s)
+    totalPredictions     expected             4810  stored             4812  delta               +2  (3 user(s))
+    totalEarnings        expected    1520.50000000  stored    1540.50000000  delta     +20.00000000  (2 user(s))
+```
+
+The prediction history is scanned with keyset pagination on the primary key, so a rebuild never loads the whole table into memory.
+
+The rebuild lives in `src/services/stats.service.ts` (`rebuildUserStats`); argument parsing and report rendering live in `src/utils/rebuild-user-stats-cli.ts`; `scripts/rebuild-user-stats.ts` is only the wiring to argv, the database and the exit code.
 
 ---
 

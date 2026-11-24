@@ -5,6 +5,8 @@ import { serializeMoney, toDecimal } from "../utils/decimal.util";
 import {
     isPredictionCorrect,
     isRoundSettled,
+    type PredictionOutcomePrediction,
+    type PredictionOutcomeRound,
 } from "../utils/prediction-outcome.util";
 import type { Prisma } from "@prisma/client";
 import type { Decimal } from "@prisma/client/runtime/library";
@@ -220,6 +222,37 @@ export interface UserStatsUserDrift {
     fields: UserStatsFieldDrift[];
 }
 
+/**
+ * Platform-wide drift for one field of the projection (Issue #1032).
+ *
+ * Per-user drift answers "which rows are wrong?"; the aggregate answers "how
+ * wrong is the projection as a whole?" — e.g. the leaderboard is over-counting
+ * 42 predictions and 310.5 XLM of earnings in total. Totals are summed over
+ * every examined user (not only the drifted ones), so `expectedTotal` is what
+ * the projection should add up to and `storedTotal` what it does add up to.
+ */
+export interface UserStatsFieldAggregate {
+    field: UserStatsField;
+    /** Users whose value of this field drifted. */
+    usersDrifted: number;
+    /** Sum of the rebuilt values (8-dp string for money fields). */
+    expectedTotal: string | number;
+    /** Sum of the stored values; a missing row counts as 0. */
+    storedTotal: string | number;
+    /** `storedTotal - expectedTotal`: positive = over-counted, negative = under-counted. */
+    delta: string | number;
+}
+
+/** Aggregate view of the drift across all examined users (Issue #1032). */
+export interface UserStatsAggregateDrift {
+    /** Users with settled predictions but no stored row. */
+    missingRows: number;
+    /** Stored rows whose user has no settled prediction yet a non-zero projection. */
+    orphanRows: number;
+    /** One entry per projection field, in {@link USER_STATS_FIELDS} order. */
+    fields: UserStatsFieldAggregate[];
+}
+
 /** Outcome of a rebuild run (dry-run or applied). */
 export interface UserStatsRebuildReport {
     /** true = nothing was written; false = the drifted rows were rewritten. */
@@ -234,6 +267,8 @@ export interface UserStatsRebuildReport {
     driftFieldCount: number;
     /** Per-user drift detail. */
     drift: UserStatsUserDrift[];
+    /** Platform-wide totals of the drift, field by field. */
+    aggregate: UserStatsAggregateDrift;
     /** Users rewritten (always 0 in dry-run mode). */
     usersRepaired: number;
 }
@@ -247,7 +282,16 @@ export interface RebuildUserStatsOptions {
     dryRun?: boolean;
     /** Restrict the rebuild to these user ids. */
     userIds?: string[];
+    /**
+     * Number of predictions read per query while scanning the history
+     * (default {@link DEFAULT_REBUILD_BATCH_SIZE}). The scan is cursor-paginated
+     * so a rebuild never loads the whole prediction table into memory at once.
+     */
+    batchSize?: number;
 }
+
+/** Default page size of the prediction-history scan. */
+export const DEFAULT_REBUILD_BATCH_SIZE = 1000;
 
 /** Mutable accumulator used while aggregating the prediction history. */
 interface MutableTotals {
@@ -290,6 +334,52 @@ function toSnapshot(totals: MutableTotals): UserStatsTotals {
     };
 }
 
+function normalizeBatchSize(batchSize: number | undefined): number {
+    if (batchSize === undefined) return DEFAULT_REBUILD_BATCH_SIZE;
+    if (!Number.isInteger(batchSize) || batchSize < 1) {
+        throw new Error(`batchSize must be a positive integer, got ${batchSize}`);
+    }
+    return batchSize;
+}
+
+type HistoryPrediction = PredictionOutcomePrediction & {
+    userId: string;
+    amount: Decimal | number | string;
+    round: (PredictionOutcomeRound & { mode: string }) | null;
+};
+
+/** Folds one prediction of the history into the per-user accumulator. */
+function accumulatePrediction(
+    totals: Map<string, MutableTotals>,
+    prediction: HistoryPrediction,
+): void {
+    const round = prediction.round;
+    // A round without an end price was never settled, so the incremental
+    // writer never counted it either.
+    if (!round || !isRoundSettled(round)) return;
+
+    const isCorrect = isPredictionCorrect(prediction, round);
+    const amount = toDecimal(prediction.amount);
+    const earnings = isCorrect ? amount : amount.negated();
+
+    const entry = totals.get(prediction.userId) ?? emptyTotals();
+    entry.totalPredictions += 1;
+    if (isCorrect) entry.correctPredictions += 1;
+    entry.totalEarnings = entry.totalEarnings.add(earnings);
+
+    if (round.mode === "UP_DOWN") {
+        if (isCorrect) entry.upDownWins += 1;
+        else entry.upDownLosses += 1;
+        entry.upDownEarnings = entry.upDownEarnings.add(earnings);
+    } else if (round.mode === "LEGENDS") {
+        if (isCorrect) entry.legendsWins += 1;
+        else entry.legendsLosses += 1;
+        entry.legendsEarnings = entry.legendsEarnings.add(earnings);
+    }
+
+    totals.set(prediction.userId, entry);
+}
+
 /**
  * Aggregates the prediction history into the per-user stats projection.
  *
@@ -302,7 +392,9 @@ function toSnapshot(totals: MutableTotals): UserStatsTotals {
  */
 export async function computeUserStatsTotals(
     userIds?: string[],
+    options: { batchSize?: number } = {},
 ): Promise<Map<string, UserStatsTotals>> {
+    const batchSize = normalizeBatchSize(options.batchSize);
     const where: Prisma.PredictionWhereInput = {
         chainStatus: { in: [...SETTLED_CHAIN_STATUSES] },
     };
@@ -310,47 +402,37 @@ export async function computeUserStatsTotals(
         where.userId = { in: userIds };
     }
 
-    const predictions = await prisma.prediction.findMany({
-        where,
-        select: {
-            userId: true,
-            amount: true,
-            side: true,
-            priceRange: true,
-            round: {
-                select: { mode: true, startPrice: true, endPrice: true },
-            },
-        },
-    });
-
     const totals = new Map<string, MutableTotals>();
+    let cursor: string | undefined;
 
-    for (const prediction of predictions) {
-        const round = prediction.round;
-        // A round without an end price was never settled, so the incremental
-        // writer never counted it either.
-        if (!round || !isRoundSettled(round)) continue;
+    // Keyset pagination on the primary key: stable under concurrent inserts
+    // and bounded in memory regardless of the size of the history.
+    for (;;) {
+        const predictions = await prisma.prediction.findMany({
+            where,
+            orderBy: { id: "asc" },
+            take: batchSize,
+            ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+            select: {
+                id: true,
+                userId: true,
+                amount: true,
+                side: true,
+                priceRange: true,
+                round: {
+                    select: { mode: true, startPrice: true, endPrice: true },
+                },
+            },
+        });
 
-        const isCorrect = isPredictionCorrect(prediction, round);
-        const amount = toDecimal(prediction.amount);
-        const earnings = isCorrect ? amount : amount.negated();
-
-        const entry = totals.get(prediction.userId) ?? emptyTotals();
-        entry.totalPredictions += 1;
-        if (isCorrect) entry.correctPredictions += 1;
-        entry.totalEarnings = entry.totalEarnings.add(earnings);
-
-        if (round.mode === "UP_DOWN") {
-            if (isCorrect) entry.upDownWins += 1;
-            else entry.upDownLosses += 1;
-            entry.upDownEarnings = entry.upDownEarnings.add(earnings);
-        } else if (round.mode === "LEGENDS") {
-            if (isCorrect) entry.legendsWins += 1;
-            else entry.legendsLosses += 1;
-            entry.legendsEarnings = entry.legendsEarnings.add(earnings);
+        for (const prediction of predictions) {
+            accumulatePrediction(totals, prediction);
         }
 
-        totals.set(prediction.userId, entry);
+        if (predictions.length < batchSize) break;
+        const last = predictions[predictions.length - 1];
+        if (!last?.id || last.id === cursor) break;
+        cursor = last.id;
     }
 
     const snapshots = new Map<string, UserStatsTotals>();
@@ -404,6 +486,69 @@ function diffUserStats(
     return { userId, fields };
 }
 
+type StoredUserStats = NonNullable<Parameters<typeof diffUserStats>[2]>;
+
+/**
+ * Sums expected vs stored values across users to produce the platform-wide
+ * view of the drift (Issue #1032). Money is summed with Decimal, never floats.
+ */
+class AggregateDriftAccumulator {
+    private missingRows = 0;
+    private orphanRows = 0;
+    private readonly expected = new Map<UserStatsField, Decimal>();
+    private readonly stored = new Map<UserStatsField, Decimal>();
+    private readonly drifted = new Map<UserStatsField, number>();
+
+    constructor() {
+        for (const field of USER_STATS_FIELDS) {
+            this.expected.set(field, toDecimal(0));
+            this.stored.set(field, toDecimal(0));
+            this.drifted.set(field, 0);
+        }
+    }
+
+    add(
+        expected: UserStatsTotals,
+        stored: StoredUserStats | null,
+        drift: UserStatsUserDrift | null,
+        hasHistory: boolean,
+    ): void {
+        if (!stored && hasHistory) this.missingRows += 1;
+        if (stored && !hasHistory && drift) this.orphanRows += 1;
+
+        for (const field of USER_STATS_FIELDS) {
+            this.expected.set(field, this.expected.get(field)!.add(toDecimal(expected[field])));
+            if (stored) {
+                this.stored.set(field, this.stored.get(field)!.add(toDecimal(stored[field])));
+            }
+        }
+        for (const fieldDrift of drift?.fields ?? []) {
+            this.drifted.set(fieldDrift.field, this.drifted.get(fieldDrift.field)! + 1);
+        }
+    }
+
+    toReport(): UserStatsAggregateDrift {
+        const format = (field: UserStatsField, value: Decimal): string | number =>
+            USER_STATS_MONEY_FIELDS.has(field) ? serializeMoney(value) : value.toNumber();
+
+        return {
+            missingRows: this.missingRows,
+            orphanRows: this.orphanRows,
+            fields: USER_STATS_FIELDS.map((field) => {
+                const expectedTotal = this.expected.get(field)!;
+                const storedTotal = this.stored.get(field)!;
+                return {
+                    field,
+                    usersDrifted: this.drifted.get(field)!,
+                    expectedTotal: format(field, expectedTotal),
+                    storedTotal: format(field, storedTotal),
+                    delta: format(field, storedTotal.sub(expectedTotal)),
+                };
+            }),
+        };
+    }
+}
+
 /**
  * Recomputes the `UserStats` projection from the prediction history and
  * reports (or repairs) the drift.
@@ -416,7 +561,9 @@ export async function rebuildUserStats(
     const dryRun = options.dryRun !== false;
     const userIds = options.userIds;
 
-    const rebuilt = await computeUserStatsTotals(userIds);
+    const rebuilt = await computeUserStatsTotals(userIds, {
+        batchSize: options.batchSize,
+    });
 
     const storedWhere: Prisma.UserStatsWhereInput = {};
     if (userIds && userIds.length > 0) {
@@ -441,9 +588,12 @@ export async function rebuildUserStats(
     ]);
 
     const drift: UserStatsUserDrift[] = [];
+    const aggregate = new AggregateDriftAccumulator();
     for (const userId of userIdSet) {
         const expected = rebuilt.get(userId) ?? toSnapshot(emptyTotals());
-        const entry = diffUserStats(userId, expected, storedByUser.get(userId) ?? null);
+        const stored = storedByUser.get(userId) ?? null;
+        const entry = diffUserStats(userId, expected, stored);
+        aggregate.add(expected, stored, entry, rebuilt.has(userId));
         if (entry) drift.push(entry);
     }
 
@@ -490,6 +640,7 @@ export async function rebuildUserStats(
         usersWithDrift: drift.length,
         driftFieldCount,
         drift,
+        aggregate: aggregate.toReport(),
         usersRepaired,
     };
 }
