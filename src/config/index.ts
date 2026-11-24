@@ -45,6 +45,10 @@ export interface DatabaseConfig {
   poolTimeoutSeconds: number;
   connectTimeoutSeconds: number;
   statementTimeoutMs: number;
+  /** Max ms an interactive prisma.$transaction may run before Prisma aborts it. */
+  transactionTimeoutMs: number;
+  /** Max ms to wait to acquire a connection for an interactive transaction. */
+  transactionMaxWaitMs: number;
   pgbouncer: boolean;
 }
 
@@ -183,6 +187,16 @@ function buildConfig(): Config {
       "DB_STATEMENT_TIMEOUT_MS",
       0,
       { max: 60 * 60 * 1000 },
+    ),
+    transactionTimeoutMs: v.positiveInt(
+      env.DB_TRANSACTION_TIMEOUT_MS,
+      "DB_TRANSACTION_TIMEOUT_MS",
+      5000,
+    ),
+    transactionMaxWaitMs: v.positiveInt(
+      env.DB_TRANSACTION_MAX_WAIT_MS,
+      "DB_TRANSACTION_MAX_WAIT_MS",
+      2000,
     ),
     pgbouncer: v.boolean(env.DB_PGBOUNCER, false),
   };
