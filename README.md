@@ -564,6 +564,25 @@ npm run db:rebuild:user-stats:apply
 
 The rebuild lives in `src/services/stats.service.ts` (`rebuildUserStats`); `scripts/rebuild-user-stats.ts` is only the command-line wrapper.
 
+#### **Soroban Round ID Backfill**
+
+`Round.sorobanRoundId` is set at creation from the Soroban contract, but `RoundService.startRound` never captures it (`sorobanService.createRound` returns `void`), so every UP_DOWN round is stored with a `null` id. The backfill fills in the ids that can be proven from the chain.
+
+```bash
+# Dry run (default): report what would be filled, write nothing. Exits 1 when rounds are found.
+npm run db:backfill:soroban-round-ids
+
+# Scope the run to a single round
+npm run db:backfill:soroban-round-ids -- --round <roundId>
+
+# Apply: write the matched ids
+npm run db:backfill:soroban-round-ids:apply
+```
+
+Only the currently live round can be matched — the contract exposes the active round and the creation counter, but no history and no lookup by id. A round is filled only when it is UP_DOWN, `isSoroban: true`, ACTIVE or LOCKED, shares the active round's mode and start price (compared in the contract's scaled integer space), is the *only* such round, and no other row already claims that on-chain id. Everything else is reported and skipped, never filled: LEGENDS rounds (never created on chain), non-Soroban rounds, finished rounds, and ambiguous matches. Sequential inference from the last round id is deliberately not used — a failed `createRound` still creates the DB round, so counting backwards would assign ids to rounds that never had them.
+
+The backfill lives in `src/services/soroban-round-backfill.service.ts` (`backfillSorobanRoundIds`); `scripts/backfill-soroban-round-ids.ts` is only the command-line wrapper.
+
 ---
 
 ### Data Retention & Audit Logging

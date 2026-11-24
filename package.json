@@ -39,6 +39,8 @@
     "db:seed:tournaments": "ts-node scripts/seed-tournaments.ts",
     "db:rebuild:user-stats": "ts-node scripts/rebuild-user-stats.ts",
     "db:rebuild:user-stats:apply": "ts-node scripts/rebuild-user-stats.ts --apply",
+    "db:backfill:soroban-round-ids": "ts-node scripts/backfill-soroban-round-ids.ts",
+    "db:backfill:soroban-round-ids:apply": "ts-node scripts/backfill-soroban-round-ids.ts --apply",
     "dev:hackathon": "ts-node-dev --respawn --transpile-only src/server.ts",
     "smoke-test": "node scripts/smoke-test.js",
     "pr:publish": "node scripts/publish-pr.js"
