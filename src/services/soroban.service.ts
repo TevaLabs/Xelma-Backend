@@ -303,29 +303,29 @@ export class SorobanService {
     mode: RoundMode = 0 as RoundMode,
   ): Promise<void> {
     await this.ensureInitialized();
-    
+
     const result = await this.callWithBreaker("sorobanCreateRound", () =>
       withTimeout(
         async () => {
-        logger.debug(
-          `Initiating Soroban createRound: price=${startPrice}, mode=${mode}`,
-        );
+          logger.debug(
+            `Initiating Soroban createRound: price=${startPrice}, mode=${mode}`,
+          );
 
-        // Price scaled to 4 decimal places (e.g. 0.2297 → 2297)
-        const priceScaled = BigInt(toDecimal(startPrice).mul(10_000).toFixed(0));
+          // Price scaled to 4 decimal places (e.g. 0.2297 → 2297)
+          const priceScaled = BigInt(toDecimal(startPrice).mul(10_000).toFixed(0));
 
-        const tx = await this.client!.create_round({
-          start_price: priceScaled,
-          mode,
-        });
-        await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        return undefined;
-      },
-      {
-        timeoutMs: this.CALL_TIMEOUT_MS,
-        operationName: 'sorobanCreateRound',
-        retries: this.MAX_RETRIES,
-      }
+          const tx = await this.client!.create_round({
+            start_price: priceScaled,
+            mode,
+          });
+          await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+          return undefined;
+        },
+        {
+          timeoutMs: this.CALL_TIMEOUT_MS,
+          operationName: 'sorobanCreateRound',
+          retries: this.MAX_RETRIES,
+        }
       )
     );
 
@@ -356,7 +356,7 @@ export class SorobanService {
   ): Promise<{ state: string; txHash?: string }> {
     await this.ensureInitialized();
     const requestId = getRequestId();
-    
+
     // SAFETY: placeBet is a mutating chain operation.  A timed-out mutation
     // cannot safely be resent because the first attempt may have reached the
     // network and succeeded.  Use retries: 1 (single attempt, no automatic
@@ -365,33 +365,33 @@ export class SorobanService {
     const result = await this.callWithBreaker("sorobanPlaceBet", () =>
       withTimeout(
         async () => {
-        logger.debug(
-          `Initiating Soroban placeBet: user=${userAddress}, amount=${amount}, side=${side}`,
-          { requestId, userAddress, amount, side },
-        );
+          logger.debug(
+            `Initiating Soroban placeBet: user=${userAddress}, amount=${amount}, side=${side}`,
+            { requestId, userAddress, amount, side },
+          );
 
-        // Amount in stroops (1 XLM = 10^7 stroops)
-        const amountInStroops = BigInt(toDecimal(amount).mul(10_000_000).toFixed(0));
+          // Amount in stroops (1 XLM = 10^7 stroops)
+          const amountInStroops = BigInt(toDecimal(amount).mul(10_000_000).toFixed(0));
 
-        const betSide: BetSide =
-          side === "UP"
-            ? { tag: "Up", values: undefined }
-            : { tag: "Down", values: undefined };
+          const betSide: BetSide =
+            side === "UP"
+              ? { tag: "Up", values: undefined }
+              : { tag: "Down", values: undefined };
 
-        const tx = await this.client!.place_bet({
-          user: userAddress,
-          amount: amountInStroops,
-          side: betSide,
-        });
-        const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        // Return a generic state, or the tx hash if the bindings expose it
-        return { state: "on-chain-success", txHash: (res as any).hash };
-      },
-      {
-        timeoutMs: this.CALL_TIMEOUT_MS,
-        operationName: 'sorobanPlaceBet',
-        retries: 1,
-      }
+          const tx = await this.client!.place_bet({
+            user: userAddress,
+            amount: amountInStroops,
+            side: betSide,
+          });
+          const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+          // Return a generic state, or the tx hash if the bindings expose it
+          return { state: "on-chain-success", txHash: (res as any).hash };
+        },
+        {
+          timeoutMs: this.CALL_TIMEOUT_MS,
+          operationName: 'sorobanPlaceBet',
+          retries: 1,
+        }
       )
     );
 
@@ -430,34 +430,34 @@ export class SorobanService {
   ): Promise<{ state: string; txHash?: string }> {
     await this.ensureInitialized();
     const requestId = getRequestId();
-    
+
     const result = await this.callWithBreaker("sorobanPlacePrecisionBet", () =>
       withTimeout(
         async () => {
-        logger.debug(
-          `Initiating Soroban placePrecisionBet: user=${userAddress}, amount=${amount}, predictedPrice=${predictedPrice}`,
-          { requestId, userAddress, amount, predictedPrice },
-        );
+          logger.debug(
+            `Initiating Soroban placePrecisionBet: user=${userAddress}, amount=${amount}, predictedPrice=${predictedPrice}`,
+            { requestId, userAddress, amount, predictedPrice },
+          );
 
-        // Amount in stroops (1 XLM = 10^7 stroops)
-        const amountInStroops = BigInt(toDecimal(amount).mul(10_000_000).toFixed(0));
-        
-        // Price scaled to 4 decimal places
-        const priceScaled = BigInt(toDecimal(predictedPrice).mul(10_000).toFixed(0));
+          // Amount in stroops (1 XLM = 10^7 stroops)
+          const amountInStroops = BigInt(toDecimal(amount).mul(10_000_000).toFixed(0));
 
-        const tx = await this.client!.place_precision_prediction({
-          user: userAddress,
-          amount: amountInStroops,
-          predicted_price: priceScaled,
-        });
-        const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        return { state: "on-chain-success", txHash: (res as any).hash };
-      },
-      {
-        timeoutMs: this.CALL_TIMEOUT_MS,
-        operationName: 'sorobanPlacePrecisionBet',
-        retries: this.MAX_RETRIES,
-      }
+          // Price scaled to 4 decimal places
+          const priceScaled = BigInt(toDecimal(predictedPrice).mul(10_000).toFixed(0));
+
+          const tx = await this.client!.place_precision_prediction({
+            user: userAddress,
+            amount: amountInStroops,
+            predicted_price: priceScaled,
+          });
+          const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+          return { state: "on-chain-success", txHash: (res as any).hash };
+        },
+        {
+          timeoutMs: this.CALL_TIMEOUT_MS,
+          operationName: 'sorobanPlacePrecisionBet',
+          retries: this.MAX_RETRIES,
+        }
       )
     );
 
@@ -495,32 +495,32 @@ export class SorobanService {
     timestamp: bigint,
   ): Promise<void> {
     await this.ensureInitialized();
-    
+
     const result = await this.callWithBreaker("sorobanResolveRound", () =>
       withTimeout(
         async () => {
-        logger.debug(
-          `Initiating Soroban resolveRound: finalPrice=${finalPrice}, roundId=${roundId}`,
-        );
+          logger.debug(
+            `Initiating Soroban resolveRound: finalPrice=${finalPrice}, roundId=${roundId}`,
+          );
 
-        // Price scaled to 4 decimal places
-        const priceScaled = BigInt(toDecimal(finalPrice).mul(10_000).toFixed(0));
+          // Price scaled to 4 decimal places
+          const priceScaled = BigInt(toDecimal(finalPrice).mul(10_000).toFixed(0));
 
-        const payload: OraclePayload = {
-          price: priceScaled,
-          round_id: roundId,
-          timestamp,
-        };
+          const payload: OraclePayload = {
+            price: priceScaled,
+            round_id: roundId,
+            timestamp,
+          };
 
-        const tx = await this.client!.resolve_round({ payload });
-        await tx.signAndSend({ signTransaction: this.signWithOracle.bind(this) });
-        return undefined;
-      },
-      {
-        timeoutMs: this.CALL_TIMEOUT_MS,
-        operationName: 'sorobanResolveRound',
-        retries: this.MAX_RETRIES,
-      }
+          const tx = await this.client!.resolve_round({ payload });
+          await tx.signAndSend({ signTransaction: this.signWithOracle.bind(this) });
+          return undefined;
+        },
+        {
+          timeoutMs: this.CALL_TIMEOUT_MS,
+          operationName: 'sorobanResolveRound',
+          retries: this.MAX_RETRIES,
+        }
       )
     );
 
@@ -542,23 +542,23 @@ export class SorobanService {
   /**
    * Gets the active round from Soroban (read-only simulation).
    * 
-   * Timeout: 10s for read-only queries (faster than write operations)
+   * Uses configurable simulation timeout with exactly 1 retry (max 2 attempts).
    */
   async getActiveRound(): Promise<any> {
     await this.ready;
     if (!this.initialized) return null;
-    
+
     const result = await this.callWithBreaker("sorobanGetActiveRound", () =>
       withTimeout(
         async () => {
-        const tx = await this.client!.get_active_round();
-        return tx.result;
-      },
-      {
-        timeoutMs: 10000, // Shorter timeout for read-only
-        operationName: 'sorobanGetActiveRound',
-        retries: 1, // Only retry once for read-only
-      }
+          const tx = await this.client!.get_active_round();
+          return tx.result;
+        },
+        {
+          timeoutMs: config.soroban.simulationTimeoutMs,
+          operationName: 'sorobanGetActiveRound',
+          retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
+        }
       ),
       null,
     );
@@ -582,20 +582,20 @@ export class SorobanService {
    */
   async mintInitial(userAddress: string): Promise<number> {
     await this.ensureInitialized();
-    
+
     const result = await this.callWithBreaker("sorobanMintInitial", () =>
       withTimeout(
         async () => {
-        logger.debug(`Initiating Soroban mintInitial: user=${userAddress}`);
-        const tx = await this.client!.mint_initial({ user: userAddress });
-        await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        return Number(tx.result) / 10_000_000;
-      },
-      {
-        timeoutMs: this.CALL_TIMEOUT_MS,
-        operationName: 'sorobanMintInitial',
-        retries: this.MAX_RETRIES,
-      }
+          logger.debug(`Initiating Soroban mintInitial: user=${userAddress}`);
+          const tx = await this.client!.mint_initial({ user: userAddress });
+          await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
+          return Number(tx.result) / 10_000_000;
+        },
+        {
+          timeoutMs: this.CALL_TIMEOUT_MS,
+          operationName: 'sorobanMintInitial',
+          retries: this.MAX_RETRIES,
+        }
       )
     );
 
@@ -620,23 +620,23 @@ export class SorobanService {
    * Gets user balance from Soroban (read-only simulation).
    * Returns balance in XLM (converted from stroops).
    * 
-   * Timeout: 10s for read-only queries
+   * Uses configurable simulation timeout with exactly 1 retry (max 2 attempts).
    */
   async getBalance(userAddress: string): Promise<number> {
     await this.ready;
     if (!this.initialized) return 0;
-    
+
     const result = await this.callWithBreaker("sorobanGetBalance", () =>
       withTimeout(
         async () => {
-        const tx = await this.client!.balance({ user: userAddress });
-        return Number(tx.result) / 10_000_000;
-      },
-      {
-        timeoutMs: 10000, // Shorter timeout for read-only
-        operationName: 'sorobanGetBalance',
-        retries: 1, // Only retry once for read-only
-      }
+          const tx = await this.client!.balance({ user: userAddress });
+          return Number(tx.result) / 10_000_000;
+        },
+        {
+          timeoutMs: config.soroban.simulationTimeoutMs,
+          operationName: 'sorobanGetBalance',
+          retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
+        }
       ),
       0,
     );
@@ -656,7 +656,7 @@ export class SorobanService {
    * Gets user stats from Soroban (read-only simulation).
    * Returns win/loss counts and streak data from the contract.
    *
-   * Timeout: 10s for read-only queries
+   * Uses configurable simulation timeout with exactly 1 retry (max 2 attempts).
    */
   async getUserStats(userAddress: string): Promise<UserStats | null> {
     await this.ready;
@@ -669,9 +669,9 @@ export class SorobanService {
           return tx.result;
         },
         {
-          timeoutMs: 10000,
+          timeoutMs: config.soroban.simulationTimeoutMs,
           operationName: 'sorobanGetUserStats',
-          retries: 1,
+          retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
         }
       ),
       null,
@@ -692,7 +692,7 @@ export class SorobanService {
    * Gets pending (claimable) winnings from Soroban (read-only simulation).
    * Returns the amount in stroops (1 XLM = 10^7 stroops).
    *
-   * Timeout: 10s for read-only queries
+   * Uses configurable simulation timeout with exactly 1 retry (max 2 attempts).
    */
   async getPendingWinnings(userAddress: string): Promise<bigint> {
     await this.ready;
@@ -705,9 +705,9 @@ export class SorobanService {
           return tx.result;
         },
         {
-          timeoutMs: 10000,
+          timeoutMs: config.soroban.simulationTimeoutMs,
           operationName: 'sorobanGetPendingWinnings',
-          retries: 1,
+          retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
         }
       ),
       BigInt(0),
@@ -758,9 +758,9 @@ export class SorobanService {
           return null;
         },
         {
-          timeoutMs: 10000,
+          timeoutMs: config.soroban.simulationTimeoutMs,
           operationName: 'sorobanGetUserPosition',
-          retries: 1,
+          retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
         }
       ),
       null,
@@ -835,13 +835,15 @@ export class SorobanService {
   /**
    * Checks the status of a transaction by its hash.
    * Used for reconciliation of stranded SUBMITTED bets.
+   *
+   * Uses configurable simulation timeout with AbortSignal support and 1 retry.
    */
   async getTransactionStatus(txHash: string): Promise<TransactionStatus> {
     await this.ensureInitialized();
 
     const result = await this.callWithBreaker("sorobanGetTransactionStatus", () =>
       withTimeout(
-        async () => {
+        async (signal) => {
           logger.debug(`Checking Soroban transaction status: ${txHash}`);
 
           // Use the RPC to get transaction details
@@ -855,6 +857,7 @@ export class SorobanService {
               method: 'getTransaction',
               params: { hash: txHash },
             }),
+            signal,
           });
 
           const data = await response.json();
@@ -890,9 +893,9 @@ export class SorobanService {
           };
         },
         {
-          timeoutMs: 10000,
+          timeoutMs: config.soroban.simulationTimeoutMs,
           operationName: 'sorobanGetTransactionStatus',
-          retries: 1,
+          retries: 2, // Maximum 2 attempts (initial attempt + 1 retry)
         }
       ),
       { confirmed: false, successful: false, error: 'RPC call failed' },

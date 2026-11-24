@@ -221,6 +221,23 @@ function checkProductionSafetyProfile(
   return errors;
 }
 
+function checkRequireSoroban(env: NodeJS.ProcessEnv): string[] {
+  // REQUIRE_SOROBAN: when true, verify Soroban RPC config at startup.
+  // If the RPC URL is unset, preflight fails so the operator is forced
+  // to address the misconfiguration before the server starts.
+  if (env.REQUIRE_SOROBAN === 'true') {
+    const rpcUrl = env.SOROBAN_RPC_URL || env.STELLAR_RPC_URL;
+    if (!rpcUrl || rpcUrl.trim().length === 0) {
+      return [
+        `REQUIRE_SOROBAN=true but Soroban RPC URL is not set. ` +
+          `Set SOROBAN_RPC_URL (or STELLAR_RPC_URL) in .env or your ` +
+          `deployment environment before starting the server.`,
+      ];
+    }
+  }
+  return [];
+}
+
 /**
  * Run all preflight checks against the supplied environment.
  * Does NOT call process.exit — callers decide what to do with the result.
@@ -238,6 +255,7 @@ export function runPreflightChecks(
     ...checkDatabaseUrl(env, mode),
     ...checkJwtSecretStrength(env, mode),
     ...checkProductionSafetyProfile(env, safetyProfile),
+    ...checkRequireSoroban(env),
   ];
 
   const warnings: string[] = [...checkRedisIfConfigured(env)];
@@ -290,6 +308,7 @@ function setupGuide(mode: RuntimeMode, safetyProfile: SafetyProfile): string[] {
       '  - BET_STUB_MODE must be false or unset',
       '  - SOROBAN_FAIL_CLOSED must be true',
       '  - SOROBAN_ADMIN_SECRET and SOROBAN_ORACLE_SECRET are required',
+      '  - When REQUIRE_SOROBAN=true, SOROBAN_RPC_URL (or STELLAR_RPC_URL) is required',
       '',
     );
   }
