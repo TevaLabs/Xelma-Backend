@@ -13,6 +13,7 @@ import { prisma } from '../lib/prisma';
 import { RoundLifecycleOutcome } from '../types/round.types';
 import websocketService from './websocket.service';
 import outboxService, { OutboxDispatchHandlers, getOutboxPollIntervalSeconds } from './outbox.service';
+import multiplayerSessionService from './multiplayer-session.service';
 import reconciliationService from './reconciliation.service';
 import payoutReconciliationService from './payout-reconciliation.service';
 import predictionReconciliationService from './prediction-reconciliation.service';
@@ -87,6 +88,15 @@ class SchedulerService {
       this.cronTasks.push(
          cron.schedule('30 3 * * *', async () => {
             await this.cleanupOutbox();
+         })
+      );
+
+      // Multiplayer session cleanup (Issue #1002) — deletes sessions that
+      // have been disconnected longer than MULTIPLAYER_SESSION_RETENTION_DAYS.
+      logger.info('Starting multiplayer session cleanup scheduler (daily at 3:15 AM)');
+      this.cronTasks.push(
+         cron.schedule('15 3 * * *', async () => {
+            await this.cleanupMultiplayerSessions();
          })
       );
 
@@ -555,6 +565,34 @@ private async cleanupOutboxInternal(lock: LockHandle): Promise<void> {
           }
           logger.error('Error in outbox cleanup scheduler:', error);
        }
+    }
+
+    /**
+     * Delete multiplayer sessions whose owners disconnected long ago.
+     * Protected by a distributed lock so only one instance sweeps per night.
+     * @visibleForTesting
+     */
+    async cleanupMultiplayerSessions(): Promise<number> {
+       let deleted = 0;
+       await withDistributedLock(
+          'multiplayer-session-cleanup',
+          async (lock: LockHandle) => {
+             try {
+                lock.assertHeld();
+                deleted = await multiplayerSessionService.cleanupStaleSessions();
+             } catch (error) {
+                if (isLockLostError(error)) {
+                   logger.warn('Aborted multiplayer session cleanup: distributed lock lost', {
+                      reason: error.reason,
+                   });
+                   return;
+                }
+                logger.error('Error in multiplayer session cleanup:', error);
+             }
+          },
+          { ttlSeconds: 60, maxHoldSeconds: 900 }
+       );
+       return deleted;
     }
 
     /**

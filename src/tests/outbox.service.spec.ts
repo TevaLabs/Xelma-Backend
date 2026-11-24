@@ -70,7 +70,10 @@ jest.mock('@prisma/client', () => ({
   },
 }));
 
-import outboxService from '../services/outbox.service';
+import outboxService, {
+  getOutboxBackoffUntil,
+  resetOutboxBackoff,
+} from '../services/outbox.service';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -106,6 +109,7 @@ function makeHandlers(overrides: Partial<any> = {}): any {
 describe('OutboxService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetOutboxBackoff();
     mockDlqRecord.mockResolvedValue({ id: 'dlq-1' });
   });
 
@@ -293,6 +297,47 @@ describe('OutboxService', () => {
 
       const updateArgs: any = mockUpdate.mock.calls[0][0];
       expect(updateArgs.data.lastError.length).toBeLessThanOrEqual(1000);
+    });
+  });
+
+  describe('DB error backoff (Issue #1008)', () => {
+    it('rethrows when the poll query fails and schedules a cooldown', async () => {
+      mockFindMany.mockRejectedValue(new Error('DB down'));
+
+      await expect(
+        outboxService.processOutbox(makeHandlers()),
+      ).rejects.toThrow('DB down');
+
+      expect(getOutboxBackoffUntil()).toBeGreaterThan(Date.now());
+    });
+
+    it('skips the next poll cycle while backing off (no tight retry loop)', async () => {
+      mockFindMany.mockRejectedValueOnce(new Error('DB down'));
+
+      await expect(
+        outboxService.processOutbox(makeHandlers()),
+      ).rejects.toThrow('DB down');
+      expect(mockFindMany).toHaveBeenCalledTimes(1);
+
+      const result = await outboxService.processOutbox(makeHandlers());
+
+      expect(result).toEqual({ processed: 0, failed: 0, escalated: 0 });
+      expect(mockFindMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('clears the cooldown after a successful poll', async () => {
+      mockFindMany.mockRejectedValueOnce(new Error('DB down'));
+      await expect(
+        outboxService.processOutbox(makeHandlers()),
+      ).rejects.toThrow('DB down');
+
+      // Simulate the cooldown elapsing.
+      resetOutboxBackoff();
+      mockFindMany.mockResolvedValueOnce([]);
+
+      await outboxService.processOutbox(makeHandlers());
+
+      expect(getOutboxBackoffUntil()).toBe(0);
     });
   });
 

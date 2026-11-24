@@ -1,6 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { isValidStellarAddress as strKeyIsValid } from '../services/stellar.service';
+import {
+  isValidStellarAddress as strKeyIsValid,
+  normalizeStellarAddress as strKeyNormalize,
+} from '../services/stellar.service';
 import { ValidationError } from './errors';
 
 /**
@@ -33,6 +36,25 @@ export function isValidStellarAddress(address: unknown): address is string {
     return strKeyIsValid(address);
   } catch {
     return false;
+  }
+}
+
+/**
+ * Returns the canonical StrKey form of `address`, or `null` when it is not a
+ * valid Stellar account.
+ *
+ * Use this on every write path that persists a wallet address (user creation,
+ * auth challenge issuance, bet user upsert) so mixed-case input can never
+ * produce duplicate rows for the same account (Issue #993).
+ */
+export function toCanonicalStellarAddress(address: unknown): string | null {
+  if (!isValidStellarAddress(address)) {
+    return null;
+  }
+  try {
+    return strKeyNormalize(address);
+  } catch {
+    return null;
   }
 }
 

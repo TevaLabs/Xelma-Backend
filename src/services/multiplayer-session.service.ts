@@ -25,6 +25,17 @@ export const MAX_PERSISTED_ROOMS = 32;
 /** Maximum serialized size (chars) of the opaque `metadata` blob. */
 export const MAX_METADATA_CHARS = 4_096;
 
+/**
+ * How many days a disconnected session is kept for reconnect continuity
+ * before it is deleted (Issue #1002). Overridable via
+ * `MULTIPLAYER_SESSION_RETENTION_DAYS`.
+ */
+export function getMultiplayerSessionRetentionDays(): number {
+  const raw = process.env.MULTIPLAYER_SESSION_RETENTION_DAYS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 7;
+}
+
 /** Payload returned on resume. Empty arrays / nulls mean "nothing to restore". */
 export interface ResumePayload {
   rooms: string[];
@@ -311,6 +322,42 @@ class MultiplayerSessionService {
       logger.warn(
         `[multiplayer-session] recordDisconnect failed for user ${userId}: ${(error as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * Delete sessions that have been disconnected longer than `retentionDays`
+   * (Issue #1002). Without this sweep every user who ever connected leaves a
+   * row behind forever. Connected sessions (`disconnectedAt` null) are never
+   * touched.
+   *
+   * @returns Number of deleted rows.
+   */
+  async cleanupStaleSessions(
+    retentionDays: number = getMultiplayerSessionRetentionDays(),
+  ): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+
+    try {
+      const result = await prisma.multiplayerSession.deleteMany({
+        where: {
+          disconnectedAt: { not: null, lt: cutoff },
+        },
+      });
+
+      if (result.count > 0) {
+        logger.info(
+          `[multiplayer-session] cleanup deleted ${result.count} session(s) disconnected before ${cutoff.toISOString()} (retention: ${retentionDays} day(s))`,
+        );
+      }
+
+      return result.count;
+    } catch (error) {
+      logger.warn(
+        `[multiplayer-session] cleanupStaleSessions failed: ${(error as Error).message}`,
+      );
+      return 0;
     }
   }
 

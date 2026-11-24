@@ -18,6 +18,7 @@ const mockSessionFindUnique = jest.fn();
 const mockSessionUpsert = jest.fn();
 const mockSessionUpdate = jest.fn();
 const mockSessionUpdateMany = jest.fn();
+const mockSessionDeleteMany = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -26,6 +27,7 @@ jest.mock('../lib/prisma', () => ({
       upsert: (...args: any[]) => mockSessionUpsert(...args),
       update: (...args: any[]) => mockSessionUpdate(...args),
       updateMany: (...args: any[]) => mockSessionUpdateMany(...args),
+      deleteMany: (...args: any[]) => mockSessionDeleteMany(...args),
     },
   },
 }));
@@ -477,6 +479,37 @@ describe('MultiplayerSessionService (Issue #194)', () => {
     it('is a no-op when userId is empty', async () => {
       await multiplayerSessionService.recordDisconnect('');
       expect(mockSessionUpdateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cleanupStaleSessions (Issue #1002)', () => {
+    it('deletes only sessions disconnected before the retention cutoff', async () => {
+      mockSessionDeleteMany.mockResolvedValueOnce({ count: 4 });
+
+      const deleted = await multiplayerSessionService.cleanupStaleSessions(7);
+
+      expect(deleted).toBe(4);
+      const args = mockSessionDeleteMany.mock.calls[0][0];
+      expect(args.where.disconnectedAt.not).toBeNull();
+      expect(args.where.disconnectedAt.lt).toBeInstanceOf(Date);
+    });
+
+    it('never deletes currently connected sessions', async () => {
+      mockSessionDeleteMany.mockResolvedValueOnce({ count: 0 });
+      await multiplayerSessionService.cleanupStaleSessions(7);
+
+      const args = mockSessionDeleteMany.mock.calls[0][0];
+      expect(args.where.disconnectedAt).toEqual({
+        not: null,
+        lt: expect.any(Date),
+      });
+    });
+
+    it('returns 0 and does not throw on DB error', async () => {
+      mockSessionDeleteMany.mockRejectedValueOnce(new Error('nope'));
+      await expect(
+        multiplayerSessionService.cleanupStaleSessions(7),
+      ).resolves.toBe(0);
     });
   });
 

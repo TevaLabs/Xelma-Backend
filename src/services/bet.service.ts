@@ -8,6 +8,7 @@ import { serializeMoney, toDecimal, toNumber } from '../utils/decimal.util';
 import { payoutClaimsSubmittedTotal } from '../metrics/application.metrics';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { getRequestId } from '../utils/requestContext';
+import { toCanonicalStellarAddress } from '../utils/stellar-address.util';
 
 export interface UpDownBetInput {
   address: string;
@@ -724,10 +725,13 @@ export class BetService {
   }
 
   private async getOrCreateUserId(tx: Prisma.TransactionClient, address: string): Promise<string> {
-    let user = await tx.user.findUnique({ where: { walletAddress: address } });
+    // Issue #993: normalise before lookup/create so mixed-case input cannot
+    // create a duplicate user row for the same Stellar account.
+    const canonicalAddress = toCanonicalStellarAddress(address) ?? address;
+    let user = await tx.user.findUnique({ where: { walletAddress: canonicalAddress } });
     if (!user) {
       user = await tx.user.create({
-        data: { walletAddress: address },
+        data: { walletAddress: canonicalAddress },
       });
     }
     return user.id;

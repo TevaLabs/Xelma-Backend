@@ -130,6 +130,27 @@ export function isValidStellarAddress(address: string): boolean {
 }
 
 /**
+ * Canonicalise a Stellar Ed25519 public key (Issue #993).
+ *
+ * Base32 is case-insensitive, so `Gabc...` and `GABC...` decode to the same
+ * key but are stored as different strings by a case-sensitive database. This
+ * decodes the supplied StrKey and re-encodes it, yielding the canonical
+ * upper-case form every write path should persist.
+ *
+ * Throws `StellarInvalidAddressError` for a malformed address; callers that
+ * want a non-throwing variant use `toCanonicalStellarAddress` in
+ * `utils/stellar-address.util`.
+ */
+export function normalizeStellarAddress(address: string): string {
+  if (!isValidStellarAddress(address)) {
+    throw new StellarInvalidAddressError(address);
+  }
+  return StellarSdk.StrKey.encodeEd25519PublicKey(
+    StellarSdk.StrKey.decodeEd25519PublicKey(address)
+  );
+}
+
+/**
  * Verify a signature against a challenge using Stellar wallet verification.
  * This implements the SEP-10-style challenge-response pattern with domain
  * binding (anti-phishing): the challenge string must contain the server's
