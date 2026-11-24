@@ -25,6 +25,7 @@ expected revision with it.
 | `repository`, `ref` | Upstream source the bindings are generated from |
 | `commitSha` | Exact upstream commit the vendored build must come from |
 | `packageName` | Name `vendor/xelma-bindings/package.json` must declare |
+| `packageVersion` | Exact version the installed `@tevalabs/xelma-bindings` package must report |
 | `requiredArtifacts` | Build outputs that must exist (ESM, CJS, `.d.ts`, manifest) |
 | `requiredValueExports` | Runtime exports the backend imports (`Client`, `RoundMode`) |
 | `requiredTypeExports` | Types the backend imports (`Round`, `BetSide`, `OraclePayload`, `UserStats`) |
@@ -51,9 +52,10 @@ is free to add or change anything else without breaking this repo's CI.
 
 | Where | Command | Covers |
 |---|---|---|
+| CI job `vendor bindings version` | `npm run check:bindings:version` | Installed package metadata — runs after `npm ci`, before lint/build/tests |
 | CI job `vendored bindings pin` | `npm run check:bindings` | Layer 1, no install needed — fails in seconds |
 | CI job `vendored bindings contract surface` | `npm run check:bindings:abi` | Layers 1–3, runs on the built `dist/` |
-| Local | `npm run check:bindings && npm run build && npm run check:bindings:abi` | All layers |
+| Local | `npm ci && npm run check:bindings:version && npm run check:bindings && npm run build && npm run check:bindings:abi` | All layers |
 | Startup | automatic, see below | All layers |
 
 ## Startup policy
@@ -80,7 +82,9 @@ deployment that never touches Soroban is never blocked by a missing vendor.
 1. **Pick the commit.** Review the upstream diff in `Xelma-Blockchain` and note
    the full 40-character SHA. Never point the pin at a branch.
 
-2. **Update the pin.** Set `commitSha` in `bindings.pin.json`.
+2. **Update the pin.** Set `commitSha` in `bindings.pin.json`. If the
+   regenerated package changes its `version`, update `packageVersion` to match
+   the installed package exactly.
 
 3. **Rebuild the vendor:**
 
@@ -103,6 +107,7 @@ deployment that never touches Soroban is never blocked by a missing vendor.
 5. **Verify locally:**
 
    ```bash
+   npm run check:bindings:version  # installed package version matches the pin
    npm run check:bindings          # revision + artifacts
    npm run lint                    # tsc against the new .d.ts
    npm run build
@@ -119,6 +124,7 @@ deployment that never touches Soroban is never blocked by a missing vendor.
 | Message | Cause | Fix |
 |---|---|---|
 | `Bindings commit skew: … .commit-sha is X, but bindings.pin.json pins Y` | Vendor built from a different commit than the pin | `node scripts/install-bindings.js --refresh` |
+| `installed @tevalabs/xelma-bindings version is X, but bindings.pin.json expects Y` | `node_modules` is stale or the vendored package version changed without updating the pin | `npm ci`; if the vendor was regenerated, update `packageVersion` in `bindings.pin.json` |
 | `Contract method \`x\` is missing from the bindings Client interface` | Upstream removed/renamed a method the backend calls | Update `soroban.service.ts` and the pin together |
 | `Contract method \`x\` no longer accepts argument \`y\`` | Signature changed upstream | Update the call site and `requiredMethods` |
 | `Contract method \`x\` is absent from the ESM/CJS build` | Stale or partial build (`dist/` older than `.d.ts`) | `node scripts/install-bindings.js --refresh` |
