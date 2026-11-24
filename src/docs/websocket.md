@@ -294,3 +294,32 @@ socket.on("bet:accepted", (payload: {
 ```
 
 Both the hackathon entrypoint (`initWebSocket` in `src/server.ts`) and the full backend (`initializeSocket` in `src/index.ts`) publish through `websocketService`, so clients see the same event regardless of which process is running.
+
+## Multi-instance deployment: Redis adapter, key prefix and reconnects
+
+When more than one backend replica runs, room broadcasts (`round`, `round:{id}`, `chat`, `user:{userId}`) only reach every client if the replicas share a Socket.IO Redis adapter. See also `docs/multi-instance-deployment.md`.
+
+### Enabling the adapter
+
+- Set `REDIS_URL` to the **same** Redis for every replica. Without it the server logs `Redis not configured; Socket.IO using in-memory adapter` and broadcasts only reach clients connected to the same instance (fine for one replica, wrong for several).
+- If Redis is configured but unreachable at startup, the adapter fails to initialize and the server falls back to the in-memory adapter with a warning (`Failed to initialize Socket.IO Redis adapter`). Alert on that log line in production.
+
+### Key prefix
+
+The adapter publishes on channels prefixed with `xelma:socket.io` (the `keyPrefix` option of `initializeSocketAdapter` in `src/utils/socket-adapter.ts`). All replicas of one environment must use the same prefix. If several environments (staging, production) share one Redis, give each its own prefix (or its own Redis DB) so events do not leak across them. The prefix is currently set in code, not by an env var.
+
+### Redis connection pool and reconnect tuning
+
+The adapter opens two Redis clients (a publisher and a duplicated subscriber), so each replica uses 2 Redis connections for Socket.IO regardless of client count. There is no per-socket pool to size. Current defaults:
+
+| Setting | Value | Notes |
+| --- | --- | --- |
+| Connect timeout | `2000` ms | `connectTimeout` option |
+| Reconnect strategy | `min(retries * 50, 500)` ms | Gives up after 10 retries and surfaces an error |
+| Client count | 2 per replica | pub + sub |
+
+When sizing Redis `maxclients`, budget 2 connections per replica for Socket.IO on top of the scheduler lock and any other Redis users.
+
+### Client reconnect behaviour across replicas
+
+Socket.IO rooms are per-connection state, so after a reconnect (including a reconnect that lands on a different replica behind the load balancer) the new connection starts with no rooms. Clients must re-join rooms and re-authenticate on every `connect` event, not only the first one, and should use the Redis adapter-friendly options already shown above (`reconnectionAttempts`, `reconnectionDelay`). Keep sticky sessions enabled if you allow the HTTP long-polling transport; with WebSocket-only transport they are not required.
