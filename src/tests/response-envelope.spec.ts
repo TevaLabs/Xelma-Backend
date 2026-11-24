@@ -34,6 +34,10 @@ jest.mock('../lib/redis', () => ({
   getCache: jest.fn(),
   setCache: jest.fn(),
   deleteCache: jest.fn(),
+  // Redis is not configured in this suite (health probe / rate limiter / lock).
+  isRedisCacheEnabled: jest.fn(() => false),
+  isRedisConfigured: jest.fn(() => false),
+  isRedisRateLimitConfigured: jest.fn(() => false),
 }));
 
 jest.mock('../services/soroban.service', () => ({

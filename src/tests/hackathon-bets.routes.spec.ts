@@ -127,6 +127,7 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "test-round",
         },
         undefined,
+        expect.any(String), // requestId (correlation id)
       );
     });
 
@@ -204,6 +205,7 @@ describe("Round bet routes - BetService integration", () => {
       expect(mockRecordUpDownBet).toHaveBeenCalledWith(
         expect.objectContaining({ address: VALID_ADDRESS }),
         undefined,
+        expect.any(String), // requestId (correlation id)
       );
     });
 
@@ -332,6 +334,7 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "test-round",
         },
         undefined,
+        expect.any(String), // requestId (correlation id)
       );
     });
 
@@ -377,6 +380,7 @@ describe("Round bet routes - BetService integration", () => {
       expect(mockRecordPrecisionBet).toHaveBeenCalledWith(
         expect.objectContaining({ address: VALID_ADDRESS }),
         undefined,
+        expect.any(String), // requestId (correlation id)
       );
     });
 
@@ -466,6 +470,7 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "round-1",
         },
         undefined,
+        expect.any(String), // requestId (correlation id)
       );
       expect(mockRecordPrecisionBet).not.toHaveBeenCalled();
     });
@@ -487,6 +492,7 @@ describe("Round bet routes - BetService integration", () => {
           roundId: "round-1",
         },
         undefined,
+        expect.any(String), // requestId (correlation id)
       );
       expect(mockRecordUpDownBet).not.toHaveBeenCalled();
     });

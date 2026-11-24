@@ -116,8 +116,8 @@ jest.mock('../services/education-tip.service', () => ({
 // ─── mock redis (leaderboard invalidation) ───────────────────────────────────
 
 jest.mock('../lib/redis', () => ({
-  invalidateNamespace: jest.fn(),
-  invalidateLeaderboardSortedSet: jest.fn(),
+  invalidateNamespace: jest.fn(async () => undefined),
+  invalidateLeaderboardSortedSet: jest.fn(async () => undefined),
 }));
 
 // ─── mock logger ─────────────────────────────────────────────────────────────

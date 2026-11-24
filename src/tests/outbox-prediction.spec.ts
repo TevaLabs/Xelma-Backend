@@ -19,6 +19,8 @@ const mockRoundFindUnique = jest.fn();
 const mockRoundUpdate = jest.fn();
 const mockPredictionFindUnique = jest.fn();
 const mockPredictionCreate = jest.fn();
+const mockPredictionUpdate = jest.fn();
+const mockPredictionFindUniqueOrThrow = jest.fn();
 const mockUserFindUnique = jest.fn();
 const mockUserUpdate = jest.fn();
 const mockOutboxCreate = jest.fn((args: any) => {
@@ -28,7 +30,11 @@ const mockOutboxCreate = jest.fn((args: any) => {
 
 const txProxy = {
   round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
-  prediction: { findUnique: mockPredictionFindUnique, create: mockPredictionCreate },
+  prediction: {
+    findUnique: mockPredictionFindUnique,
+    create: mockPredictionCreate,
+    update: mockPredictionUpdate,
+  },
   user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
   outboxEvent: { create: mockOutboxCreate },
 };
@@ -36,7 +42,11 @@ const txProxy = {
 jest.mock('../lib/prisma', () => ({
   prisma: {
     round: { findUnique: jest.fn() },
-    prediction: { findUnique: jest.fn(), findMany: jest.fn() },
+    prediction: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      findUniqueOrThrow: (...args: any[]) => mockPredictionFindUniqueOrThrow(...args),
+    },
     user: { findUnique: jest.fn() },
     $transaction: jest.fn((fn: (tx: any) => Promise<any>) => fn(txProxy)),
   },
@@ -44,12 +54,12 @@ jest.mock('../lib/prisma', () => ({
 
 jest.mock('../services/soroban.service', () => ({
   __esModule: true,
-  default: { placeBet: jest.fn().mockResolvedValue(undefined) },
+  default: { placeBet: jest.fn().mockResolvedValue({ txHash: 'tx-hash-1' }) },
 }));
 
 jest.mock('../lib/redis', () => ({
-  invalidateNamespace: jest.fn(),
-  invalidateLeaderboardSortedSet: jest.fn(),
+  invalidateNamespace: jest.fn(async () => undefined),
+  invalidateLeaderboardSortedSet: jest.fn(async () => undefined),
 }));
 
 jest.mock('../utils/logger', () => ({
@@ -88,7 +98,11 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
         mode: 'UP_DOWN',
         status: 'ACTIVE',
       });
-      mockPredictionFindUnique.mockResolvedValue(null);
+      mockPredictionFindUnique
+        // Phase 1: no existing prediction for (round, user).
+        .mockResolvedValueOnce(null)
+        // Phase 3: finalizeChainSuccess only confirms a row that is still PENDING.
+        .mockResolvedValueOnce({ id: 'pred-1', chainStatus: 'PENDING' });
       mockUserFindUnique.mockResolvedValue({ id: userId, walletAddress: 'GXXX', virtualBalance: 1000 });
       mockUserUpdate.mockResolvedValue({ id: userId, walletAddress: 'GXXX', virtualBalance: 900 });
 
@@ -113,6 +127,8 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
         poolUp: 100,
         poolDown: 0,
       });
+
+      mockPredictionFindUniqueOrThrow.mockResolvedValue({ ...created, chainStatus: 'CONFIRMED' });
 
       await predictionService.submitPrediction(userId, roundId, 100, 'UP');
 
@@ -142,7 +158,17 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
       mockPredictionCreate.mockResolvedValue({
         id: 'pred-1', roundId, userId, amount: 100, side: 'UP', priceRange: null, createdAt: new Date(),
       });
-      mockRoundUpdate.mockResolvedValue({});
+      mockRoundUpdate.mockResolvedValue({
+        id: roundId,
+        mode: 'UP_DOWN',
+        status: 'ACTIVE',
+        startTime: new Date(),
+        endTime: new Date(),
+        startPrice: 100,
+        endPrice: null,
+        poolUp: 100,
+        poolDown: 0,
+      });
 
       // Soroban fails → transaction rolls back → outboxCreate never called
       const sorobanService = require('../services/soroban.service').default;
@@ -154,10 +180,9 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
         predictionService.submitPrediction(userId, roundId, 100, 'UP')
       ).rejects.toThrow('Soroban down');
 
-      // outboxCreate should NOT have been called because the error was thrown
-      // before the outbox write (Soroban is called before outbox write in the code).
-      // This confirms the ordering: Soroban → outbox write → commit.
-      // If Soroban fails, the outbox write never happens.
+      // UP_DOWN writes its outbox events only in the finalization phase, after
+      // the chain call succeeds (reservation → chain → finalize). When Soroban
+      // fails the prediction is compensated and no event is ever written.
       expect(outboxCreates).toHaveLength(0);
     });
   });

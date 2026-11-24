@@ -13,6 +13,7 @@ import request from "supertest";
 import { UserRole } from "@prisma/client";
 import { Express } from "express";
 import { generateToken } from "../utils/jwt.util";
+import { assertNoNumericMoney } from "../serializers/monetary.serializer";
 
 const ADMIN_ID = "sim-admin-id";
 const USER_ID = "sim-user-id";
@@ -66,6 +67,8 @@ jest.mock("../config", () => ({
       dataStore: "postgres",
       enableSimulation: mockConfigState.enableSimulation,
       enableMultiplayerSocial: false,
+      // Read by src/index.ts at import time for the startup banner.
+      safetyProfile: "demo",
     },
     jwt: {
       secret: "test-jwt-secret-for-mock",
@@ -233,6 +236,12 @@ describe("POST /api/rounds/:id/simulate - ENABLE_SIMULATION flag and auth (Issue
         winners: 1,
         losers: 1,
       });
+      // Money goes out as 8-dp decimal strings (monetary contract).
+      expect(res.body.startPrice).toBe("50000.00000000");
+      expect(res.body.predictions[0]).toMatchObject({ amount: "100.00000000", payout: "180.00000000" });
+      expect(res.body.predictions[1]).toMatchObject({ amount: "150.00000000", payout: "0.00000000" });
+      expect(res.body.summary.totalPayout).toBe("180.00000000");
+      expect(() => assertNoNumericMoney(res.body)).not.toThrow();
       expect(mockSimulateRound).toHaveBeenCalledWith("round-sim-1", 55000);
     });
 

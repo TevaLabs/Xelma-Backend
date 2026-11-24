@@ -1,6 +1,7 @@
 import {
   serializeMoney,
   serializeNullableMoney,
+  toDecimal,
   type MoneyInput,
 } from "../utils/decimal.util";
 import type { RoundUpdatePayload } from "../types/socket-events";
@@ -142,6 +143,36 @@ export function serializeTransaction<T extends object>(tx: T): T {
   const out = { ...tx } as Record<string, unknown>;
   serializeExisting(out, "amount", false);
   return out as T;
+}
+
+/**
+ * Serializes a round simulation result (`POST /api/rounds/:id/simulate`).
+ * `startPrice`, each prediction's `amount` / `payout` and the summary's
+ * `totalPayout` go out as 8-dp decimal strings like every other money field.
+ * `totalPayout` is re-summed with Decimal from the per-prediction payouts so
+ * the response never carries a float-accumulated total.
+ */
+export function serializeSimulationResult<
+  T extends {
+    startPrice: MoneyInput;
+    predictions: Array<{ amount: MoneyInput; payout: MoneyInput }>;
+    summary: { totalPayout: MoneyInput };
+  },
+>(result: T) {
+  const totalPayout = result.predictions.reduce(
+    (sum, prediction) => sum.add(toDecimal(prediction.payout ?? 0)),
+    toDecimal(0),
+  );
+  return {
+    ...result,
+    startPrice: serializeMoney(result.startPrice),
+    predictions: result.predictions.map((prediction) => ({
+      ...prediction,
+      amount: serializeMoney(prediction.amount),
+      payout: serializeMoney(prediction.payout),
+    })),
+    summary: { ...result.summary, totalPayout: serializeMoney(totalPayout) },
+  };
 }
 
 export function serializeTournament<T extends object>(tournament: T): T {
