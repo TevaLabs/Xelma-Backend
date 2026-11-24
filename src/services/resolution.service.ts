@@ -31,6 +31,8 @@ import {
 import { calculatePayout } from '../utils/payout.util';
 import {
    roundsResolvedTotal,
+   roundsResolveDelayedTotal,
+   roundResolutionStalenessSeconds,
    oracleResolveBlockedTotal,
 } from '../metrics/application.metrics';
 
@@ -44,6 +46,58 @@ function isValidRange(range: any): range is RoundPriceRange {
 }
 
 export class ResolutionService {
+   /**
+    * Make late resolution observable (Issue #976).
+    *
+    * Called once per round observation, before the status checks, so an
+    * ACTIVE round that is stuck past its endTime is recorded on every
+    * auto-resolve sweep even though `resolveRound` returns NO_OP for it.
+    * Final rounds are ignored: they are no longer overdue. A malformed or
+    * missing endTime is ignored rather than publishing a bogus metric.
+    */
+   private recordResolutionLateness(
+      round: {
+         id?: string;
+         mode?: string;
+         status?: string;
+         endTime?: Date | string | number | null;
+      },
+      now: Date = new Date()
+   ): void {
+      if (
+         !round ||
+         round.status === 'RESOLVED' ||
+         round.status === 'CANCELLED'
+      ) {
+         return;
+      }
+
+      const endTimeMs =
+         round.endTime instanceof Date
+            ? round.endTime.getTime()
+            : round.endTime != null
+               ? new Date(round.endTime).getTime()
+               : NaN;
+
+      if (!Number.isFinite(endTimeMs)) {
+         return;
+      }
+
+      const delaySeconds = (now.getTime() - endTimeMs) / 1000;
+      if (delaySeconds <= 0) {
+         return;
+      }
+
+      const mode = round.mode || 'UNKNOWN';
+      roundsResolveDelayedTotal.inc({ mode });
+      roundResolutionStalenessSeconds.set({ mode }, delaySeconds);
+      logger.debug('[ResolutionService] Unresolved round past endTime', {
+         roundId: round.id,
+         mode,
+         delaySeconds,
+      });
+   }
+
    /**
     * Central settlement safety guard (#229).
     *
@@ -110,6 +164,10 @@ export class ResolutionService {
          if (!round) {
             return { outcome: RoundLifecycleOutcome.NO_OP };
          }
+
+         // Observe overdue rounds here, before any status short-circuit, so
+         // stuck ACTIVE rounds are visible even when they cannot be settled.
+         this.recordResolutionLateness(round);
 
          if (round.status === 'RESOLVED') {
             return {

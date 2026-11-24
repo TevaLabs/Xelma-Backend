@@ -58,6 +58,7 @@ export enum RoundLifecycleOutcome {
   UPDATED = "updated",
   ALREADY_LOCKED = "already_locked",
   ALREADY_RESOLVED = "already_resolved",
+  ALREADY_CANCELLED = "already_cancelled",
   NO_OP = "no_op",
 }
 
