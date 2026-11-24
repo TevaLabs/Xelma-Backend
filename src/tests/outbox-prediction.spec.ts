@@ -28,7 +28,11 @@ const mockOutboxCreate = jest.fn((args: any) => {
 
 const txProxy = {
   round: { findUnique: mockRoundFindUnique, update: mockRoundUpdate },
-  prediction: { findUnique: mockPredictionFindUnique, create: mockPredictionCreate },
+  prediction: {
+    findUnique: mockPredictionFindUnique,
+    create: mockPredictionCreate,
+    update: jest.fn(),
+  },
   user: { findUnique: mockUserFindUnique, update: mockUserUpdate },
   outboxEvent: { create: mockOutboxCreate },
 };
@@ -36,7 +40,12 @@ const txProxy = {
 jest.mock('../lib/prisma', () => ({
   prisma: {
     round: { findUnique: jest.fn() },
-    prediction: { findUnique: jest.fn(), findMany: jest.fn() },
+    prediction: {
+      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'pred-1' }),
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
     user: { findUnique: jest.fn() },
     $transaction: jest.fn((fn: (tx: any) => Promise<any>) => fn(txProxy)),
   },
@@ -44,7 +53,7 @@ jest.mock('../lib/prisma', () => ({
 
 jest.mock('../services/soroban.service', () => ({
   __esModule: true,
-  default: { placeBet: jest.fn().mockResolvedValue(undefined) },
+  default: { placeBet: jest.fn().mockResolvedValue({ txHash: 'tx-hash-1' }) },
 }));
 
 jest.mock('../lib/redis', () => ({
@@ -102,6 +111,11 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
         createdAt: new Date(),
       };
       mockPredictionCreate.mockResolvedValue(created);
+      // Phase 1's duplicate check sees no prior row; the phase-3 finalizer
+      // re-reads the row and expects it to still be PENDING.
+      mockPredictionFindUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ ...created, chainStatus: 'PENDING' });
       mockRoundUpdate.mockResolvedValue({
         id: roundId,
         mode: 'UP_DOWN',
@@ -142,7 +156,8 @@ describe('PredictionService — outbox pattern (Issue #18)', () => {
       mockPredictionCreate.mockResolvedValue({
         id: 'pred-1', roundId, userId, amount: 100, side: 'UP', priceRange: null, createdAt: new Date(),
       });
-      mockRoundUpdate.mockResolvedValue({});
+      // The chain phase only runs when the committed round reports UP_DOWN.
+      mockRoundUpdate.mockResolvedValue({ id: roundId, mode: 'UP_DOWN', status: 'ACTIVE' });
 
       // Soroban fails → transaction rolls back → outboxCreate never called
       const sorobanService = require('../services/soroban.service').default;

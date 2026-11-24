@@ -12,6 +12,7 @@ jest.mock('../lib/prisma', () => ({
     round: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     prediction: { findMany: jest.fn(), update: jest.fn() },
     outboxEvent: { create: jest.fn() },
+    $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
     $disconnect: jest.fn(),
   },
 }));
@@ -31,6 +32,8 @@ jest.mock('../lib/redis', () => ({
   invalidateNamespace: jest.fn(),
   invalidateLeaderboardSortedSet: jest.fn(),
   checkRedisHealth: jest.fn().mockResolvedValue(true),
+  isRedisCacheEnabled: jest.fn().mockReturnValue(false),
+  isRedisConfigured: jest.fn().mockReturnValue(false),
   getCache: jest.fn(),
   setCache: jest.fn(),
   deleteCache: jest.fn(),

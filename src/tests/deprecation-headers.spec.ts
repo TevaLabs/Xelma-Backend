@@ -3,6 +3,7 @@ import request from 'supertest';
 
 jest.mock('@prisma/client', () => ({
   UserRole: { USER: 'USER', ADMIN: 'ADMIN', ORACLE: 'ORACLE' },
+  GameMode: { UP_DOWN: 'UP_DOWN', LEGENDS: 'LEGENDS' },
   Prisma: {},
   PrismaClient: jest.fn().mockImplementation(() => ({
     $connect: jest.fn(),

@@ -35,6 +35,8 @@ const mockIsRedisCacheEnabled = jest.fn<boolean>();
 jest.mock('../lib/redis', () => ({
   checkRedisHealth: (...args: unknown[]) => mockCheckRedisHealth(...args),
   isRedisCacheEnabled: (...args: unknown[]) => mockIsRedisCacheEnabled(...args),
+  isRedisConfigured: (...args: unknown[]) => mockIsRedisCacheEnabled(...args),
+  isRedisRateLimitConfigured: () => false,
 }));
 
 // Mock config — provide all properties that downstream modules may access

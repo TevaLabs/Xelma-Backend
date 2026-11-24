@@ -11,7 +11,8 @@ import {
 } from "../middleware/auth.middleware";
 import { asyncHandler } from "../middleware/errorHandler.middleware";
 import { toDecimal } from "../utils/decimal.util";
-import { serializeRound } from "../serializers/monetary.serializer";
+import { serializePrediction, serializeRound } from "../serializers/monetary.serializer";
+import { serializeMoney } from "../utils/decimal.util";
 import {
   adminRoundRateLimiter,
   betRateLimiter,
@@ -533,7 +534,7 @@ const requireSimulationEnabled = (
  *                 roundId: { type: string }
  *                 simulatedPrice: { type: number }
  *                 mode: { type: string, enum: [UP_DOWN, LEGENDS] }
- *                 startPrice: { type: number }
+ *                 startPrice: { $ref: '#/components/schemas/MoneyAmount' }
  *                 winningSide: { type: string, nullable: true, enum: [UP, DOWN] }
  *                 winningRange:
  *                   type: object
@@ -547,8 +548,8 @@ const requireSimulationEnabled = (
  *                     type: object
  *                     properties:
  *                       won: { type: boolean, nullable: true }
- *                       payout: { type: number }
- *                       amount: { type: number }
+ *                       payout: { $ref: '#/components/schemas/MoneyAmount' }
+ *                       amount: { $ref: '#/components/schemas/MoneyAmount' }
  *                       side: { type: string, nullable: true, enum: [UP, DOWN] }
  *                 summary:
  *                   type: object
@@ -557,7 +558,7 @@ const requireSimulationEnabled = (
  *                     winners: { type: integer }
  *                     losers: { type: integer }
  *                     refunded: { type: integer }
- *                     totalPayout: { type: number }
+ *                     totalPayout: { $ref: '#/components/schemas/MoneyAmount' }
  *       400:
  *         description: Validation error - finalPrice missing
  *       401:
@@ -593,11 +594,14 @@ router.post(
       roundId: result.roundId,
       simulatedPrice: result.simulatedPrice,
       mode: result.mode,
-      startPrice: result.startPrice,
+      startPrice: serializeMoney(result.startPrice),
       winningSide: result.winningSide,
       winningRange: result.winningRange,
-      predictions: result.predictions,
-      summary: result.summary,
+      predictions: result.predictions.map((prediction) => serializePrediction(prediction)),
+      summary: {
+        ...result.summary,
+        totalPayout: serializeMoney(result.summary.totalPayout),
+      },
     });
   }),
 );

@@ -92,6 +92,8 @@ jest.mock("../services/dead-letter-queue.service", () => ({
 
 jest.mock("../metrics/application.metrics", () => ({
   websocketEmitsTotal: { inc: jest.fn() },
+  circuitBreakerState: { set: jest.fn() },
+  circuitBreakerStateChangesTotal: { inc: jest.fn() },
 }));
 
 import betService from "../services/bet.service";
