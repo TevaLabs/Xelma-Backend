@@ -69,6 +69,22 @@ export function pricesCacheTtlSeconds(): number {
   );
 }
 
+/**
+ * Env variable controlling the public cache TTL of the single-asset oracle
+ * endpoint `GET /api/price` (Issue #1026). When it is unset or invalid the
+ * endpoint keeps following `PRICES_CACHE_TTL_SECONDS`, so existing
+ * deployments see no change.
+ */
+export const PRICE_ORACLE_CACHE_TTL_ENV = "ORACLE_PRICE_CACHE_TTL_SECONDS";
+
+/** Resolved TTL (seconds) for `GET /api/price`. Falls back to the prices TTL. */
+export function oraclePriceCacheTtlSeconds(): number {
+  return resolveCacheTtlSeconds(
+    PRICE_ORACLE_CACHE_TTL_ENV,
+    pricesCacheTtlSeconds(),
+  );
+}
+
 /** Resolved TTL (seconds) for the platform counters. */
 export function statsCacheTtlSeconds(): number {
   return resolveCacheTtlSeconds(
