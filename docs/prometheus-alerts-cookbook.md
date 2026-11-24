@@ -18,6 +18,8 @@ wallet addresses, user IDs, round IDs, request bodies, or secrets.
 | `price_oracle_updates_total` | `provider` | Successful updates by provider |
 | `price_oracle_fetch_failures_total` | `reason`, `provider` | Failed provider fetches |
 | `oracle_resolve_blocked_total` | `reason` | Resolution attempts blocked by oracle safety checks |
+| `rounds_resolve_delayed_total` | `mode` | Observations of unresolved rounds already past their `endTime` (Issue #976) |
+| `round_resolution_staleness_seconds` | `mode` | How late the most recently observed unresolved round was, in seconds |
 | `soroban_rpc_calls_total` | `operation`, `outcome` | RPC calls by operation and `success`, `failure`, or `breaker_open` |
 | `soroban_rpc_duration_seconds` | `operation` | RPC latency, including retries and breaker overhead |
 | `circuit_breaker_state` | `breaker`, `state` | One-hot current breaker state (`closed`, `open`, `half-open`) |
@@ -96,6 +98,36 @@ groups:
           description: >-
             One or more round resolutions were refused. Inspect the reason
             label and confirm oracle freshness before retrying.
+
+  - name: xelma-resolution
+    rules:
+      - alert: XelmaRoundResolutionDelayed
+        expr: |
+          increase(rounds_resolve_delayed_total{job="xelma-backend"}[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: resolution
+        annotations:
+          summary: Rounds are being observed after their endTime ({{ $labels.mode }})
+          description: >-
+            The resolver is seeing unresolved rounds past their endTime on
+            every sweep. Check auto-resolution, oracle freshness, and whether
+            rounds are stuck in ACTIVE before being locked.
+          runbook: https://github.com/TevaLabs/Xelma-Backend/blob/main/docs/prometheus-alerts-cookbook.md#round-resolution-delayed
+
+      - alert: XelmaRoundResolutionVeryLate
+        expr: round_resolution_staleness_seconds{job="xelma-backend"} > 300
+        for: 5m
+        labels:
+          severity: critical
+          component: resolution
+        annotations:
+          summary: A {{ $labels.mode }} round is over five minutes overdue
+          description: >-
+            The most recently observed unresolved round was more than five
+            minutes past its endTime. Inspect the resolver lock and oracle
+            health before attempting a manual resolve.
 
   - name: xelma-soroban
     rules:
@@ -188,6 +220,15 @@ groups:
 2. Determine whether all providers are failing or only the active provider.
 3. After recovery, verify `oracle_last_update_timestamp_seconds` advances and
    `oracle_up` returns to `1` before resuming settlement.
+
+### Round resolution delayed
+
+1. Compare `round_resolution_staleness_seconds` with the round duration to see
+   how far past `endTime` the resolver is observing rounds.
+2. Check whether rounds are stuck in `ACTIVE` (the close scheduler must lock
+   them first) or in `LOCKED` (the resolver or settlement path is failing).
+3. Verify `AUTO_RESOLVE_ENABLED`, the `auto-resolve-rounds` distributed lock,
+   and `oracle_resolve_blocked_total` before forcing a manual resolve.
 
 ### Soroban breaker open
 
