@@ -23,6 +23,11 @@ jest.mock('../lib/prisma', () => ({
     idempotencyKey: {
       findUnique: (...args: any[]) => mockIdempotencyFindUnique(...args),
       upsert: (...args: any[]) => mockIdempotencyUpsert(...args),
+      // acquireIdempotencyLock inserts an in-progress lock row; release
+      // deletes it on failure.
+      create: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     $disconnect: jest.fn().mockResolvedValue(undefined),
   },

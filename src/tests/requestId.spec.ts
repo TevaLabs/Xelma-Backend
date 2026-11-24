@@ -64,16 +64,19 @@ describe('Request ID Tracing', () => {
       const logCalls = logSpy.mock.calls;
       expect(logCalls.length).toBeGreaterThan(0);
       
-      // The logging middleware should log with requestId in metadata
+      // The unified HTTP logger (#423) emits one 'http request' line per
+      // response with method/path/requestId in the metadata.
       const hasRequestIdLog = logCalls.some((call) => {
         const message = call[0];
         const metadata = call[1];
-        
+
         return (
-          message.includes('GET /') &&
+          message === 'http request' &&
           metadata &&
-          metadata.requestId &&
-          typeof metadata.requestId === 'string'
+          metadata.method === 'GET' &&
+          metadata.path === '/' &&
+          typeof metadata.requestId === 'string' &&
+          metadata.requestId.length > 0
         );
       });
 
@@ -139,7 +142,8 @@ describe('Request ID Tracing', () => {
         .expect(200);
 
       expect(res.headers['x-request-id']).toBe('test-request-id-123');
-      expect(['healthy', 'degraded']).toContain(res.body.status);
+      // Health payload is wrapped in the standard success envelope.
+      expect(['healthy', 'degraded']).toContain(res.body.data.status);
     });
   });
 

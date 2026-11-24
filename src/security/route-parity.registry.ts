@@ -66,6 +66,7 @@ export const PARITY_ALLOWLIST: ParityAllowlistEntry[] = [
   { method: "GET", path: "/api/admin/metrics/rate-limit-summary", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },
   { method: "GET", path: "/api/admin/metrics/payout-reconciliation", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },
   { method: "GET", path: "/api/admin/cors-diagnostics", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },
+  { method: "GET", path: "/api/admin/runtime-flags", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },
   { method: "GET", path: "/api/admin/dead-letter", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },
   { method: "POST", path: "/api/admin/dead-letter/retry-all", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },
   { method: "POST", path: "/api/admin/dead-letter/:id/retry", only: "main", reason: "Admin surface is production-only.", flag: "adminRoutes" },

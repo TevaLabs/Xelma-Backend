@@ -71,7 +71,8 @@ describe("GET /api/auth/me (#965)", () => {
     const res = await request(app).get("/api/auth/me");
 
     expect(res.status).toBe(401);
-    expect(res.body.error).toBe("No token provided");
+    expect(res.body.error).toBe("AuthenticationError");
+    expect(res.body.message).toBe("No token provided");
     expect(mockUserFindUnique).not.toHaveBeenCalled();
   });
 
@@ -81,7 +82,8 @@ describe("GET /api/auth/me (#965)", () => {
       .set("Authorization", "Bearer not-a-jwt");
 
     expect(res.status).toBe(401);
-    expect(res.body.error).toBe("Invalid or expired token");
+    expect(res.body.error).toBe("AuthenticationError");
+    expect(res.body.message).toBe("Invalid or expired token");
     expect(mockUserFindUnique).not.toHaveBeenCalled();
   });
 });

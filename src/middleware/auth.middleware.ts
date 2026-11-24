@@ -70,25 +70,56 @@ async function loadUserFromBearerToken(
 }
 
 /**
+ * Sends an auth failure in the standard error envelope documented as
+ * BaseErrorResponse / ERROR_CATALOG: `error` is the error class name,
+ * `message` the human-readable reason, plus `code`, `path`, `requestId` and
+ * `timestamp` — the same shape the centralized error handler produces, so a
+ * 401/403 from this middleware is indistinguishable from one thrown deeper in
+ * the stack.
+ */
+function sendAuthError(
+  req: Request,
+  res: Response,
+  status: 401 | 403,
+  message: string,
+  code: ErrorCode = status === 401 ? ErrorCode.AUTHENTICATION_ERROR : ErrorCode.AUTHORIZATION_ERROR,
+): void {
+  const requestId = (req as any).requestId as string | undefined;
+  res.status(status).json({
+    error: status === 401 ? "AuthenticationError" : "AuthorizationError",
+    message,
+    code,
+    path: req.originalUrl,
+    timestamp: new Date().toISOString(),
+    ...(requestId ? { requestId } : {}),
+  });
+}
+
+/**
  * Send the 401 for a failed bearer-token resolution.
  *
  * `user_not_found` is deliberately distinct from `invalid_token`: the JWT is
  * cryptographically valid but its subject no longer exists, so clients should
  * discard the token and run the wallet sign-in flow again instead of retrying.
  */
-function sendBearerFailure(res: Response, reason: BearerAuthFailure): void {
+function sendBearerFailure(req: Request, res: Response, reason: BearerAuthFailure): void {
   if (reason === "user_not_found") {
-    res.status(401).json({
-      error: "User not found",
-      message: "User associated with this token no longer exists",
-      code: ErrorCode.AUTH_USER_NOT_FOUND,
-    });
+    sendAuthError(
+      req,
+      res,
+      401,
+      "User associated with this token no longer exists",
+      ErrorCode.AUTH_USER_NOT_FOUND,
+    );
     return;
   }
 
-  res.status(401).json({
-    error: reason === "missing_token" ? "No token provided" : "Invalid or expired token",
-  });
+  sendAuthError(
+    req,
+    res,
+    401,
+    reason === "missing_token" ? "No token provided" : "Invalid or expired token",
+  );
 }
 
 function attachUser(req: Request, user: ResolvedUser): void {
@@ -119,7 +150,7 @@ export async function verifyStellarAuth(
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    res.status(401).json({ error: "No token provided" });
+    sendAuthError(req, res, 401, "No token provided");
     return;
   }
 
@@ -127,7 +158,7 @@ export async function verifyStellarAuth(
   const decoded = verifyToken(token);
 
   if (!decoded || !decoded.walletAddress) {
-    res.status(401).json({ error: "Invalid or expired token" });
+    sendAuthError(req, res, 401, "Invalid or expired token");
     return;
   }
 
@@ -152,12 +183,12 @@ export function requireRole(
       const auth = await loadUserFromBearerToken(req.headers.authorization);
 
       if (!auth.ok) {
-        sendBearerFailure(res, auth.reason);
+        sendBearerFailure(req, res, auth.reason);
         return;
       }
 
       if (!userHasAnyRole(auth.user, allowedRoles)) {
-        res.status(403).json({ error: forbiddenMessage });
+        sendAuthError(req, res, 403, forbiddenMessage);
         return;
       }
 
@@ -165,7 +196,7 @@ export function requireRole(
       next();
     } catch (error) {
       logger.error("Role authentication error:", { error, requestId });
-      res.status(401).json({ error: "Authentication failed" });
+      sendAuthError(req, res, 401, "Authentication failed");
     }
   };
 }
@@ -282,14 +313,12 @@ export function bindAuthenticatedWallet(
 ): void {
   const walletAddress = req.user?.walletAddress;
   if (!walletAddress) {
-    res.status(401).json({ error: "No token provided" });
+    sendAuthError(req, res, 401, "No token provided");
     return;
   }
 
   if (req.body?.address && req.body.address !== walletAddress) {
-    res.status(403).json({
-      error: "Wallet address does not match authenticated user",
-    });
+    sendAuthError(req, res, 403, "Wallet address does not match authenticated user");
     return;
   }
 

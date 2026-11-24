@@ -28,7 +28,8 @@ import { createApp } from "../index";
 import sorobanService from "../services/soroban.service";
 import { generateToken } from "../utils/jwt.util";
 import { prisma } from "../lib/prisma";
-import { betStore } from "../data/bet-store";
+import { Keypair } from "@stellar/stellar-sdk";
+import { createHash } from "crypto";
 import { closeRedisClient } from "../lib/redis";
 
 jest.mock("../services/soroban.service", () => ({
@@ -61,7 +62,11 @@ if (!process.env.REDIS_URL) {
   process.env.REDIS_URL = "redis://localhost:6379";
 }
 
-const VALID_ADDRESS = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+// A wallet of its own (valid StrKey) so the per-wallet Bet cleanup below can
+// never race another suite running in parallel.
+const VALID_ADDRESS = Keypair.fromRawEd25519Seed(
+  createHash("sha256").update("bets-idempotency-concurrency-493").digest(),
+).publicKey();
 const USER_ID = "concurrency-user-493";
 const ENDPOINT = "/api/bets/up-down";
 const IDEMPOTENCY_KEY = "conc-493-updown-0001";
@@ -82,8 +87,15 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     await prisma.idempotencyKey.deleteMany({ where: { userId: USER_ID } });
   });
 
+  // Bets are persisted by BetService (the in-memory bet store is no longer on
+  // this path), so count real Bet rows for this wallet.
+  const countBets = () =>
+    prisma.bet.count({ where: { user: { walletAddress: VALID_ADDRESS } } });
+
   beforeEach(async () => {
     await prisma.idempotencyKey.deleteMany({ where: { userId: USER_ID } });
+    // Bet.txHash is unique: clear this wallet's bets so the suite re-runs.
+    await prisma.bet.deleteMany({ where: { user: { walletAddress: VALID_ADDRESS } } });
     jest.clearAllMocks();
   });
 
@@ -109,7 +121,7 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     });
 
     const payload = { address: VALID_ADDRESS, amount: 10, side: "UP" };
-    const betsBefore = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const betsBefore = await countBets();
 
     const responses = await Promise.all(
       Array.from({ length: 12 }, () => placeUpDownBet(payload)),
@@ -124,7 +136,7 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     }
 
     // Exactly one bet was accepted, and the chain service ran exactly once.
-    expect(betStore.getBets({ address: VALID_ADDRESS }).length - betsBefore).toBe(1);
+    expect((await countBets()) - betsBefore).toBe(1);
     expect(sorobanService.placeBet).toHaveBeenCalledTimes(1);
 
     // The final response is persisted in the DB so legitimate retries replay.
@@ -148,7 +160,7 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
       txHash: "0xreplay-493",
     });
     const payload = { address: VALID_ADDRESS, amount: 10, side: "UP" };
-    const betsBefore = betStore.getBets({ address: VALID_ADDRESS }).length;
+    const betsBefore = await countBets();
 
     const first = await placeUpDownBet(payload);
     expect(first.status).toBe(200);
@@ -158,7 +170,7 @@ describe("Bet idempotency under concurrent multi-replica load (#493)", () => {
     expect(second.body).toEqual(first.body);
 
     // No duplicate bet, no second chain submission.
-    expect(betStore.getBets({ address: VALID_ADDRESS }).length - betsBefore).toBe(1);
+    expect((await countBets()) - betsBefore).toBe(1);
     expect(sorobanService.placeBet).toHaveBeenCalledTimes(1);
   });
 

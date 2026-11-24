@@ -15,7 +15,7 @@ export interface ErrorResponse {
   error: string;
   message: string;
   code: string;
-  path: string; // <-- Added to satisfy the explicit issue requirement
+  path: string;
   requestId?: string;
   details?: { field: string; message: string }[];
   timestamp?: string;
@@ -117,10 +117,12 @@ export function errorHandler(
   });
 
   const body: ErrorResponse & { stack?: string } = {
-    error: appError.message || appError.name, // Ensure textual summary error field is clear
+    // `error` is the error class name (documented in BaseErrorResponse);
+    // the human-readable text goes in `message`.
+    error: appError.name,
     message: appError.message,
     code: appError.code,
-    path: req.originalUrl, // <-- Explicitly mapped parameter requirement
+    path: req.originalUrl,
     requestId,
     timestamp,
     ...(retryAfterSeconds !== undefined && { retryAfter: retryAfterSeconds }),

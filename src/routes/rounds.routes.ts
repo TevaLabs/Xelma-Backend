@@ -628,10 +628,13 @@ router.post(
       return next(err);
     }
 
+    // `id` names a hackathon demo round (hackathon_rounds), not a `Round`
+    // row, so it is not forwarded to BetService — which would 404 on it.
+    // BetService binds the bet to the newest ACTIVE round of the mode, as
+    // for /api/bets/*; the per-round demo view was updated just above.
     await executeBet(req, res, next, {
       kind: "up-down",
       endpoint: "/api/rounds/hackathon/up-down/:id/bet",
-      roundId: id,
     });
   }) as any,
 );
@@ -658,10 +661,13 @@ router.post(
       return next(err);
     }
 
+    // `id` names a hackathon demo round (hackathon_rounds), not a `Round`
+    // row, so it is not forwarded to BetService — which would 404 on it.
+    // BetService binds the bet to the newest ACTIVE round of the mode, as
+    // for /api/bets/*; the per-round demo view was updated just above.
     await executeBet(req, res, next, {
       kind: "precision",
       endpoint: "/api/rounds/hackathon/precision/:id/bet",
-      roundId: id,
     });
   }) as any,
 );

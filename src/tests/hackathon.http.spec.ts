@@ -20,6 +20,17 @@ jest.mock('../services/soroban.service', () => ({
 
 import app from '../app';
 
+// The hackathon demo runs bets in stub mode (no on-chain placement). BetService
+// reads the flag per call, so scope it to this suite and restore it after.
+const originalBetStubMode = process.env.BET_STUB_MODE;
+beforeAll(() => {
+  process.env.BET_STUB_MODE = 'true';
+});
+afterAll(() => {
+  if (originalBetStubMode === undefined) delete process.env.BET_STUB_MODE;
+  else process.env.BET_STUB_MODE = originalBetStubMode;
+});
+
 describe('Hackathon HTTP Endpoints (Integration)', () => {
   // Valid Stellar-format (G + 55 chars) used as authenticated betting wallet
   // for the hackathon bet smoke tests below.
@@ -198,7 +209,8 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
         .send({ address: hackerWallet, amount: 100, side: 'UP' });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe('No token provided');
+      expect(res.body.error).toBe('AuthenticationError');
+      expect(res.body.message).toBe('No token provided');
     });
 
     it('records an up-down bet and matches success schema', async () => {
@@ -231,7 +243,8 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
         .send({ address: hackerWallet, amount: 50, predictedPrice: 65000.5 });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe('No token provided');
+      expect(res.body.error).toBe('AuthenticationError');
+      expect(res.body.message).toBe('No token provided');
     });
 
     it('records a precision bet and matches success schema', async () => {
