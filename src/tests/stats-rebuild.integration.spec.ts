@@ -5,7 +5,8 @@
  *   - the rebuild recomputes the projection from the prediction history;
  *   - a drifted row is reported field by field and can be repaired;
  *   - a projection that still matches the history is left alone;
- *   - predictions of rounds that were never settled are ignored.
+ *   - predictions of rounds that were never settled are ignored;
+ *   - the aggregate drift summary sums the stored vs rebuilt values (#1032).
  *
  * They follow the same describeIfDb pattern as the other integration suites so
  * they run only when a database is available.
@@ -101,6 +102,17 @@ describeDb("UserStats rebuild (Issue #877)", () => {
 
         const earnings = entry!.fields.find((field) => field.field === "totalEarnings");
         expect(earnings?.expected).toBe("10.00000000");
+
+        // Aggregate drift (Issue #1032): stored 3 predictions / 0 XLM against an
+        // expected 1 prediction / 10 XLM.
+        const aggregateCount = dryRun.aggregate.fields.find(
+            (field) => field.field === "totalPredictions",
+        );
+        expect(aggregateCount).toMatchObject({ expectedTotal: 1, storedTotal: 3, delta: 2, usersDrifted: 1 });
+        const aggregateEarnings = dryRun.aggregate.fields.find(
+            (field) => field.field === "totalEarnings",
+        );
+        expect(aggregateEarnings?.delta).toBe("-10.00000000");
 
         // The dry run must not have touched the row.
         const untouched = await prisma.userStats.findUnique({ where: { userId: user.id } });

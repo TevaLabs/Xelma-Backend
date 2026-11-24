@@ -316,3 +316,167 @@ describe("rebuildUserStats — apply", () => {
         expect(mockUserStatsUpsert).not.toHaveBeenCalled();
     });
 });
+
+// ---------------------------------------------------------------------------
+// Paginated history scan (Issue #1032)
+// ---------------------------------------------------------------------------
+
+describe("computeUserStatsTotals — paginated scan", () => {
+    it("pages through the history by primary key until a short page", async () => {
+        mockPredictionFindMany
+            .mockResolvedValueOnce([prediction({ id: "p1" }), prediction({ id: "p2" })])
+            .mockResolvedValueOnce([prediction({ id: "p3" }), prediction({ id: "p4" })])
+            .mockResolvedValueOnce([prediction({ id: "p5" })]);
+
+        const totals = await computeUserStatsTotals(undefined, { batchSize: 2 });
+
+        expect(mockPredictionFindMany).toHaveBeenCalledTimes(3);
+        expect(totals.get("user-1")?.totalPredictions).toBe(5);
+
+        const [first, second, third] = mockPredictionFindMany.mock.calls.map((call) => call[0]);
+        expect(first).toMatchObject({ take: 2, orderBy: { id: "asc" } });
+        expect(first.cursor).toBeUndefined();
+        expect(second).toMatchObject({ take: 2, cursor: { id: "p2" }, skip: 1 });
+        expect(third).toMatchObject({ take: 2, cursor: { id: "p4" }, skip: 1 });
+    });
+
+    it("stops after an exactly-full final page followed by an empty one", async () => {
+        mockPredictionFindMany
+            .mockResolvedValueOnce([prediction({ id: "p1" }), prediction({ id: "p2" })])
+            .mockResolvedValueOnce([]);
+
+        const totals = await computeUserStatsTotals(undefined, { batchSize: 2 });
+
+        expect(mockPredictionFindMany).toHaveBeenCalledTimes(2);
+        expect(totals.get("user-1")?.totalPredictions).toBe(2);
+    });
+
+    it("rejects a non-positive batch size", async () => {
+        await expect(computeUserStatsTotals(undefined, { batchSize: 0 })).rejects.toThrow(
+            "batchSize must be a positive integer",
+        );
+        expect(mockPredictionFindMany).not.toHaveBeenCalled();
+    });
+
+    it("forwards the batch size from rebuildUserStats", async () => {
+        await rebuildUserStats({ batchSize: 250 });
+
+        expect(mockPredictionFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 250 }));
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Aggregate drift (Issue #1032)
+// ---------------------------------------------------------------------------
+
+describe("rebuildUserStats — aggregate drift", () => {
+    function aggregateField(report: Awaited<ReturnType<typeof rebuildUserStats>>, field: string) {
+        return report.aggregate.fields.find((entry) => entry.field === field)!;
+    }
+
+    it("reports a zero aggregate when nothing drifted", async () => {
+        mockPredictionFindMany.mockResolvedValue([prediction()]);
+        mockUserStatsFindMany.mockResolvedValue([storedRow()]);
+
+        const report = await rebuildUserStats();
+
+        expect(report.aggregate.missingRows).toBe(0);
+        expect(report.aggregate.orphanRows).toBe(0);
+        expect(report.aggregate.fields).toHaveLength(9);
+        expect(report.aggregate.fields.every((entry) => entry.usersDrifted === 0)).toBe(true);
+        expect(aggregateField(report, "totalPredictions")).toMatchObject({
+            expectedTotal: 1,
+            storedTotal: 1,
+            delta: 0,
+        });
+        expect(aggregateField(report, "totalEarnings")).toMatchObject({
+            expectedTotal: "10.00000000",
+            storedTotal: "10.00000000",
+            delta: "0.00000000",
+        });
+    });
+
+    it("sums expected and stored values across users and signs the delta", async () => {
+        mockPredictionFindMany.mockResolvedValue([
+            prediction({ userId: "user-1" }),
+            prediction({ userId: "user-2", amount: toDecimal("2.5") }),
+        ]);
+        mockUserStatsFindMany.mockResolvedValue([
+            // Over-counted: a retried resolution counted the win twice.
+            storedRow({
+                userId: "user-1",
+                totalPredictions: 2,
+                correctPredictions: 2,
+                totalEarnings: toDecimal("20"),
+                upDownWins: 2,
+                upDownEarnings: toDecimal("20"),
+            }),
+            // Under-counted: the stats write was lost.
+            storedRow({
+                userId: "user-2",
+                totalPredictions: 0,
+                correctPredictions: 0,
+                totalEarnings: toDecimal("0"),
+                upDownWins: 0,
+                upDownEarnings: toDecimal("0"),
+            }),
+        ]);
+
+        const report = await rebuildUserStats();
+
+        expect(aggregateField(report, "totalPredictions")).toEqual({
+            field: "totalPredictions",
+            usersDrifted: 2,
+            expectedTotal: 2,
+            storedTotal: 2,
+            delta: 0,
+        });
+        // The per-user errors cancel in the count but not in the money.
+        expect(aggregateField(report, "totalEarnings")).toEqual({
+            field: "totalEarnings",
+            usersDrifted: 2,
+            expectedTotal: "12.50000000",
+            storedTotal: "20.00000000",
+            delta: "7.50000000",
+        });
+        expect(aggregateField(report, "upDownLosses").usersDrifted).toBe(0);
+    });
+
+    it("counts missing and orphan rows", async () => {
+        mockPredictionFindMany.mockResolvedValue([prediction({ userId: "user-1" })]);
+        mockUserStatsFindMany.mockResolvedValue([
+            storedRow({ userId: "ghost" }),
+            // A zeroed row without history is not drift, so not an orphan either.
+            storedRow({
+                userId: "zeroed",
+                totalPredictions: 0,
+                correctPredictions: 0,
+                totalEarnings: toDecimal("0"),
+                upDownWins: 0,
+                upDownEarnings: toDecimal("0"),
+            }),
+        ]);
+
+        const report = await rebuildUserStats();
+
+        expect(report.aggregate.missingRows).toBe(1);
+        expect(report.aggregate.orphanRows).toBe(1);
+        expect(aggregateField(report, "totalPredictions")).toMatchObject({
+            expectedTotal: 1,
+            storedTotal: 1,
+            delta: 0,
+            usersDrifted: 2,
+        });
+        expect(aggregateField(report, "totalEarnings").delta).toBe("0.00000000");
+    });
+
+    it("reports a negative delta when the projection under-counts", async () => {
+        mockPredictionFindMany.mockResolvedValue([prediction()]);
+        mockUserStatsFindMany.mockResolvedValue([]);
+
+        const report = await rebuildUserStats();
+
+        expect(aggregateField(report, "totalPredictions").delta).toBe(-1);
+        expect(aggregateField(report, "totalEarnings").delta).toBe("-10.00000000");
+    });
+});
