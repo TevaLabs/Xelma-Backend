@@ -393,6 +393,80 @@ router.post(
 );
 
 /**
+ * @swagger
+ * /api/rounds/{id}/cancel:
+ *   post:
+ *     summary: Cancel a round and refund its participants
+ *     description: >
+ *       Admin-only. Cancels an ACTIVE or LOCKED round and refunds every settled
+ *       participant inside a single database transaction, writing the matching
+ *       outbox events atomically. Idempotent: cancelling an already-CANCELLED
+ *       round returns `already_cancelled` without refunding anyone. A RESOLVED
+ *       round cannot be cancelled.
+ *     tags: [rounds]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Round cancelled (or already cancelled)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 outcome:
+ *                   type: string
+ *                   enum: [updated, already_cancelled]
+ *                 refundedCount: { type: integer }
+ *                 refundedTotal: { type: string, description: "XLM amount as a decimal string" }
+ *                 round: { type: object }
+ *       401:
+ *         description: Missing or invalid JWT
+ *       403:
+ *         description: Forbidden - caller is not an Admin
+ *       404:
+ *         description: Round not found
+ *       409:
+ *         description: Conflict - round is already resolved or not cancellable
+ */
+router.post(
+  "/:id/cancel",
+  requireAdmin,
+  adminRoundRateLimiter,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const result = await roundService.cancelRound(req.params.id);
+
+    res.json({
+      success: true,
+      outcome: result.outcome,
+      refundedCount: result.refundedCount,
+      refundedTotal: result.refundedTotal.toFixed(8),
+      round: result.round
+        ? serializeRound({
+            id: result.round.id,
+            mode: result.round.mode,
+            status: result.round.status,
+            startTime: result.round.startTime,
+            endTime: result.round.endTime,
+            startPrice: result.round.startPrice,
+            endPrice: result.round.endPrice,
+            resolvedAt: result.round.resolvedAt,
+            sorobanRoundId: result.round.sorobanRoundId,
+            isSoroban: result.round.isSoroban,
+            priceRanges: result.round.priceRanges,
+          })
+        : null,
+    });
+  }),
+);
+
+/**
  * ENABLE_SIMULATION is the master switch for the QA simulate endpoint.
  * When it is off the route is locked down (403) in EVERY environment —
  * including development and test — so simulation can never run misconfigured.

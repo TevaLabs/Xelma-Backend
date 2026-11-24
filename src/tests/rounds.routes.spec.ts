@@ -9,6 +9,7 @@ const ADMIN_ID = 'rounds-admin-id';
 const mockUserFindUnique = jest.fn();
 const mockStartRound = jest.fn();
 const mockResolveRound = jest.fn();
+const mockCancelRound = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -23,6 +24,7 @@ jest.mock('../services/round.service', () => ({
   __esModule: true,
   default: {
     startRound: (...args: any[]) => mockStartRound(...args),
+    cancelRound: (...args: any[]) => mockCancelRound(...args),
   },
 }));
 
@@ -285,6 +287,70 @@ describe('Rounds Routes - Mode Validation (Issue #63)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(mockResolveRound).toHaveBeenCalledWith('round-resolve-id', expect.anything());
+    });
+  });
+
+  describe('POST /api/rounds/:id/cancel - admin cancellation (#977)', () => {
+    const cancelledRound = {
+      id: 'round-cancel-id',
+      mode: 'UP_DOWN',
+      status: 'CANCELLED',
+      startTime: new Date('2026-11-24T11:00:00.000Z'),
+      endTime: new Date('2026-11-24T11:05:00.000Z'),
+      startPrice: 0.1234,
+      endPrice: null,
+      resolvedAt: null,
+      sorobanRoundId: null,
+      isSoroban: false,
+      priceRanges: null,
+    };
+
+    beforeAll(() => {
+      mockCancelRound.mockResolvedValue({
+        outcome: 'updated',
+        round: cancelledRound,
+        refundedCount: 2,
+        refundedTotal: 30,
+      });
+    });
+
+    it('allows an admin to cancel a round and returns refund totals', async () => {
+      const res = await request(app)
+        .post('/api/rounds/round-cancel-id/cancel')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.outcome).toBe('updated');
+      expect(res.body.refundedCount).toBe(2);
+      expect(res.body.refundedTotal).toBe('30.00000000');
+      expect(res.body.round.status).toBe('CANCELLED');
+      expect(mockCancelRound).toHaveBeenCalledWith('round-cancel-id');
+    });
+
+    it('rejects a non-admin caller before touching the cancel service', async () => {
+      const nonAdmin = {
+        id: 'non-admin-id',
+        walletAddress: 'GNONADMIN_TEST_AAAAAAAAAAAAAAAA',
+      };
+      const nonAdminToken = generateToken(
+        nonAdmin.id,
+        nonAdmin.walletAddress,
+        UserRole.USER,
+      );
+      mockUserFindUnique.mockResolvedValueOnce({
+        id: nonAdmin.id,
+        walletAddress: nonAdmin.walletAddress,
+        role: 'USER',
+      });
+      mockCancelRound.mockClear();
+
+      const res = await request(app)
+        .post('/api/rounds/round-cancel-id/cancel')
+        .set('Authorization', `Bearer ${nonAdminToken}`);
+
+      expect(res.status).toBe(403);
+      expect(mockCancelRound).not.toHaveBeenCalled();
     });
   });
 });
