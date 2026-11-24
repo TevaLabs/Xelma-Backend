@@ -189,6 +189,11 @@ export function resolveFeatures(
 }
 
 function mountBaseMiddleware(app: Application, mode: AppMode): void {
+  // Correlation ID first, so everything downstream can log it — including
+  // errors raised by the body parsers below (malformed JSON, payload too
+  // large), which otherwise reach the error handler without a requestId.
+  app.use(requestIdMiddleware);
+
   // One helmet configuration for both modes — the shared middleware pins the
   // explicit CSP, frameguard, Referrer-Policy, legacy X-XSS-Protection and
   // Permissions-Policy that helmet's defaults do not set (Issue #414/#480).
@@ -224,8 +229,6 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
     }),
   );
 
-  // Correlation ID first, so everything downstream can log it.
-  app.use(requestIdMiddleware);
   app.use(metricsMiddleware);
   // Both modes log the same shape (method, path, status, durationMs,
   // requestId) on response finish — see src/middleware/httpLogger.middleware.ts

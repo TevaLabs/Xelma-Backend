@@ -25,7 +25,8 @@ describe("JSON Request Body Limit (Issue #682)", () => {
 
     expect(response.status).toBe(413);
     expect(response.body).toHaveProperty("error");
-    expect(response.body.error).toBe("Payload too large");
+    expect(response.body.error).toBe("PayloadTooLargeError");
+    expect(response.body.message).toBe("Payload too large");
     expect(response.body).toHaveProperty("code", "PAYLOAD_TOO_LARGE");
     expect(response.body).toHaveProperty("timestamp");
   });

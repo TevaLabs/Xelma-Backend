@@ -3,6 +3,8 @@ import request from 'supertest';
 import { UserRole } from '@prisma/client';
 import { generateToken } from '../utils/jwt.util';
 import { prisma } from '../lib/prisma';
+import { Keypair } from '@stellar/stellar-sdk';
+import { createHash } from 'crypto';
 
 // Mock Stellar and Soroban services to prevent loading @stellar/stellar-sdk (which contains ESM files that Jest fails to parse)
 jest.mock('../services/stellar.service', () => ({
@@ -20,10 +22,25 @@ jest.mock('../services/soroban.service', () => ({
 
 import app from '../app';
 
+// The hackathon demo runs bets in stub mode (no on-chain placement). BetService
+// reads the flag per call, so scope it to this suite and restore it after.
+const originalBetStubMode = process.env.BET_STUB_MODE;
+beforeAll(() => {
+  process.env.BET_STUB_MODE = 'true';
+});
+afterAll(() => {
+  if (originalBetStubMode === undefined) delete process.env.BET_STUB_MODE;
+  else process.env.BET_STUB_MODE = originalBetStubMode;
+});
+
 describe('Hackathon HTTP Endpoints (Integration)', () => {
   // Valid Stellar-format (G + 55 chars) used as authenticated betting wallet
   // for the hackathon bet smoke tests below.
-  const hackerWallet = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+  // Its own wallet so the user row created below cannot collide with other
+  // integration suites sharing the database (User.walletAddress is unique).
+  const hackerWallet = Keypair.fromRawEd25519Seed(
+    createHash('sha256').update('hackathon-http-spec').digest(),
+  ).publicKey();
   const hackerToken = generateToken('hackathon-http-user', hackerWallet, UserRole.USER);
 
   beforeAll(async () => {
@@ -198,7 +215,8 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
         .send({ address: hackerWallet, amount: 100, side: 'UP' });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe('No token provided');
+      expect(res.body.error).toBe('AuthenticationError');
+      expect(res.body.message).toBe('No token provided');
     });
 
     it('records an up-down bet and matches success schema', async () => {
@@ -231,7 +249,8 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
         .send({ address: hackerWallet, amount: 50, predictedPrice: 65000.5 });
 
       expect(res.status).toBe(401);
-      expect(res.body.error).toBe('No token provided');
+      expect(res.body.error).toBe('AuthenticationError');
+      expect(res.body.message).toBe('No token provided');
     });
 
     it('records a precision bet and matches success schema', async () => {

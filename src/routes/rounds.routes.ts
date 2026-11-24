@@ -11,7 +11,7 @@ import {
 } from "../middleware/auth.middleware";
 import { asyncHandler } from "../middleware/errorHandler.middleware";
 import { toDecimal } from "../utils/decimal.util";
-import { serializeRound } from "../serializers/monetary.serializer";
+import { serializeRound, serializeSimulationResult } from "../serializers/monetary.serializer";
 import {
   adminRoundRateLimiter,
   betRateLimiter,
@@ -533,7 +533,7 @@ const requireSimulationEnabled = (
  *                 roundId: { type: string }
  *                 simulatedPrice: { type: number }
  *                 mode: { type: string, enum: [UP_DOWN, LEGENDS] }
- *                 startPrice: { type: number }
+ *                 startPrice: { $ref: '#/components/schemas/MoneyAmount' }
  *                 winningSide: { type: string, nullable: true, enum: [UP, DOWN] }
  *                 winningRange:
  *                   type: object
@@ -547,8 +547,8 @@ const requireSimulationEnabled = (
  *                     type: object
  *                     properties:
  *                       won: { type: boolean, nullable: true }
- *                       payout: { type: number }
- *                       amount: { type: number }
+ *                       payout: { $ref: '#/components/schemas/MoneyAmount' }
+ *                       amount: { $ref: '#/components/schemas/MoneyAmount' }
  *                       side: { type: string, nullable: true, enum: [UP, DOWN] }
  *                 summary:
  *                   type: object
@@ -557,7 +557,7 @@ const requireSimulationEnabled = (
  *                     winners: { type: integer }
  *                     losers: { type: integer }
  *                     refunded: { type: integer }
- *                     totalPayout: { type: number }
+ *                     totalPayout: { $ref: '#/components/schemas/MoneyAmount' }
  *       400:
  *         description: Validation error - finalPrice missing
  *       401:
@@ -588,16 +588,17 @@ router.post(
         .json({ success: false, error: "Round not found" });
     }
 
+    const serialized = serializeSimulationResult(result);
     res.json({
       success: true,
-      roundId: result.roundId,
-      simulatedPrice: result.simulatedPrice,
-      mode: result.mode,
-      startPrice: result.startPrice,
-      winningSide: result.winningSide,
-      winningRange: result.winningRange,
-      predictions: result.predictions,
-      summary: result.summary,
+      roundId: serialized.roundId,
+      simulatedPrice: serialized.simulatedPrice,
+      mode: serialized.mode,
+      startPrice: serialized.startPrice,
+      winningSide: serialized.winningSide,
+      winningRange: serialized.winningRange,
+      predictions: serialized.predictions,
+      summary: serialized.summary,
     });
   }),
 );
@@ -627,10 +628,13 @@ router.post(
       return next(err);
     }
 
+    // `id` names a hackathon demo round (hackathon_rounds), not a `Round`
+    // row, so it is not forwarded to BetService — which would 404 on it.
+    // BetService binds the bet to the newest ACTIVE round of the mode, as
+    // for /api/bets/*; the per-round demo view was updated just above.
     await executeBet(req, res, next, {
       kind: "up-down",
       endpoint: "/api/rounds/hackathon/up-down/:id/bet",
-      roundId: id,
     });
   }) as any,
 );
@@ -657,10 +661,13 @@ router.post(
       return next(err);
     }
 
+    // `id` names a hackathon demo round (hackathon_rounds), not a `Round`
+    // row, so it is not forwarded to BetService — which would 404 on it.
+    // BetService binds the bet to the newest ACTIVE round of the mode, as
+    // for /api/bets/*; the per-round demo view was updated just above.
     await executeBet(req, res, next, {
       kind: "precision",
       endpoint: "/api/rounds/hackathon/precision/:id/bet",
-      roundId: id,
     });
   }) as any,
 );

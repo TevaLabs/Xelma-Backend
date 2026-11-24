@@ -72,6 +72,24 @@ jest.mock('../lib/prisma', () => ({
                 }
                 return r;
             }),
+            // The lifecycle state machine settles a round with a guarded
+            // updateMany (matching the allowed source statuses).
+            updateMany: jest.fn(async ({ where, data }: any) => {
+                const r = mockRounds.find(r => r.id === where.id);
+                if (!r) return { count: 0 };
+                if (where.status?.in && !where.status.in.includes(r.status)) return { count: 0 };
+                Object.assign(r, data);
+                if (data.endPrice !== undefined) r.endPrice = new Decimal(data.endPrice);
+                return { count: 1 };
+            }),
+        },
+        // Resolution settles the CONFIRMED Bet matching each prediction; this
+        // suite has none.
+        bet: {
+            findFirst: jest.fn(async () => null),
+        },
+        outboxEvent: {
+            create: jest.fn(async ({ data }: any) => ({ id: 'outbox-' + Math.random(), ...data })),
         },
         user: {
             deleteMany: jest.fn(async () => { mockUsers.length = 0; }),
@@ -91,7 +109,8 @@ jest.mock('../lib/prisma', () => ({
             update: jest.fn(async ({ where, data }: any) => {
                 const u = mockUsers.find(u => u.id === where.id);
                 if (u) {
-                    if (data.virtualBalance && data.virtualBalance.increment) {
+                    // `increment: 0` (a loser's payout) is still an increment.
+                    if (data.virtualBalance && typeof data.virtualBalance === 'object' && 'increment' in data.virtualBalance) {
                         u.virtualBalance = new Decimal(u.virtualBalance).plus(new Decimal(data.virtualBalance.increment));
                     } else if (data.virtualBalance !== undefined) {
                         u.virtualBalance = new Decimal(data.virtualBalance);
@@ -101,6 +120,9 @@ jest.mock('../lib/prisma', () => ({
             }),
         },
         $disconnect: jest.fn(async () => { }),
+        // Resolution runs inside an interactive transaction; the in-memory
+        // mock is its own transaction client.
+        $transaction: jest.fn(async (fn: any) => fn((jest.requireMock('../lib/prisma') as any).prisma)),
     }
 }));
 
@@ -110,6 +132,8 @@ import resolutionService from '../services/resolution.service';
 // Mock Soroban Service
 jest.mock('../services/soroban.service', () => ({
     resolveRound: jest.fn(async () => { }),
+    applyMoneyPathFailure: jest.fn((_operation: string, error: unknown) => { throw error; }),
+    isFailClosed: jest.fn(() => true),
     placeBet: jest.fn(async () => { }),
     createRound: jest.fn(async () => 'soroban-round-id'),
 }));
@@ -121,6 +145,11 @@ jest.mock('../services/notification.service', () => ({
 
 // Mock WebSocket Service
 jest.mock('../services/websocket.service', () => ({
+    __esModule: true,
+    default: {
+        emitNotification: jest.fn(),
+        emitRoundResolved: jest.fn(),
+    },
     emitNotification: jest.fn(),
 }));
 
@@ -155,7 +184,8 @@ describe('Monetary Precision and Deterministic Payouts', () => {
         const round = await prisma.round.create({
             data: {
                 mode: 'UP_DOWN',
-                status: 'ACTIVE',
+                // Resolution only settles LOCKED rounds (round lifecycle).
+                status: 'LOCKED',
                 startPrice: 100.0,
                 startTime: new Date(),
                 endTime: new Date(),
@@ -166,9 +196,9 @@ describe('Monetary Precision and Deterministic Payouts', () => {
 
         await prisma.prediction.createMany({
             data: [
-                { roundId: round.id, userId: userA.id, side: 'UP', amount: 10.33 },
-                { roundId: round.id, userId: userB.id, side: 'UP', amount: 10.33 },
-                { roundId: round.id, userId: userC.id, side: 'DOWN', amount: 10.34 },
+                { roundId: round.id, userId: userA.id, side: 'UP', amount: 10.33, chainStatus: 'CONFIRMED' },
+                { roundId: round.id, userId: userB.id, side: 'UP', amount: 10.33, chainStatus: 'CONFIRMED' },
+                { roundId: round.id, userId: userC.id, side: 'DOWN', amount: 10.34, chainStatus: 'CONFIRMED' },
             ],
         });
 
@@ -191,7 +221,8 @@ describe('Monetary Precision and Deterministic Payouts', () => {
         const round = await prisma.round.create({
             data: {
                 mode: 'UP_DOWN',
-                status: 'ACTIVE',
+                // Resolution only settles LOCKED rounds (round lifecycle).
+                status: 'LOCKED',
                 startPrice: 100.0,
                 startTime: new Date(),
                 endTime: new Date(),
@@ -202,9 +233,9 @@ describe('Monetary Precision and Deterministic Payouts', () => {
 
         await prisma.prediction.createMany({
             data: [
-                { roundId: round.id, userId: userA.id, side: 'UP', amount: 10.33 },
-                { roundId: round.id, userId: userB.id, side: 'UP', amount: 10.33 },
-                { roundId: round.id, userId: userC.id, side: 'DOWN', amount: 10.34 },
+                { roundId: round.id, userId: userA.id, side: 'UP', amount: 10.33, chainStatus: 'CONFIRMED' },
+                { roundId: round.id, userId: userB.id, side: 'UP', amount: 10.33, chainStatus: 'CONFIRMED' },
+                { roundId: round.id, userId: userC.id, side: 'DOWN', amount: 10.34, chainStatus: 'CONFIRMED' },
             ],
         });
 
@@ -222,7 +253,8 @@ describe('Monetary Precision and Deterministic Payouts', () => {
         const round = await prisma.round.create({
             data: {
                 mode: 'UP_DOWN',
-                status: 'ACTIVE',
+                // Resolution only settles LOCKED rounds (round lifecycle).
+                status: 'LOCKED',
                 startPrice: 100.0,
                 startTime: new Date(),
                 endTime: new Date(),
@@ -233,9 +265,9 @@ describe('Monetary Precision and Deterministic Payouts', () => {
 
         await prisma.prediction.createMany({
             data: [
-                { roundId: round.id, userId: userA.id, side: 'UP', amount: 10 },
-                { roundId: round.id, userId: userB.id, side: 'UP', amount: 10 },
-                { roundId: round.id, userId: userC.id, side: 'UP', amount: 10 },
+                { roundId: round.id, userId: userA.id, side: 'UP', amount: 10, chainStatus: 'CONFIRMED' },
+                { roundId: round.id, userId: userB.id, side: 'UP', amount: 10, chainStatus: 'CONFIRMED' },
+                { roundId: round.id, userId: userC.id, side: 'UP', amount: 10, chainStatus: 'CONFIRMED' },
             ],
         });
 

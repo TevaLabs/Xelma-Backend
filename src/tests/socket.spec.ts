@@ -169,7 +169,13 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
     });
 
     afterAll(async () => {
-       if (httpServer) {
+       // Close Socket.IO first: it disconnects every client (upgraded
+       // websockets are not covered by closeAllConnections) and then closes
+       // the underlying HTTP server, so a client left open by a failed test
+       // cannot keep the teardown hanging.
+       if (io) {
+          await new Promise<void>(resolve => io.close(() => resolve()));
+       } else if (httpServer) {
           await new Promise<void>(resolve => {
              httpServer.closeAllConnections?.();
              httpServer.close(() => resolve());
@@ -882,12 +888,13 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
          });
 
          const roundUpdateData = await roundUpdatePromise;
+         // Pools go out as 8-dp decimal strings (monetary contract).
          expect(roundUpdateData).toMatchObject({
             id: 'round-789',
             mode: 'UP_DOWN',
             status: 'ACTIVE',
-            poolUp: 100,
-            poolDown: 200,
+            poolUp: '100.00000000',
+            poolDown: '200.00000000',
          });
 
          // 2. Emit price_update via websocketService

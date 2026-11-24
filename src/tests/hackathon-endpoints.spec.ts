@@ -20,6 +20,17 @@ jest.mock('../services/soroban.service', () => ({
 import { createApp } from '../app';
 import hackathonService from '../services/hackathon.service';
 
+// The hackathon demo runs bets in stub mode (no on-chain placement). BetService
+// reads the flag per call, so scope it to this suite and restore it after.
+const originalBetStubMode = process.env.BET_STUB_MODE;
+beforeAll(() => {
+  process.env.BET_STUB_MODE = 'true';
+});
+afterAll(() => {
+  if (originalBetStubMode === undefined) delete process.env.BET_STUB_MODE;
+  else process.env.BET_STUB_MODE = originalBetStubMode;
+});
+
 describe('Hackathon Endpoints & Middleware', () => {
   const app = createApp();
 
@@ -127,7 +138,12 @@ describe('Hackathon Endpoints & Middleware', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         success: true,
-        data: { message: 'Bet recorded (stub)' },
+        data: {
+          message: 'Bet recorded (stub)',
+          state: 'stub',
+          betId: expect.any(String),
+          status: 'ACCEPTED',
+        },
       });
 
       // Verify DB update
@@ -156,7 +172,12 @@ describe('Hackathon Endpoints & Middleware', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         success: true,
-        data: { message: 'Precision bet recorded (stub)' },
+        data: {
+          message: 'Precision bet recorded (stub)',
+          state: 'stub',
+          betId: expect.any(String),
+          status: 'ACCEPTED',
+        },
       });
 
       // Verify DB update
@@ -170,8 +191,11 @@ describe('Hackathon Endpoints & Middleware', () => {
     it('returns 404 JSON for invalid paths', async () => {
       const res = await request(app).get('/api/invalid-url-path');
       expect(res.status).toBe(404);
-      expect(res.body).toEqual({
-        error: 'Not Found',
+      // Standard error envelope shared by both apps (#637).
+      expect(res.body).toMatchObject({
+        error: 'NotFoundError',
+        code: 'NOT_FOUND',
+        message: 'Route GET /api/invalid-url-path not found',
         path: '/api/invalid-url-path',
       });
     });

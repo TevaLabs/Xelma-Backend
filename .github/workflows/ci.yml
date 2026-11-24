@@ -117,6 +117,9 @@ jobs:
   test-unit:
     name: test (unit)
     runs-on: ubuntu-latest
+    # node-version-check.spec.ts boots the compiled server (dist/index.js)
+    # under an old Node to prove the startup guard, so it needs the build.
+    needs: build
     env:
       NODE_ENV: test
       JWT_SECRET: ci-test-secret
@@ -134,6 +137,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
 
       - name: Run unit tests with coverage
         run: npm run test:unit:coverage
@@ -169,6 +178,20 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      # Real Redis for the distributed idempotency lock suites
+      # (bets-idempotency-concurrency.spec.ts, Issue #493). REDIS_URL is not
+      # set job-wide on purpose: those suites default to localhost:6379, and
+      # every other suite keeps exercising the no-Redis path.
+      redis:
+        image: public.ecr.aws/docker/library/redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -184,6 +207,13 @@ jobs:
 
       - name: Run database migrations
         run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
+
+      # Hackathon demo rounds/leaderboard (hackathon_* tables) that the
+      # hackathon HTTP and endpoint suites read and bet against. Idempotent.
+      - name: Seed hackathon demo data
+        run: npm run db:seed:mock
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
 
@@ -232,6 +262,13 @@ jobs:
 
       - name: Run database migrations
         run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
+
+      # Hackathon demo rounds/leaderboard (hackathon_* tables) that the
+      # hackathon HTTP and endpoint suites read and bet against. Idempotent.
+      - name: Seed hackathon demo data
+        run: npm run db:seed:mock
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
 

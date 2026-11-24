@@ -64,8 +64,8 @@ jest.mock('../services/websocket.service', () => ({
 }));
 
 jest.mock('../lib/redis', () => ({
-   invalidateNamespace: jest.fn(),
-   invalidateLeaderboardSortedSet: jest.fn(),
+   invalidateNamespace: jest.fn(async () => undefined),
+   invalidateLeaderboardSortedSet: jest.fn(async () => undefined),
 }));
 
 jest.mock('../utils/logger', () => ({
@@ -205,6 +205,11 @@ const txProxy = {
          }
          return existing;
       }),
+   },
+   // Resolution looks up the CONFIRMED Bet matching each prediction to settle
+   // it; this suite has no Bet rows.
+   bet: {
+      findFirst: jest.fn(async () => null),
    },
    outboxEvent: {
       create: jest.fn(async ({ data }: any) => {

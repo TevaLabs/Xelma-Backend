@@ -7,7 +7,13 @@ import { PredictionService } from "../services/prediction.service";
 // Mock factory creates fns internally to avoid jest.mock() hoisting TDZ issues
 jest.mock("../lib/prisma", () => {
   const round = { findUnique: jest.fn(), update: jest.fn() };
-  const prediction = { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn() };
+  const prediction = {
+    findUnique: jest.fn(),
+    findUniqueOrThrow: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  };
   const user = { findUnique: jest.fn(), update: jest.fn() };
   const outboxEvent = { create: jest.fn().mockResolvedValue({ id: "outbox-1" }) };
   return {
@@ -25,7 +31,7 @@ jest.mock("../lib/prisma", () => {
 
 jest.mock("../services/soroban.service", () => ({
   __esModule: true,
-  default: { placeBet: jest.fn().mockResolvedValue(undefined) },
+  default: { placeBet: jest.fn().mockResolvedValue({ txHash: "tx-hash-1" }) },
 }));
 
 import { PredictionService as _PS } from "../services/prediction.service";
@@ -35,6 +41,8 @@ import { prisma } from "../lib/prisma";
 const mockRoundFindUnique = prisma.round.findUnique as jest.Mock;
 const mockRoundUpdate = prisma.round.update as jest.Mock;
 const mockPredictionFindUnique = prisma.prediction.findUnique as jest.Mock;
+const mockPredictionFindUniqueOrThrow = prisma.prediction.findUniqueOrThrow as jest.Mock;
+const mockPredictionUpdate = prisma.prediction.update as jest.Mock;
 const mockPredictionFindMany = prisma.prediction.findMany as jest.Mock;
 const mockPredictionCreate = prisma.prediction.create as jest.Mock;
 const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
@@ -80,7 +88,8 @@ describe("PredictionService (Issue #78)", () => {
           mode: "UP_DOWN",
           status: "ACTIVE",
         });
-        mockPredictionFindUnique.mockResolvedValue({ id: "existing-pred" });
+        // Only a settled row blocks a new prediction; a FAILED one is reused.
+        mockPredictionFindUnique.mockResolvedValue({ id: "existing-pred", chainStatus: "CONFIRMED" });
 
         await expect(
           predictionService.submitPrediction(userId, roundId, 100, "UP")
@@ -172,7 +181,11 @@ describe("PredictionService (Issue #78)", () => {
           mode: "UP_DOWN",
           status: "ACTIVE",
         });
-        mockPredictionFindUnique.mockResolvedValue(null);
+        mockPredictionFindUnique
+          // Phase 1: no existing prediction for (round, user).
+          .mockResolvedValueOnce(null)
+          // Phase 3: finalizeChainSuccess re-reads the PENDING row.
+          .mockResolvedValueOnce({ id: "pred-1", chainStatus: "PENDING" });
         mockUserFindUnique.mockResolvedValue({
           id: userId,
           walletAddress: "GXXX",
@@ -187,6 +200,9 @@ describe("PredictionService (Issue #78)", () => {
           createdAt: new Date(),
         };
         mockPredictionCreate.mockResolvedValue(created);
+        const confirmed = { ...created, chainStatus: "CONFIRMED", txHash: "tx-hash-1" };
+        mockPredictionUpdate.mockResolvedValue(confirmed);
+        mockPredictionFindUniqueOrThrow.mockResolvedValue(confirmed);
         mockUserUpdate.mockResolvedValue({ id: userId, walletAddress: "GXXX", virtualBalance: 900 });
         mockRoundUpdate.mockResolvedValue({
           id: roundId,
@@ -209,14 +225,21 @@ describe("PredictionService (Issue #78)", () => {
           "UP"
         );
 
-        expect(result).toEqual(created);
+        // UP_DOWN predictions are confirmed on-chain and re-read afterwards.
+        expect(result).toEqual(confirmed);
         expect(mockPredictionCreate).toHaveBeenCalledWith({
           data: {
             roundId,
             userId,
             amount: 100,
             side: "UP",
+            priceRange: undefined,
+            chainStatus: "PENDING",
           },
+        });
+        expect(mockPredictionUpdate).toHaveBeenCalledWith({
+          where: { id: "pred-1" },
+          data: expect.objectContaining({ chainStatus: "CONFIRMED", txHash: "tx-hash-1" }),
         });
         // Service uses an atomic WHERE+DECREMENT pattern to prevent race conditions
         expect(mockUserUpdate).toHaveBeenCalledWith({
@@ -291,6 +314,8 @@ describe("PredictionService (Issue #78)", () => {
             amount: 50,
             side: undefined,
             priceRange: { min: 1, max: 2 },
+            // LEGENDS has no on-chain leg.
+            chainStatus: "NOT_REQUIRED",
           },
         });
         expect(mockRoundUpdate).toHaveBeenCalledWith({

@@ -49,7 +49,8 @@ describe("authenticateUser — deleted user with a valid JWT (#969)", () => {
 
     expect(res.status).toBe(401);
     expect(res.body.code).toBe(ErrorCode.AUTH_USER_NOT_FOUND);
-    expect(res.body.error).toBe("User not found");
+    expect(res.body.error).toBe("AuthenticationError");
+    expect(res.body.message).toBe("User associated with this token no longer exists");
     // The raw token must never be echoed back.
     expect(JSON.stringify(res.body)).not.toContain(token);
   });
@@ -79,8 +80,10 @@ describe("authenticateUser — deleted user with a valid JWT (#969)", () => {
       .set("Authorization", "Bearer not-a-jwt");
 
     expect(res.status).toBe(401);
-    expect(res.body.error).toBe("Invalid or expired token");
-    expect(res.body.code).toBeUndefined();
+    expect(res.body.error).toBe("AuthenticationError");
+    expect(res.body.message).toBe("Invalid or expired token");
+    // Generic authentication failure, not the user-not-found code.
+    expect(res.body.code).toBe(ErrorCode.AUTHENTICATION_ERROR);
     expect(mockUserFindUnique).not.toHaveBeenCalled();
   });
 
@@ -88,7 +91,8 @@ describe("authenticateUser — deleted user with a valid JWT (#969)", () => {
     const res = await request(app).get("/protected");
 
     expect(res.status).toBe(401);
-    expect(res.body.error).toBe("No token provided");
+    expect(res.body.error).toBe("AuthenticationError");
+    expect(res.body.message).toBe("No token provided");
     expect(mockUserFindUnique).not.toHaveBeenCalled();
   });
 });

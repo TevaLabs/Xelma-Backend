@@ -3,8 +3,10 @@ import { Decimal } from '@prisma/client/runtime/library';
 
 // Declared with `var` and assigned inside the hoisted prisma mock factory so
 // Jest's mock hoisting cannot place the factory before initialisation (TDZ).
+/* eslint-disable no-var */
 var mockMockLeaderboard: Map<string, any>;
 var mockMockRounds: Map<string, any>;
+/* eslint-enable no-var */
 
 const mockPools: Map<string, { poolUp: Decimal; poolDown: Decimal }> = new Map();
 const mockUsers: Map<string, Decimal> = new Map();

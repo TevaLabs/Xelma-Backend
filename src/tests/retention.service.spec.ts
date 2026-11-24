@@ -2,6 +2,23 @@ import { prisma } from "../lib/prisma";
 import retentionService from "../services/retention.service";
 import logger from "../utils/logger";
 
+// The retention service only touches these three models. Unit runs
+// (TEST_TYPE=unit, no database) get a partial Prisma stub from lib/prisma that
+// does not define them, so give the suite its own spy-able models.
+jest.mock("../lib/prisma", () => {
+  const model = () => ({
+    deleteMany: jest.fn(async () => ({ count: 0 })),
+    count: jest.fn(async () => 0),
+  });
+  return {
+    prisma: {
+      authChallenge: model(),
+      message: model(),
+      auditLog: model(),
+    },
+  };
+});
+
 // Mock logger
 jest.mock("../utils/logger", () => ({
   info: jest.fn(),

@@ -3,7 +3,7 @@ import {
   PrismaClientKnownRequestError,
   PrismaClientValidationError,
 } from '@prisma/client/runtime/library';
-import { AppError, BackpressureError, ValidationError, ErrorCode } from '../utils/errors';
+import { AppError, BackpressureError, PayloadTooLargeError, ValidationError, ErrorCode } from '../utils/errors';
 import { CircuitBreakerOpenError } from '../utils/circuit-breaker';
 import logger from '../utils/logger';
 
@@ -15,7 +15,7 @@ export interface ErrorResponse {
   error: string;
   message: string;
   code: string;
-  path: string; // <-- Added to satisfy the explicit issue requirement
+  path: string;
   requestId?: string;
   details?: { field: string; message: string }[];
   timestamp?: string;
@@ -92,7 +92,7 @@ export function errorHandler(
     (err as any)?.type === 'entity.too.large' ||
     (err as any)?.status === 413
   ) {
-    appError = new AppError('Payload too large', 413, 'PAYLOAD_TOO_LARGE');
+    appError = new PayloadTooLargeError();
   } else if (err instanceof PrismaClientValidationError) {
     appError = new ValidationError('Invalid database query parameters');
   } else if (err instanceof Error) {
@@ -117,10 +117,12 @@ export function errorHandler(
   });
 
   const body: ErrorResponse & { stack?: string } = {
-    error: appError.message || appError.name, // Ensure textual summary error field is clear
+    // `error` is the error class name (documented in BaseErrorResponse);
+    // the human-readable text goes in `message`.
+    error: appError.name,
     message: appError.message,
     code: appError.code,
-    path: req.originalUrl, // <-- Explicitly mapped parameter requirement
+    path: req.originalUrl,
     requestId,
     timestamp,
     ...(retryAfterSeconds !== undefined && { retryAfter: retryAfterSeconds }),

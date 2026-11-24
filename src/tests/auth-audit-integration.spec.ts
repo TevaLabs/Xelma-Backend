@@ -3,6 +3,37 @@ import request from 'supertest';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
 import { auditLogger, AuditEventType } from '../utils/audit-logger';
+import { Keypair } from '@stellar/stellar-sdk';
+import { createHash } from 'crypto';
+
+/**
+ * Valid, deterministic Stellar public keys per scenario. The auth routes
+ * validate wallet addresses as real StrKeys, so placeholder strings such as
+ * "GTEST123CHALLENGE" are rejected with 400 before any audit event fires.
+ */
+function testWallet(label: string): string {
+  const seed = createHash('sha256').update(`auth-audit-integration:${label}`).digest();
+  return Keypair.fromRawEd25519Seed(seed).publicKey();
+}
+
+const WALLETS = {
+  CHALLENGE: testWallet('CHALLENGE'),
+  CLEANUP: testWallet('CLEANUP'),
+  CORRELATION: testWallet('CORRELATION'),
+  EXISTING: testWallet('EXISTING'),
+  EXPIRED: testWallet('EXPIRED'),
+  INVALID: testWallet('INVALID'),
+  METADATA: testWallet('METADATA'),
+  NOTFOUND: testWallet('NOTFOUND'),
+  QUERYABLE: testWallet('QUERYABLE'),
+  REPLACE: testWallet('REPLACE'),
+  REUSED: testWallet('REUSED'),
+  SECURITY: testWallet('SECURITY'),
+  SUCCESS: testWallet('SUCCESS'),
+  WALLET1: testWallet('WALLET1'),
+  WALLET2: testWallet('WALLET2'),
+};
+const ALL_TEST_WALLETS = Object.values(WALLETS);
 
 // Mock the logger to capture audit events
 jest.mock('../utils/logger', () => ({
@@ -11,8 +42,23 @@ jest.mock('../utils/logger', () => ({
   error: jest.fn(),
 }));
 
+// This suite drives many auth requests from one client; it tests audit
+// events, not throttling, so the limiters are passthroughs here.
+jest.mock('../middleware/rateLimiter.middleware', () => {
+  const actual = jest.requireActual('../middleware/rateLimiter.middleware') as Record<string, unknown>;
+  const passthrough = (_req: unknown, _res: unknown, next: () => void) => next();
+  return Object.fromEntries(
+    Object.entries(actual).map(([name, value]) => [
+      name,
+      name.endsWith('RateLimiter') ? passthrough : value,
+    ]),
+  );
+});
+
 // Mock signature verification to control test outcomes
+// (keep the real module so wallet-address validation still works)
 jest.mock('../services/stellar.service', () => ({
+  ...(jest.requireActual('../services/stellar.service') as object),
   verifySignature: jest.fn(),
 }));
 
@@ -29,10 +75,10 @@ describe('Auth Routes - Audit Integration', () => {
     
     // Clean up test data
     await prisma.authChallenge.deleteMany({
-      where: { walletAddress: { startsWith: 'GTEST' } },
+      where: { walletAddress: { in: ALL_TEST_WALLETS } },
     });
     await prisma.user.deleteMany({
-      where: { walletAddress: { startsWith: 'GTEST' } },
+      where: { walletAddress: { in: ALL_TEST_WALLETS } },
     });
   });
 
@@ -42,7 +88,7 @@ describe('Auth Routes - Audit Integration', () => {
 
   describe('POST /api/auth/challenge', () => {
     it('should emit challenge issued audit event on success', async () => {
-      const walletAddress = 'GTEST123CHALLENGE';
+      const walletAddress = WALLETS.CHALLENGE;
       
       const response = await request(app)
         .post('/api/auth/challenge')
@@ -77,7 +123,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit challenge invalidated events when replacing existing challenges', async () => {
-      const walletAddress = 'GTEST123REPLACE';
+      const walletAddress = WALLETS.REPLACE;
       
       // Create first challenge
       await request(app)
@@ -112,7 +158,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should include request metadata in audit events', async () => {
-      const walletAddress = 'GTEST123METADATA';
+      const walletAddress = WALLETS.METADATA;
       
       await request(app)
         .post('/api/auth/challenge')
@@ -137,7 +183,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit complete audit trail for successful authentication', async () => {
-      const walletAddress = 'GTEST123SUCCESS';
+      const walletAddress = WALLETS.SUCCESS;
       
       // Step 1: Create challenge
       const challengeResponse = await request(app)
@@ -201,7 +247,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit user login event for existing user', async () => {
-      const walletAddress = 'GTEST123EXISTING';
+      const walletAddress = WALLETS.EXISTING;
       
       // Create user first
       await prisma.user.create({
@@ -248,7 +294,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit cleanup events for old challenges', async () => {
-      const walletAddress = 'GTEST123CLEANUP';
+      const walletAddress = WALLETS.CLEANUP;
       
       // Create old used challenge
       const oldChallenge = await prisma.authChallenge.create({
@@ -299,7 +345,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit challenge failed event for invalid signature', async () => {
-      const walletAddress = 'GTEST123INVALID';
+      const walletAddress = WALLETS.INVALID;
       
       // Create challenge
       const challengeResponse = await request(app)
@@ -335,7 +381,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit challenge failed event for non-existent challenge', async () => {
-      const walletAddress = 'GTEST123NOTFOUND';
+      const walletAddress = WALLETS.NOTFOUND;
       
       await request(app)
         .post('/api/auth/connect')
@@ -360,7 +406,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit challenge reused event for already used challenge', async () => {
-      const walletAddress = 'GTEST123REUSED';
+      const walletAddress = WALLETS.REUSED;
       
       // Create and use challenge
       const challengeResponse = await request(app)
@@ -411,7 +457,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit challenge expired event for expired challenge', async () => {
-      const walletAddress = 'GTEST123EXPIRED';
+      const walletAddress = WALLETS.EXPIRED;
       
       // Create expired challenge
       const expiredChallenge = await prisma.authChallenge.create({
@@ -450,8 +496,8 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should emit wallet mismatch event', async () => {
-      const walletAddress1 = 'GTEST123WALLET1';
-      const walletAddress2 = 'GTEST123WALLET2';
+      const walletAddress1 = WALLETS.WALLET1;
+      const walletAddress2 = WALLETS.WALLET2;
       
       // Create challenge for wallet1
       const challengeResponse = await request(app)
@@ -489,7 +535,7 @@ describe('Auth Routes - Audit Integration', () => {
 
   describe('Audit Event Structure Validation', () => {
     it('should include correlation identifiers in all events', async () => {
-      const walletAddress = 'GTEST123CORRELATION';
+      const walletAddress = WALLETS.CORRELATION;
       
       await request(app)
         .post('/api/auth/challenge')
@@ -506,7 +552,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should not include sensitive data in audit logs', async () => {
-      const walletAddress = 'GTEST123SECURITY';
+      const walletAddress = WALLETS.SECURITY;
       
       const challengeResponse = await request(app)
         .post('/api/auth/challenge')
@@ -549,7 +595,7 @@ describe('Auth Routes - Audit Integration', () => {
     });
 
     it('should have queryable structure for observability tools', async () => {
-      const walletAddress = 'GTEST123QUERYABLE';
+      const walletAddress = WALLETS.QUERYABLE;
       
       await request(app)
         .post('/api/auth/challenge')

@@ -9,6 +9,7 @@ import sorobanService from "../services/soroban.service";
 import { generateToken } from "../utils/jwt.util";
 import { resetInMemoryIdempotencyStore } from "../utils/idempotency.util";
 import { getConnectedRedisClient } from "../lib/redis";
+import { prisma } from "../lib/prisma";
 
 jest.mock("../services/soroban.service", () => {
   return {
@@ -64,8 +65,11 @@ describe("Bets Routes", () => {
     token = generateToken("user-1", VALID_ADDRESS, UserRole.USER);
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.DATA_STORE = "memory";
+    // Bets persist through BetService; start each test from a clean slate so
+    // the suite is re-runnable (Bet.txHash is unique across runs).
+    await prisma.bet.deleteMany({ where: { user: { walletAddress: VALID_ADDRESS } } });
   });
 
   afterEach(() => {
@@ -89,7 +93,7 @@ describe("Bets Routes", () => {
           message: "Bet recorded (stub)",
           state: "stub",
           betId: expect.any(String),
-          status: "STUB",
+          status: "ACCEPTED", // stub bets stay ACCEPTED (no chain leg)
         },
       });
     });
@@ -112,7 +116,7 @@ describe("Bets Routes", () => {
           state: "on-chain-success",
           txHash: "0x123",
           betId: expect.any(String),
-          status: "CONFIRMED",
+          status: "SUBMITTED", // confirmed later by bet reconciliation
         },
       });
     });
@@ -159,7 +163,8 @@ describe("Bets Routes", () => {
         });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toMatch(/match authenticated user/i);
+      expect(res.body.error).toBe("AuthorizationError");
+      expect(res.body.message).toMatch(/match authenticated user/i);
     });
 
     it("returns 400 when required fields are missing", async () => {
@@ -206,7 +211,11 @@ describe("Bets Routes", () => {
 
     it("idempotency: expired key allows a new bet", async () => {
       process.env.BET_STUB_MODE = "false";
-      (sorobanService.placeBet as jest.Mock).mockResolvedValue({ state: "on-chain-success", txHash: "0xexpired" });
+      // Two distinct on-chain placements produce two distinct tx hashes
+      // (Bet.txHash is unique).
+      (sorobanService.placeBet as jest.Mock)
+        .mockResolvedValueOnce({ state: "on-chain-success", txHash: "0xexpired-1" })
+        .mockResolvedValueOnce({ state: "on-chain-success", txHash: "0xexpired-2" });
 
       const key = "key-updown-expired";
       const payload = { address: VALID_ADDRESS, amount: 10, side: "UP" };
@@ -318,10 +327,10 @@ describe("Bets Routes", () => {
       expect(res.body).toEqual({
         success: true,
         data: {
-          message: "Bet recorded (stub)",
+          message: "Precision bet recorded (stub)",
           state: "stub",
           betId: expect.any(String),
-          status: "STUB",
+          status: "ACCEPTED", // stub bets stay ACCEPTED (no chain leg)
         },
       });
     });
@@ -340,11 +349,11 @@ describe("Bets Routes", () => {
       expect(res.body).toEqual({
         success: true,
         data: {
-          message: "Bet placed on-chain",
+          message: "Precision bet placed on-chain",
           state: "on-chain-success",
           txHash: "0x456",
           betId: expect.any(String),
-          status: "CONFIRMED",
+          status: "SUBMITTED", // confirmed later by bet reconciliation
         },
       });
     });

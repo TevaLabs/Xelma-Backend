@@ -1550,6 +1550,77 @@
         }
       }
     },
+    "/api/rounds/{id}/cancel": {
+      "post": {
+        "summary": "Cancel a round and refund its participants",
+        "description": "Admin-only. Cancels an ACTIVE or LOCKED round and refunds every settled participant inside a single database transaction, writing the matching outbox events atomically. Idempotent: cancelling an already-CANCELLED round returns `already_cancelled` without refunding anyone. A RESOLVED round cannot be cancelled.\n",
+        "tags": [
+          "rounds"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Round cancelled (or already cancelled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "enum": [
+                        "updated",
+                        "already_cancelled"
+                      ]
+                    },
+                    "refundedCount": {
+                      "type": "integer"
+                    },
+                    "refundedTotal": {
+                      "type": "string",
+                      "description": "XLM amount as a decimal string"
+                    },
+                    "round": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT"
+          },
+          "403": {
+            "description": "Forbidden - caller is not an Admin"
+          },
+          "404": {
+            "description": "Round not found"
+          },
+          "409": {
+            "description": "Conflict - round is already resolved or not cancellable"
+          }
+        }
+      }
+    },
     "/api/rounds/{id}/simulate": {
       "post": {
         "summary": "Simulate a round resolution (Non-Production QA Endpoint)",
@@ -1618,7 +1689,7 @@
                       ]
                     },
                     "startPrice": {
-                      "type": "number"
+                      "$ref": "#/components/schemas/MoneyAmount"
                     },
                     "winningSide": {
                       "type": "string",
@@ -1650,10 +1721,10 @@
                             "nullable": true
                           },
                           "payout": {
-                            "type": "number"
+                            "$ref": "#/components/schemas/MoneyAmount"
                           },
                           "amount": {
-                            "type": "number"
+                            "$ref": "#/components/schemas/MoneyAmount"
                           },
                           "side": {
                             "type": "string",
@@ -1682,7 +1753,7 @@
                           "type": "integer"
                         },
                         "totalPayout": {
-                          "type": "number"
+                          "$ref": "#/components/schemas/MoneyAmount"
                         }
                       }
                     }
@@ -1915,7 +1986,50 @@
         },
         "responses": {
           "200": {
-            "description": "Predictions processed"
+            "description": "Batch processed. Per-item outcomes are returned even when some (or all) predictions fail; the HTTP status stays 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "results"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "description": "True when at least one prediction succeeded."
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "index",
+                          "success"
+                        ],
+                        "properties": {
+                          "index": {
+                            "type": "integer"
+                          },
+                          "success": {
+                            "type": "boolean"
+                          },
+                          "prediction": {
+                            "type": "object",
+                            "nullable": true
+                          },
+                          "error": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "429": {
             "description": "Too many batch requests",
@@ -3770,77 +3884,6 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
-          }
-        }
-      }
-    },
-    "/api/rounds/{id}/cancel": {
-      "post": {
-        "summary": "Cancel a round and refund its participants",
-        "description": "Admin-only. Cancels an ACTIVE or LOCKED round and refunds every settled participant inside a single database transaction, writing the matching outbox events atomically. Idempotent: cancelling an already-CANCELLED round returns `already_cancelled` without refunding anyone. A RESOLVED round cannot be cancelled.\n",
-        "tags": [
-          "rounds"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Round cancelled (or already cancelled)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "outcome": {
-                      "type": "string",
-                      "enum": [
-                        "updated",
-                        "already_cancelled"
-                      ]
-                    },
-                    "refundedCount": {
-                      "type": "integer"
-                    },
-                    "refundedTotal": {
-                      "type": "string",
-                      "description": "XLM amount as a decimal string"
-                    },
-                    "round": {
-                      "type": "object"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid JWT"
-          },
-          "403": {
-            "description": "Forbidden - caller is not an Admin"
-          },
-          "404": {
-            "description": "Round not found"
-          },
-          "409": {
-            "description": "Conflict - round is already resolved or not cancellable"
           }
         }
       }

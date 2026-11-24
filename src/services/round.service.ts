@@ -59,9 +59,12 @@ export interface CancelRoundResult {
  * Namespace is the ASCII bytes of "XELM"; keys are stable per mode.
  */
 const ACTIVE_ROUND_LOCK_NAMESPACE = 0x58454c4d; // 'XELM'
+// Plain string keys (still exhaustively type-checked against GameMode) so this
+// module-level table does not dereference the runtime enum at import time —
+// suites that mock @prisma/client without GameMode can still import the service.
 const ACTIVE_ROUND_LOCK_KEY: Record<GameMode, number> = {
-  [GameMode.UP_DOWN]: 1,
-  [GameMode.LEGENDS]: 2,
+  UP_DOWN: 1,
+  LEGENDS: 2,
 };
 
 export class RoundService {
