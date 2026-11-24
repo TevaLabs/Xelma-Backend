@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import { BusinessRuleError, ErrorCode } from '../utils/errors';
 import logger from '../utils/logger';
+import websocketService from './websocket.service';
+import type { BetAcceptedPayload } from '../types/socket-events';
 
 export interface PlaceBetInput {
   userId: string;
@@ -47,7 +49,11 @@ export class HackathonService {
     const { userId, roundId, amount, side } = input;
     const decimalAmount = toDecimal(amount);
 
-    return prisma.$transaction(async (tx) => {
+    // Captured inside the transaction so the socket event can be emitted only
+    // after commit — never from inside the transactional callback.
+    let walletAddress = '';
+
+    const result = await prisma.$transaction(async (tx) => {
       const round = await tx.round.findUnique({
         where: { id: roundId },
       });
@@ -106,6 +112,8 @@ export class HackathonService {
         `Hackathon bet placed: user=${userId}, round=${roundId}, side=${side}, amount=${toNumber(decimalAmount)}`,
       );
 
+      walletAddress = user.walletAddress;
+
       return {
         userId,
         roundId,
@@ -116,6 +124,21 @@ export class HackathonService {
         poolDown: updatedRound!.poolDown,
       };
     });
+
+    // Socket parity with the full-mode bet flow: a hackathon bet is a real
+    // accepted bet, so clients must observe the same `bet:accepted` event.
+    // Same payload shape as the full app's outbox → websocket dispatch.
+    const payload: BetAcceptedPayload = {
+      roundId,
+      address: walletAddress,
+      amount: amount.toString(),
+      side,
+      mode: 'UP_DOWN',
+      state: 'accepted',
+    };
+    websocketService.emitBetAccepted(payload);
+
+    return result;
   }
 
   async getRounds() {
@@ -261,6 +284,18 @@ export class HackathonService {
         }
       }
     });
+
+    // Mock/hackathon bets use the same socket contract as full-mode bets.
+    // `state: 'stub'` mirrors the full app's BET_STUB_MODE dispatch.
+    const payload: BetAcceptedPayload = {
+      roundId,
+      address,
+      amount: amount.toString(),
+      side,
+      mode: predictedPrice !== undefined ? 'PRECISION' : 'UP_DOWN',
+      state: 'stub',
+    };
+    websocketService.emitBetAccepted(payload);
   }
 }
 

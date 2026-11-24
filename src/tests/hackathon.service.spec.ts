@@ -1,11 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import { Decimal } from '@prisma/client/runtime/library';
 
+// Declared with `var` and assigned inside the hoisted prisma mock factory so
+// Jest's mock hoisting cannot place the factory before initialisation (TDZ).
+var mockMockLeaderboard: Map<string, any>;
+var mockMockRounds: Map<string, any>;
+
 const mockPools: Map<string, { poolUp: Decimal; poolDown: Decimal }> = new Map();
 const mockUsers: Map<string, Decimal> = new Map();
 const mockRounds: Map<string, { mode: string; status: string }> = new Map();
 
-jest.mock('../lib/prisma', () => ({
+jest.mock('../lib/prisma', () => {
+    mockMockLeaderboard = new Map();
+    mockMockRounds = new Map();
+    return {
     prisma: {
         $transaction: jest.fn(async (fn: any) => {
             const tx = {
@@ -45,17 +53,58 @@ jest.mock('../lib/prisma', () => ({
                         return { ...mockRounds.get(where.id), poolUp: pools!.poolUp, poolDown: pools!.poolDown };
                     }),
                 },
+                // Mock/hackathon (address-based) bet path collections.
+                mockLeaderboard: {
+                    findUnique: jest.fn(async ({ where }: any) => mockMockLeaderboard.get(where.address) ?? null),
+                    create: jest.fn(async ({ data }: any) => {
+                        const row = { ...data };
+                        mockMockLeaderboard.set(data.address, row);
+                        return row;
+                    }),
+                    update: jest.fn(async ({ where, data }: any) => {
+                        const row = mockMockLeaderboard.get(where.address) ?? {};
+                        if (data.balance?.decrement !== undefined) {
+                            row.balance = (row.balance ?? 1000) - data.balance.decrement;
+                        }
+                        mockMockLeaderboard.set(where.address, row);
+                        return row;
+                    }),
+                },
+                mockBet: {
+                    create: jest.fn(async ({ data }: any) => ({ id: 'mock-bet', ...data })),
+                },
+                mockRound: {
+                    findUnique: jest.fn(async ({ where }: any) => mockMockRounds.get(where.id) ?? null),
+                    update: jest.fn(async ({ where, data }: any) => {
+                        const row = mockMockRounds.get(where.id) ?? {};
+                        if (data.totalPool?.increment !== undefined) row.totalPool = (row.totalPool ?? 0) + data.totalPool.increment;
+                        if (data.predictionCount?.increment !== undefined) row.predictionCount = (row.predictionCount ?? 0) + data.predictionCount.increment;
+                        if (data.poolUp?.increment !== undefined) row.poolUp = (row.poolUp ?? 0) + data.poolUp.increment;
+                        if (data.poolDown?.increment !== undefined) row.poolDown = (row.poolDown ?? 0) + data.poolDown.increment;
+                        mockMockRounds.set(where.id, row);
+                        return row;
+                    }),
+                },
             };
             return await fn(tx);
         }),
     },
-}));
+    };
+});
 
 jest.mock('../services/soroban.service', () => ({
     __esModule: true,
     default: {
         placeBet: jest.fn(() => Promise.resolve()),
         ensureInitialized: jest.fn(),
+    },
+}));
+
+const mockEmitBetAccepted = jest.fn();
+jest.mock('../services/websocket.service', () => ({
+    __esModule: true,
+    default: {
+        emitBetAccepted: (...args: any[]) => mockEmitBetAccepted(...args),
     },
 }));
 
@@ -80,6 +129,8 @@ describe('HackathonService - placeBet', () => {
         mockUsers.clear();
         mockPools.clear();
         mockRounds.clear();
+        mockMockLeaderboard.clear();
+        mockMockRounds.clear();
 
         mockUsers.set(userId, new Decimal(1000));
         mockPools.set(roundId, { poolUp: new Decimal(0), poolDown: new Decimal(0) });
@@ -413,6 +464,82 @@ describe('HackathonService - placeBet', () => {
                     side: 'UP',
                 }),
             ).rejects.toThrow('Round is not active');
+        });
+    });
+
+    describe('bet:accepted socket parity (issue #986)', () => {
+        it('emits bet:accepted with the full-mode payload shape after a transactional bet', async () => {
+            await hackathonService.placeBet({
+                userId,
+                roundId,
+                amount: 25,
+                side: 'UP',
+            });
+
+            expect(mockEmitBetAccepted).toHaveBeenCalledTimes(1);
+            expect(mockEmitBetAccepted).toHaveBeenCalledWith({
+                roundId,
+                address: 'mock-address',
+                amount: '25',
+                side: 'UP',
+                mode: 'UP_DOWN',
+                state: 'accepted',
+            });
+        });
+
+        it('does not emit bet:accepted when a bet is rejected', async () => {
+            mockUsers.set(userId, new Decimal(0));
+
+            await expect(
+                hackathonService.placeBet({
+                    userId,
+                    roundId,
+                    amount: 10,
+                    side: 'UP',
+                }),
+            ).rejects.toThrow('Insufficient balance');
+
+            expect(mockEmitBetAccepted).not.toHaveBeenCalled();
+        });
+
+        it('emits a stub bet:accepted for an address-based mock bet', async () => {
+            mockMockRounds.set(roundId, { mode: 'updown', status: 'live' });
+
+            await hackathonService.placeBet(
+                roundId,
+                'GMOCKADDRESS',
+                12,
+                'DOWN',
+            );
+
+            expect(mockEmitBetAccepted).toHaveBeenCalledTimes(1);
+            expect(mockEmitBetAccepted).toHaveBeenCalledWith({
+                roundId,
+                address: 'GMOCKADDRESS',
+                amount: '12',
+                side: 'DOWN',
+                mode: 'UP_DOWN',
+                state: 'stub',
+            });
+        });
+
+        it('maps a precision mock bet to PRECISION mode', async () => {
+            mockMockRounds.set(roundId, { mode: 'precision', status: 'live' });
+
+            await hackathonService.placeBet(
+                roundId,
+                'GMOCKADDRESS',
+                7,
+                undefined,
+                0.42,
+            );
+
+            expect(mockEmitBetAccepted).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    mode: 'PRECISION',
+                    state: 'stub',
+                }),
+            );
         });
     });
 });

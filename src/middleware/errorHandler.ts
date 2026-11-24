@@ -19,10 +19,18 @@ export function errorHandler(
     const message = isPayloadTooLarge ? 'Payload too large' : (err.message || 'Internal Server Error');
     const code = isPayloadTooLarge ? 'PAYLOAD_TOO_LARGE' : (err.code || (statusCode === 500 ? 'INTERNAL_SERVER_ERROR' : undefined));
 
+    // Envelope parity with the full app's error handler (#972): both
+    // entrypoints must expose the same standard fields so clients do not have
+    // to branch on which server answered. `error` intentionally remains the
+    // error *name* for backwards compatibility with existing hackathon tests.
+    const requestId = (req as any).requestId;
     res.status(statusCode).json({
       error: errorName,
       message: message,
       ...(code ? { code } : {}),
+      path: req.originalUrl,
+      timestamp: new Date().toISOString(),
+      ...(requestId ? { requestId } : {}),
       ...(err.details ? { details: err.details } : {}),
     });
   } catch (error) {

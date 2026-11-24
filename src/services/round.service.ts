@@ -1,4 +1,4 @@
-import { GameMode, Round } from "@prisma/client";
+import { GameMode, Prisma, Round } from "@prisma/client";
 import sorobanService from "./soroban.service";
 import websocketService from "./websocket.service";
 import notificationService from "./notification.service";
@@ -24,6 +24,21 @@ interface LegendsPriceRange {
   min: number;
   max: number;
 }
+
+/**
+ * Postgres advisory-lock key used to serialise concurrent ACTIVE-round starts.
+ * A plain `findFirst` + `create` is a TOCTOU race: two admins (or a double
+ * submit) can both observe "no active round" and both insert one. The lock is
+ * transaction-scoped (`pg_advisory_xact_lock`) and keyed per game mode, so
+ * UP_DOWN and LEGENDS rounds may still start independently.
+ *
+ * Namespace is the ASCII bytes of "XELM"; keys are stable per mode.
+ */
+const ACTIVE_ROUND_LOCK_NAMESPACE = 0x58454c4d; // 'XELM'
+const ACTIVE_ROUND_LOCK_KEY: Record<GameMode, number> = {
+  [GameMode.UP_DOWN]: 1,
+  [GameMode.LEGENDS]: 2,
+};
 
 export class RoundService {
   /**
@@ -89,24 +104,24 @@ export class RoundService {
         }));
       }
 
-      // Create round in database
-      const round = await prisma.round.create({
-        data: {
-          mode: gameMode,
-          // Rounds are instantiated directly in ACTIVE (open) state: creation
-          // bootstraps the machine rather than transitioning an existing row.
-          // Every *transition* out of ACTIVE routes through the lifecycle
-          // state machine (round-lifecycle.service).
-          status: "ACTIVE" as RoundStatus,
-          startTime,
-          endTime,
-          startPrice: startPriceDecimal,
-          sorobanRoundId,
-          isSoroban: mode === "UP_DOWN" && sorobanService.isReady(),
-          priceRanges: priceRanges
-            ? JSON.parse(JSON.stringify(priceRanges))
-            : null,
-        },
+      // Create round in database. The check above is a friendly fast-fail;
+      // reserveActiveRound performs the authoritative, lock-protected check
+      // so two concurrent starts for the same mode cannot both insert a row.
+      const round = await this.reserveActiveRound(gameMode, {
+        mode: gameMode,
+        // Rounds are instantiated directly in ACTIVE (open) state: creation
+        // bootstraps the machine rather than transitioning an existing row.
+        // Every *transition* out of ACTIVE routes through the lifecycle
+        // state machine (round-lifecycle.service).
+        status: "ACTIVE" as RoundStatus,
+        startTime,
+        endTime,
+        startPrice: startPriceDecimal,
+        sorobanRoundId,
+        isSoroban: mode === "UP_DOWN" && sorobanService.isReady(),
+        priceRanges: priceRanges
+          ? JSON.parse(JSON.stringify(priceRanges))
+          : null,
       });
 
       logger.info(
@@ -146,6 +161,40 @@ export class RoundService {
       logger.error("Failed to start round:", error);
       throw error;
     }
+  }
+
+  /**
+   * Atomically reserve the single ACTIVE slot for a game mode.
+   *
+   * The advisory lock serialises concurrent transactions for the same mode;
+   * the re-check inside the transaction is authoritative (the earlier check in
+   * `startRound` is only a fast-fail). A loser of the race gets the same 409
+   * ConflictError as the sequential path, so callers see one consistent
+   * contract regardless of how the race resolves.
+   */
+  private async reserveActiveRound(
+    mode: GameMode,
+    data: Prisma.RoundUncheckedCreateInput,
+  ): Promise<Round> {
+    return prisma.$transaction(async (tx) => {
+      // Prisma binds JS numbers as bigint; the two-argument advisory-lock
+      // function is `(int4, int4)`, so cast explicitly.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ACTIVE_ROUND_LOCK_NAMESPACE}::int, ${ACTIVE_ROUND_LOCK_KEY[mode]}::int)`;
+
+      const active = await tx.round.findFirst({
+        where: { mode, status: "ACTIVE" },
+        select: { id: true },
+      });
+
+      if (active) {
+        throw new ConflictError(
+          `An active ${mode} round already exists (ID: ${active.id})`,
+          ErrorCode.ACTIVE_ROUND_EXISTS,
+        );
+      }
+
+      return tx.round.create({ data });
+    });
   }
 
   /**
