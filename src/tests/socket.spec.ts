@@ -13,6 +13,7 @@ import {
 import { createServer, Server as HttpServer } from 'http';
 import { io as ioClient, Socket } from 'socket.io-client';
 import { Server as SocketIOServer } from 'socket.io';
+import jwt from 'jsonwebtoken';
 import { createApp } from '../index';
 import {
    initializeSocket,
@@ -213,6 +214,83 @@ describe('Socket.IO Auth & Room Events (Issue #78)', () => {
          client.connect();
          await waitForConnect(client);
          expect(client.connected).toBe(true);
+         client.disconnect();
+      });
+   });
+
+   describe('Expired token at connect time (Issue #1001)', () => {
+      function makeExpiredToken(): string {
+         // jsonwebtoken accepts a negative expiresIn, producing a token
+         // whose exp is already in the past (same helper pattern as
+         // socket-reconnect.spec.ts).
+         return jwt.sign(
+            { userId: testUser.id, walletAddress: testUser.walletAddress, role: UserRole.USER },
+            process.env.JWT_SECRET as string,
+            { expiresIn: -1 } as any
+         );
+      }
+
+      it('emits a typed auth:error and then disconnects for an expired token', async () => {
+         const client = ioClient(baseURL, {
+            auth: { token: makeExpiredToken() },
+            transports: ['websocket'],
+            autoConnect: false,
+         });
+
+         const authErrorPromise = waitFor(client, 'auth:error');
+         const disconnectPromise = waitForDisconnect(client);
+         const helloSpy = jest.fn();
+         client.on('server:hello', helloSpy);
+
+         client.connect();
+
+         const payload = await authErrorPromise;
+         expect(payload).toMatchObject({
+            code: 'AUTH_TOKEN_EXPIRED',
+            message: expect.stringContaining('expired'),
+         });
+
+         const reason = await disconnectPromise;
+         expect(reason).toBe('io server disconnect');
+         expect(client.connected).toBe(false);
+         // The socket is rejected before any hello/registry/room work.
+         expect(helloSpy).not.toHaveBeenCalled();
+         client.disconnect();
+      });
+
+      it('does not emit auth:error for a valid token', async () => {
+         const client = ioClient(baseURL, {
+            auth: { token: validToken },
+            transports: ['websocket'],
+            autoConnect: false,
+         });
+
+         const authErrorSpy = jest.fn();
+         client.on('auth:error', authErrorSpy);
+
+         client.connect();
+         const hello = await waitFor(client, 'server:hello');
+         expect(hello.authenticated).toBe(true);
+         expect(authErrorSpy).not.toHaveBeenCalled();
+         expect(client.connected).toBe(true);
+         client.disconnect();
+      });
+
+      it('still rejects a structurally invalid token with connect_error, not auth:error', async () => {
+         const client = ioClient(baseURL, {
+            auth: { token: 'invalid.jwt.token' },
+            transports: ['websocket'],
+            autoConnect: false,
+         });
+
+         const authErrorSpy = jest.fn();
+         client.on('auth:error', authErrorSpy);
+
+         client.connect();
+         await expect(waitForConnect(client)).rejects.toMatchObject({
+            message: expect.stringContaining('AUTH_TOKEN_INVALID'),
+         });
+         expect(authErrorSpy).not.toHaveBeenCalled();
          client.disconnect();
       });
    });
