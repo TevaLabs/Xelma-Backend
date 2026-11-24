@@ -21,7 +21,7 @@ import {
   measureWebSocketFanout,
   runConcurrentLoad,
 } from "./load-test.harness";
-import { betStore } from "../data/bet-store";
+import { prisma } from "../lib/prisma";
 
 // Mock external services to keep performance tests focused on backend logic
 jest.mock("../services/stellar.service", () => ({
@@ -32,7 +32,10 @@ jest.mock("../services/stellar.service", () => ({
 jest.mock("../services/soroban.service", () => ({
   __esModule: true,
     default: {
-      placeBet: jest.fn().mockResolvedValue(undefined),
+      // A successful chain call yields a unique tx hash (Prediction.txHash is unique).
+      placeBet: jest.fn(async () => ({
+        txHash: `tx-perf-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      })),
       ensureInitialized: jest.fn(),
       getActiveRound: jest.fn().mockResolvedValue(null),
     },
@@ -51,6 +54,11 @@ jest.mock("../lib/redis", () => {
     // keeps a fake client so it stays a pure throughput harness without a
     // live Redis dependency.
     getConnectedRedisClient: jest.fn().mockResolvedValue(fakeLockClient),
+    // Report Redis as configured so the (fake) distributed lock path runs;
+    // the rate limiters keep their in-process store.
+    isRedisConfigured: jest.fn().mockReturnValue(true),
+    isRedisRateLimitConfigured: jest.fn().mockReturnValue(false),
+    isRedisCacheEnabled: jest.fn().mockReturnValue(false),
   };
 });
 
@@ -69,8 +77,16 @@ jest.mock("../middleware/rateLimiter.middleware", () => ({
 }));
 
 // Mock Prisma to keep tests lightweight and avoid DB dependency
+// Bets written through the mocked transaction (BetService persists every
+// /api/bets/* bet), shared across $transaction calls so the service can
+// re-read what it wrote and the idempotency test can count real creations.
+const mockCreatedBets = new Map<string, any>();
+
 jest.mock("../lib/prisma", () => ({
   prisma: {
+    bet: {
+      count: jest.fn(async () => mockCreatedBets.size),
+    },
     user: {
       findUnique: jest.fn().mockResolvedValue({
         id: "perf-user-id",
@@ -99,6 +115,18 @@ jest.mock("../lib/prisma", () => ({
     },
     prediction: {
       findUnique: jest.fn().mockResolvedValue(null),
+      // UP_DOWN submissions re-read the confirmed row after the chain call.
+      findUniqueOrThrow: jest.fn().mockImplementation(({ where }: any) =>
+        Promise.resolve({
+          id: where.id,
+          roundId: "some-uuid",
+          amount: 10,
+          side: "UP",
+          priceRange: null,
+          chainStatus: "CONFIRMED",
+          createdAt: new Date(),
+        }),
+      ),
     },
     idempotencyKey: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -130,6 +158,7 @@ jest.mock("../lib/prisma", () => ({
     $transaction: jest.fn((cb) =>
       cb({
         round: {
+          findFirst: jest.fn().mockResolvedValue(null),
           findUnique: jest.fn().mockResolvedValue({
             id: "some-uuid",
             status: "ACTIVE",
@@ -185,6 +214,21 @@ jest.mock("../lib/prisma", () => ({
         },
         outboxEvent: {
           create: jest.fn().mockResolvedValue({ id: "outbox-1" }),
+        },
+        // BetService persists /api/bets/* bets in the transaction: it binds
+        // the newest ACTIVE round (none here) and writes the Bet row.
+        bet: {
+          create: jest.fn(async ({ data }: any) => {
+            const bet = { id: `bet-${Math.random().toString(36).slice(2)}`, ...data };
+            mockCreatedBets.set(bet.id, bet);
+            return bet;
+          }),
+          update: jest.fn(async ({ where, data }: any) => {
+            const bet = { ...mockCreatedBets.get(where.id), ...data };
+            mockCreatedBets.set(where.id, bet);
+            return bet;
+          }),
+          findUnique: jest.fn(async ({ where }: any) => mockCreatedBets.get(where.id) ?? null),
         },
       })
     ),
@@ -398,7 +442,7 @@ describe("Load Test Harness — Duplicate idempotency (#500)", () => {
     const { concurrency, iterations, maxP95LatencyMs, maxErrorRate } =
       LOAD_CONFIG.idempotency;
     const idempotencyKey = `load-idempotency-${Date.now()}`;
-    const beforeCount = betStore.getBets({ address: BET_WALLET }).length;
+    const beforeCount = await prisma.bet.count();
 
     const result = await runConcurrentLoad({
       concurrency,
@@ -425,7 +469,7 @@ describe("Load Test Harness — Duplicate idempotency (#500)", () => {
 
     console.log(formatLoadTestReport("duplicate idempotency", result));
 
-    const created = betStore.getBets({ address: BET_WALLET }).length - beforeCount;
+    const created = (await prisma.bet.count()) - beforeCount;
     expect(created).toBe(1);
     expect(result.errorRate).toBeLessThanOrEqual(maxErrorRate);
     expect(result.latencyMs.p95).toBeLessThanOrEqual(maxP95LatencyMs);

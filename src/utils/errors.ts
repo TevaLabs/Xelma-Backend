@@ -165,6 +165,13 @@ export class BackpressureError extends ExternalServiceError {
   }
 }
 
+/** 413 – request body exceeds the configured JSON body limit */
+export class PayloadTooLargeError extends AppError {
+  constructor(message = "Payload too large") {
+    super(message, 413, "PAYLOAD_TOO_LARGE");
+  }
+}
+
 /** 500 – misconfiguration detected at runtime */
 export class ConfigurationError extends AppError {
   constructor(message: string, code: ErrorCode | string = ErrorCode.CONFIGURATION_ERROR) {

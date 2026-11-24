@@ -11,7 +11,12 @@ jest.mock('../services/soroban.service', () => {
     return {
         __esModule: true,
         default: {
-            placeBet: jest.fn(() => Promise.resolve()),
+            // A successful chain call returns the transaction hash that the
+            // finalize phase records on the prediction — unique per call, as
+            // on a real chain (Prediction.txHash is unique).
+            placeBet: jest.fn(() =>
+                Promise.resolve({ txHash: `tx-concurrency-${Date.now()}-${Math.random().toString(36).slice(2)}` }),
+            ),
             ensureInitialized: jest.fn(),
         }
     };
@@ -75,7 +80,7 @@ describeDb('Prediction Service - Transactional & Concurrency Tests', () => {
     });
 
     describe('Transactional Integrity', () => {
-        it('should rollback all DB changes if Soroban call fails', async () => {
+        it('should compensate all money movements if Soroban call fails', async () => {
             // Mock Soroban to fail
             (sorobanService.placeBet as any).mockRejectedValueOnce(new Error('Soroban Network Error'));
 
@@ -86,11 +91,16 @@ describeDb('Prediction Service - Transactional & Concurrency Tests', () => {
                 predictionService.submitPrediction(user.id, testRound.id, 100, 'UP')
             ).rejects.toThrow('Soroban Network Error');
 
-            // Verify no prediction created
-            const predictionCount = await prisma.prediction.count({
+            // 3-phase flow (reservation -> chain -> finalize): the reservation
+            // is committed before the chain call, so a definitive chain failure
+            // is compensated rather than rolled back. The row is kept as FAILED
+            // (and reused on retry); no money may stay moved.
+            const predictions = await prisma.prediction.findMany({
                 where: { userId: user.id, roundId: testRound.id }
             });
-            expect(predictionCount).toBe(0);
+            expect(predictions).toHaveLength(1);
+            expect(predictions[0].chainStatus).toBe('FAILED');
+            expect(predictions[0].compensatedAt).not.toBeNull();
 
             // Verify balance NOT deducted
             const updatedUser = await prisma.user.findUnique({ where: { id: user.id } });

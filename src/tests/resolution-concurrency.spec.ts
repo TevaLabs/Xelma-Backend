@@ -1,3 +1,5 @@
+import { toDecimal } from '../utils/decimal.util';
+import { RoundLifecycleOutcome } from '../types/round.types';
 import {
    describe,
    it,
@@ -23,6 +25,12 @@ jest.mock('../services/soroban.service', () => {
       default: {
          resolveRound: jest.fn(() => Promise.resolve()),
          ensureInitialized: jest.fn(),
+         // Fail-closed: a Soroban failure aborts the money path (and so rolls
+         // back the resolution transaction), which the rollback test asserts.
+         applyMoneyPathFailure: jest.fn((_operation: string, error: unknown) => {
+            throw error;
+         }),
+         isFailClosed: jest.fn(() => true),
       },
    };
 });
@@ -85,6 +93,9 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
                roundId: testRound.id,
                side,
                amount,
+               // Resolution only settles predictions whose on-chain leg is
+               // settled (CONFIRMED / NOT_REQUIRED).
+               chainStatus: 'CONFIRMED',
             },
          });
 
@@ -125,9 +136,10 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
             finalPrice
          );
 
-         expect(result.outcome).toBe('UPDATED');
+         expect(result.outcome).toBe(RoundLifecycleOutcome.UPDATED);
          expect(result.round.status).toBe('RESOLVED');
-         expect(result.round.endPrice).toBe(finalPrice);
+         // Money/price fields are serialized as decimal strings.
+         expect(toDecimal(result.round.endPrice).eq(finalPrice)).toBe(true);
 
          // Verify all predictions were updated
          const predictions = await prisma.prediction.findMany({
@@ -155,23 +167,26 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
             testRound.id,
             finalPrice
          );
-         expect(result1.outcome).toBe('UPDATED');
+         expect(result1.outcome).toBe(RoundLifecycleOutcome.UPDATED);
 
          // Second resolution attempt
          const result2 = await resolutionService.resolveRound(
             testRound.id,
             finalPrice
          );
-         expect(result2.outcome).toBe('ALREADY_RESOLVED');
+         expect(result2.outcome).toBe(RoundLifecycleOutcome.ALREADY_RESOLVED);
 
          // Verify predictions weren't updated twice
          const predictions = await prisma.prediction.findMany({
             where: { roundId: testRound.id },
          });
 
-         // Count winners
+         // Price went UP: exactly the UP predictions won, once each (the
+         // fixtures alternate UP/DOWN, so users 0 and 2 bet UP).
+         const upPredictions = predictions.filter(p => p.side === 'UP');
          const winners = predictions.filter(p => p.won === true);
-         expect(winners.length).toBe(1); // Only 1 user bet UP
+         expect(upPredictions.length).toBeGreaterThan(0);
+         expect(winners.length).toBe(upPredictions.length);
       });
 
       it('should rollback all changes if Soroban call fails', async () => {
@@ -257,7 +272,7 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
 
          // Verify winners have payouts > their original bet
          for (const winner of winners) {
-            expect(winner.payout).toBeGreaterThan(winner.amount);
+            expect(toDecimal(winner.payout!).gt(toDecimal(winner.amount))).toBe(true);
          }
 
          // Verify losers have 0 payout
@@ -265,7 +280,7 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
             p => p.side === 'DOWN' && p.won === false
          );
          for (const loser of losers) {
-            expect(loser.payout).toBe(0);
+            expect(toDecimal(loser.payout!).eq(0)).toBe(true);
          }
       });
 
@@ -280,7 +295,9 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
 
          // All predictions should be refunded (won = null, payout = original amount)
          expect(predictions.every(p => p.won === null)).toBe(true);
-         expect(predictions.every(p => p.payout === p.amount)).toBe(true);
+         expect(
+            predictions.every(p => p.payout !== null && toDecimal(p.payout).eq(toDecimal(p.amount)))
+         ).toBe(true);
       });
    });
 
@@ -290,7 +307,7 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
             'non-existent-id',
             105
          );
-         expect(result.outcome).toBe('NO_OP');
+         expect(result.outcome).toBe(RoundLifecycleOutcome.NO_OP);
       });
 
       it('should handle round in invalid status', async () => {
@@ -311,7 +328,7 @@ describeDb('Resolution Service - Transactional & Concurrency Tests', () => {
             activeRound.id,
             105
          );
-         expect(result.outcome).toBe('NO_OP');
+         expect(result.outcome).toBe(RoundLifecycleOutcome.NO_OP);
 
          await prisma.round.delete({ where: { id: activeRound.id } });
       });

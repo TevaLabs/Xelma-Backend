@@ -3,7 +3,7 @@ import {
   PrismaClientKnownRequestError,
   PrismaClientValidationError,
 } from '@prisma/client/runtime/library';
-import { AppError, BackpressureError, ValidationError, ErrorCode } from '../utils/errors';
+import { AppError, BackpressureError, PayloadTooLargeError, ValidationError, ErrorCode } from '../utils/errors';
 import { CircuitBreakerOpenError } from '../utils/circuit-breaker';
 import logger from '../utils/logger';
 
@@ -92,7 +92,7 @@ export function errorHandler(
     (err as any)?.type === 'entity.too.large' ||
     (err as any)?.status === 413
   ) {
-    appError = new AppError('Payload too large', 413, 'PAYLOAD_TOO_LARGE');
+    appError = new PayloadTooLargeError();
   } else if (err instanceof PrismaClientValidationError) {
     appError = new ValidationError('Invalid database query parameters');
   } else if (err instanceof Error) {

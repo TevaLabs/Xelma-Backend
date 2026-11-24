@@ -3,6 +3,8 @@ import request from 'supertest';
 import { UserRole } from '@prisma/client';
 import { generateToken } from '../utils/jwt.util';
 import { prisma } from '../lib/prisma';
+import { Keypair } from '@stellar/stellar-sdk';
+import { createHash } from 'crypto';
 
 // Mock Stellar and Soroban services to prevent loading @stellar/stellar-sdk (which contains ESM files that Jest fails to parse)
 jest.mock('../services/stellar.service', () => ({
@@ -34,7 +36,11 @@ afterAll(() => {
 describe('Hackathon HTTP Endpoints (Integration)', () => {
   // Valid Stellar-format (G + 55 chars) used as authenticated betting wallet
   // for the hackathon bet smoke tests below.
-  const hackerWallet = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+  // Its own wallet so the user row created below cannot collide with other
+  // integration suites sharing the database (User.walletAddress is unique).
+  const hackerWallet = Keypair.fromRawEd25519Seed(
+    createHash('sha256').update('hackathon-http-spec').digest(),
+  ).publicKey();
   const hackerToken = generateToken('hackathon-http-user', hackerWallet, UserRole.USER);
 
   beforeAll(async () => {
