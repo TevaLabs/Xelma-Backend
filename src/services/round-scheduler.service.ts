@@ -14,6 +14,80 @@ import {
    schedulerRunsTotal,
 } from '../metrics/application.metrics';
 
+/**
+ * Auto-resolve jitter configuration (Issue #978).
+ *
+ * Every replica schedules `auto-resolve-rounds` at the same interval. Without
+ * jitter they all contend for the distributed lock at the same instant — a
+ * thundering herd against Redis and the database. A random delay before the
+ * job spreads those attempts across the interval.
+ *
+ * The configured value is the inclusive upper bound of the delay in ms. It is
+ * capped below the auto-resolve interval so a slow job cannot overlap the next
+ * cron tick. Invalid values fall back to the default instead of failing the
+ * scheduler at startup.
+ */
+const DEFAULT_AUTO_RESOLVE_JITTER_MS = 5_000;
+const DEFAULT_AUTO_RESOLVE_INTERVAL_SECONDS = 30;
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+   if (!raw) return fallback;
+   const parsed = Number(raw);
+   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function getAutoResolveJitterMs(
+   jitterRaw: string | undefined = process.env.AUTO_RESOLVE_JITTER_MS,
+   intervalRaw: string | undefined = process.env.AUTO_RESOLVE_INTERVAL_SECONDS
+): number {
+   const intervalSeconds = parsePositiveInt(
+      intervalRaw,
+      DEFAULT_AUTO_RESOLVE_INTERVAL_SECONDS
+   );
+   const maxDelayMs = Math.max(0, intervalSeconds * 1000 - 1);
+
+   if (jitterRaw === undefined || jitterRaw === '') {
+      return Math.min(DEFAULT_AUTO_RESOLVE_JITTER_MS, maxDelayMs);
+   }
+
+   const parsed = Number(jitterRaw);
+   if (!Number.isInteger(parsed) || parsed < 0) {
+      return Math.min(DEFAULT_AUTO_RESOLVE_JITTER_MS, maxDelayMs);
+   }
+   return Math.min(parsed, maxDelayMs);
+}
+
+export interface AutoResolveJitterDeps {
+   /** Injectable for deterministic tests; defaults to Math.random. */
+   random?: () => number;
+   /** Injectable for deterministic tests; defaults to a real timeout. */
+   sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Wait a random number of milliseconds before an auto-resolve job starts.
+ * Returns the delay actually applied so callers can log/observe it.
+ */
+export async function applyAutoResolveJitter(
+   deps: AutoResolveJitterDeps = {}
+): Promise<number> {
+   const maxDelayMs = getAutoResolveJitterMs();
+   const random = deps.random ?? Math.random;
+   const sleep =
+      deps.sleep ??
+      ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
+
+   // Guard against a broken injectable random source; out-of-range values are
+   // clamped rather than producing a negative or oversized delay.
+   const fraction = Math.min(Math.max(random(), 0), 1);
+   const delayMs = Math.floor(fraction * maxDelayMs);
+
+   if (delayMs > 0) {
+      await sleep(delayMs);
+   }
+   return delayMs;
+}
+
 class RoundSchedulerService {
    private cronTasks: ScheduledTask[] = [];
 

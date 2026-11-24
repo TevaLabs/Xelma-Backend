@@ -20,6 +20,10 @@ import {
    schedulerItemsProcessedTotal,
    schedulerRunsTotal,
 } from '../metrics/application.metrics';
+import {
+   applyAutoResolveJitter,
+   getAutoResolveJitterMs,
+} from './round-scheduler.service';
 
 class SchedulerService {
    private cronTasks: ScheduledTask[] = [];
@@ -139,11 +143,16 @@ class SchedulerService {
       const cronExpression = `*/${intervalSeconds} * * * * *`;
 
       logger.info(
-         `Starting auto-resolution scheduler (interval: ${intervalSeconds}s)`
+         `Starting auto-resolution scheduler (interval: ${intervalSeconds}s, jitter: ${getAutoResolveJitterMs()}ms max)`
       );
 
       this.cronTasks.push(
          cron.schedule(cronExpression, async () => {
+            // Spread lock attempts from every replica across the interval
+            // (Issue #978). The jitter happens before acquiring the lock and
+            // before any DB/oracle work, so a staggered tick costs only a
+            // short timer rather than a failed leader-election round.
+            await applyAutoResolveJitter();
             await this.autoResolveRounds();
          })
       );
