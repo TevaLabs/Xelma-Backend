@@ -16,6 +16,7 @@ import {
   getLeaderboard,
   getLeaderboardCursor,
 } from "../services/leaderboard.service";
+import { sendSuccess } from "../utils/response";
 
 const router = Router();
 
@@ -102,12 +103,14 @@ router.get(
       if (cursor) {
         // Cursor mode
         const result = await getLeaderboardCursor(limit, cursor, userId);
-        return res.json(result);
+        const { pagination, ...data } = result as any;
+        return sendSuccess(res, data, { pagination });
       }
 
       // Offset mode (existing behaviour)
       const result = await getLeaderboard(limit, offset, userId);
-      return res.json(result);
+      const { pagination, ...data } = result as any;
+      return sendSuccess(res, data, { pagination });
     } catch (error) {
       if (error instanceof AppError) {
         throw error;

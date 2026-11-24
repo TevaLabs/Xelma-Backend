@@ -4,6 +4,7 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json package-lock.json ./
 COPY vendor ./vendor
+RUN test -f vendor/xelma-bindings/package.json
 RUN npm ci
 
 FROM deps AS build
@@ -20,6 +21,7 @@ WORKDIR /app
 # Install production dependencies only (omit devDependencies)
 COPY package.json package-lock.json ./
 COPY vendor ./vendor
+RUN test -f vendor/xelma-bindings/package.json
 RUN npm ci --omit=dev
 
 COPY prisma ./prisma

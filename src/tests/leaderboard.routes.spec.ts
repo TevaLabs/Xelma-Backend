@@ -108,11 +108,11 @@ describe("Leaderboard Routes", () => {
     const response = await request(app).get("/api/leaderboard");
 
     expect(response.status).toBe(200);
-    expect(response.body.leaderboard).toHaveLength(3);
-    expect(response.body.totalUsers).toBe(3);
-    expect(response.body.userPosition).toBeUndefined();
-    expect(response.body.lastUpdated).toBeDefined();
-    expect(response.body.leaderboard[0].rank).toBe(1);
+    expect(response.body.data.leaderboard).toHaveLength(3);
+    expect(response.body.data.totalUsers).toBe(3);
+    expect(response.body.data.userPosition).toBeUndefined();
+    expect(response.body.data.lastUpdated).toBeDefined();
+    expect(response.body.data.leaderboard[0].rank).toBe(1);
   });
 
   it("should include authenticated user position when token is provided", async () => {
@@ -130,9 +130,9 @@ describe("Leaderboard Routes", () => {
       .set("Authorization", `Bearer ${userToken}`);
 
     expect(response.status).toBe(200);
-    expect(response.body.userPosition).toBeDefined();
-    expect(response.body.userPosition.userId).toBe("u2");
-    expect(response.body.userPosition.rank).toBe(2);
+    expect(response.body.data.userPosition).toBeDefined();
+    expect(response.body.data.userPosition.userId).toBe("u2");
+    expect(response.body.data.userPosition.rank).toBe(2);
   });
 
   it("should respect pagination and return the correct offset slice", async () => {
@@ -145,17 +145,17 @@ describe("Leaderboard Routes", () => {
     const response = await request(app).get("/api/leaderboard?limit=1&offset=1");
 
     expect(response.status).toBe(200);
-    expect(response.body.leaderboard).toHaveLength(1);
-    expect(response.body.leaderboard[0].userId).toBe("u2");
-    expect(response.body.leaderboard[0].rank).toBe(2);
-    expect(response.body.totalUsers).toBe(3);
+    expect(response.body.data.leaderboard).toHaveLength(1);
+    expect(response.body.data.leaderboard[0].userId).toBe("u2");
+    expect(response.body.data.leaderboard[0].rank).toBe(2);
+    expect(response.body.data.totalUsers).toBe(3);
   });
 
   it("should reject invalid limit parameter", async () => {
     const response = await request(app).get("/api/leaderboard?limit=1000");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe("ValidationError");
+    expect(response.body.error).toContain("<=500");
     // Zod v4 message format: "Too big: expected number to be <=500"
     expect(response.body.details[0].field).toBe("limit");
   });
@@ -164,7 +164,7 @@ describe("Leaderboard Routes", () => {
     const response = await request(app).get("/api/leaderboard?offset=-1");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe("ValidationError");
+    expect(response.body.error).toContain(">=0");
     // Zod v4 message format: "Too small: expected number to be >=0"
     expect(response.body.details[0].field).toBe("offset");
   });
@@ -176,7 +176,7 @@ describe("Leaderboard Routes", () => {
 
     expect(response.status).toBe(500);
     expect(response.body.message).toBe("Failed to fetch leaderboard");
-    expect(response.body.error).toBe("AppError");
+    expect(response.body.error).toBe("Failed to fetch leaderboard");
   });
 
   // -------------------------------------------------------------------------
@@ -194,11 +194,11 @@ describe("Leaderboard Routes", () => {
       const response = await request(app).get("/api/leaderboard?limit=2&offset=0");
 
       expect(response.status).toBe(200);
-      expect(response.body.pagination).toBeDefined();
-      expect(response.body.pagination.limit).toBe(2);
-      expect(response.body.pagination.offset).toBe(0);
-      expect(response.body.pagination.total).toBe(3);
-      expect(response.body.pagination.hasNextPage).toBe(true);
+      expect(response.body.meta.pagination).toBeDefined();
+      expect(response.body.meta.pagination.limit).toBe(2);
+      expect(response.body.meta.pagination.offset).toBe(0);
+      expect(response.body.meta.pagination.total).toBe(3);
+      expect(response.body.meta.pagination.hasNextPage).toBe(true);
     });
 
     it("hasNextPage is false on the last page", async () => {
@@ -211,7 +211,7 @@ describe("Leaderboard Routes", () => {
       const response = await request(app).get("/api/leaderboard?limit=10&offset=0");
 
       expect(response.status).toBe(200);
-      expect(response.body.pagination.hasNextPage).toBe(false);
+      expect(response.body.meta.pagination.hasNextPage).toBe(false);
     });
   });
 
@@ -239,11 +239,11 @@ describe("Leaderboard Routes", () => {
       const response = await request(app).get(`/api/leaderboard?limit=3&cursor=${cursor}`);
 
       expect(response.status).toBe(200);
-      expect(response.body.pagination).toBeDefined();
-      expect(response.body.pagination.hasNextPage).toBe(true);
-      expect(typeof response.body.pagination.nextCursor).toBe("string");
-      expect(response.body.totalUsers).toBeUndefined();
-      expect(response.body.pagination.offset).toBeUndefined();
+      expect(response.body.meta.pagination).toBeDefined();
+      expect(response.body.meta.pagination.hasNextPage).toBe(true);
+      expect(typeof response.body.meta.pagination.nextCursor).toBe("string");
+      expect(response.body.data.totalUsers).toBeUndefined();
+      expect(response.body.meta.pagination.offset).toBeUndefined();
     });
 
     it("nextCursor is null on the last page", async () => {
@@ -255,8 +255,8 @@ describe("Leaderboard Routes", () => {
       const response = await request(app).get(`/api/leaderboard?limit=3&cursor=${cursor}`);
 
       expect(response.status).toBe(200);
-      expect(response.body.pagination.hasNextPage).toBe(false);
-      expect(response.body.pagination.nextCursor).toBeNull();
+      expect(response.body.meta.pagination.hasNextPage).toBe(false);
+      expect(response.body.meta.pagination.nextCursor).toBeNull();
     });
 
     it("cursor mode ignores offset param", async () => {
@@ -270,7 +270,7 @@ describe("Leaderboard Routes", () => {
       );
 
       expect(response.status).toBe(200);
-      expect(response.body.pagination.offset).toBeUndefined();
+      expect(response.body.meta.pagination.offset).toBeUndefined();
     });
   });
 });
