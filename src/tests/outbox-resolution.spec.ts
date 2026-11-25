@@ -116,8 +116,11 @@ jest.mock('../services/education-tip.service', () => ({
 // ─── mock redis (leaderboard invalidation) ───────────────────────────────────
 
 jest.mock('../lib/redis', () => ({
-  invalidateNamespace: jest.fn(),
-  invalidateLeaderboardSortedSet: jest.fn(),
+  // The real invalidateNamespace is async; the lifecycle service calls
+  // .catch() on its return, so the mock must resolve a promise too.
+  // (Issue #1011: the plain jest.fn() mock broke every test in this file.)
+  invalidateNamespace: jest.fn().mockResolvedValue(undefined),
+  invalidateLeaderboardSortedSet: jest.fn().mockResolvedValue(undefined),
 }));
 
 // ─── mock logger ─────────────────────────────────────────────────────────────
@@ -300,6 +303,85 @@ describe('ResolutionService — outbox pattern (Issue #18)', () => {
 
     // Refund path: no WIN/LOSS notifications or websocket emits
     expect(outboxCreates).toHaveLength(0);
+  });
+
+  it('writes LOSS outbox events when the UP_DOWN winning side had no pool (Issue #1011)', async () => {
+    // Price went UP, but nobody bet UP, so the winning pool is 0 and every
+    // prediction is a loss. Before the fix this path returned early: the
+    // predictions stayed unsettled and no one was notified.
+    const loser = makePrediction({ side: 'DOWN' });
+    const round = makeRound({
+      poolUp: '0',
+      poolDown: '100',
+      predictions: [loser],
+    });
+
+    (require('../lib/prisma').prisma.round.findUnique as jest.Mock).mockResolvedValue(round);
+    mockRoundFindUnique.mockResolvedValue(round);
+
+    await resolutionService.resolveRound('round-1', 110); // price went UP
+
+    // The losing prediction is settled, not left hanging.
+    expect(mockPredictionUpdate).toHaveBeenCalledWith({
+      where: { id: 'pred-1' },
+      data: { won: false, payout: 0 },
+    });
+    expect(mockUserUpdate).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { streak: 0 },
+    });
+
+    const lossNotifs = outboxCreates.filter(
+      (c: any) => c.data.eventType === 'NOTIFICATION_CREATE' && c.data.payload.type === 'LOSS'
+    );
+    const lossWs = outboxCreates.filter(
+      (c: any) => c.data.eventType === 'WEBSOCKET_EMIT' && c.data.payload.data?.type === 'LOSS'
+    );
+
+    expect(lossNotifs).toHaveLength(1);
+    expect(lossNotifs[0].data.payload.userId).toBe('user-1');
+    expect(lossWs).toHaveLength(1);
+    expect(lossWs[0].data.payload.room).toBe('user:user-1');
+    expect(outboxCreates).toHaveLength(2);
+  });
+
+  it('writes LOSS outbox events when the LEGENDS winning range had no pool (Issue #1011)', async () => {
+    // The winning range exists but nobody bet on it, so its pool is 0 and
+    // every prediction is a loss. This path already wrote LOSS outbox
+    // events; the test locks that in alongside the UP_DOWN fix.
+    const loser = makePrediction({ side: null, priceRange: { min: 2, max: 3 } });
+    const round = makeRound({
+      mode: 'LEGENDS',
+      status: 'LOCKED',
+      priceRanges: [
+        { min: 1, max: 2, pool: 0 },
+        { min: 2, max: 3, pool: 50 },
+      ],
+      predictions: [loser],
+    });
+
+    (require('../lib/prisma').prisma.round.findUnique as jest.Mock).mockResolvedValue(round);
+    mockRoundFindUnique.mockResolvedValue(round);
+
+    // finalPrice = 1.5 lands in [1, 2), whose pool is 0
+    await resolutionService.resolveRound('round-1', 1.5);
+
+    expect(mockPredictionUpdate).toHaveBeenCalledWith({
+      where: { id: 'pred-1' },
+      data: { won: false, payout: 0 },
+    });
+
+    const lossNotifs = outboxCreates.filter(
+      (c: any) => c.data.eventType === 'NOTIFICATION_CREATE' && c.data.payload.type === 'LOSS'
+    );
+    const lossWs = outboxCreates.filter(
+      (c: any) => c.data.eventType === 'WEBSOCKET_EMIT' && c.data.payload.data?.type === 'LOSS'
+    );
+
+    expect(lossNotifs).toHaveLength(1);
+    expect(lossNotifs[0].data.payload.userId).toBe('user-1');
+    expect(lossWs).toHaveLength(1);
+    expect(outboxCreates).toHaveLength(2);
   });
 
   it('writes WIN outbox events for LEGENDS mode winners', async () => {
