@@ -160,6 +160,38 @@ describe("BetService.claimWinnings", () => {
     );
   });
 
+  it("is idempotent: a duplicate claim returns the same result and pays out only once", async () => {
+    (sorobanService.claimWinnings as jest.Mock).mockResolvedValue({
+      state: "on-chain-success",
+      amount: 5,
+      txHash: "0xfirst",
+    });
+
+    // First call: no open claim, submits on-chain and records a SUBMITTED row.
+    const first = await betService.claimWinnings(VALID_ADDRESS);
+    expect(first).toEqual({ state: "on-chain-success", amount: 5, txHash: "0xfirst" });
+    expect(sorobanService.claimWinnings).toHaveBeenCalledTimes(1);
+    expect(mockClaimCreate).toHaveBeenCalledTimes(1);
+
+    // Duplicate call: ledger now shows the SUBMITTED row.
+    mockClaimFindFirst.mockResolvedValue({
+      id: "claim-1",
+      walletAddress: VALID_ADDRESS,
+      status: ClaimStatus.SUBMITTED,
+      txHash: "0xfirst",
+      amount: 5,
+    });
+    const second = await betService.claimWinnings(VALID_ADDRESS);
+    const third = await betService.claimWinnings(VALID_ADDRESS);
+
+    expect(second).toEqual({ state: "already-submitted", amount: 5, txHash: "0xfirst" });
+    expect(third).toEqual(second);
+    // No second on-chain payout, no second ledger row.
+    expect(sorobanService.claimWinnings).toHaveBeenCalledTimes(1);
+    expect(mockClaimCreate).toHaveBeenCalledTimes(1);
+    expect(mockClaimUpdateMany).not.toHaveBeenCalled();
+  });
+
   it("updates an existing PENDING/FAILED claim row to SUBMITTED after a successful claim", async () => {
     mockClaimFindFirst.mockResolvedValue({
       id: "claim-retry",
