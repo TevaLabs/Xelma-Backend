@@ -303,6 +303,7 @@ model Prediction {
   @@unique([roundId, userId])
   @@index([userId])
   @@index([roundId])
+  @@index([roundId, createdAt])
   @@index([chainStatus])
 }
 
