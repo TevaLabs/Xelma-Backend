@@ -273,4 +273,67 @@ describe("Leaderboard Routes", () => {
       expect(response.body.pagination.offset).toBeUndefined();
     });
   });
+
+  describe("viewerRank when JWT present", () => {
+    it("omits viewerRank when no JWT is provided", async () => {
+      mockUserStatsFindMany.mockImplementation(({ take, skip }: any) =>
+        Promise.resolve(sampleStats.slice(skip, skip + take)),
+      );
+      mockUserStatsCount.mockResolvedValue(3);
+      mockUserStatsFindUnique.mockResolvedValue(null);
+
+      const response = await request(app).get("/api/leaderboard");
+
+      expect(response.status).toBe(200);
+      expect(response.body.viewerRank).toBeUndefined();
+    });
+
+    it("includes viewerRank in offset mode when JWT is provided", async () => {
+      mockUserStatsFindMany.mockImplementation(({ take, skip }: any) =>
+        Promise.resolve(sampleStats.slice(skip, skip + take)),
+      );
+      mockUserStatsFindUnique.mockResolvedValue(sampleStats[1]);
+      mockUserStatsCount.mockImplementation((args?: any) =>
+        Promise.resolve(args?.where ? 1 : 3),
+      );
+
+      const response = await request(app)
+        .get("/api/leaderboard")
+        .set("Authorization", `Bearer ${userToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.viewerRank).toBe(2);
+    });
+
+    it("returns viewerRank as null when authenticated user has no stats", async () => {
+      mockUserStatsFindMany.mockImplementation(({ take, skip }: any) =>
+        Promise.resolve(sampleStats.slice(skip, skip + take)),
+      );
+      mockUserStatsFindUnique.mockResolvedValue(null);
+      mockUserStatsCount.mockResolvedValue(3);
+
+      const response = await request(app)
+        .get("/api/leaderboard")
+        .set("Authorization", `Bearer ${userToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.viewerRank).toBeNull();
+    });
+
+    it("includes viewerRank in cursor mode when JWT is provided", async () => {
+      mockUserStatsFindMany.mockResolvedValue(sampleStats.slice(0, 2));
+      mockUserStatsFindUnique.mockResolvedValue(sampleStats[1]);
+      mockUserStatsCount.mockImplementation((args?: any) =>
+        Promise.resolve(args?.where?.totalEarnings?.gt !== undefined ? 1 : 0),
+      );
+
+      const cursor = encodeCursor({ totalEarnings: "100", userId: "u1" });
+      const response = await request(app)
+        .get(`/api/leaderboard?limit=3&cursor=${cursor}`)
+        .set("Authorization", `Bearer ${userToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.viewerRank).toBe(2);
+    });
+  });
 });
