@@ -27,6 +27,7 @@ const integrationTestFiles = [
   "tournament-concurrency.spec.ts",
   "tournament-lifecycle.spec.ts",
   "predictions.routes.spec.ts",
+  "predictions-export.routes.spec.ts",
   "rate-limit-redis-store.integration.spec.ts",
   "requestId.middleware.spec.ts",
   "requestId.spec.ts",

@@ -15,6 +15,7 @@ import {
 } from '../schemas/predictions.schema';
 import predictionService, {
    type PredictionRow,
+   type UserPredictionRow,
 } from '../services/prediction.service';
 import {
    acquireIdempotencyLock,
@@ -31,6 +32,9 @@ import {
    ValidationError,
 } from '../utils/errors';
 import { serializePrediction, serializeRound } from '../serializers/monetary.serializer';
+import { csvRow } from '../utils/csv.util';
+import { serializeMoney, serializeNullableMoney } from '../utils/decimal.util';
+import logger from '../utils/logger';
 
 const router = Router();
 const SUBMIT_PREDICTION_ENDPOINT = '/api/predictions/submit';
@@ -325,6 +329,116 @@ router.get(
          predictions: serializedPredictions,
       });
    })
+);
+
+const EXPORT_COLUMNS = [
+   'id',
+   'round_id',
+   'round_mode',
+   'round_status',
+   'side',
+   'amount',
+   'price_range_min',
+   'price_range_max',
+   'won',
+   'payout',
+   'round_start_price',
+   'round_end_price',
+   'created_at',
+] as const;
+
+function predictionToCsvRow(p: UserPredictionRow): string {
+   const range =
+      p.priceRange && typeof p.priceRange === 'object' && !Array.isArray(p.priceRange)
+         ? (p.priceRange as { min?: unknown; max?: unknown })
+         : {};
+   return csvRow([
+      p.id,
+      p.roundId,
+      p.round?.mode,
+      p.round?.status,
+      p.side,
+      serializeMoney(p.amount as never),
+      range.min,
+      range.max,
+      p.won,
+      serializeNullableMoney(p.payout as never),
+      serializeNullableMoney(p.round?.startPrice as never),
+      serializeNullableMoney(p.round?.endPrice as never),
+      p.createdAt,
+   ]);
+}
+
+/**
+ * @openapi
+ * /api/predictions/user/export:
+ *   get:
+ *     tags: [Predictions]
+ *     summary: Export the authenticated user's predictions as CSV
+ *     description: Streams every prediction of the authenticated user, newest first, as `text/csv` (RFC 4180, header row first). Rows are read in batches and written as they are produced, so the response is not buffered. Amounts and prices are 8-decimal strings.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: CSV attachment
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *             example: "id,round_id,round_mode,round_status,side,amount,price_range_min,price_range_max,won,payout,round_start_price,round_end_price,created_at\r\n"
+ *       401:
+ *         description: Missing or invalid token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get(
+   '/user/export',
+   authenticateUser,
+   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+      const userId = req.user.userId;
+      let clientGone = false;
+      res.on('close', () => {
+         clientGone = !res.writableFinished;
+      });
+
+      res.status(200);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader(
+         'Content-Disposition',
+         `attachment; filename="xelma-predictions-${new Date().toISOString().slice(0, 10)}.csv"`,
+      );
+
+      // Write with backpressure: wait for 'drain' when the socket is full.
+      const write = async (chunk: string) => {
+         if (!res.write(chunk) && !clientGone) {
+            await new Promise<void>((resolve) => {
+               const done = () => {
+                  res.off('drain', done);
+                  res.off('close', done);
+                  resolve();
+               };
+               res.once('drain', done);
+               res.once('close', done);
+            });
+         }
+      };
+
+      try {
+         await write(csvRow(EXPORT_COLUMNS));
+         for await (const batch of predictionService.streamUserPredictions(userId)) {
+            if (clientGone) return;
+            await write(batch.map(predictionToCsvRow).join(''));
+         }
+         res.end();
+      } catch (error) {
+         // Headers are already sent, so a JSON error body is impossible. Cut the
+         // connection so the client sees a failed download, not a short file.
+         logger.error('Prediction export failed mid-stream', { userId, error });
+         res.destroy(error instanceof Error ? error : undefined);
+      }
+   }),
 );
 
 /**
