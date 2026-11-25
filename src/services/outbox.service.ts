@@ -60,6 +60,12 @@ export function getOutboxRetentionDays(): number {
   return Number.isFinite(n) && n > 0 ? n : 7;
 }
 
+export function getOutboxProcessingTtlSeconds(): number {
+  const raw = process.env.OUTBOX_PROCESSING_TTL_SECONDS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 300;
+}
+
 // ─── payload shapes ──────────────────────────────────────────────────────────
 
 export interface NotificationOutboxPayload {
@@ -308,6 +314,36 @@ class OutboxService {
     }
 
     return result.count;
+  }
+
+  /**
+   * Recover stale PROCESSING rows by resetting them to PENDING after the
+   * configured TTL. Uses an atomic updateMany with a where clause that checks
+   * both status and timestamp, so concurrent recoveries or in-flight workers
+   * cannot race and incorrectly reset a record that is still actively processing.
+   *
+   * @returns the number of rows recovered
+   */
+  async recoverStaleProcessing(): Promise<number> {
+    const ttlSeconds = getOutboxProcessingTtlSeconds();
+    const cutoff = new Date();
+    cutoff.setSeconds(cutoff.getSeconds() - ttlSeconds);
+
+    const recovered = await prisma.outboxEvent.updateMany({
+      where: {
+        status: OutboxEventStatus.PROCESSING,
+        updatedAt: { lt: cutoff },
+      },
+      data: {
+        status: OutboxEventStatus.PENDING,
+      },
+    });
+
+    if (recovered.count > 0) {
+      logger.info(`Outbox stale recovery: reset ${recovered.count} PROCESSING event(s) to PENDING after ${ttlSeconds}s TTL`);
+    }
+
+    return recovered.count;
   }
 }
 
