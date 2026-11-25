@@ -38,6 +38,8 @@ describe("DB pool env config", () => {
     delete process.env.DB_CONNECT_TIMEOUT_SECONDS;
     delete process.env.DB_STATEMENT_TIMEOUT_MS;
     delete process.env.DB_PGBOUNCER;
+    delete process.env.DB_TRANSACTION_TIMEOUT_MS;
+    delete process.env.DB_TRANSACTION_MAX_WAIT_MS;
   });
 
   it("env vars override existing DATABASE_URL query params", () => {
@@ -58,6 +60,19 @@ describe("DB pool env config", () => {
     expect(u.searchParams.get("connect_timeout")).toBe("7");
     expect(u.searchParams.get("statement_timeout")).toBe("2500");
     expect(u.searchParams.get("pgbouncer")).toBe("true");
+  });
+
+  it("transaction timeout/maxWait default and are env-overridable", () => {
+    const defaults = loadFreshConfig();
+    expect(defaults.database.transactionTimeoutMs).toBe(5000);
+    expect(defaults.database.transactionMaxWaitMs).toBe(2000);
+
+    const config = withEnv(
+      { DB_TRANSACTION_TIMEOUT_MS: "30000", DB_TRANSACTION_MAX_WAIT_MS: "4000" },
+      () => loadFreshConfig(),
+    );
+    expect(config.database.transactionTimeoutMs).toBe(30000);
+    expect(config.database.transactionMaxWaitMs).toBe(4000);
   });
 
   it("statement timeout is removed when DB_STATEMENT_TIMEOUT_MS=0", () => {
@@ -83,4 +98,3 @@ describe("DB pool env config", () => {
     ).toThrow(/Configuration validation failed/);
   });
 });
-

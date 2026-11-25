@@ -147,6 +147,11 @@ export const prisma = (() => {
     datasources: {
       db: { url: config.database.url },
     },
+    // Interactive $transaction defaults (long payouts used to hit Prisma's 5s default).
+    transactionOptions: {
+      timeout: config.database.transactionTimeoutMs,
+      maxWait: config.database.transactionMaxWaitMs,
+    },
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
   });
 })();
@@ -159,6 +164,8 @@ if (!globalForPrisma.prisma && config.app.dataStore !== 'memory') {
       poolTimeoutSeconds: config.database.poolTimeoutSeconds,
       connectTimeoutSeconds: config.database.connectTimeoutSeconds,
       statementTimeoutMs: config.database.statementTimeoutMs,
+      transactionTimeoutMs: config.database.transactionTimeoutMs,
+      transactionMaxWaitMs: config.database.transactionMaxWaitMs,
       pgbouncer: config.database.pgbouncer,
     },
   });
