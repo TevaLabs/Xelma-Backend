@@ -63,6 +63,7 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   { method: "POST", path: "/api/predictions/submit", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "POST", path: "/api/predictions/batch-submit", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "GET", path: "/api/predictions/user", auth: RouteAuthLevel.AUTHENTICATED },
+  { method: "GET", path: "/api/predictions/user/export", auth: RouteAuthLevel.AUTHENTICATED },
   { method: "GET", path: "/api/predictions/round/:roundId", auth: RouteAuthLevel.PUBLIC },
 
   // Education

@@ -54,6 +54,7 @@ export const PARITY_ALLOWLIST: ParityAllowlistEntry[] = [
   { method: "POST", path: "/api/predictions/submit", only: "main", reason: "Prediction submission requires a database and authenticated user.", flag: "predictions" },
   { method: "POST", path: "/api/predictions/batch-submit", only: "main", reason: "Prediction submission requires a database and authenticated user.", flag: "predictions" },
   { method: "GET", path: "/api/predictions/user", only: "main", reason: "Prediction history requires a database and authenticated user.", flag: "predictions" },
+  { method: "GET", path: "/api/predictions/user/export", only: "main", reason: "Prediction export requires a database and authenticated user.", flag: "predictions" },
   { method: "GET", path: "/api/predictions/round/:roundId", only: "main", reason: "Per-round predictions require a database.", flag: "predictions" },
 
   // --- education ---

@@ -3915,39 +3915,15 @@
               }
             },
             {
-              "id": "6b3a3d28-27f4-4fe6-bb66-e2cba6c195a9",
-              "name": "Get user predictions",
-              "request": {
-                "name": "Get user predictions",
-                "description": {},
-                "url": {
-                  "path": [
-                    "api",
-                    "predictions",
-                    "user"
-                  ],
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "query": [],
-                  "variable": []
-                },
-                "method": "GET",
-                "auth": {
-                  "type": "bearer",
-                  "bearer": [
-                    {
-                      "key": "token",
-                      "value": "{{bearerToken}}"
-                    }
-                  ]
-                }
-              },
-              "response": [
+              "id": "09b93aa2-9686-4673-887e-f596a0f5d670",
+              "name": "user",
+              "item": [
                 {
-                  "id": "41f1ccd8-e690-45d7-9aee-f8e3490aa3c7",
-                  "name": "List of predictions",
-                  "originalRequest": {
+                  "id": "92b1e6c4-a80b-4437-a5fe-c4de829dec1f",
+                  "name": "Get user predictions",
+                  "request": {
+                    "name": "Get user predictions",
+                    "description": {},
                     "url": {
                       "path": [
                         "api",
@@ -3960,36 +3936,205 @@
                       "query": [],
                       "variable": []
                     },
+                    "method": "GET",
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{bearerToken}}"
+                        }
+                      ]
+                    }
+                  },
+                  "response": [
+                    {
+                      "id": "81a96b6a-683d-4fed-83c8-ec4f4aa38603",
+                      "name": "List of predictions",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "predictions",
+                            "user"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": []
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "GET",
+                        "body": {}
+                      },
+                      "status": "OK",
+                      "code": 200,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    }
+                  ],
+                  "event": [],
+                  "protocolProfileBehavior": {
+                    "disableBodyPruning": true
+                  }
+                },
+                {
+                  "id": "7663aaf7-7662-4e29-988a-6db723213728",
+                  "name": "Export the authenticated user's predictions as CSV",
+                  "request": {
+                    "name": "Export the authenticated user's predictions as CSV",
+                    "description": {
+                      "content": "Streams every prediction of the authenticated user, newest first, as `text/csv` (RFC 4180, header row first). Rows are read in batches and written as they are produced, so the response is not buffered. Amounts and prices are 8-decimal strings.",
+                      "type": "text/plain"
+                    },
+                    "url": {
+                      "path": [
+                        "api",
+                        "predictions",
+                        "user",
+                        "export"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": []
+                    },
                     "header": [
                       {
-                        "description": {
-                          "content": "Added as a part of security scheme: bearer",
-                          "type": "text/plain"
-                        },
-                        "key": "Authorization",
-                        "value": "Bearer <token>"
+                        "key": "Accept",
+                        "value": "text/csv"
                       }
                     ],
                     "method": "GET",
-                    "body": {}
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{bearerToken}}"
+                        }
+                      ]
+                    }
                   },
-                  "status": "OK",
-                  "code": 200,
-                  "header": [
+                  "response": [
                     {
-                      "key": "Content-Type",
-                      "value": "text/plain"
+                      "id": "9c1e4a55-6952-42e7-91ce-caa5d60e4de5",
+                      "name": "CSV attachment",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "predictions",
+                            "user",
+                            "export"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": []
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
+                          {
+                            "key": "Accept",
+                            "value": "text/csv"
+                          }
+                        ],
+                        "method": "GET",
+                        "body": {}
+                      },
+                      "status": "OK",
+                      "code": 200,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/csv"
+                        }
+                      ],
+                      "body": "id,round_id,round_mode,round_status,side,amount,price_range_min,price_range_max,won,payout,round_start_price,round_end_price,created_at\r\n",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "92f30986-0f82-473a-bfe4-84f3b7948c04",
+                      "name": "Missing or invalid token",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "predictions",
+                            "user",
+                            "export"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": []
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
+                          {
+                            "key": "Accept",
+                            "value": "application/json"
+                          }
+                        ],
+                        "method": "GET",
+                        "body": {}
+                      },
+                      "status": "Unauthorized",
+                      "code": 401,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "application/json"
+                        }
+                      ],
+                      "body": "{\n  \"error\": \"ValidationError\",\n  \"message\": \"walletAddress is required\",\n  \"code\": \"VALIDATION_ERROR\",\n  \"details\": [\n    {\n      \"field\": \"walletAddress\",\n      \"message\": \"walletAddress is required\"\n    },\n    {\n      \"field\": \"walletAddress\",\n      \"message\": \"walletAddress is required\"\n    }\n  ]\n}",
+                      "cookie": [],
+                      "_postman_previewlanguage": "json"
                     }
                   ],
-                  "body": "",
-                  "cookie": [],
-                  "_postman_previewlanguage": "text"
+                  "event": [],
+                  "protocolProfileBehavior": {
+                    "disableBodyPruning": true
+                  }
                 }
               ],
-              "event": [],
-              "protocolProfileBehavior": {
-                "disableBodyPruning": true
-              }
+              "event": []
             },
             {
               "id": "abbbdc77-49ba-4110-a7c9-ad4d2036f8ef",

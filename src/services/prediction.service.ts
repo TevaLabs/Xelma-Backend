@@ -653,6 +653,37 @@ export class PredictionService {
    }
 
    /**
+    * Yields a user's predictions, newest first, in batches. Uses keyset
+    * pagination, so memory stays flat however many predictions the user has
+    * (the CSV export streams from this).
+    */
+   async *streamUserPredictions(
+      userId: string,
+      batchSize = 500,
+   ): AsyncGenerator<UserPredictionRow[]> {
+      let cursor: string | undefined;
+      for (;;) {
+         let batch: UserPredictionRow[];
+         try {
+            batch = await prisma.prediction.findMany({
+               where: { userId },
+               include: { round: true },
+               orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+               take: batchSize,
+               ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+            });
+         } catch (error) {
+            logger.error('Failed to stream user predictions:', error);
+            throw error;
+         }
+         if (batch.length === 0) return;
+         yield batch;
+         if (batch.length < batchSize) return;
+         cursor = batch[batch.length - 1].id;
+      }
+   }
+
+   /**
     * Gets predictions for a round
     */
    async getRoundPredictions(roundId: string): Promise<RoundPredictionRow[]> {
