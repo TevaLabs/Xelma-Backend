@@ -17,12 +17,6 @@
         "scheme": "bearer",
         "bearerFormat": "JWT",
         "description": "Paste a JWT like: Bearer <token>"
-      },
-      "BearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-        "description": "JWT access token obtained from POST /api/auth/connect. Send it as `Authorization: Bearer <token>`. Tokens carry the claims in #/components/schemas/JwtPayload. Verification uses the standard JWT `exp` check with no additional clock-skew tolerance, so client and server clocks must be kept in sync (NTP). A token is rejected as soon as `exp` passes; refresh or re-authenticate before then."
       }
     },
     "schemas": {
@@ -85,85 +79,6 @@
           "code"
         ]
       },
-      "NotFoundResponse": {
-        "type": "object",
-        "description": "Standard 404 Not Found error response returned when an endpoint or resource is not found.",
-        "properties": {
-          "error": {
-            "type": "string",
-            "example": "NotFoundError",
-            "description": "Error type name"
-          },
-          "message": {
-            "type": "string",
-            "example": "Route GET /api/unknown not found",
-            "description": "Human-readable description of the missing route or resource"
-          },
-          "code": {
-            "type": "string",
-            "example": "NOT_FOUND",
-            "description": "Machine-readable error code"
-          },
-          "path": {
-            "type": "string",
-            "example": "/api/unknown",
-            "description": "Request path that was not found"
-          },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Timestamp when the 404 occurred"
-          },
-          "requestId": {
-            "type": "string",
-            "description": "Optional incoming or assigned correlation request ID"
-          }
-        },
-        "required": [
-          "error",
-          "message",
-          "code",
-          "path",
-          "timestamp"
-        ]
-      },
-      "PaginationMeta": {
-        "type": "object",
-        "description": "Standard pagination metadata returned with paginated collections.",
-        "properties": {
-          "limit": {
-            "type": "integer",
-            "description": "Page size limit requested or defaulted",
-            "example": 20
-          },
-          "offset": {
-            "type": "integer",
-            "description": "Offset into the total collection (offset pagination mode)",
-            "example": 0
-          },
-          "total": {
-            "type": "integer",
-            "description": "Total number of items in the collection",
-            "example": 100
-          },
-          "totalPages": {
-            "type": "integer",
-            "description": "Total number of pages given limit and total",
-            "example": 5
-          },
-          "nextCursor": {
-            "type": "string",
-            "nullable": true,
-            "description": "Opaque cursor token for cursor-based pagination",
-            "example": "eyJpZCI6MTIzLCJjcmVhdGVkQXQiOiIyMDI2LTAxLTAxVDAwOjAwOjAwLjAwMFoifQ=="
-          },
-          "hasNextPage": {
-            "type": "boolean",
-            "description": "Whether another page of records exists",
-            "example": true
-          }
-        }
-      },
       "MoneyAmount": {
         "type": "string",
         "description": "Canonical monetary amount: a Decimal(20,8) serialized as a string with exactly 8 fractional digits. Never a JSON number — IEEE-754 floats cannot represent stroop-scale values safely.",
@@ -187,48 +102,6 @@
           "error": "AppError",
           "message": "Too many requests from this IP, please try again after 15 minutes",
           "code": "RATE_LIMIT_EXCEEDED"
-        }
-      },
-      "JwtPayload": {
-        "type": "object",
-        "description": "Signed JWT claims. `exp` is the standard expiry claim in seconds since the Unix epoch. There is no explicit clock-skew tolerance, so keep client/server clocks synchronized and refresh before `exp`.",
-        "required": [
-          "userId",
-          "walletAddress",
-          "role"
-        ],
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Internal user id this token was issued for.",
-            "example": "2f7a0f7e-7c1f-4b0e-9a1d-6e9c1f2a3b4c"
-          },
-          "walletAddress": {
-            "type": "string",
-            "description": "Stellar Ed25519 public key the user signed in with.",
-            "example": "GDRHOLGIIVOGHNURCNVVGUXBUJCVTSKH2V7ACB4E4ZOR7KC3XGIBK5CT"
-          },
-          "role": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "ADMIN",
-              "ORACLE"
-            ],
-            "description": "Role recorded when the token was issued.",
-            "example": "USER"
-          },
-          "iat": {
-            "type": "integer",
-            "description": "Standard issued-at claim, seconds since the Unix epoch.",
-            "example": 1799900000
-          },
-          "exp": {
-            "type": "integer",
-            "description": "Standard expiry claim, seconds since the Unix epoch. Tokens are rejected once this time passes; no extra clock-skew grace is applied.",
-            "example": 1799999999
-          }
         }
       },
       "AuthChallengeRequest": {
@@ -3828,6 +3701,49 @@
             "bearerAuth": []
           }
         ]
+      }
+    },
+    "/api/admin/dead-letter/{id}/abandon": {
+      "post": {
+        "summary": "Abandon a single DLQ entry",
+        "description": "Mark a DLQ entry as ABANDONED. This is equivalent to reaching the\nmaximum number of retry attempts. The entry will not be retried\nagain and can be cleaned up by operators.\n",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the DLQ entry to abandon"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DLQ entry successfully abandoned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeadLetterEntryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Dead-letter entry not found"
+          },
+          "422": {
+            "description": "Entry is already in a terminal state"
+          }
+        }
       }
     },
     "/api/admin/cors-diagnostics": {

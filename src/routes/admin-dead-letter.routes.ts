@@ -148,4 +148,55 @@ router.post('/:id/retry', requireAdmin, async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/admin/dead-letter/{id}/abandon:
+ *   post:
+ *     summary: Abandon a single DLQ entry
+ *     description: |
+ *       Mark a DLQ entry as ABANDONED. This is equivalent to reaching the
+ *       maximum number of retry attempts. The entry will not be retried
+ *       again and can be cleaned up by operators.
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The ID of the DLQ entry to abandon
+ *     responses:
+ *       200:
+ *         description: DLQ entry successfully abandoned
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/DeadLetterEntryResponse'
+ *       404:
+ *         description: Dead-letter entry not found
+ *       422:
+ *         description: Entry is already in a terminal state
+ */
+router.post('/:id/abandon', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const dryRun = parseDryRun(req);
+    const result = await deadLetterQueueService.abandon(
+      req.params.id,
+      undefined,
+      { dryRun },
+    );
+    if (!result) {
+      res.status(404).json({ error: 'Dead-letter entry not found' });
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    logger.error('DLQ abandon failed', { error: err, id: req.params.id });
+    res.status(500).json({ error: 'Failed to abandon dead-letter entry' });
+  }
+});
+
 export default router;
