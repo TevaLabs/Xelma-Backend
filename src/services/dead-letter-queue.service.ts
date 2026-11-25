@@ -299,6 +299,45 @@ class DeadLetterQueueService {
   }
 
   /**
+   * Mark a DLQ entry as ABANDONED. This is equivalent to reaching the
+   * maximum number of retry attempts. The entry will not be retried again.
+   *
+   * @param id The ID of the DLQ entry to abandon.
+   * @param options Optional options.
+   * @returns The updated DLQ entry, or null if not found.
+   */
+  async abandon(
+    id: string,
+    _handlers: any = {},
+    options: RetryOptions = {},
+  ): Promise<{ dryRun: true; id: string; status: DispatchStatus; attempts: number; redactedPayload: unknown } | { id: string; status: DispatchStatus; attempts: number } | null> {
+    const row = await prisma.failedDispatch.findUnique({ where: { id } });
+    if (!row) {
+      logger.warn(`DLQ abandon: entry ${id} not found`);
+      return null;
+    }
+    if (options.dryRun) {
+      return {
+        dryRun: true,
+        id: row.id,
+        status: row.status,
+        attempts: row.attempts,
+        redactedPayload: redactDlqPayload(row.payload),
+      };
+    }
+    const updated = await prisma.failedDispatch.update({
+      where: { id },
+      data: {
+        status: DispatchStatus.ABANDONED,
+        lastRetryAt: new Date(),
+      },
+      select: { id: true, status: true, attempts: true },
+    });
+    logger.info(`DLQ entry abandoned`, { id, status: updated.status });
+    return updated;
+  }
+
+  /**
    * Delete `RESOLVED` rows older than `daysOld` so the table doesn't grow
    * forever. Mirrors the cleanup pattern used by `notification.service`.
    */
