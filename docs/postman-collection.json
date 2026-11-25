@@ -1,11 +1,11 @@
 {
   "item": [
     {
-      "id": "1db00ba9-c7b2-485c-a579-c0aa92d63b1b",
+      "id": "77ece319-1eab-483e-98c3-d1e13227eb6f",
       "name": "api",
       "item": [
         {
-          "id": "9a490b72-959c-40dd-b2d7-2a2e7bb28bd0",
+          "id": "1120c88f-cd94-4bcc-8745-80cce468ec47",
           "name": "Return per-wallet stats for a Stellar address",
           "request": {
             "name": "Return per-wallet stats for a Stellar address",
@@ -45,7 +45,7 @@
           },
           "response": [
             {
-              "id": "6346e66c-dce2-4be8-9eff-7c82c38f2679",
+              "id": "da21ec1f-33dd-4c42-b307-95f54d9fba7b",
               "name": "Wallet-specific stats matching production profile contract",
               "originalRequest": {
                 "url": {
@@ -86,12 +86,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"success\": true,\n  \"stats\": {\n    \"totalWins\": 8459,\n    \"totalLosses\": 3909,\n    \"currentStreak\": 5472,\n    \"pendingWinnings\": \"1000.33333333\",\n    \"isRegistered\": false\n  },\n  \"profile\": {\n    \"balance\": \"1000.33333333\",\n    \"xp\": 9212,\n    \"rankTitle\": \"string\"\n  }\n}",
+              "body": "{\n  \"success\": true,\n  \"stats\": {\n    \"totalWins\": 2782,\n    \"totalLosses\": 8162,\n    \"currentStreak\": 5334,\n    \"pendingWinnings\": \"1000.33333333\",\n    \"isRegistered\": true\n  },\n  \"profile\": {\n    \"balance\": \"1000.33333333\",\n    \"xp\": 4971,\n    \"rankTitle\": \"string\"\n  }\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "5002c88c-1028-4318-a17b-590b619e33c3",
+              "id": "1b6f6e9f-06c0-4146-9043-b4dac2007c0e",
               "name": "Invalid wallet address",
               "originalRequest": {
                 "url": {
@@ -137,11 +137,11 @@
           }
         },
         {
-          "id": "6a7ef7ae-eb84-4f9e-b8ff-2037a88b981f",
+          "id": "7a668f65-9680-471b-ae09-eca4116c3719",
           "name": "tournaments",
           "item": [
             {
-              "id": "0508f2bc-7760-4683-86e8-303b6413a3a4",
+              "id": "9a151d27-e6b3-47a4-ac75-171b6e997e0c",
               "name": "List tournaments",
               "request": {
                 "name": "List tournaments",
@@ -192,7 +192,7 @@
               },
               "response": [
                 {
-                  "id": "5066fe5f-1c7b-459c-8096-078cd71cd70a",
+                  "id": "80f7d5fc-9eef-48bf-96ba-209b9b3579a2",
                   "name": "Paginated tournament list",
                   "originalRequest": {
                     "url": {
@@ -240,12 +240,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"success\": false,\n  \"data\": [\n    {\n      \"value\": \"reference #/components/schemas/Tournament not found in the OpenAPI spec\"\n    },\n    {\n      \"value\": \"reference #/components/schemas/Tournament not found in the OpenAPI spec\"\n    }\n  ],\n  \"meta\": {\n    \"pagination\": {\n      \"limit\": 6363,\n      \"offset\": 7283,\n      \"total\": 5376\n    }\n  }\n}",
+                  "body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"value\": \"reference #/components/schemas/Tournament not found in the OpenAPI spec\"\n    },\n    {\n      \"value\": \"reference #/components/schemas/Tournament not found in the OpenAPI spec\"\n    }\n  ],\n  \"meta\": {\n    \"pagination\": {\n      \"limit\": 8804,\n      \"offset\": 3390,\n      \"total\": 9098\n    }\n  }\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "0f4e8638-7548-4c63-9447-4e753644bf62",
+                  "id": "df9f0360-7df7-4cb0-9054-e3c3ca178db7",
                   "name": "Invalid mode or status",
                   "originalRequest": {
                     "url": {
@@ -304,7 +304,7 @@
               }
             },
             {
-              "id": "405e97b3-2a92-49aa-bcbd-eff7743209ee",
+              "id": "761d905e-5cc9-4f0e-ad58-63ff062797fc",
               "name": "Create a tournament (start of the saga lifecycle)",
               "request": {
                 "name": "Create a tournament (start of the saga lifecycle)",
@@ -351,7 +351,7 @@
               },
               "response": [
                 {
-                  "id": "85b80146-b51d-48e1-b806-0cefa9d2b8af",
+                  "id": "3575ba17-b3aa-4f42-a877-827c994518f3",
                   "name": "Tournament created",
                   "originalRequest": {
                     "url": {
@@ -399,7 +399,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "0733183b-12f1-463f-8b61-e5cccde0f9d0",
+                  "id": "974fd87f-6584-4fd3-833c-6d251f3954e2",
                   "name": "Invalid tournament parameters",
                   "originalRequest": {
                     "url": {
@@ -447,7 +447,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "6165fcfa-cb88-46a4-8578-eef1ac019378",
+                  "id": "e31a61f6-4d3b-4464-aaf6-7f0e5100f4eb",
                   "name": "Authentication required",
                   "originalRequest": {
                     "url": {
@@ -495,7 +495,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "8cfbe195-8f5b-47c3-b9d2-8a63aba51ad5",
+                  "id": "ecf2c92a-8617-4b10-8434-cbf522ee6129",
                   "name": "Lifecycle violation",
                   "originalRequest": {
                     "url": {
@@ -549,11 +549,11 @@
               }
             },
             {
-              "id": "81459899-22fb-4f96-a8b3-429affa5333e",
+              "id": "cdc4677a-072a-4f6d-8037-634e6e7ecb6b",
               "name": "{id}",
               "item": [
                 {
-                  "id": "89d7cce4-b805-4416-b879-9dafea8e5649",
+                  "id": "27056051-00b9-4321-9073-a94e462899d7",
                   "name": "Lock a tournament (close the join window)",
                   "request": {
                     "name": "Lock a tournament (close the join window)",
@@ -595,7 +595,7 @@
                   },
                   "response": [
                     {
-                      "id": "09a954f2-8ad1-40e3-bffa-a992e8526dfd",
+                      "id": "06a7b01c-b7ea-4478-a9da-8bc47a3a21a7",
                       "name": "Tournament locked",
                       "originalRequest": {
                         "url": {
@@ -645,7 +645,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "6ff2c964-c624-4431-8195-28de2f84e8b5",
+                      "id": "aa12ad00-5b6a-4cac-be02-7cf173b6355e",
                       "name": "Authentication required",
                       "originalRequest": {
                         "url": {
@@ -695,7 +695,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "130591c7-ed9a-4611-b59c-ff963414aa0f",
+                      "id": "d9cafae2-397c-4600-ae72-67d58b4d4905",
                       "name": "Tournament not found",
                       "originalRequest": {
                         "url": {
@@ -745,7 +745,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "817d8b55-c5c0-4369-b7e1-148c05907909",
+                      "id": "6f1a2d43-7ebf-411d-b433-a774ab036afa",
                       "name": "Lifecycle violation (e.g. locking a COMPLETED tournament)",
                       "originalRequest": {
                         "url": {
@@ -801,7 +801,7 @@
                   }
                 },
                 {
-                  "id": "d008369d-fe5a-4aa9-be33-22e6572f353a",
+                  "id": "7f023e39-1035-4fac-9a36-8ea48ff0bc64",
                   "name": "Settle a tournament and pay out winners",
                   "request": {
                     "name": "Settle a tournament and pay out winners",
@@ -843,7 +843,7 @@
                   },
                   "response": [
                     {
-                      "id": "05d12711-54f1-46df-8117-6e389eff2b08",
+                      "id": "7a201298-7a9f-43b2-a6ec-21abbeca6b78",
                       "name": "Settlement completed with winner allocations",
                       "originalRequest": {
                         "url": {
@@ -893,7 +893,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "dbb5e08d-1b0f-48d9-bf6a-7261ca025f67",
+                      "id": "dbfd82bc-598d-439c-9d3a-571acbbb826d",
                       "name": "Authentication required",
                       "originalRequest": {
                         "url": {
@@ -943,7 +943,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "d8d02eec-6f69-4c03-89ed-dedeea8597f4",
+                      "id": "484f7601-6ae8-43c5-82c7-071566aa30fc",
                       "name": "Tournament not found",
                       "originalRequest": {
                         "url": {
@@ -993,7 +993,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "84e0650d-2c01-4e9a-8193-0449da19c35a",
+                      "id": "e59a628f-a428-4cc8-9797-97bc1c7e2167",
                       "name": "Lifecycle violation (e.g. settling an un-locked tournament)",
                       "originalRequest": {
                         "url": {
@@ -1049,7 +1049,7 @@
                   }
                 },
                 {
-                  "id": "ac036f71-f53f-4064-8648-e4742fda6bb9",
+                  "id": "3f64987c-9d3e-4e51-9a3b-e2abf6bda61b",
                   "name": "Cancel a tournament",
                   "request": {
                     "name": "Cancel a tournament",
@@ -1091,7 +1091,7 @@
                   },
                   "response": [
                     {
-                      "id": "4071b48f-7236-4ebb-8483-1924ff2b5643",
+                      "id": "11e6dc87-9350-4fa4-9380-34142ca76035",
                       "name": "Tournament cancelled",
                       "originalRequest": {
                         "url": {
@@ -1141,7 +1141,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "dd483d15-2604-4afa-862c-c76fd15793d1",
+                      "id": "0492f20c-1ea2-4339-ba6d-4e175c6c7f54",
                       "name": "Authentication required",
                       "originalRequest": {
                         "url": {
@@ -1191,7 +1191,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "3e6aa6c2-09d0-4014-9239-6cb016b4adbc",
+                      "id": "2c34b777-0988-4439-b21c-c796170d0913",
                       "name": "Tournament not found",
                       "originalRequest": {
                         "url": {
@@ -1241,7 +1241,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "b1bb4c1b-d414-474d-b996-c6ded08d8c06",
+                      "id": "4b94a569-3d2a-4f7f-8806-625f29afa977",
                       "name": "Lifecycle violation (e.g. cancelling a COMPLETED tournament)",
                       "originalRequest": {
                         "url": {
@@ -1303,7 +1303,7 @@
           "event": []
         },
         {
-          "id": "634e0f88-4293-4b11-a5ca-56a38c6afe2e",
+          "id": "24d64729-5ab1-4b9e-8b7f-ed25d6fc7cc0",
           "name": "Platform statistics",
           "request": {
             "name": "Platform statistics",
@@ -1333,7 +1333,7 @@
           },
           "response": [
             {
-              "id": "ebdb6e15-022a-4fb4-b779-fb71a934fdc4",
+              "id": "bb70d352-9ca2-449a-9ef9-9693a57e30ff",
               "name": "Platform stats",
               "originalRequest": {
                 "url": {
@@ -1369,7 +1369,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "0306c7fb-9bff-47a2-b0a6-cafbe769531b",
+              "id": "b2a3bb6c-4212-4196-9e3c-9ea6cc40ccc2",
               "name": "Failed to retrieve stats",
               "originalRequest": {
                 "url": {
@@ -1405,11 +1405,11 @@
           }
         },
         {
-          "id": "30307258-f533-464d-91d4-a0f0d0d9abbc",
+          "id": "4ac86cb1-1424-47a7-bd87-928f6697101f",
           "name": "rounds",
           "item": [
             {
-              "id": "de1067b7-6889-4083-b5f3-1e0ea270d1ac",
+              "id": "bac1bded-43ff-48b8-b33a-168320c1b583",
               "name": "List active prediction rounds",
               "request": {
                 "name": "List active prediction rounds",
@@ -1433,7 +1433,7 @@
               },
               "response": [
                 {
-                  "id": "1eaede86-a387-4e09-b42e-b0091e246c88",
+                  "id": "9f921521-ed77-4b23-8a8d-e47b26484098",
                   "name": "Active rounds with source metadata",
                   "originalRequest": {
                     "url": {
@@ -1469,7 +1469,7 @@
               }
             },
             {
-              "id": "0476de6e-41db-418f-b8bc-a1baa8f9a1d6",
+              "id": "e43073ec-1a00-4142-8c36-e618ba40120e",
               "name": "Start a new prediction round",
               "request": {
                 "name": "Start a new prediction round",
@@ -1517,7 +1517,7 @@
               },
               "response": [
                 {
-                  "id": "42835b0a-5a33-4761-9e69-19de65c3b4a1",
+                  "id": "5c6811ef-1b16-4505-83bc-9ac72c912e8e",
                   "name": "Round started",
                   "originalRequest": {
                     "url": {
@@ -1566,7 +1566,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "e95a4524-d1c8-45b7-903c-6c091046c5a8",
+                  "id": "d42acaa0-1be3-42ad-95c1-40bd230a5bbc",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -1615,7 +1615,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "6e9e26c1-3a4e-447f-b04a-825003354727",
+                  "id": "46a90715-d582-4575-aab6-e7302ff1ef22",
                   "name": "Unauthorized",
                   "originalRequest": {
                     "url": {
@@ -1664,7 +1664,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "2c3d9814-4d9d-4c4b-92a4-39251f4d02c7",
+                  "id": "1bd8b2bd-3b9a-48f6-8cc5-b9126d895882",
                   "name": "Forbidden",
                   "originalRequest": {
                     "url": {
@@ -1713,7 +1713,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "de4a6883-fc28-491f-89e6-52dbcd16c735",
+                  "id": "2d766e6c-d71b-49d8-8d95-c6d657fd6b30",
                   "name": "Conflict - active round exists",
                   "originalRequest": {
                     "url": {
@@ -1768,11 +1768,11 @@
               }
             },
             {
-              "id": "1138dbfa-9f40-4354-a496-ccb7ee8f378c",
+              "id": "609ecf62-9582-4cda-ba89-00d0f07b70d4",
               "name": "{id}",
               "item": [
                 {
-                  "id": "bbfb1ef5-7cb5-43df-9b36-e196b740fa9e",
+                  "id": "a68686c2-2bbf-4087-a8d1-5c1ea00c272e",
                   "name": "Get a round by ID",
                   "request": {
                     "name": "Get a round by ID",
@@ -1802,7 +1802,7 @@
                   },
                   "response": [
                     {
-                      "id": "6c5c4cd8-dedb-41e6-a5e3-a02e75f83c72",
+                      "id": "c11fba6c-cf09-4943-88b6-80f98d11e64e",
                       "name": "Round found",
                       "originalRequest": {
                         "url": {
@@ -1841,7 +1841,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "61a820e3-1b59-4e96-874b-aaf588283a8c",
+                      "id": "943a9be8-e509-40d0-9636-b4d5c8d230d0",
                       "name": "Round not found",
                       "originalRequest": {
                         "url": {
@@ -1886,7 +1886,7 @@
                   }
                 },
                 {
-                  "id": "d08de1d4-4ef1-49d0-a685-6c8e48626cbe",
+                  "id": "8460cce6-da29-41f3-a86b-6e298cdf0a1b",
                   "name": "Place a bet on a specific round",
                   "request": {
                     "name": "Place a bet on a specific round",
@@ -1936,7 +1936,7 @@
                   },
                   "response": [
                     {
-                      "id": "97a13085-b76f-4542-aed7-d0c66a921f3c",
+                      "id": "11d00275-4f64-499e-8ef1-6207f4ecf37b",
                       "name": "Bet recorded (stub) or placed on-chain",
                       "originalRequest": {
                         "url": {
@@ -1992,7 +1992,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "96c6024c-8b75-439c-9d4e-8808a4b7316f",
+                      "id": "fb02df96-3f53-4a36-a544-88c8555a9f35",
                       "name": "Validation error, or round mode does not match the bet kind",
                       "originalRequest": {
                         "url": {
@@ -2048,7 +2048,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "74731bf8-1495-4469-bca7-cdf8d55574d6",
+                      "id": "d1db9f9b-7645-465e-bc16-b58a37e19e7e",
                       "name": "Missing or invalid JWT",
                       "originalRequest": {
                         "url": {
@@ -2104,7 +2104,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "eeef01f8-9cc7-42ec-b1fc-20f0e985b38a",
+                      "id": "c328f385-4b24-4189-b4c1-b81b42440c4f",
                       "name": "Wallet address mismatch",
                       "originalRequest": {
                         "url": {
@@ -2160,7 +2160,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "4af806d9-df17-4dd3-a9f2-d07a8e4f27f2",
+                      "id": "75a6eb18-dbd4-41a1-929f-3f1a3f3c0268",
                       "name": "Round not found",
                       "originalRequest": {
                         "url": {
@@ -2216,7 +2216,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "2d199317-a0b5-412e-8380-4c7a6df596f4",
+                      "id": "595e0c8e-dcb6-4891-9646-cd40589df1f6",
                       "name": "Idempotency key conflict",
                       "originalRequest": {
                         "url": {
@@ -2278,7 +2278,7 @@
                   }
                 },
                 {
-                  "id": "62d87bb2-0081-4d38-9337-9d7e504e15a9",
+                  "id": "5e18da92-d8be-454b-82b5-ff29d1a1a123",
                   "name": "Resolve a round with the final price",
                   "request": {
                     "name": "Resolve a round with the final price",
@@ -2335,7 +2335,7 @@
                   },
                   "response": [
                     {
-                      "id": "9ab31ed8-0104-4f2b-a5fb-5a6e2a65670b",
+                      "id": "e19e6933-bbf3-4d71-9e40-771ae9999c5a",
                       "name": "Round resolved",
                       "originalRequest": {
                         "url": {
@@ -2393,7 +2393,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "2e72972c-e676-41b6-bed3-14f69bac3be6",
+                      "id": "467342a9-2dc1-4a95-82fd-65df1bb4423a",
                       "name": "Validation error",
                       "originalRequest": {
                         "url": {
@@ -2451,7 +2451,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "073931fd-a783-4c18-848d-75100e0c7224",
+                      "id": "4de8174d-e7ec-46ac-8828-a47df926c713",
                       "name": "Unauthorized",
                       "originalRequest": {
                         "url": {
@@ -2509,7 +2509,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "74ecce9d-bc4f-4c72-8668-8f96e1c1a255",
+                      "id": "16198885-3a5a-4da3-808c-c2381195679c",
                       "name": "Forbidden",
                       "originalRequest": {
                         "url": {
@@ -2567,7 +2567,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "01a08366-7e79-4662-8b16-b96062d66600",
+                      "id": "1b80e49f-de5a-42e7-a698-0785ee1e9590",
                       "name": "Round not found",
                       "originalRequest": {
                         "url": {
@@ -2631,7 +2631,7 @@
                   }
                 },
                 {
-                  "id": "1075d829-737f-41a9-b909-9b4ed8a6e939",
+                  "id": "ce1320c5-f51c-4d8d-ab97-1a1ace8efdd6",
                   "name": "Simulate a round resolution (Non-Production QA Endpoint)",
                   "request": {
                     "name": "Simulate a round resolution (Non-Production QA Endpoint)",
@@ -2692,7 +2692,7 @@
                   },
                   "response": [
                     {
-                      "id": "5826b9bd-6533-45d5-b508-0e92af33f10b",
+                      "id": "5c8eb539-bc58-4d79-a13e-009dc6692531",
                       "name": "Simulation results",
                       "originalRequest": {
                         "url": {
@@ -2749,12 +2749,12 @@
                           "value": "application/json"
                         }
                       ],
-                      "body": "{\n  \"success\": true,\n  \"roundId\": \"string\",\n  \"simulatedPrice\": 7269.353162701844,\n  \"mode\": \"UP_DOWN\",\n  \"startPrice\": 9959.49880549762,\n  \"winningSide\": \"UP\",\n  \"winningRange\": {\n    \"min\": 6711.11509008766,\n    \"max\": 3908.0777888910225\n  },\n  \"predictions\": [\n    {\n      \"won\": false,\n      \"payout\": 1648.1442896942688,\n      \"amount\": 276.89877487907523,\n      \"side\": \"DOWN\"\n    },\n    {\n      \"won\": false,\n      \"payout\": 6322.763014993176,\n      \"amount\": 172.84676263330633,\n      \"side\": \"DOWN\"\n    }\n  ],\n  \"summary\": {\n    \"totalPredictions\": 8939,\n    \"winners\": 7212,\n    \"losers\": 9755,\n    \"refunded\": 855,\n    \"totalPayout\": 3742.2146170526294\n  }\n}",
+                      "body": "{\n  \"success\": true,\n  \"roundId\": \"string\",\n  \"simulatedPrice\": 1573.5655837018846,\n  \"mode\": \"UP_DOWN\",\n  \"startPrice\": 1032.2052880691213,\n  \"winningSide\": \"DOWN\",\n  \"winningRange\": {\n    \"min\": 5414.986650445228,\n    \"max\": 696.4805625957116\n  },\n  \"predictions\": [\n    {\n      \"won\": false,\n      \"payout\": 3180.309446362649,\n      \"amount\": 9371.893434477548,\n      \"side\": \"DOWN\"\n    },\n    {\n      \"won\": true,\n      \"payout\": 402.7981314166318,\n      \"amount\": 4959.995185398862,\n      \"side\": \"DOWN\"\n    }\n  ],\n  \"summary\": {\n    \"totalPredictions\": 7815,\n    \"winners\": 9172,\n    \"losers\": 5040,\n    \"refunded\": 7230,\n    \"totalPayout\": 3983.476083313474\n  }\n}",
                       "cookie": [],
                       "_postman_previewlanguage": "json"
                     },
                     {
-                      "id": "6e6eeafc-9338-436b-b116-6a5fa9d183c5",
+                      "id": "fbefe050-e0ca-4adb-b81f-4fc5aa8a4d82",
                       "name": "Validation error - finalPrice missing",
                       "originalRequest": {
                         "url": {
@@ -2812,7 +2812,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "855de561-50e6-4aee-8ec5-34c0e4176129",
+                      "id": "a555e18e-cd43-4831-aca9-a6a6fc68df6c",
                       "name": "Unauthorized - missing or invalid bearer token",
                       "originalRequest": {
                         "url": {
@@ -2870,7 +2870,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "390442fe-bcdd-496c-b5c3-ecd22e950147",
+                      "id": "7a799bdf-44c4-41ae-a57a-4bf6c3474644",
                       "name": "Forbidden - simulation disabled (ENABLE_SIMULATION=false) or caller is not an admin",
                       "originalRequest": {
                         "url": {
@@ -2928,7 +2928,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "40533380-0134-42e1-870a-17fa160a71e2",
+                      "id": "b1c4a41e-3f37-4b52-871f-582c2391dbfb",
                       "name": "Round not found",
                       "originalRequest": {
                         "url": {
@@ -2998,7 +2998,7 @@
           "event": []
         },
         {
-          "id": "b3f3644b-12e9-4066-8d57-5a31ebba19c5",
+          "id": "e5b96afb-da0b-4d46-8f8e-b9b44c69606e",
           "name": "Multi-asset USD prices (BTC, ETH, XLM)",
           "request": {
             "name": "Multi-asset USD prices (BTC, ETH, XLM)",
@@ -3028,7 +3028,7 @@
           },
           "response": [
             {
-              "id": "06a4c624-2ec4-489a-8e15-e85780e6d5c8",
+              "id": "2ffb841d-a13f-435c-b871-cb094c713bcb",
               "name": "Current market prices in a success envelope",
               "originalRequest": {
                 "url": {
@@ -3059,12 +3059,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"success\": true,\n    \"data\": {\n      \"BTC\": 67420.12,\n      \"ETH\": 3241.55,\n      \"XLM\": 0.2891,\n      \"stale\": false,\n      \"lastUpdatedAt\": \"2013-06-30T00:38:01.786Z\"\n    }\n  }\n}",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"success\": true,\n    \"data\": {\n      \"BTC\": 67420.12,\n      \"ETH\": 3241.55,\n      \"XLM\": 0.2891,\n      \"stale\": false,\n      \"lastUpdatedAt\": \"2003-11-06T12:51:37.629Z\"\n    }\n  }\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "cc540859-6056-4225-98a4-2027d814dc64",
+              "id": "2580e67c-b272-4c1d-bc4f-6279719173f2",
               "name": "Price service unavailable (no cache)",
               "originalRequest": {
                 "url": {
@@ -3095,7 +3095,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"success\": false,\n  \"error\": \"string\",\n  \"message\": \"string\",\n  \"stale\": true,\n  \"lastUpdatedAt\": \"string\",\n  \"source\": \"string\"\n}",
+              "body": "{\n  \"success\": false,\n  \"error\": \"string\",\n  \"message\": \"string\",\n  \"stale\": false,\n  \"lastUpdatedAt\": \"string\",\n  \"source\": \"string\"\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             }
@@ -3106,7 +3106,7 @@
           }
         },
         {
-          "id": "70be771b-3af1-4056-b886-c16b1d66ba63",
+          "id": "f561ca92-8077-4ea4-b8dd-b976973f47e6",
           "name": "Single-asset XLM oracle price",
           "request": {
             "name": "Single-asset XLM oracle price",
@@ -3136,7 +3136,7 @@
           },
           "response": [
             {
-              "id": "768a151d-44e8-43b8-b167-cfad9f3d26f3",
+              "id": "201aa3de-e4ab-4739-ba76-f8383c97cfa6",
               "name": "Current XLM oracle price snapshot",
               "originalRequest": {
                 "url": {
@@ -3178,11 +3178,11 @@
           }
         },
         {
-          "id": "719f55e6-7ca6-4853-a65b-fdc05bed8dbf",
+          "id": "e9a44e32-3a8d-4380-93a8-62cd745ca406",
           "name": "predictions",
           "item": [
             {
-              "id": "79d1ff88-57a3-4a96-8248-98794563c6db",
+              "id": "d8f27197-02f3-406a-b4fe-16cee38b79b1",
               "name": "Submit a prediction",
               "request": {
                 "name": "Submit a prediction",
@@ -3240,7 +3240,7 @@
               },
               "response": [
                 {
-                  "id": "3a74db33-de29-4b93-9882-fee667382a64",
+                  "id": "625bb24d-86ac-49a6-9462-c091dad32570",
                   "name": "Prediction submitted",
                   "originalRequest": {
                     "url": {
@@ -3295,7 +3295,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "63184ff2-ee46-4c70-9c22-40b1ab1a2c12",
+                  "id": "1796cd35-8cba-4de5-aa63-23b409de720a",
                   "name": "Idempotency key reused with a different request body",
                   "originalRequest": {
                     "url": {
@@ -3360,7 +3360,7 @@
               }
             },
             {
-              "id": "046cdee9-5a58-4a9b-a8ff-f9f30663ff30",
+              "id": "b88b377b-1adc-446a-8e9c-c98d17a4374a",
               "name": "Submit multiple predictions at once",
               "request": {
                 "name": "Submit multiple predictions at once",
@@ -3412,7 +3412,7 @@
               },
               "response": [
                 {
-                  "id": "9c54e2cb-f625-4699-843c-4c03f542647a",
+                  "id": "be6c2005-e5b6-4fec-9814-3fb76a8cf6db",
                   "name": "Predictions processed",
                   "originalRequest": {
                     "url": {
@@ -3461,7 +3461,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "4f68833f-810e-4ddc-8611-234aed13c1e2",
+                  "id": "9d567e3d-9037-4391-9280-433191764683",
                   "name": "Too many batch requests",
                   "originalRequest": {
                     "url": {
@@ -3520,7 +3520,7 @@
               }
             },
             {
-              "id": "8cf88d4d-e202-4579-90b4-ee98b6b8007a",
+              "id": "deb72a98-75e0-43ad-93cb-08f0932b51dd",
               "name": "Get user predictions",
               "request": {
                 "name": "Get user predictions",
@@ -3550,7 +3550,7 @@
               },
               "response": [
                 {
-                  "id": "539e703a-54b8-46d2-84b2-d456d05ab98a",
+                  "id": "4af39cc2-3b2e-4b0a-acdb-784e9122818d",
                   "name": "List of predictions",
                   "originalRequest": {
                     "url": {
@@ -3597,7 +3597,7 @@
               }
             },
             {
-              "id": "ae2179a2-4bd1-473f-8104-7a4040f651f9",
+              "id": "5681f8fd-60ec-4479-a333-2f75a6b844a7",
               "name": "Get predictions for a round",
               "request": {
                 "name": "Get predictions for a round",
@@ -3628,7 +3628,7 @@
               },
               "response": [
                 {
-                  "id": "a87d172a-9b56-46b4-b304-c1cbe683b2b4",
+                  "id": "9aed04f0-7472-45db-a35f-03e3c1281454",
                   "name": "List of predictions",
                   "originalRequest": {
                     "url": {
@@ -3677,7 +3677,7 @@
           "event": []
         },
         {
-          "id": "bfe29558-7444-4260-8a8a-6d407d375354",
+          "id": "cd2cef75-cf04-493e-bf3e-6629372a5109",
           "name": "Get paginated notifications",
           "request": {
             "name": "Get paginated notifications",
@@ -3733,7 +3733,7 @@
           },
           "response": [
             {
-              "id": "412428c6-5825-4f35-97b7-145e0eaeee7e",
+              "id": "7c491861-ac39-47fc-9da9-0f8ee073f62e",
               "name": "Notifications page",
               "originalRequest": {
                 "url": {
@@ -3790,7 +3790,7 @@
               "_postman_previewlanguage": "text"
             },
             {
-              "id": "5d1c4a91-9096-4640-9178-4d80067a596d",
+              "id": "05cdad97-b056-4255-a9cd-b0ba079ff03d",
               "name": "Validation error",
               "originalRequest": {
                 "url": {
@@ -3847,7 +3847,7 @@
               "_postman_previewlanguage": "text"
             },
             {
-              "id": "d7deac3c-fdc2-4d6f-b82d-8c7e21ea1719",
+              "id": "a3935f52-5117-4919-9c9b-ba3e3b9c9aa9",
               "name": "Unauthorized",
               "originalRequest": {
                 "url": {
@@ -3910,11 +3910,11 @@
           }
         },
         {
-          "id": "d1cf95f8-abbc-41fc-ae15-8b6765bd6aef",
+          "id": "77c53733-de97-461c-a2f9-259cc2725dcf",
           "name": "leaderboard",
           "item": [
             {
-              "id": "da7b1bc4-32dd-43fd-af56-1582e68154ea",
+              "id": "16e3d91f-ea37-42b2-a53c-bf0f1463cf7a",
               "name": "Get the global leaderboard",
               "request": {
                 "name": "Get the global leaderboard",
@@ -3963,7 +3963,7 @@
               },
               "response": [
                 {
-                  "id": "590ddcff-7b53-43e8-9616-7104dc8711fa",
+                  "id": "e1204211-baec-4334-8f91-fb9d8fedb19c",
                   "name": "Leaderboard payload",
                   "originalRequest": {
                     "url": {
@@ -4007,12 +4007,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"leaderboard\": [\n    {\n      \"rank\": 631,\n      \"userId\": \"string\",\n      \"walletAddress\": \"string\",\n      \"totalEarnings\": \"1000.33333333\",\n      \"totalPredictions\": 2486,\n      \"accuracy\": 8849.028869005979,\n      \"modeStats\": {\n        \"upDown\": {\n          \"wins\": 4161,\n          \"losses\": 2351,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 191.9985656477774\n        },\n        \"legends\": {\n          \"wins\": 4952,\n          \"losses\": 9491,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 5486.9653553279195\n        }\n      }\n    },\n    {\n      \"rank\": 2583,\n      \"userId\": \"string\",\n      \"walletAddress\": \"string\",\n      \"totalEarnings\": \"1000.33333333\",\n      \"totalPredictions\": 6347,\n      \"accuracy\": 6110.956026611265,\n      \"modeStats\": {\n        \"upDown\": {\n          \"wins\": 6025,\n          \"losses\": 9608,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 1957.1604154597887\n        },\n        \"legends\": {\n          \"wins\": 9518,\n          \"losses\": 5013,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 3464.1998167735587\n        }\n      }\n    }\n  ],\n  \"totalUsers\": 2538.0240970795076,\n  \"lastUpdated\": \"string\",\n  \"userPosition\": {\n    \"rank\": 7499,\n    \"userId\": \"string\",\n    \"walletAddress\": \"string\",\n    \"totalEarnings\": \"1000.33333333\",\n    \"totalPredictions\": 8123,\n    \"accuracy\": 401.79851244081635,\n    \"modeStats\": {\n      \"upDown\": {\n        \"wins\": 9301,\n        \"losses\": 3501,\n        \"earnings\": \"1000.33333333\",\n        \"accuracy\": 1551.2139377601818\n      },\n      \"legends\": {\n        \"wins\": 6262,\n        \"losses\": 3843,\n        \"earnings\": \"1000.33333333\",\n        \"accuracy\": 8018.402616130539\n      }\n    }\n  }\n}",
+                  "body": "{\n  \"leaderboard\": [\n    {\n      \"rank\": 165,\n      \"userId\": \"string\",\n      \"walletAddress\": \"string\",\n      \"totalEarnings\": \"1000.33333333\",\n      \"totalPredictions\": 83,\n      \"accuracy\": 325.791444821687,\n      \"modeStats\": {\n        \"upDown\": {\n          \"wins\": 9106,\n          \"losses\": 2421,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 3258.601908742512\n        },\n        \"legends\": {\n          \"wins\": 1392,\n          \"losses\": 6128,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 2109.0544103607976\n        }\n      }\n    },\n    {\n      \"rank\": 8221,\n      \"userId\": \"string\",\n      \"walletAddress\": \"string\",\n      \"totalEarnings\": \"1000.33333333\",\n      \"totalPredictions\": 8444,\n      \"accuracy\": 8298.426383273649,\n      \"modeStats\": {\n        \"upDown\": {\n          \"wins\": 1337,\n          \"losses\": 4744,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 2566.622923342394\n        },\n        \"legends\": {\n          \"wins\": 5425,\n          \"losses\": 2378,\n          \"earnings\": \"1000.33333333\",\n          \"accuracy\": 7065.492366182077\n        }\n      }\n    }\n  ],\n  \"totalUsers\": 2368.74453798801,\n  \"lastUpdated\": \"string\",\n  \"userPosition\": {\n    \"rank\": 3505,\n    \"userId\": \"string\",\n    \"walletAddress\": \"string\",\n    \"totalEarnings\": \"1000.33333333\",\n    \"totalPredictions\": 7133,\n    \"accuracy\": 5191.862433725638,\n    \"modeStats\": {\n      \"upDown\": {\n        \"wins\": 4631,\n        \"losses\": 4358,\n        \"earnings\": \"1000.33333333\",\n        \"accuracy\": 7950.356605489166\n      },\n      \"legends\": {\n        \"wins\": 3788,\n        \"losses\": 56,\n        \"earnings\": \"1000.33333333\",\n        \"accuracy\": 2361.137057815601\n      }\n    }\n  }\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "3c396497-6fa1-4fcc-82d6-a358dff114e5",
+                  "id": "2b9b8360-9df2-4e42-a341-bf2c347cac6b",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -4055,7 +4055,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "5ffcf4fa-df6a-4e48-8d8d-56d2a6eee366",
+                  "id": "a9610ae9-1a13-4eaf-8f0f-f429164de3b2",
                   "name": "Internal server error",
                   "originalRequest": {
                     "url": {
@@ -4104,7 +4104,7 @@
               }
             },
             {
-              "id": "35a10a98-e7c3-46a5-9703-7b46b74d55ca",
+              "id": "edbc3b51-7dee-4617-9165-a1ccdd1bda75",
               "name": "Get leaderboard positions for multiple users",
               "request": {
                 "name": "Get leaderboard positions for multiple users",
@@ -4156,7 +4156,7 @@
               },
               "response": [
                 {
-                  "id": "9240bd93-1ac9-4889-b4ef-4a9ffe8dc66a",
+                  "id": "ea10a34f-65d5-4b26-a7fc-90950b323a78",
                   "name": "Batch user positions",
                   "originalRequest": {
                     "url": {
@@ -4209,7 +4209,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "28616409-6520-4d25-abab-24e2ed99ec5e",
+                  "id": "847d7727-329d-4481-b6ba-2d38feb7794c",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -4262,7 +4262,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "6599c7da-4d16-4106-826d-14377c7074da",
+                  "id": "4df3d953-8fdf-4bbc-a4cc-6dbb1ee2dc25",
                   "name": "Unauthorized",
                   "originalRequest": {
                     "url": {
@@ -4315,7 +4315,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "2e407c36-0558-4457-9e5c-2ec3f2e8e3c0",
+                  "id": "1daad6ec-16cf-4cb9-bf4e-a173cc54c4d3",
                   "name": "Internal server error",
                   "originalRequest": {
                     "url": {
@@ -4377,7 +4377,7 @@
           "event": []
         },
         {
-          "id": "e7032b3c-9b2b-42a7-aaa9-184088aecd92",
+          "id": "e88fe6db-cf36-42c3-a67e-c25ebf52e7cb",
           "name": "Lightweight hackathon health check",
           "request": {
             "name": "Lightweight hackathon health check",
@@ -4398,7 +4398,7 @@
           },
           "response": [
             {
-              "id": "45570902-dbb2-42e4-9e0d-56074834b374",
+              "id": "2fcdd7e3-1695-4dac-b3d7-86ef07f62579",
               "name": "Process and dependency status",
               "originalRequest": {
                 "url": {
@@ -4434,7 +4434,7 @@
           }
         },
         {
-          "id": "b1b145b8-3a53-4a4a-a66e-e1465befecf5",
+          "id": "19eea059-ca8c-46d6-96ec-c1538f1777e1",
           "name": "Backend error code catalog (#196)",
           "request": {
             "name": "Backend error code catalog (#196)",
@@ -4464,7 +4464,7 @@
           },
           "response": [
             {
-              "id": "eeba052c-b9f3-49f6-b5c9-4d0c8f27d110",
+              "id": "d724ae10-6042-4d18-b080-21e80102f57f",
               "name": "Catalog of error codes",
               "originalRequest": {
                 "url": {
@@ -4495,7 +4495,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"entries\": [\n    {\n      \"code\": \"string\",\n      \"status\": 7898,\n      \"errorClass\": \"string\",\n      \"description\": \"string\"\n    },\n    {\n      \"code\": \"string\",\n      \"status\": 4768,\n      \"errorClass\": \"string\",\n      \"description\": \"string\"\n    }\n  ]\n}",
+              "body": "{\n  \"entries\": [\n    {\n      \"code\": \"string\",\n      \"status\": 3674,\n      \"errorClass\": \"string\",\n      \"description\": \"string\"\n    },\n    {\n      \"code\": \"string\",\n      \"status\": 6803,\n      \"errorClass\": \"string\",\n      \"description\": \"string\"\n    }\n  ]\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             }
@@ -4506,7 +4506,7 @@
           }
         },
         {
-          "id": "13e93222-02c6-4aa1-88e0-9db01b9b372b",
+          "id": "cc4e1dee-e4d9-4d65-b1ab-4e35dcc0cc59",
           "name": "Get educational guides",
           "request": {
             "name": "Get educational guides",
@@ -4537,7 +4537,7 @@
           },
           "response": [
             {
-              "id": "60e3a92e-29a3-425d-bd28-93eaf65099c0",
+              "id": "ac523fc6-8ec6-4473-a135-f2bd12d57d2d",
               "name": "Education guides",
               "originalRequest": {
                 "url": {
@@ -4574,7 +4574,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "6a72a360-71d6-442f-91d0-b6e1348ba05d",
+              "id": "523adb3b-4726-4484-8631-3dd3693ed6dd",
               "name": "Internal server error",
               "originalRequest": {
                 "url": {
@@ -4617,11 +4617,11 @@
           }
         },
         {
-          "id": "30f6c651-00a6-4ab5-b108-70e9c89d9064",
+          "id": "ed94b648-b183-4cc2-bf58-06e294163c52",
           "name": "chat",
           "item": [
             {
-              "id": "24febcb7-90f1-4b50-8cd0-f0591b9807f6",
+              "id": "598f9bcb-74ae-4428-b115-6e67de72d1f1",
               "name": "Send a chat message",
               "request": {
                 "name": "Send a chat message",
@@ -4673,7 +4673,7 @@
               },
               "response": [
                 {
-                  "id": "845af1d7-5ad5-46b4-b267-078f8c69cbfe",
+                  "id": "a5efc1cc-3151-44f6-89b8-cfdab58045fe",
                   "name": "Message created",
                   "originalRequest": {
                     "url": {
@@ -4722,7 +4722,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "725699b7-5c21-47df-a548-50ad5813fc75",
+                  "id": "3a7e0e55-97d1-4198-bc0e-90615530823c",
                   "name": "Too many messages",
                   "originalRequest": {
                     "url": {
@@ -4781,7 +4781,7 @@
               }
             },
             {
-              "id": "74f10139-fa32-4c91-bec8-4c44c726bc8b",
+              "id": "33078130-e4cd-4f13-9638-657fc12889ba",
               "name": "Get chat history",
               "request": {
                 "name": "Get chat history",
@@ -4831,7 +4831,7 @@
               },
               "response": [
                 {
-                  "id": "52a17869-ef31-4836-9800-e6ade066779e",
+                  "id": "f396fe03-e27d-485a-a321-b23165b712c1",
                   "name": "Chat history page",
                   "originalRequest": {
                     "url": {
@@ -4881,7 +4881,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "3650c304-3bea-4a55-945e-5a8055c5c5ef",
+                  "id": "933da0ea-99fe-4ac7-ad7d-89d09b11753f",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -4934,11 +4934,11 @@
           "event": []
         },
         {
-          "id": "2d538c5b-77e7-4b53-86f3-edb5facfcf78",
+          "id": "48ec723d-bd1c-4373-8b5d-6d67dd504e8d",
           "name": "bets",
           "item": [
             {
-              "id": "eee39597-8d6a-4baa-9e64-361281c6a7a7",
+              "id": "40b61dba-2db2-4a18-9526-a6d85dfb3f66",
               "name": "Submit an UP/DOWN bet (stub)",
               "request": {
                 "name": "Submit an UP/DOWN bet (stub)",
@@ -4983,7 +4983,7 @@
               },
               "response": [
                 {
-                  "id": "ac15e00a-a554-47aa-8961-58d32f765a00",
+                  "id": "6b9db1db-0464-425f-9628-89aab7b97129",
                   "name": "Bet recorded (stub)",
                   "originalRequest": {
                     "url": {
@@ -5032,7 +5032,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "10ea8059-b5a4-4063-bdca-34afce5469da",
+                  "id": "9518be08-772e-4df2-8746-5fe4904a4201",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -5081,7 +5081,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "d1222432-656f-4431-9183-9de08547d187",
+                  "id": "daaefbb4-7c34-402d-b725-e9c2247014b7",
                   "name": "Missing or invalid JWT",
                   "originalRequest": {
                     "url": {
@@ -5136,7 +5136,7 @@
               }
             },
             {
-              "id": "15c57c5d-c8aa-44d8-839d-4c67fb4d8736",
+              "id": "b5e9d506-708d-4d7f-94ad-e8b9748b587c",
               "name": "Submit a Precision bet (stub)",
               "request": {
                 "name": "Submit a Precision bet (stub)",
@@ -5181,7 +5181,7 @@
               },
               "response": [
                 {
-                  "id": "7d0e2aea-2a2d-4caa-bf93-fe5f15990fb9",
+                  "id": "8c59c3ef-1839-484e-a5b2-62e5e999af0c",
                   "name": "Bet recorded (stub)",
                   "originalRequest": {
                     "url": {
@@ -5230,7 +5230,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "2c04ed34-de80-43cf-8930-56d19bf4f0f7",
+                  "id": "3d82d30d-5dd6-4aad-affa-cd9524a080ad",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -5279,7 +5279,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "be0dcc8b-45d6-4e86-8c26-32cacb62f60e",
+                  "id": "3a5e3ab9-5539-4151-8d9d-de6bfb7a2387",
                   "name": "Missing or invalid JWT",
                   "originalRequest": {
                     "url": {
@@ -5334,7 +5334,7 @@
               }
             },
             {
-              "id": "98b94575-65e8-42ab-9fc0-f4aa649dd463",
+              "id": "677feb38-ad47-4971-8ac0-662813d7b06a",
               "name": "Claim pending Soroban winnings",
               "request": {
                 "name": "Claim pending Soroban winnings",
@@ -5385,7 +5385,7 @@
               },
               "response": [
                 {
-                  "id": "2376ec91-0a01-4efc-9433-90b85c464e75",
+                  "id": "c88ced2a-eb2e-4c89-a89d-bae3bcc01a61",
                   "name": "Claim recorded or submitted on-chain",
                   "originalRequest": {
                     "url": {
@@ -5440,7 +5440,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "a13a97b6-f9af-4866-a363-a7f66764a7e5",
+                  "id": "07b6ec78-ff55-4f53-8511-2ee2aa98f65f",
                   "name": "Missing or invalid JWT",
                   "originalRequest": {
                     "url": {
@@ -5495,7 +5495,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "443576a4-7f0f-41fc-946d-b8c522783082",
+                  "id": "e712a5a5-c593-4257-a4fc-66e52343e408",
                   "name": "Wallet address mismatch",
                   "originalRequest": {
                     "url": {
@@ -5550,7 +5550,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "a8024f6d-800c-4de8-9d44-93383af60b9e",
+                  "id": "39153b4c-f262-4cfb-a01d-1f22ddd8d431",
                   "name": "Idempotency key conflict",
                   "originalRequest": {
                     "url": {
@@ -5605,7 +5605,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "0b35c39a-0d0d-4104-b3ce-f64036bbd8f6",
+                  "id": "9757d105-9392-46a0-9301-96c9863ade4e",
                   "name": "No claimable winnings / invalid contract state",
                   "originalRequest": {
                     "url": {
@@ -5660,7 +5660,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "27e642d8-9209-4015-bd8d-d79cbe5fa18d",
+                  "id": "c4c5accc-588f-4f2f-b242-77966c427f1c",
                   "name": "Contract interaction failed",
                   "originalRequest": {
                     "url": {
@@ -5721,7 +5721,7 @@
               }
             },
             {
-              "id": "b317cbd2-8612-4e92-8ed9-c3a26008c946",
+              "id": "97cfb75c-a3b2-4acb-886a-5ae66690d0c6",
               "name": "Query bet records and their on-chain reconciliation state",
               "request": {
                 "name": "Query bet records and their on-chain reconciliation state",
@@ -5773,7 +5773,7 @@
               },
               "response": [
                 {
-                  "id": "5ff38388-be22-4fe8-bef3-ce0af7008304",
+                  "id": "59851866-9e56-4158-802e-7ab90ade7b52",
                   "name": "Matching bet records, newest first, with a status summary",
                   "originalRequest": {
                     "url": {
@@ -5827,7 +5827,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "e140c493-737e-45f0-8575-fbac276e175a",
+                  "id": "2b363ac9-a8f5-4a7c-825b-4ab1209e0961",
                   "name": "Unknown status filter",
                   "originalRequest": {
                     "url": {
@@ -5881,7 +5881,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "59eb6d0c-559d-4509-a43c-cb054756fff0",
+                  "id": "b53a4316-3d4c-4f47-b11e-9efd9d532ad8",
                   "name": "Missing or invalid JWT",
                   "originalRequest": {
                     "url": {
@@ -5935,7 +5935,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "b3d846b3-5eea-4e32-8487-ad0c3bafda64",
+                  "id": "b4fb632f-e393-4112-b4a5-7d883ea0003a",
                   "name": "Admin access required",
                   "originalRequest": {
                     "url": {
@@ -5995,7 +5995,7 @@
               }
             },
             {
-              "id": "f7f8f5f3-9f26-4bc6-adf0-51820b4eeb81",
+              "id": "c71b9a20-1a0e-4980-9b87-2e03739e0983",
               "name": "Get a single bet record with its reconciliation state",
               "request": {
                 "name": "Get a single bet record with its reconciliation state",
@@ -6033,7 +6033,7 @@
               },
               "response": [
                 {
-                  "id": "e68c3ffb-38d9-4724-9cb3-e5bdd3bb3a75",
+                  "id": "df96f0f5-6b3b-4495-82d2-31afc41129c0",
                   "name": "Bet record",
                   "originalRequest": {
                     "url": {
@@ -6082,7 +6082,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "c418ff47-881e-4087-a942-2b6ae83776ec",
+                  "id": "ada6d386-12a0-48e3-b084-a6ab88cde205",
                   "name": "Missing or invalid JWT",
                   "originalRequest": {
                     "url": {
@@ -6131,7 +6131,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "1fa2b795-0c94-49d0-8839-78e58003b2fb",
+                  "id": "f85eeac1-bb0d-431c-9b00-ec4711006256",
                   "name": "Admin access required",
                   "originalRequest": {
                     "url": {
@@ -6180,7 +6180,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "d68ddf0b-ffbf-40f2-a368-947c4429bc6d",
+                  "id": "74a14111-4e1c-4662-8f6c-4fcb21484def",
                   "name": "Bet not found",
                   "originalRequest": {
                     "url": {
@@ -6238,11 +6238,11 @@
           "event": []
         },
         {
-          "id": "56d032e1-6d79-4315-b657-c9514dc8d3cc",
+          "id": "8605d34f-f574-4d5d-ba03-ec6e70231cf7",
           "name": "auth",
           "item": [
             {
-              "id": "fdd1c376-42d7-40ec-92c7-defb8f79d78f",
+              "id": "2b29904f-926f-483a-9cd1-5ff4ccc64d02",
               "name": "Request a wallet authentication challenge",
               "request": {
                 "name": "Request a wallet authentication challenge",
@@ -6286,7 +6286,7 @@
               },
               "response": [
                 {
-                  "id": "1fb60c51-3148-41a8-81ff-f914b57d2fd4",
+                  "id": "a77e7030-05d6-476b-9ee0-8e3757aa5cdf",
                   "name": "Challenge created",
                   "originalRequest": {
                     "url": {
@@ -6331,7 +6331,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "55503bc5-1937-4e11-a3be-6ae85fa70ed5",
+                  "id": "ad4463b8-86d3-4897-8f81-71c6f1c58ecb",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -6376,7 +6376,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "04bfeb1c-9d11-4525-be71-51f68c45ea3a",
+                  "id": "282d8593-31ab-47e4-bee5-8cf338be01e0",
                   "name": "Too many requests",
                   "originalRequest": {
                     "url": {
@@ -6421,7 +6421,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "e5840fd4-3b57-41d7-9e99-2077ca8bd7a0",
+                  "id": "10178268-f76d-485f-a8ec-d0266dbb07f3",
                   "name": "Internal server error",
                   "originalRequest": {
                     "url": {
@@ -6472,7 +6472,7 @@
               }
             },
             {
-              "id": "a6411542-b28c-417f-9415-82bf05d97c0a",
+              "id": "b084fba9-fe05-4bc6-bd0a-5a778507a097",
               "name": "Verify signature and authenticate wallet",
               "request": {
                 "name": "Verify signature and authenticate wallet",
@@ -6516,7 +6516,7 @@
               },
               "response": [
                 {
-                  "id": "253fd0bc-fa31-4b4e-aaf5-7c265b820142",
+                  "id": "db4ce59c-2c21-4af1-811f-6e1a6e25f326",
                   "name": "Authenticated",
                   "originalRequest": {
                     "url": {
@@ -6556,12 +6556,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"token\": \"string\",\n  \"user\": {\n    \"id\": \"string\",\n    \"walletAddress\": \"string\",\n    \"createdAt\": \"1993-05-10T13:30:21.567Z\",\n    \"lastLoginAt\": \"1994-05-12T22:02:45.202Z\"\n  }\n}",
+                  "body": "{\n  \"token\": \"string\",\n  \"user\": {\n    \"id\": \"string\",\n    \"walletAddress\": \"string\",\n    \"createdAt\": \"1962-06-16T10:13:16.402Z\",\n    \"lastLoginAt\": \"1985-12-15T20:55:49.249Z\"\n  }\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "938e4abc-4f9c-467f-8457-d445ead2868e",
+                  "id": "5c2d74c5-757d-4820-ae37-9ab61edf0c51",
                   "name": "Validation error",
                   "originalRequest": {
                     "url": {
@@ -6606,7 +6606,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "c31ceebd-50e4-4cb8-bf4c-877cf548783a",
+                  "id": "d98388a0-a873-413b-8cb1-45c41bd3f4ed",
                   "name": "Authentication failed",
                   "originalRequest": {
                     "url": {
@@ -6651,7 +6651,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "4dd9875d-a833-420f-b6e6-bdc7ce565280",
+                  "id": "159307c5-608c-406b-ae17-a1fb1c25ed96",
                   "name": "Too many requests",
                   "originalRequest": {
                     "url": {
@@ -6696,7 +6696,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "ed21cead-6511-469a-85c2-0083b9537606",
+                  "id": "f3cfac58-e189-4ac3-bb2d-90b00845087b",
                   "name": "Internal server error",
                   "originalRequest": {
                     "url": {
@@ -6747,7 +6747,7 @@
               }
             },
             {
-              "id": "bfd5537f-9ca3-4d83-8a68-ab6ec600d382",
+              "id": "8b919c40-d245-4b35-91f7-5e875b019371",
               "name": "Refresh JWT access token",
               "request": {
                 "name": "Refresh JWT access token",
@@ -6799,7 +6799,7 @@
               },
               "response": [
                 {
-                  "id": "47ac7dd2-d868-4c95-b0f8-3577aadd4774",
+                  "id": "5f8f01ff-807f-4c05-a097-29bf64fe2d3c",
                   "name": "Token successfully refreshed",
                   "originalRequest": {
                     "url": {
@@ -6847,12 +6847,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"token\": \"string\",\n  \"user\": {\n    \"id\": \"string\",\n    \"walletAddress\": \"string\",\n    \"createdAt\": \"1993-05-10T13:30:21.567Z\",\n    \"lastLoginAt\": \"1994-05-12T22:02:45.202Z\"\n  }\n}",
+                  "body": "{\n  \"token\": \"string\",\n  \"user\": {\n    \"id\": \"string\",\n    \"walletAddress\": \"string\",\n    \"createdAt\": \"1962-06-16T10:13:16.402Z\",\n    \"lastLoginAt\": \"1985-12-15T20:55:49.249Z\"\n  }\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "934b0ffa-5059-4f4d-9876-e60b4cd394c5",
+                  "id": "aa77ebf6-5737-4078-8eac-e4dc074d974f",
                   "name": "Authentication failed or expired token",
                   "originalRequest": {
                     "url": {
@@ -6914,19 +6914,19 @@
           "event": []
         },
         {
-          "id": "b98f6b95-1cf7-4261-9a97-da5a30e2229d",
+          "id": "67af3470-3e58-4dce-b458-7b58d95b7f43",
           "name": "admin",
           "item": [
             {
-              "id": "ad6775b1-ce87-4248-aba7-b9459d8518c8",
+              "id": "1bcaa530-fcb5-4352-9186-d0f5dc0d1089",
               "name": "metrics",
               "item": [
                 {
-                  "id": "ae47a9c4-eee7-4e4a-a8fc-83a1f03e33a8",
+                  "id": "cedf166c-da61-45d0-acc0-db7e94b39359",
                   "name": "rate-limits",
                   "item": [
                     {
-                      "id": "fa2051c0-2883-4f09-ab47-abf0c37f80e5",
+                      "id": "4f1ed636-950b-4cd1-bd31-040fda46093d",
                       "name": "Rate-limit activity summary",
                       "request": {
                         "name": "Rate-limit activity summary",
@@ -6973,7 +6973,7 @@
                       },
                       "response": [
                         {
-                          "id": "042900e7-0f79-4e7d-8833-88e48c0b0ac0",
+                          "id": "21e0f4ba-0b75-4504-bc92-ec1033faa2b1",
                           "name": "Rate-limit metrics summary",
                           "originalRequest": {
                             "url": {
@@ -7019,12 +7019,12 @@
                               "value": "application/json"
                             }
                           ],
-                          "body": "{\n  \"topEndpoints\": [\n    {\n      \"endpoint\": \"string\",\n      \"hits\": 4130\n    },\n    {\n      \"endpoint\": \"string\",\n      \"hits\": 2612\n    }\n  ],\n  \"topAbusers\": [\n    {\n      \"key\": \"string\",\n      \"endpoint\": \"string\",\n      \"hits\": 7594\n    },\n    {\n      \"key\": \"string\",\n      \"endpoint\": \"string\",\n      \"hits\": 2187\n    }\n  ],\n  \"recentEvents\": [\n    {\n      \"id\": \"string\",\n      \"endpoint\": \"string\",\n      \"key\": \"string\",\n      \"ip\": \"string\",\n      \"userId\": \"string\",\n      \"timestamp\": \"2004-05-18T10:21:18.295Z\"\n    },\n    {\n      \"id\": \"string\",\n      \"endpoint\": \"string\",\n      \"key\": \"string\",\n      \"ip\": \"string\",\n      \"userId\": \"string\",\n      \"timestamp\": \"1974-03-07T02:33:45.888Z\"\n    }\n  ],\n  \"suspiciousActivity\": {\n    \"lookbackHours\": 6002,\n    \"hitThreshold\": 9567,\n    \"byCategory\": [\n      {\n        \"category\": \"auth\",\n        \"hits\": 6444,\n        \"uniqueKeys\": 4159\n      },\n      {\n        \"category\": \"auth\",\n        \"hits\": 8770,\n        \"uniqueKeys\": 8640\n      }\n    ],\n    \"flaggedActors\": [\n      {\n        \"key\": \"string\",\n        \"endpoint\": \"string\",\n        \"hits\": 9557,\n        \"category\": \"string\",\n        \"userId\": \"string\",\n        \"ip\": \"string\",\n        \"lastSeenAt\": \"1974-10-24T13:16:21.102Z\"\n      },\n      {\n        \"key\": \"string\",\n        \"endpoint\": \"string\",\n        \"hits\": 3180,\n        \"category\": \"string\",\n        \"userId\": \"string\",\n        \"ip\": \"string\",\n        \"lastSeenAt\": \"2005-05-15T02:55:06.109Z\"\n      }\n    ]\n  }\n}",
+                          "body": "{\n  \"topEndpoints\": [\n    {\n      \"endpoint\": \"string\",\n      \"hits\": 332\n    },\n    {\n      \"endpoint\": \"string\",\n      \"hits\": 8735\n    }\n  ],\n  \"topAbusers\": [\n    {\n      \"key\": \"string\",\n      \"endpoint\": \"string\",\n      \"hits\": 4524\n    },\n    {\n      \"key\": \"string\",\n      \"endpoint\": \"string\",\n      \"hits\": 4196\n    }\n  ],\n  \"recentEvents\": [\n    {\n      \"id\": \"string\",\n      \"endpoint\": \"string\",\n      \"key\": \"string\",\n      \"ip\": \"string\",\n      \"userId\": \"string\",\n      \"timestamp\": \"1960-02-04T12:39:33.375Z\"\n    },\n    {\n      \"id\": \"string\",\n      \"endpoint\": \"string\",\n      \"key\": \"string\",\n      \"ip\": \"string\",\n      \"userId\": \"string\",\n      \"timestamp\": \"1964-12-29T00:12:59.636Z\"\n    }\n  ],\n  \"suspiciousActivity\": {\n    \"lookbackHours\": 1442,\n    \"hitThreshold\": 547,\n    \"byCategory\": [\n      {\n        \"category\": \"chat\",\n        \"hits\": 8277,\n        \"uniqueKeys\": 3388\n      },\n      {\n        \"category\": \"prediction\",\n        \"hits\": 3164,\n        \"uniqueKeys\": 3047\n      }\n    ],\n    \"flaggedActors\": [\n      {\n        \"key\": \"string\",\n        \"endpoint\": \"string\",\n        \"hits\": 1231,\n        \"category\": \"string\",\n        \"userId\": \"string\",\n        \"ip\": \"string\",\n        \"lastSeenAt\": \"1976-04-20T19:29:19.769Z\"\n      },\n      {\n        \"key\": \"string\",\n        \"endpoint\": \"string\",\n        \"hits\": 599,\n        \"category\": \"string\",\n        \"userId\": \"string\",\n        \"ip\": \"string\",\n        \"lastSeenAt\": \"1972-01-11T16:24:12.710Z\"\n      }\n    ]\n  }\n}",
                           "cookie": [],
                           "_postman_previewlanguage": "json"
                         },
                         {
-                          "id": "8b805850-0368-4d66-8a38-a7ab7840f225",
+                          "id": "5580c5eb-bc5f-4302-802e-bf324136b934",
                           "originalRequest": {
                             "url": {
                               "path": [
@@ -7070,7 +7070,7 @@
                           "_postman_previewlanguage": "text"
                         },
                         {
-                          "id": "bed67bf1-0755-485e-a932-2e89143454b7",
+                          "id": "d2966397-2d68-4730-bc44-cf31d8c2645a",
                           "originalRequest": {
                             "url": {
                               "path": [
@@ -7122,7 +7122,7 @@
                       }
                     },
                     {
-                      "id": "9ab1e425-b916-4524-910d-e6a8370aacc7",
+                      "id": "35a1ea73-6041-4933-b7e3-5965692c51a4",
                       "name": "Clear old rate-limit metrics",
                       "request": {
                         "name": "Clear old rate-limit metrics",
@@ -7164,7 +7164,7 @@
                       },
                       "response": [
                         {
-                          "id": "bac38412-29f6-410b-bcdd-aa795988bb02",
+                          "id": "11a55916-b76c-4378-b95a-1b1c448c05cd",
                           "name": "Number of records deleted",
                           "originalRequest": {
                             "url": {
@@ -7212,7 +7212,7 @@
                           "_postman_previewlanguage": "text"
                         },
                         {
-                          "id": "d368878e-038e-4716-9bbf-cea6a520dbfe",
+                          "id": "b607661e-88a6-4d26-bca2-3eef9a92dc35",
                           "originalRequest": {
                             "url": {
                               "path": [
@@ -7259,7 +7259,7 @@
                           "_postman_previewlanguage": "text"
                         },
                         {
-                          "id": "00fdebe4-faa1-4325-8480-ddacfc08bff9",
+                          "id": "a03f9506-058f-421a-adc5-e435ad4ec24f",
                           "originalRequest": {
                             "url": {
                               "path": [
@@ -7315,7 +7315,7 @@
                   "event": []
                 },
                 {
-                  "id": "6eaad877-f9e0-46f8-8bd0-b49a03a8b03d",
+                  "id": "95249592-cdc0-4fc5-8444-bb6b94dd7270",
                   "name": "Scrape Prometheus metrics",
                   "request": {
                     "name": "Scrape Prometheus metrics",
@@ -7355,7 +7355,7 @@
                   },
                   "response": [
                     {
-                      "id": "8adc8c0e-cb60-46ec-b702-8b078637ef65",
+                      "id": "29e51c40-1ffb-4a1a-9af0-c4ea17e21e3d",
                       "name": "Prometheus text exposition format",
                       "originalRequest": {
                         "url": {
@@ -7401,7 +7401,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "e76db77a-59df-4287-87ff-31a54d76cea4",
+                      "id": "a506b212-84da-403c-9d44-77c8691ebc4a",
                       "originalRequest": {
                         "url": {
                           "path": [
@@ -7442,7 +7442,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "b074af86-33ef-4917-a079-5b9513778d32",
+                      "id": "07fe52a6-b549-4fe2-94fb-63b70019947c",
                       "originalRequest": {
                         "url": {
                           "path": [
@@ -7489,7 +7489,7 @@
                   }
                 },
                 {
-                  "id": "27961286-8b38-473d-9056-fff3a82836a1",
+                  "id": "3ab7703f-1b88-4987-9372-634c28d7ba35",
                   "name": "Payout claim ledger summary",
                   "request": {
                     "name": "Payout claim ledger summary",
@@ -7529,7 +7529,7 @@
                   },
                   "response": [
                     {
-                      "id": "87a359dd-5b40-42c5-8b33-41f82e6b80b2",
+                      "id": "d744d974-37dc-44ae-a129-2c981e982c91",
                       "name": "Payout claim counts by status",
                       "originalRequest": {
                         "url": {
@@ -7570,12 +7570,12 @@
                           "value": "application/json"
                         }
                       ],
-                      "body": "{\n  \"summary\": {\n    \"key_0\": 7865,\n    \"key_1\": 8065\n  }\n}",
+                      "body": "{\n  \"summary\": {\n    \"key_0\": 5670,\n    \"key_1\": 2446,\n    \"key_2\": 5669,\n    \"key_3\": 9227\n  }\n}",
                       "cookie": [],
                       "_postman_previewlanguage": "json"
                     },
                     {
-                      "id": "008c7685-37ae-4bf4-8287-f4ed849a74b7",
+                      "id": "5a7bbbc6-da77-4f05-aec7-9ff6857a4711",
                       "originalRequest": {
                         "url": {
                           "path": [
@@ -7616,7 +7616,7 @@
                       "_postman_previewlanguage": "text"
                     },
                     {
-                      "id": "34b84c95-698a-4ad2-a7d3-06c7148d2d42",
+                      "id": "5cce1e17-456c-4ae1-8ff7-090f6e06dea8",
                       "originalRequest": {
                         "url": {
                           "path": [
@@ -7663,7 +7663,7 @@
                   }
                 },
                 {
-                  "id": "7320178f-4aff-45ee-8907-0be97ce9184b",
+                  "id": "20f468b6-73ff-406d-a385-29fa886e89f6",
                   "name": "Structured rate-limit metrics summary",
                   "request": {
                     "name": "Structured rate-limit metrics summary",
@@ -7703,7 +7703,7 @@
                   },
                   "response": [
                     {
-                      "id": "fa52ebad-62ab-49f9-9154-ef8af8a8765e",
+                      "id": "999e0ff1-9a6d-4b42-925f-6b3508ec62bb",
                       "name": "Structured rate-limit metrics summary",
                       "originalRequest": {
                         "url": {
@@ -7758,11 +7758,11 @@
               "event": []
             },
             {
-              "id": "baf30d64-88d7-4db8-9315-c7f953863647",
+              "id": "f6325f77-9358-40c6-96a3-8d33586da56c",
               "name": "dead-letter",
               "item": [
                 {
-                  "id": "3ad98f22-b50b-4137-982f-17a5ce3af4d3",
+                  "id": "6a88b005-c22f-4008-a8ae-d9a3c2e822fe",
                   "name": "List failed notification/event dispatches",
                   "request": {
                     "name": "List failed notification/event dispatches",
@@ -7800,7 +7800,7 @@
                   }
                 },
                 {
-                  "id": "bbcfd81e-47c0-48dc-989e-965ce173951f",
+                  "id": "c6bc2aed-c557-4bef-ab06-cf7dd2a28001",
                   "name": "Replay every pending/retrying dispatch in the DLQ",
                   "request": {
                     "name": "Replay every pending/retrying dispatch in the DLQ",
@@ -7839,11 +7839,11 @@
                   }
                 },
                 {
-                  "id": "a5aec3e3-bc8d-41bf-9152-401e9be7d261",
+                  "id": "06a9358a-4150-4ff8-b6d2-e34cf258965e",
                   "name": "{id}",
                   "item": [
                     {
-                      "id": "92fe4a37-c222-4686-b3e1-b0994ba37782",
+                      "id": "9057e696-d03c-4c09-bc9f-9dff0ec1cbcd",
                       "name": "Replay a single DLQ entry",
                       "request": {
                         "name": "Replay a single DLQ entry",
@@ -7880,7 +7880,7 @@
                       }
                     },
                     {
-                      "id": "ebc517c0-46c3-4c01-818e-d5af5e2955d6",
+                      "id": "799710a9-d59c-46ff-ac95-acba97280522",
                       "name": "Abandon a single DLQ entry",
                       "request": {
                         "name": "Abandon a single DLQ entry",
@@ -7929,7 +7929,7 @@
                       },
                       "response": [
                         {
-                          "id": "d20ac2f3-2c06-4be4-a999-7edc9ab61d3b",
+                          "id": "1ca45096-4fee-4b26-89ff-d396e2a46a33",
                           "name": "DLQ entry successfully abandoned",
                           "originalRequest": {
                             "url": {
@@ -7984,7 +7984,7 @@
                           "_postman_previewlanguage": "json"
                         },
                         {
-                          "id": "58eef00e-b440-406b-83c6-2921ab6f8fc2",
+                          "id": "f8ed64e9-a890-420a-bc19-e983e689db55",
                           "name": "Dead-letter entry not found",
                           "originalRequest": {
                             "url": {
@@ -8035,7 +8035,7 @@
                           "_postman_previewlanguage": "text"
                         },
                         {
-                          "id": "f96a434a-8868-464b-9e55-323c158ba223",
+                          "id": "3153df7a-26e6-4db9-910b-2dfb8a4e8c6c",
                           "name": "Entry is already in a terminal state",
                           "originalRequest": {
                             "url": {
@@ -8098,7 +8098,7 @@
               "event": []
             },
             {
-              "id": "942edcd9-d2d5-4df2-bcf7-61f1bfd4dd07",
+              "id": "dcbd1ba7-8f24-4dba-89b5-37fb232db64a",
               "name": "Resolved CORS origin allowlist for HTTP and Socket.IO",
               "request": {
                 "name": "Resolved CORS origin allowlist for HTTP and Socket.IO",
@@ -8138,7 +8138,7 @@
               },
               "response": [
                 {
-                  "id": "0b51e5ee-d4eb-4bb2-b9a4-7e98784ee7eb",
+                  "id": "48719c6d-8e3a-4626-a17f-3a3931cf6c5f",
                   "name": "Resolved CORS configuration",
                   "originalRequest": {
                     "url": {
@@ -8190,7 +8190,7 @@
               }
             },
             {
-              "id": "38e8aea1-86fe-4894-b43b-bca60d0cc564",
+              "id": "f58b0557-9d9a-4ef2-989e-e51ca8ca7a73",
               "name": "List recent bet-audit events",
               "request": {
                 "name": "List recent bet-audit events",
@@ -8242,7 +8242,7 @@
               },
               "response": [
                 {
-                  "id": "c3e10cfc-1001-4102-b97d-222a5799f8be",
+                  "id": "dc1d8386-f72d-46e1-98f6-dbaadee50d42",
                   "name": "Bet-audit event list",
                   "originalRequest": {
                     "url": {
@@ -8291,12 +8291,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"total\": 7711,\n  \"limit\": 1978,\n  \"events\": [\n    {\n      \"value\": \"reference #/components/schemas/BetAuditEvent not found in the OpenAPI spec\"\n    },\n    {\n      \"value\": \"reference #/components/schemas/BetAuditEvent not found in the OpenAPI spec\"\n    }\n  ]\n}",
+                  "body": "{\n  \"total\": 101,\n  \"limit\": 9525,\n  \"events\": [\n    {\n      \"value\": \"reference #/components/schemas/BetAuditEvent not found in the OpenAPI spec\"\n    },\n    {\n      \"value\": \"reference #/components/schemas/BetAuditEvent not found in the OpenAPI spec\"\n    }\n  ]\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "5ce6c4ab-aefd-41b1-827f-bc48d54a2aea",
+                  "id": "feef3e4f-0a84-4205-93f9-54ff95e50dd2",
                   "originalRequest": {
                     "url": {
                       "path": [
@@ -8345,7 +8345,7 @@
                   "_postman_previewlanguage": "text"
                 },
                 {
-                  "id": "73e562af-f729-4926-a45c-fd5520220478",
+                  "id": "a36c739b-de83-4927-a725-bd93e40619ab",
                   "originalRequest": {
                     "url": {
                       "path": [
@@ -8406,11 +8406,11 @@
       "event": []
     },
     {
-      "id": "b6692a31-06a7-4e44-959a-84919c9591c7",
+      "id": "72d855a9-ee8a-463d-847f-bf06b8506e45",
       "name": "metrics",
       "item": [
         {
-          "id": "2b7b92e1-eeea-4818-90e6-8cd705cb2c91",
+          "id": "b6e35f1a-7952-475f-8074-e3d7852b1ea2",
           "name": "Prometheus metrics",
           "request": {
             "name": "Prometheus metrics",
@@ -8447,7 +8447,7 @@
           },
           "response": [
             {
-              "id": "25543563-2db2-4002-a5d2-2098225620c4",
+              "id": "4ae527be-8a70-4002-bc7a-a28edd3f5c36",
               "name": "Prometheus text exposition format",
               "originalRequest": {
                 "url": {
@@ -8490,7 +8490,7 @@
               "_postman_previewlanguage": "text"
             },
             {
-              "id": "774fbaa8-1ef4-4ea7-abb9-dbc5f9301644",
+              "id": "fc45894f-93b0-493b-a65b-3f4650e2c55a",
               "originalRequest": {
                 "url": {
                   "path": [
@@ -8528,7 +8528,7 @@
               "_postman_previewlanguage": "text"
             },
             {
-              "id": "59bfadd9-f6ba-4cff-a398-ad5e19c4b7a2",
+              "id": "b9185ccc-5484-4645-a99c-080d2e2c150b",
               "originalRequest": {
                 "url": {
                   "path": [
@@ -8572,7 +8572,7 @@
           }
         },
         {
-          "id": "ba109560-a922-4412-a908-de5284658c66",
+          "id": "a20720e1-a164-4a4e-8b7a-27abda8a69d6",
           "name": "Schema compatibility readiness check",
           "request": {
             "name": "Schema compatibility readiness check",
@@ -8602,7 +8602,7 @@
           },
           "response": [
             {
-              "id": "08d954cf-1aa3-464a-9525-173289408d6d",
+              "id": "754d94b4-c42e-4f81-9a20-0cebb029cdd4",
               "name": "Schema is compatible and the service is ready.",
               "originalRequest": {
                 "url": {
@@ -8633,12 +8633,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"database\": \"unreachable\",\n  \"schema\": \"compatible\",\n  \"appliedMigrations\": 4625,\n  \"totalMigrations\": 3389,\n  \"pendingMigrations\": 9841,\n  \"pendingNames\": [\n    \"string\",\n    \"string\"\n  ],\n  \"ready\": true\n}",
+              "body": "{\n  \"database\": \"healthy\",\n  \"schema\": \"outdated\",\n  \"appliedMigrations\": 72,\n  \"totalMigrations\": 3183,\n  \"pendingMigrations\": 5243,\n  \"pendingNames\": [\n    \"string\",\n    \"string\"\n  ],\n  \"ready\": false\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "0781704c-215c-4a6b-a5b2-b9c297c516fb",
+              "id": "312833d7-5327-4985-8314-5b5b35f979a3",
               "name": "Schema is outdated or database is unreachable.",
               "originalRequest": {
                 "url": {
@@ -8677,7 +8677,7 @@
       "event": []
     },
     {
-      "id": "362e66d2-b4eb-44e5-9f36-dcc15db73137",
+      "id": "0570f76b-f6ce-4181-adc7-0bf62220cb04",
       "name": "Service health check with dependency checks",
       "request": {
         "name": "Service health check with dependency checks",
@@ -8706,7 +8706,7 @@
       },
       "response": [
         {
-          "id": "b88b11c2-850f-46a4-969c-19fd6d810636",
+          "id": "ad68dd88-4340-47ca-b3ea-4721507331e4",
           "name": "Health check completed",
           "originalRequest": {
             "url": {
@@ -8736,7 +8736,7 @@
               "value": "application/json"
             }
           ],
-          "body": "{\n  \"status\": \"healthy\",\n  \"timestamp\": \"1958-12-27T05:48:25.306Z\",\n  \"uptime\": 1789.8006006987023,\n  \"durationMs\": 5193.948151577718,\n  \"services\": {\n    \"database\": {\n      \"status\": \"unhealthy\",\n      \"durationMs\": 4724.806579226637,\n      \"error\": \"string\"\n    },\n    \"redis\": {\n      \"status\": \"bypassed\",\n      \"durationMs\": 590.2116046236782,\n      \"error\": \"string\"\n    },\n    \"soroban\": {\n      \"status\": \"degraded\",\n      \"durationMs\": 3607.341376905233,\n      \"initialized\": false,\n      \"error\": \"string\"\n    },\n    \"oracle\": {\n      \"status\": \"not_running\",\n      \"durationMs\": 1586.5731940029525,\n      \"stale\": false,\n      \"lastUpdatedAt\": \"2015-10-03T19:17:28.651Z\",\n      \"stalenessSeconds\": 8100,\n      \"provider\": \"string\",\n      \"error\": \"string\"\n    }\n  }\n}",
+          "body": "{\n  \"status\": \"unhealthy\",\n  \"timestamp\": \"2014-12-01T18:59:44.225Z\",\n  \"uptime\": 6432.281631481053,\n  \"durationMs\": 5510.246642826693,\n  \"services\": {\n    \"database\": {\n      \"status\": \"healthy\",\n      \"durationMs\": 5407.543639390548,\n      \"error\": \"string\"\n    },\n    \"redis\": {\n      \"status\": \"degraded\",\n      \"durationMs\": 846.605209047453,\n      \"error\": \"string\"\n    },\n    \"soroban\": {\n      \"status\": \"unavailable\",\n      \"durationMs\": 8877.050258035986,\n      \"initialized\": true,\n      \"error\": \"string\"\n    },\n    \"oracle\": {\n      \"status\": \"not_running\",\n      \"durationMs\": 7941.769908949399,\n      \"stale\": false,\n      \"lastUpdatedAt\": \"1984-07-19T23:51:29.655Z\",\n      \"stalenessSeconds\": 1830,\n      \"provider\": \"string\",\n      \"error\": \"string\"\n    }\n  }\n}",
           "cookie": [],
           "_postman_previewlanguage": "json"
         }
@@ -8756,7 +8756,7 @@
     }
   ],
   "info": {
-    "_postman_id": "c2188a0b-2d25-4681-b730-b74390986037",
+    "_postman_id": "ca7c2a34-6ca1-4851-a555-9fade9ba564c",
     "name": "Prediction Game API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "description": {
