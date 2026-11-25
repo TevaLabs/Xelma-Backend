@@ -81,6 +81,9 @@ export interface StellarConfig {
 
 export interface SocketConfig {
   clientUrl: string;
+  pingIntervalMs: number;
+  pingTimeoutMs: number;
+  staleCheckIntervalMs: number;
 }
 
 export interface OracleConfig {
@@ -285,6 +288,9 @@ function buildConfig(): Config {
 
   const socket: SocketConfig = {
     clientUrl: app.clientUrl,
+    pingIntervalMs: v.positiveInt(env.SOCKET_PING_INTERVAL_MS, "SOCKET_PING_INTERVAL_MS", 25000),
+    pingTimeoutMs: v.positiveInt(env.SOCKET_PING_TIMEOUT_MS, "SOCKET_PING_TIMEOUT_MS", 10000),
+    staleCheckIntervalMs: v.positiveInt(env.SOCKET_STALE_CHECK_INTERVAL_MS, "SOCKET_STALE_CHECK_INTERVAL_MS", 30000),
   };
 
   const oracle: OracleConfig = {

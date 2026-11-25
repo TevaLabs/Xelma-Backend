@@ -294,3 +294,7 @@ socket.on("bet:accepted", (payload: {
 ```
 
 Both the hackathon entrypoint (`initWebSocket` in `src/server.ts`) and the full backend (`initializeSocket` in `src/index.ts`) publish through `websocketService`, so clients see the same event regardless of which process is running.
+
+## Socket heartbeat configuration
+
+Tune the heartbeat with `SOCKET_PING_INTERVAL_MS` (default `25000`), `SOCKET_PING_TIMEOUT_MS` (default `10000`), and `SOCKET_STALE_CHECK_INTERVAL_MS` (default `30000`). Values must be positive integers.

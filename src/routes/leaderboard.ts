@@ -25,10 +25,14 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await getRepositories().leaderboard.listLeaderboard(100, 0);
     const { pagination, ...data } = result as unknown as Record<string, unknown> & { pagination?: Record<string, unknown> };
+    const entries = Array.isArray(result)
+      ? result
+      : (data.leaderboard ?? data.entries ?? []);
+    const leaderboard = Array.isArray(entries) ? entries : [];
     return sendSuccess(
       res,
-      Array.isArray(result) ? { leaderboard: result } : data,
-      pagination ? { pagination } : undefined,
+      { leaderboard },
+      { pagination: pagination ?? { limit: 100, offset: 0, total: leaderboard.length } },
     );
   } catch (err) {
     next(err);

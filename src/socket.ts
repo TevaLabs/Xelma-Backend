@@ -97,7 +97,7 @@ export const chatRateLimiter = new SocketRateLimiter(5, 60_000);
 // ---------------------------------------------------------------------------
 
 /** How often (ms) the server sends a ping to each connected client. */
-export const PING_INTERVAL = 25_000;
+export const PING_INTERVAL = config.socket.pingIntervalMs;
 
 // ---------------------------------------------------------------------------
 // Token refresh / reconnect contract
@@ -125,7 +125,7 @@ export const AUTH_TOKEN_INVALID = 'AUTH_TOKEN_INVALID';
  * How long (ms) the server waits for a pong before treating the socket as
  * dead and forcibly disconnecting it.
  */
-export const PING_TIMEOUT = 10_000;
+export const PING_TIMEOUT = config.socket.pingTimeoutMs;
 
 /**
  * How often (ms) the application-level stale-connection checker runs.
@@ -133,7 +133,7 @@ export const PING_TIMEOUT = 10_000;
  * connections whose application-level activity has stopped even if the
  * transport-level ping has not yet expired.
  */
-const STALE_CHECK_INTERVAL_MS = 30_000;
+const STALE_CHECK_INTERVAL_MS = config.socket.staleCheckIntervalMs;
 
 // ---------------------------------------------------------------------------
 // Connection registry

@@ -290,7 +290,7 @@ describe('API Contract Tests - frontend-critical endpoints (Issue #333)', () => 
     const leaderboardContract = z.object({
       success: z.literal(true),
       data: z.object({
-        entries: z.array(
+        leaderboard: z.array(
           z.object({
             userId: z.string(),
             rank: z.number(),
@@ -310,7 +310,7 @@ describe('API Contract Tests - frontend-critical endpoints (Issue #333)', () => 
     it('matches the documented response contract', async () => {
       const repos = emptyRepos();
       (repos.leaderboard.listLeaderboard as jest.Mock).mockResolvedValue({
-        entries: [{ userId: 'u-1', rank: 1, score: 100 }],
+        leaderboard: [{ userId: 'u-1', rank: 1, score: 100 }],
         pagination: { limit: 100, offset: 0, total: 1 },
       });
       setRepositoriesForTests(repos as any);
