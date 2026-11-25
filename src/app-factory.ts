@@ -40,6 +40,7 @@ import errorsRoutes from './routes/errors.routes';
 import corsDiagnosticsRoutes from './routes/admin-cors-diagnostics.routes';
 import deadLetterRoutes from './routes/admin-dead-letter.routes';
 import betAuditRoutes from './routes/admin-bet-audit.routes';
+import adminUsersRoutes from './routes/admin-users.routes';
 import runtimeFlagsRoutes from './routes/admin-runtime-flags.routes';
 import healthRoutes from './routes/health';
 import statsRoutes from './routes/stats';
@@ -289,6 +290,7 @@ function mountApiRoutes(
     target.use('/admin/cors-diagnostics', corsDiagnosticsRoutes);
     target.use('/admin/dead-letter', deadLetterRoutes);
     target.use('/admin/bet-audit', betAuditRoutes);
+    target.use('/admin/users', adminUsersRoutes);
     target.use('/admin/runtime-flags', runtimeFlagsRoutes);
   } else if (features.corsDiagnostics) {
     // In hackathon mode, mount CORS diagnostics independently when
