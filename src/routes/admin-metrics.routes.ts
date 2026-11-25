@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import { OutboxEventStatus } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { rateLimitMetricsService } from '../services/rate-limit-metrics.service';
 import payoutReconciliationService from '../services/payout-reconciliation.service';
 import { requireAdmin, requireMetricsAuth } from '../middleware/auth.middleware';
@@ -288,6 +290,129 @@ router.get('/rate-limit-summary', requireAdmin, async (req: Request, res: Respon
   } catch (error) {
     logger.error('Error fetching rate-limit summary:', error);
     res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch rate-limit summary' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/admin/metrics/outbox:
+ *   get:
+ *     summary: Outbox backlog metrics
+ *     description: |
+ *       Returns transactional outbox event counts grouped by status
+ *       (PENDING, PROCESSING, PROCESSED, FAILED) and the age of the oldest
+ *       unprocessed backlog event (PENDING or PROCESSING). Admin only.
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Outbox backlog counts by status and oldest backlog age
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 countsByStatus:
+ *                   type: object
+ *                   properties:
+ *                     PENDING:
+ *                       type: integer
+ *                     PROCESSING:
+ *                       type: integer
+ *                     PROCESSED:
+ *                       type: integer
+ *                     FAILED:
+ *                       type: integer
+ *                 total:
+ *                   type: integer
+ *                 backlogCount:
+ *                   type: integer
+ *                 oldestAgeSeconds:
+ *                   type: integer
+ *                   nullable: true
+ *                 oldestBacklogEvent:
+ *                   type: object
+ *                   nullable: true
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                       enum: [PENDING, PROCESSING]
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     ageSeconds:
+ *                       type: integer
+ *                     ageMs:
+ *                       type: integer
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ */
+router.get('/outbox', requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const [grouped, oldest] = await Promise.all([
+      prisma.outboxEvent.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
+      prisma.outboxEvent.findFirst({
+        where: {
+          status: { in: [OutboxEventStatus.PENDING, OutboxEventStatus.PROCESSING] },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    const countsByStatus: Record<OutboxEventStatus, number> = {
+      [OutboxEventStatus.PENDING]: 0,
+      [OutboxEventStatus.PROCESSING]: 0,
+      [OutboxEventStatus.PROCESSED]: 0,
+      [OutboxEventStatus.FAILED]: 0,
+    };
+
+    for (const row of grouped) {
+      countsByStatus[row.status] = row._count._all;
+    }
+
+    const total = Object.values(countsByStatus).reduce((sum, count) => sum + count, 0);
+    const backlogCount =
+      countsByStatus[OutboxEventStatus.PENDING] + countsByStatus[OutboxEventStatus.PROCESSING];
+
+    const nowMs = Date.now();
+    const oldestAgeMs = oldest ? Math.max(0, nowMs - oldest.createdAt.getTime()) : null;
+    const oldestAgeSeconds = oldestAgeMs !== null ? Math.floor(oldestAgeMs / 1000) : null;
+
+    res.json({
+      success: true,
+      countsByStatus,
+      total,
+      backlogCount,
+      oldestAgeSeconds,
+      oldestBacklogEvent: oldest
+        ? {
+            id: oldest.id,
+            status: oldest.status,
+            createdAt: oldest.createdAt.toISOString(),
+            ageSeconds: oldestAgeSeconds,
+            ageMs: oldestAgeMs,
+          }
+        : null,
+    });
+  } catch (error) {
+    logger.error('Error fetching outbox backlog metrics:', error);
+    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch outbox backlog metrics' });
   }
 });
 
