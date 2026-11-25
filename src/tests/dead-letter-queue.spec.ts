@@ -193,12 +193,10 @@ describe('DeadLetterQueueService', () => {
 
       const result = await deadLetterQueueService.retry('r2', handlers);
 
-      expect(handlers.notificationCreate).toHaveBeenCalledWith({
-        userId: 'u1',
-        type: 'WIN',
-        title: 't',
-        message: 'm',
-      });
+      expect(handlers.notificationCreate).toHaveBeenCalledWith(
+        { userId: 'u1', type: 'WIN', title: 't', message: 'm' },
+        'r2',
+      );
       expect(result?.status).toBe('RESOLVED');
       const updateArgs: any = mockUpdate.mock.calls[0][0];
       expect(updateArgs.data.status).toBe('RESOLVED');
