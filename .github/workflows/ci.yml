@@ -33,6 +33,9 @@ jobs:
       - name: Run ESLint
         run: npm run lint:eslint
 
+      - name: Lint database migrations for destructive SQL
+        run: npm run lint:migrations
+
   scorecard:
     name: production-readiness scorecard
     runs-on: ubuntu-latest

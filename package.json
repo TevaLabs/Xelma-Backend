@@ -11,6 +11,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "lint": "tsc --noEmit",
     "lint:eslint": "eslint \"src/**/*.ts\"",
+    "lint:migrations": "node scripts/lint-migrations.js",
     "scorecard": "node scripts/production-readiness-scorecard.js",
     "check:bindings": "node scripts/install-bindings.js --check",
     "check:bindings:abi": "node dist/scripts/check-bindings.js",
