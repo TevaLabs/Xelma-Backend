@@ -44,7 +44,7 @@ const leaderboardQuerySchema = z.object({
  *     summary: Get the global leaderboard
  *     description: |
  *       Returns the global leaderboard. Bearer authentication is **optional**; if provided,
- *       the API includes the requesting user's position.
+ *       the API includes the requesting user's position and `viewerRank`.
  *
  *       Supports two pagination modes:
  *
@@ -102,12 +102,18 @@ router.get(
       if (cursor) {
         // Cursor mode
         const result = await getLeaderboardCursor(limit, cursor, userId);
-        return res.json(result);
+        return res.json({
+          ...result,
+          ...(userId ? { viewerRank: result.userPosition?.rank ?? null } : {}),
+        });
       }
 
       // Offset mode (existing behaviour)
       const result = await getLeaderboard(limit, offset, userId);
-      return res.json(result);
+      return res.json({
+        ...result,
+        ...(userId ? { viewerRank: result.userPosition?.rank ?? null } : {}),
+      });
     } catch (error) {
       if (error instanceof AppError) {
         throw error;
