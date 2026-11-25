@@ -179,6 +179,56 @@ class ChatService {
   }
 
   /**
+   * Get chat history with a "before" timestamp cursor (Issue #1003).
+   *
+   * Returns messages created strictly before `before`. The query takes
+   * the newest matching rows and the page is returned oldest-first
+   * (natural chat order), so paging backwards through history is stable
+   * even while new messages arrive.
+   *
+   * The response carries the same cursor pagination meta as
+   * getHistoryCursor, so `pagination.nextCursor` can be passed back as
+   * `cursor` to keep paging through older messages.
+   *
+   * @param limit  - page size (1–50)
+   * @param before - only messages with createdAt before this time
+   */
+  async getHistoryBefore(
+    limit: number = 50,
+    before: Date,
+  ): Promise<CursorPage<ChatMessage>> {
+    // Fetch limit+1 rows to detect whether a next page exists (sentinel trick)
+    const rows = await prisma.message.findMany({
+      take: limit + 1,
+      where: { createdAt: { lt: before } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      include: {
+        user: {
+          select: { walletAddress: true },
+        },
+      },
+    });
+
+    const pagination = buildCursorMeta(limit, rows, (row) => ({
+      createdAt: row.createdAt.toISOString(),
+      id: row.id,
+    }));
+
+    const pageRows = trimSentinel(rows, limit);
+
+    // Reverse so oldest message is first (natural chat order)
+    const messages: ChatMessage[] = pageRows.reverse().map((msg) => ({
+      id: msg.id,
+      userId: msg.userId,
+      walletAddress: this.maskWalletAddress(msg.user.walletAddress),
+      content: msg.content,
+      createdAt: msg.createdAt.toISOString(),
+    }));
+
+    return { data: messages, pagination };
+  }
+
+  /**
    * Get chat history with offset/limit pagination.
    *
    * @param limit  - page size (1–50)

@@ -24,7 +24,7 @@ jest.mock('../services/websocket.service', () => ({
 }));
 
 import chatService from '../services/chat.service';
-import { encodeCursor } from '../utils/pagination.util';
+import { decodeCursor, encodeCursor } from '../utils/pagination.util';
 
 const USER_ID = 'user-123';
 const WALLET_ADDRESS = 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H';
@@ -325,6 +325,90 @@ describe('ChatService — unit tests & XSS regression coverage (Issue #526)', ()
       expect(result.data[1].id).toBe('msg-3');
       expect(result.pagination.hasNextPage).toBe(true);
       expect(typeof result.pagination.nextCursor).toBe('string');
+    });
+  });
+
+  describe('getHistoryBefore — "Before" timestamp cursor (Issue #1003)', () => {
+    const before = new Date('2026-08-28T12:15:00.000Z');
+    const rowsNewestFirst = [
+      {
+        id: 'msg-3',
+        userId: 'user-3',
+        content: 'Three',
+        createdAt: new Date('2026-08-28T12:10:00.000Z'),
+        user: { walletAddress: WALLET_ADDRESS },
+      },
+      {
+        id: 'msg-2',
+        userId: 'user-2',
+        content: 'Two',
+        createdAt: new Date('2026-08-28T12:05:00.000Z'),
+        user: { walletAddress: WALLET_ADDRESS },
+      },
+      {
+        id: 'msg-1',
+        userId: 'user-1',
+        content: 'One',
+        createdAt: new Date('2026-08-28T12:00:00.000Z'),
+        user: { walletAddress: WALLET_ADDRESS },
+      },
+    ];
+
+    it('filters by createdAt strictly before the timestamp and returns oldest-first', async () => {
+      mockMessageFindMany.mockResolvedValue(rowsNewestFirst);
+
+      const result = await chatService.getHistoryBefore(2, before);
+
+      expect(mockMessageFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 3,
+          where: { createdAt: { lt: before } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        }),
+      );
+
+      // Sentinel trimmed, so 2 items returned, reversed to oldest-first
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].id).toBe('msg-2');
+      expect(result.data[1].id).toBe('msg-3');
+      expect(result.data[0].createdAt).toBe('2026-08-28T12:05:00.000Z');
+      expect(result.pagination.hasNextPage).toBe(true);
+      expect(typeof result.pagination.nextCursor).toBe('string');
+    });
+
+    it('returns nextCursor that decodes to the oldest message on the page', async () => {
+      mockMessageFindMany.mockResolvedValue(rowsNewestFirst);
+
+      const result = await chatService.getHistoryBefore(2, before);
+
+      expect(result.pagination.nextCursor).not.toBeNull();
+      const decoded = decodeCursor(result.pagination.nextCursor!) as {
+        createdAt: string;
+        id: string;
+      };
+      expect(decoded).toEqual({ createdAt: '2026-08-28T12:05:00.000Z', id: 'msg-2' });
+    });
+
+    it('has no next page when the remaining rows fit in one page', async () => {
+      mockMessageFindMany.mockResolvedValue(rowsNewestFirst.slice(1));
+
+      const result = await chatService.getHistoryBefore(5, before);
+
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].id).toBe('msg-1');
+      expect(result.data[1].id).toBe('msg-2');
+      expect(result.pagination.hasNextPage).toBe(false);
+      expect(result.pagination.nextCursor).toBeNull();
+    });
+
+    it('returns an empty page when no messages predate the timestamp', async () => {
+      mockMessageFindMany.mockResolvedValue([]);
+
+      const result = await chatService.getHistoryBefore(10, new Date('2020-01-01T00:00:00.000Z'));
+
+      expect(result.data).toHaveLength(0);
+      expect(result.pagination.hasNextPage).toBe(false);
+      expect(result.pagination.nextCursor).toBeNull();
     });
   });
 });

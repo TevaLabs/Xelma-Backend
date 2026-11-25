@@ -53,14 +53,18 @@ export type CursorPaginationParams = z.infer<typeof cursorPaginationSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Unified pagination schema that accepts both offset and cursor params.
- * When `cursor` is present the service should use cursor mode;
+ * Unified pagination schema that accepts offset, cursor and "before" params.
+ * When `before` is present the service should use before-timestamp mode;
+ * when `cursor` is present (and no `before`) it should use cursor mode;
  * otherwise fall back to offset mode.
  */
 export const unifiedPaginationSchema = z.object({
   limit: coerceInt(20).pipe(z.number().int().min(1).max(100)),
   offset: coerceInt(0).pipe(z.number().int().min(0)),
   cursor: z.string().optional(),
+  // Plain ISO 8601 timestamp: only rows created strictly before this
+  // time are returned. An invalid value fails validation (HTTP 400).
+  before: z.string().datetime({ offset: true }).optional(),
 });
 
 export type UnifiedPaginationParams = z.infer<typeof unifiedPaginationSchema>;

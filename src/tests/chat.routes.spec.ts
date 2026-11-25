@@ -221,4 +221,103 @@ describe("GET /api/chat/history", () => {
       expect(res.status).toBe(400);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Before mode (Issue #1003)
+  // -------------------------------------------------------------------------
+
+  describe("before mode", () => {
+    const before = "2026-06-01T12:00:00.000Z";
+
+    it("returns 200 with cursor pagination meta when before param is present", async () => {
+      const msgs = makeMessages(6); // limit=5, sentinel=1
+      mockMessageFindMany.mockResolvedValue(msgs);
+
+      const res = await request(app).get(`/api/chat/history?limit=5&before=${before}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.pagination).toBeDefined();
+      expect(res.body.pagination.hasNextPage).toBe(true);
+      expect(typeof res.body.pagination.nextCursor).toBe("string");
+      // No offset/total in before mode
+      expect(res.body.pagination.total).toBeUndefined();
+      expect(res.body.pagination.offset).toBeUndefined();
+    });
+
+    it("queries only messages created before the given timestamp", async () => {
+      mockMessageFindMany.mockResolvedValue(makeMessages(3));
+
+      const res = await request(app).get(`/api/chat/history?limit=5&before=${before}`);
+
+      expect(res.status).toBe(200);
+      const callArgs = mockMessageFindMany.mock.calls[0][0];
+      expect(callArgs.where).toEqual({ createdAt: { lt: new Date(before) } });
+      expect(callArgs.take).toBe(6);
+    });
+
+    it("nextCursor is null on the last page", async () => {
+      const msgs = makeMessages(3); // limit=5, only 3 rows → last page
+      mockMessageFindMany.mockResolvedValue(msgs);
+
+      const res = await request(app).get(`/api/chat/history?limit=5&before=${before}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.pagination.hasNextPage).toBe(false);
+      expect(res.body.pagination.nextCursor).toBeNull();
+    });
+
+    it("returns 200 with empty messages when no rows predate before", async () => {
+      mockMessageFindMany.mockResolvedValue([]);
+
+      const res = await request(app).get(`/api/chat/history?limit=10&before=2020-01-01T00:00:00.000Z`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.messages).toHaveLength(0);
+      expect(res.body.pagination.hasNextPage).toBe(false);
+      expect(res.body.pagination.nextCursor).toBeNull();
+    });
+
+    it("ignores cursor and offset when before is present", async () => {
+      const msgs = makeMessages(3);
+      mockMessageFindMany.mockResolvedValue(msgs);
+
+      const cursor = encodeCursor({ createdAt: "2026-06-01T12:00:00.000Z", id: "msg-0" });
+      // cursor and offset=99 should both be ignored
+      const res = await request(app).get(
+        `/api/chat/history?limit=5&before=${before}&cursor=${cursor}&offset=99`,
+      );
+
+      expect(res.status).toBe(200);
+      // Before mode response has no offset field, and the query used before
+      expect(res.body.pagination.offset).toBeUndefined();
+      const callArgs = mockMessageFindMany.mock.calls[0][0];
+      expect(callArgs.where).toEqual({ createdAt: { lt: new Date(before) } });
+      expect(callArgs.cursor).toBeUndefined();
+    });
+
+    it("returns messages in oldest-first order", async () => {
+      // makeMessages returns newest-first; the service reverses them
+      const msgs = makeMessages(3);
+      mockMessageFindMany.mockResolvedValue(msgs);
+
+      const res = await request(app).get(`/api/chat/history?limit=3&before=${before}`);
+
+      expect(res.status).toBe(200);
+      const times = res.body.messages.map((m: any) => new Date(m.createdAt).getTime());
+      for (let i = 1; i < times.length; i++) {
+        expect(times[i]).toBeGreaterThanOrEqual(times[i - 1]);
+      }
+    });
+
+    it("returns 400 for an invalid before value", async () => {
+      const res = await request(app).get(`/api/chat/history?before=not-a-date`);
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 for a date-only before value", async () => {
+      const res = await request(app).get(`/api/chat/history?before=2026-06-01`);
+      expect(res.status).toBe(400);
+    });
+  });
 });
