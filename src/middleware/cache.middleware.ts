@@ -35,12 +35,18 @@ export function cacheJsonResponse(opts: CacheMiddlewareOptions) {
     if (!isRedisCacheEnabled()) return next();
 
     // Raw key is later namespaced + versioned by `src/lib/redis.ts`.
-    // Default raw key format: `<path>?<sortedQuery>` (query parts sorted for determinism).
+    // Default raw key format: `<path>?<sortedQuery>:<identity>` where
+    // `<identity>` is the authenticated user ID (or IP for anonymous
+    // requests) so one user's cached response is never served to another
+    // — see Issue #1058 (cache bleed by user).
     const rawKey = opts.keyFn
       ? opts.keyFn(req)
       : (() => {
           const query = serializeQuery(req.query);
-          return query ? `${req.path}?${query}` : req.path;
+          const base = query ? `${req.path}?${query}` : req.path;
+          const userId = req.user?.userId;
+          const identity = userId ? `user:${userId}` : `anon:${req.ip ?? 'unknown'}`;
+          return `${base}:${identity}`;
         })();
 
     try {

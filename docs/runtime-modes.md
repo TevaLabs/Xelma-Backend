@@ -232,6 +232,71 @@ DATABASE_URL=postgresql://...
 - Skips oracle polling, schedulers, and price ticker.
 - Still serves HTTP and WebSocket transport.
 
+## Kubernetes probes: liveness vs readiness
+
+When deploying on Kubernetes, use two separate probes against the health
+endpoint. The correct path depends on the entrypoint/mode:
+
+| Mode | Binary | Health probe path |
+|------|--------|-------------------|
+| Full (default) | `dist/index.js` | `GET /health` |
+| Hackathon | `dist/server.js` | `GET /api/health` |
+
+The path can be overridden with `HEALTHCHECK_PATH` (read by the entrypoint and
+by `scripts/smoke-test.js`).
+
+### Liveness probe
+
+**Purpose:** Tells Kubernetes whether the container is alive. If the probe
+fails, Kubernetes restarts the container.
+
+**Use:** a fast, dependency-free check. `GET /health` is suitable because it
+reports the service's own status (uptime, dependency health) without waiting on
+external calls. Configure it with a modest `initialDelaySeconds` so the app has
+time to boot, and a low `failureThreshold` so a hung container is restarted
+quickly.
+
+Do **not** make the liveness probe depend on a slow external call (e.g. a live
+CoinGecko fetch or Soroban RPC round-trip) — a transient external blip would
+trigger needless container restarts.
+
+### Readiness probe
+
+**Purpose:** Tells Kubernetes whether the container is ready to serve traffic.
+If the probe fails, Kubernetes removes the pod from service Endpoints (no
+traffic is routed to it) but does **not** restart it.
+
+**Use:** a check that verifies the dependencies the app actually needs are
+reachable (PostgreSQL via `DATABASE_URL`, Redis when `REDIS_URL` is set). The
+`GET /health` endpoint already aggregates these checks and returns `degraded`
+(HTTP 503) when a dependency is struggling, which makes it a good readiness
+probe target too. If you want stricter separation, use a distinct readiness
+endpoint that fails closed on missing dependencies while liveness stays
+dependency-light.
+
+### Example container probe config
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health        # or /api/health in hackathon mode
+    port: 3000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /health        # or /api/health in hackathon mode
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 3
+```
+
+In Docker Compose the same path is honored via the `HEALTHCHECK` directive;
+see "Docker entrypoint modes" in [README.md](../README.md) for how
+`API_MODE` selects both the binary and the default probe path.
+
 ---
 
 ## How the flags interact

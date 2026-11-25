@@ -120,6 +120,10 @@ function createRateLimiter(opts: {
       const key = opts.keyGenerator ? opts.keyGenerator(req) : (req.ip || 'unknown');
       const userId = req.user?.userId;
       const category = getRateLimitCategory(opts.name);
+      // Seconds the client should wait before retrying. Same value is echoed
+      // in the JSON body and set as the Retry-After response header so any
+      // client (not just JSON-parsing ones) can back off correctly.
+      const retryAfterSeconds = Math.ceil(opts.windowMs / 1000);
 
       rateLimitHitsTotal.inc({ endpoint: opts.name, category });
 
