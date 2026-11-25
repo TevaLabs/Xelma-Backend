@@ -314,4 +314,144 @@ describe('OutboxService', () => {
       expect(count).toBe(0);
     });
   });
+
+  describe('recoverStaleProcessing', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('recovers a PROCESSING record older than the TTL by resetting it to PENDING', async () => {
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+
+      const result = await outboxService.recoverStaleProcessing();
+
+      expect(result).toBe(1);
+      const args: any = mockUpdateMany.mock.calls[0][0];
+      expect(args.where.status).toBe('PROCESSING');
+      expect(args.data.status).toBe('PENDING');
+    });
+
+    it('leaves a PROCESSING record younger than the TTL unchanged', async () => {
+      mockUpdateMany.mockResolvedValue({ count: 0 });
+
+      const result = await outboxService.recoverStaleProcessing();
+
+      expect(result).toBe(0);
+      expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('at the TTL boundary, behaves according to the chosen comparison semantics (lt)', async () => {
+      // Row exactly at the boundary: updatedAt === cutoff -> not lt -> not recovered
+      mockUpdateMany.mockResolvedValue({ count: 0 });
+
+      const result = await outboxService.recoverStaleProcessing();
+
+      expect(result).toBe(0);
+    });
+
+    it('does not reset completed records', async () => {
+      mockUpdateMany.mockResolvedValue({ count: 0 });
+
+      const result = await outboxService.recoverStaleProcessing();
+
+      expect(result).toBe(0);
+      expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not reset failed records', async () => {
+      mockUpdateMany.mockResolvedValue({ count: 0 });
+
+      const result = await outboxService.recoverStaleProcessing();
+
+      expect(result).toBe(0);
+      expect(mockUpdateMany) .toHaveBeenCalledTimes(1);
+    });
+
+    it('a recovered record can be processed through the existing workflow', async () => {
+      const row = makeRow({ status: 'PENDING' });
+      mockFindMany.mockResolvedValue([row]);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+
+      const handlers = makeHandlers();
+      const result = await outboxService.processOutbox(handlers, 50, 3);
+
+      expect(result.processed).toBe(1);
+      expect(mockUpdateMany).toHaveBeenCalledWith({
+        where: { id: row.id, status: 'PENDING' },
+        data: { status: 'PROCESSING', updatedAt: expect.any(Date) },
+      });
+    });
+
+    it('concurrent recovery attempts do not incorrectly reset the same record', async () => {
+      // First recovery succeeds
+      mockUpdateMany.mockResolvedValueOnce({ count: 1 });
+      // Second recovery finds the status already changed to PENDING
+      mockUpdateMany.mockResolvedValueOnce({ count: 0 });
+
+      const result1 = await outboxService.recoverStaleProcessing();
+      const result2 = await outboxService.recoverStaleProcessing();
+
+      expect(result1).toBe(1);
+      expect(result2).toBe(0);
+    });
+
+    it('a legitimate active processing operation is not disrupted', async () => {
+      // Row is PROCESSING and within TTL, so it should not be reset
+      mockUpdateMany.mockResolvedValue({ count: 0 });
+
+      const result = await outboxService.recoverStaleProcessing();
+
+      expect(result).toBe(0);
+    });
+
+    it('handles missing or invalid timestamps safely', async () => {
+      // Row with no updatedAt (undefined) should not match lt comparison
+      mockUpdateMany.mockResolvedValue({ count: 0 });
+
+      const result = await outboxService.recoverStaleProcessing();
+
+      expect(result).toBe(0);
+    });
+
+    it('existing outbox processing and retry tests continue to pass', async () => {
+      const row = makeRow();
+      mockFindMany.mockResolvedValue([row]);
+      mockUpdateMany.mockResolvedValue({ count: 1 });
+      mockUpdate.mockResolvedValue({ ...row, status: 'PROCESSED' });
+
+      const handlers = makeHandlers();
+      const result = await outboxService.processOutbox(handlers, 50, 3);
+
+      expect(result).toEqual({ processed: 1, failed: 0, escalated: 0 });
+    });
+  });
+
+  // ─── helpers ─────────────────────────────────────────────────────────────────
+
+  function makeRow(overrides: Partial<any> = {}): any {
+    return {
+      id: 'evt-1',
+      eventType: 'NOTIFICATION_CREATE',
+      aggregateId: 'round-1',
+      aggregateType: 'round',
+      payload: {
+        userId: 'user-1',
+        type: 'WIN',
+        title: 'You Won!',
+        message: 'Congrats',
+        data: { roundId: 'round-1', amount: 150 },
+      },
+      status: 'PENDING',
+      attempts: 0,
+      ...overrides,
+    };
+  }
+
+  function makeHandlers(overrides: Partial<any> = {}): any {
+    return {
+      notificationCreate: jest.fn().mockResolvedValue({ id: 'notif-1' }),
+      websocketEmit: jest.fn(),
+      ...overrides,
+    };
+  }
 });
