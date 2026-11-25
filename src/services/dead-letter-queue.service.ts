@@ -41,7 +41,7 @@ export interface RetryHandlers {
    * Replay a `NOTIFICATION_CREATE` row. Receives the original
    * `createNotification` input that was stored as `payload`.
    */
-  notificationCreate: (payload: any) => Promise<unknown>;
+  notificationCreate: (payload: any, dispatchId?: string) => Promise<unknown>;
   /**
    * Replay a `WEBSOCKET_EMIT` row. Receives `{ eventName, userId, payload }`.
    * Callers should map `eventName` back onto the appropriate
@@ -51,6 +51,8 @@ export interface RetryHandlers {
     eventName: string | null;
     userId: string | null;
     payload: any;
+    /** DLQ row id; stable across retries so consumers can dedupe. */
+    dispatchId?: string;
   }) => Promise<unknown> | unknown;
 }
 
@@ -81,6 +83,36 @@ export interface ListOptions {
   channel?: DispatchChannel;
   limit?: number;
   offset?: number;
+}
+
+/**
+ * Replay idempotency (Issue #1006). The handler's side effect (a websocket
+ * emit or a notification) cannot be rolled back, so a row must never be
+ * dispatched twice for one logical failure:
+ *  - `inFlight` rejects a second concurrent replay of the same row id
+ *    (overlapping `retry` / `retryAll` calls).
+ *  - `delivered` remembers ids whose handler already succeeded, so if the
+ *    follow-up DB write to `RESOLVED` fails, the next retry only finishes
+ *    the bookkeeping instead of emitting again.
+ * Both are per-process and bounded; they cover the double-emit windows
+ * without a schema change.
+ */
+const MAX_TRACKED_DISPATCHES = 5000;
+const inFlight = new Set<string>();
+const delivered = new Set<string>();
+
+function markDelivered(id: string): void {
+  delivered.add(id);
+  if (delivered.size > MAX_TRACKED_DISPATCHES) {
+    const oldest = delivered.values().next().value;
+    if (oldest !== undefined) delivered.delete(oldest);
+  }
+}
+
+/** Test hook: clear the in-process dedupe state. */
+export function resetDispatchDedupe(): void {
+  inFlight.clear();
+  delivered.clear();
 }
 
 function truncateError(err: unknown): string {
@@ -194,52 +226,91 @@ class DeadLetterQueueService {
       return { id: row.id, status: row.status, attempts: row.attempts };
     }
 
-    try {
-      if (row.channel === DispatchChannel.NOTIFICATION_CREATE) {
-        await handlers.notificationCreate(row.payload as any);
-      } else {
-        await handlers.websocketEmit({
-          eventName: row.eventName,
-          userId: row.userId,
-          payload: row.payload as any,
-        });
-      }
-      const resolved = await prisma.failedDispatch.update({
-        where: { id },
-        data: {
-          status: DispatchStatus.RESOLVED,
-          resolvedAt: new Date(),
-          lastRetryAt: new Date(),
-          attempts: { increment: 1 },
-        },
-        select: { id: true, status: true, attempts: true },
-      });
-      logger.info(`DLQ retry succeeded`, { id, channel: row.channel });
-      return resolved;
-    } catch (err) {
-      const nextAttempts = row.attempts + 1;
-      const nextStatus =
-        nextAttempts >= maxAttempts
-          ? DispatchStatus.ABANDONED
-          : DispatchStatus.RETRYING;
-      const updated = await prisma.failedDispatch.update({
-        where: { id },
-        data: {
-          status: nextStatus,
-          attempts: nextAttempts,
-          lastRetryAt: new Date(),
-          lastError: truncateError(err),
-        },
-        select: { id: true, status: true, attempts: true },
-      });
-      logger.error(`DLQ retry failed`, {
-        id,
-        channel: row.channel,
-        attempts: nextAttempts,
-        status: nextStatus,
-      });
-      return updated;
+    if (inFlight.has(id)) {
+      logger.warn(`DLQ retry: entry ${id} already being replayed, skipping`);
+      return { id: row.id, status: row.status, attempts: row.attempts };
     }
+    inFlight.add(id);
+
+    try {
+      if (delivered.has(id)) {
+        logger.info(`DLQ retry: entry ${id} already delivered, resolving only`);
+      } else {
+        try {
+          if (row.channel === DispatchChannel.NOTIFICATION_CREATE) {
+            await handlers.notificationCreate(row.payload as any, row.id);
+          } else {
+            await handlers.websocketEmit({
+              eventName: row.eventName,
+              userId: row.userId,
+              payload: row.payload as any,
+              dispatchId: row.id,
+            });
+          }
+        } catch (err) {
+          return await this.recordRetryFailure(row, err, maxAttempts);
+        }
+        markDelivered(id);
+      }
+
+      try {
+        const resolved = await prisma.failedDispatch.update({
+          where: { id },
+          data: {
+            status: DispatchStatus.RESOLVED,
+            resolvedAt: new Date(),
+            lastRetryAt: new Date(),
+            attempts: { increment: 1 },
+          },
+          select: { id: true, status: true, attempts: true },
+        });
+        delivered.delete(id);
+        logger.info(`DLQ retry succeeded`, { id, channel: row.channel });
+        return resolved;
+      } catch (err) {
+        // The dispatch already went out; only the bookkeeping failed. Leave
+        // the row retryable (it stays in `delivered`) without counting a
+        // delivery failure, so the next retry resolves it without re-emitting.
+        logger.error(`DLQ retry delivered but could not mark resolved`, {
+          id,
+          channel: row.channel,
+          error: err,
+        });
+        return { id: row.id, status: row.status, attempts: row.attempts };
+      }
+    } finally {
+      inFlight.delete(id);
+    }
+  }
+
+  private async recordRetryFailure(
+    row: { id: string; channel: DispatchChannel; attempts: number },
+    err: unknown,
+    maxAttempts: number,
+  ): Promise<RetryResult> {
+    const id = row.id;
+    const nextAttempts = row.attempts + 1;
+    const nextStatus =
+      nextAttempts >= maxAttempts
+        ? DispatchStatus.ABANDONED
+        : DispatchStatus.RETRYING;
+    const updated = await prisma.failedDispatch.update({
+      where: { id },
+      data: {
+        status: nextStatus,
+        attempts: nextAttempts,
+        lastRetryAt: new Date(),
+        lastError: truncateError(err),
+      },
+      select: { id: true, status: true, attempts: true },
+    });
+    logger.error(`DLQ retry failed`, {
+      id,
+      channel: row.channel,
+      attempts: nextAttempts,
+      status: nextStatus,
+    });
+    return updated;
   }
 
   /**
