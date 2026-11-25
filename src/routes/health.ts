@@ -124,58 +124,82 @@ async function checkOracle(): Promise<{
 }
 
 /**
+ * Shared deep readiness handler used by both GET / (legacy /health mount) and
+ * GET /ready (/health/ready). Evaluates database, Redis, Soroban, and Oracle.
+ */
+async function handleReadinessCheck(_req: Request, res: Response): Promise<void> {
+  setNoStore(res);
+  const startTime = Date.now();
+
+  const [database, redis, soroban, oracle] = await Promise.all([
+    checkDatabase(),
+    checkRedis(),
+    checkSoroban(),
+    checkOracle(),
+  ]);
+
+  const services = { database, redis, soroban, oracle };
+
+  let overallStatus: 'healthy' | 'degraded' | 'unhealthy';
+  if (database.status === 'unhealthy') {
+    overallStatus = 'unhealthy';
+  } else if (
+    redis.status === 'degraded' ||
+    soroban.status === 'degraded' ||
+    oracle.status === 'degraded' ||
+    oracle.status === 'stale'
+  ) {
+    overallStatus = 'degraded';
+  } else {
+    overallStatus = 'healthy';
+  }
+
+  sendSuccess(res, {
+    status: overallStatus,
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    durationMs: Date.now() - startTime,
+    services,
+  });
+}
+
+/**
+ * Kubernetes Liveness Probe: GET /live (mounted at /health/live in full mode, /api/live in hackathon mode).
+ *
+ * Pure process-liveness check: intentionally avoids database, Redis, Soroban,
+ * and Oracle calls so downstream outages never trigger Kubernetes restart storms.
+ */
+router.get('/live', (_req: Request, res: Response) => {
+  setNoStore(res);
+  sendSuccess(res, {
+    status: 'alive',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+/**
+ * Kubernetes Readiness Probe: GET /ready (mounted at /health/ready in full mode, /api/ready in hackathon mode).
+ * Performs deep dependency checks across PostgreSQL, Redis, Soroban RPC, and Oracle.
+ */
+router.get('/ready', asyncHandler(handleReadinessCheck));
+
+/**
  * Kubernetes Readiness / Health Probe: GET / (mounted at /health in full mode)
  *
  * READINESS VS LIVENESS PROBE GUIDELINES:
- * - Readiness Probe: Point Kubernetes readinessProbe to /health (or /metrics/readiness).
+ * - Readiness Probe: Point Kubernetes readinessProbe to /health/ready (or /health, /metrics/readiness).
  *   Performs deep health checks across database (PostgreSQL), cache (Redis),
  *   smart contract RPC (Soroban), and oracle feeds. If critical dependencies
  *   fail, Kubernetes stops routing user traffic to this pod without killing it.
- * - Liveness Probe: Point Kubernetes livenessProbe to a lightweight endpoint
- *   (such as root GET /) rather than full dependency checks.
+ * - Liveness Probe: Point Kubernetes livenessProbe to /health/live (full mode)
+ *   or /api/live (hackathon mode) rather than full dependency checks.
  *   Liveness failure triggers container restart; failing liveness on downstream
  *   dependency outages causes cascading pod restart storms.
  *
  * See docs/runtime-modes.md for Kubernetes YAML manifest examples.
  */
-router.get(
-  '/',
-  asyncHandler(async (_req: Request, res: Response) => {
-    setNoStore(res);
-    const startTime = Date.now();
-
-    const [database, redis, soroban, oracle] = await Promise.all([
-      checkDatabase(),
-      checkRedis(),
-      checkSoroban(),
-      checkOracle(),
-    ]);
-
-    const services = { database, redis, soroban, oracle };
-
-    let overallStatus: 'healthy' | 'degraded' | 'unhealthy';
-    if (database.status === 'unhealthy') {
-      overallStatus = 'unhealthy';
-    } else if (
-      redis.status === 'degraded' ||
-      soroban.status === 'degraded' ||
-      oracle.status === 'degraded' ||
-      oracle.status === 'stale'
-    ) {
-      overallStatus = 'degraded';
-    } else {
-      overallStatus = 'healthy';
-    }
-
-    sendSuccess(res, {
-      status: overallStatus,
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      durationMs: Date.now() - startTime,
-      services,
-    });
-  }),
-);
+router.get('/', asyncHandler(handleReadinessCheck));
 
 function isDatabaseConfigured(): boolean {
   // The DB is a configured dependency when the app runs in postgres mode
@@ -362,6 +386,26 @@ router.get('/health', asyncHandler(async (_req: Request, res: Response) => {
  *                           description: Provider that supplied the current price (e.g. coingecko).
  *                         error:
  *                           type: string
+ *
+ * /health/live:
+ *   get:
+ *     summary: Kubernetes liveness probe
+ *     description: Lightweight process liveness check with no downstream dependency calls.
+ *     tags:
+ *       - health
+ *     responses:
+ *       200:
+ *         description: Process is alive
+ *
+ * /health/ready:
+ *   get:
+ *     summary: Kubernetes readiness probe
+ *     description: Deep dependency readiness check across DB, Redis, Soroban, and Oracle.
+ *     tags:
+ *       - health
+ *     responses:
+ *       200:
+ *         description: Readiness check completed
  *
  * /api/health:
  *   get:

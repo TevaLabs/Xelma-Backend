@@ -171,6 +171,16 @@ describe('Rate Limit Visibility', () => {
     expect(response.body).toHaveProperty('deletedCount');
   });
 
+  it('should allow admins to clear rate-limit metrics filtered by endpoint (#1022)', async () => {
+    const response = await request(app)
+      .post('/api/admin/metrics/rate-limits/clear?days=0&endpoint=/api/auth/connect')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveProperty('deletedCount');
+    expect(response.body.endpoint).toBe('/api/auth/connect');
+  });
+
   it('should record a rate limit hit in Prometheus', async () => {
     const { RateLimitMetricsService } = require('../services/rate-limit-metrics.service');
     const { register } = require('prom-client');

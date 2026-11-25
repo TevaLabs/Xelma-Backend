@@ -673,4 +673,66 @@ describe("Route authorization registry", () => {
       false,
     );
   });
+
+  it("enforces RBAC matrix for ORACLE routes: unauthenticated=401, USER=403, ORACLE/ADMIN=allowed (#1045)", async () => {
+    setEnv({ NODE_ENV: "development", JWT_SECRET: "test-jwt-secret-for-tests-min-16" });
+    jest.resetModules();
+
+    const { prisma: freshPrisma } = require("../lib/prisma") as {
+      prisma: { user: { findUnique: jest.Mock } };
+    };
+    const { generateToken: freshGenerateToken } = require("../utils/jwt.util");
+    const { createApp } = require("../index");
+    const app = createApp();
+
+    const oracleRoutes = getOracleRoutes();
+    expect(oracleRoutes.length).toBeGreaterThan(0);
+
+    const roleMatrix: Array<{
+      label: string;
+      role?: UserRole;
+      assertStatus: (status: number) => void;
+    }> = [
+      {
+        label: "unauthenticated",
+        assertStatus: (status) => expect(status).toBe(401),
+      },
+      {
+        label: "USER",
+        role: UserRole.USER,
+        assertStatus: (status) => expect(status).toBe(403),
+      },
+      {
+        label: "ORACLE",
+        role: UserRole.ORACLE,
+        assertStatus: (status) => expect([401, 403]).not.toContain(status),
+      },
+      {
+        label: "ADMIN",
+        role: UserRole.ADMIN,
+        assertStatus: (status) => expect([401, 403]).not.toContain(status),
+      },
+    ];
+
+    for (const route of oracleRoutes) {
+      const path = route.path.replace(":id", "round-rbac-test");
+      const method = route.method.toLowerCase() as "get" | "post" | "patch" | "put" | "delete";
+
+      for (const entry of roleMatrix) {
+        const req = request(app)[method](path);
+        if (entry.role) {
+          const user = {
+            id: `user-${entry.role.toLowerCase()}`,
+            walletAddress: `G${entry.role}_TEST_WALLET_AAAAAAAAAAAA`,
+            role: entry.role,
+          };
+          freshPrisma.user.findUnique.mockResolvedValue(user);
+          const token = freshGenerateToken(user.id, user.walletAddress, user.role);
+          req.set("Authorization", `Bearer ${token}`);
+        }
+        const res = await req;
+        entry.assertStatus(res.status);
+      }
+    }
+  });
 });

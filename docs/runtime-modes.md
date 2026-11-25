@@ -324,8 +324,8 @@ Kubernetes relies on two distinct probe mechanisms to manage container lifecycle
 
 | Probe Type | Purpose | Failure Consequence | Recommended Endpoint |
 |---|---|---|---|
-| **Liveness Probe** | Detects if the Node.js process is stuck, deadlocked, or unresponsive. | **Container restart** (Kubelet kills the container and initiates restart backoff). | `GET /` (Full mode) or lightweight HTTP ping |
-| **Readiness Probe** | Detects whether the backend container is ready to accept incoming user traffic. | **Traffic isolation** (Pod removed from Service endpoints; no restarts). | `GET /health` (Full mode) or `GET /api/health` (Hackathon mode) |
+| **Liveness Probe** | Detects if the Node.js process is stuck, deadlocked, or unresponsive. | **Container restart** (Kubelet kills the container and initiates restart backoff). | `GET /health/live` (Full mode) or `GET /api/live` (Hackathon mode) |
+| **Readiness Probe** | Detects whether the backend container is ready to accept incoming user traffic. | **Traffic isolation** (Pod removed from Service endpoints; no restarts). | `GET /health/ready` or `GET /health` (Full mode) / `GET /api/ready` (Hackathon mode) |
 
 > [!WARNING]
 > **Never probe downstream dependencies (PostgreSQL, Redis, Soroban RPC) in a Liveness Probe!**
@@ -393,7 +393,7 @@ spec:
           # Liveness: checks that the process is alive. Never check DB here!
           livenessProbe:
             httpGet:
-              path: /
+              path: /health/live
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 10
@@ -402,7 +402,7 @@ spec:
           # Readiness: checks database, redis, soroban, and price feeds
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 3000
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -433,14 +433,14 @@ spec:
               value: "mock"
           livenessProbe:
             httpGet:
-              path: /api
+              path: /api/live
               port: 3001
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 3
           readinessProbe:
             httpGet:
-              path: /api/health
+              path: /api/ready
               port: 3001
             initialDelaySeconds: 5
             periodSeconds: 10

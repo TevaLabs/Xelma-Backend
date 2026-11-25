@@ -104,6 +104,8 @@ export const ROUTE_AUTH_REGISTRY: RouteAuthEntry[] = [
   { method: "GET", path: "/api/errors", auth: RouteAuthLevel.PUBLIC },
   { method: "GET", path: "/metrics", auth: RouteAuthLevel.PUBLIC },
   { method: "GET", path: "/health", auth: RouteAuthLevel.PUBLIC },
+  { method: "GET", path: "/health/live", auth: RouteAuthLevel.PUBLIC },
+  { method: "GET", path: "/health/ready", auth: RouteAuthLevel.PUBLIC },
   { method: "GET", path: "/", auth: RouteAuthLevel.PUBLIC },
 ];
 

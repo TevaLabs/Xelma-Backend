@@ -2613,6 +2613,34 @@
         }
       }
     },
+    "/health/live": {
+      "get": {
+        "summary": "Kubernetes liveness probe",
+        "description": "Lightweight process liveness check with no downstream dependency calls.",
+        "tags": [
+          "health"
+        ],
+        "responses": {
+          "200": {
+            "description": "Process is alive"
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Kubernetes readiness probe",
+        "description": "Deep dependency readiness check across DB, Redis, Soroban, and Oracle.",
+        "tags": [
+          "health"
+        ],
+        "responses": {
+          "200": {
+            "description": "Readiness check completed"
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "summary": "Lightweight hackathon health check",
@@ -3639,6 +3667,15 @@
               "default": 7
             },
             "description": "Clear records older than this many days"
+          },
+          {
+            "in": "query",
+            "name": "endpoint",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional endpoint path filter to clear metrics only for a specific endpoint"
           }
         ],
         "responses": {

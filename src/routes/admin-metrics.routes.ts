@@ -145,6 +145,12 @@ router.get('/rate-limits', requireAdmin, async (req: Request, res: Response) => 
  *           type: integer
  *           default: 7
  *         description: Clear records older than this many days
+ *       - in: query
+ *         name: endpoint
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Optional endpoint path filter to clear metrics only for a specific endpoint
  *     responses:
  *       200:
  *         description: Number of records deleted
@@ -155,10 +161,11 @@ router.get('/rate-limits', requireAdmin, async (req: Request, res: Response) => 
  */
 router.post('/rate-limits/clear', requireAdmin, async (req: Request, res: Response) => {
   try {
-    const days = req.query.days ? parseInt(req.query.days as string) : 7;
-    const endpoint = req.query.endpoint as string | undefined;
+    const days = req.query.days ? parseInt(req.query.days as string, 10) : 7;
+    const rawEndpoint = typeof req.query.endpoint === 'string' ? req.query.endpoint.trim() : undefined;
+    const endpoint = rawEndpoint ? rawEndpoint : undefined;
     const count = await rateLimitMetricsService.clearOldMetrics(days, endpoint);
-    res.json({ message: 'Success', deletedCount: count });
+    res.json({ message: 'Success', deletedCount: count, ...(endpoint ? { endpoint } : {}) });
   } catch (error) {
     logger.error('Error clearing rate-limit metrics:', error);
     res.status(500).json({ error: 'Internal Server Error', message: 'Failed to clear rate-limit metrics' });
