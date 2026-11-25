@@ -189,6 +189,11 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
 
+      - name: Seed mock data
+        run: npm run db:seed:mock
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
+
       - name: Run integration tests
         run: npm run test:integration
         env:
@@ -234,6 +239,11 @@ jobs:
 
       - name: Run database migrations
         run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
+
+      - name: Seed mock data
+        run: npm run db:seed:mock
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
 

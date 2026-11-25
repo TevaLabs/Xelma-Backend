@@ -1565,7 +1565,7 @@ Coverage thresholds are enforced in `jest.config.ts`. The current floors are:
 - Lines: 35%
 - Statements: 35%
 
-CI runs `npm run test:unit:coverage` (unit tests with coverage upload) and `npm run test:integration` (integration tests against PostgreSQL and Redis service containers) as separate parallel jobs.
+CI runs `npm run test:unit:coverage` and the PostgreSQL-backed integration suites as separate parallel jobs. Each database-backed job runs `npx prisma migrate deploy` followed by `npm run db:seed:mock` before its tests, so suites that depend on seeded hackathon rounds (including the atomic-bet race test) run against a complete fixture set.
 
 ### Load test harness
 
@@ -1855,13 +1855,17 @@ This project uses GitHub Actions for continuous integration and deployment. CI a
 
 **File:** `.github/workflows/ci.yml`
 
-CI runs automatically on every pull request and on pushes to `main`. It executes three independent jobs in parallel:
+CI runs automatically on every pull request and on pushes to `main`. It executes these independent jobs in parallel:
 
-| Job       | What it does                                                                                  |
-| --------- | --------------------------------------------------------------------------------------------- |
-| **lint**  | Runs `tsc --noEmit` to check for type errors                                                  |
-| **build** | Compiles TypeScript to `dist/` via `tsc`                                                      |
-| **test**  | Spins up a PostgreSQL 16 service container, runs migrations, and executes the full test suite |
+| Job                  | What it does                                                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **lint**             | Runs `tsc --noEmit` to check for type errors                                                                       |
+| **scorecard**        | Runs dependency and workflow security checks                                                                       |
+| **build**            | Compiles TypeScript to `dist/` via `tsc`                                                                           |
+| **contract-drift**   | Verifies the pinned Soroban bindings                                                                                |
+| **test-unit**        | Runs unit tests and uploads coverage                                                                                |
+| **test-integration** | Starts PostgreSQL 16, applies migrations, seeds mock data, then runs the integration suite (including atomic bets) |
+| **test-hackathon-http** | Starts PostgreSQL 16, applies migrations, seeds mock data, then runs the hackathon HTTP suite                   |
 
 CI is fast, deterministic, and has no side effects. It is also used as a gate by the deployment workflow.
 
