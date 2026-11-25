@@ -16,12 +16,14 @@ import {
   ConnectRequestBody,
   ConnectResponse,
 } from "../types/auth.types";
+import { authenticateUser, AuthenticatedRequest } from "../middleware/auth.middleware";
 import {
   challengeRateLimiter,
   connectRateLimiter,
   authRateLimiter,
 } from "../middleware/rateLimiter.middleware";
 import { validate } from "../middleware/validate.middleware";
+import { asyncHandler } from "../middleware/errorHandler.middleware";
 import { challengeSchema, connectSchema } from "../schemas/auth.schema";
 import { AuthenticationError, ErrorCode } from "../utils/errors";
 import { auditLogger } from "../utils/audit-logger";
@@ -260,6 +262,19 @@ const connectHandler = async (
   try {
     const { walletAddress, challenge, signature }: ConnectRequestBody = req.body;
 
+    // Every failed connect attests one aggregate AUTH_FAILED audit event in
+    // addition to the challenge-lifecycle event below. Reasons are fixed
+    // enum-like strings: the challenge and signature values are never logged.
+    const auditFailedConnect = (reason: string): void => {
+      auditLogger.logAuthFailed({
+        walletAddress,
+        reason,
+        requestId,
+        ipAddress,
+        userAgent,
+      });
+    };
+
     // Use atomic update to consume challenge (prevent race conditions)
     const now = new Date();
     const updateResult = await prisma.authChallenge.updateMany({
@@ -286,14 +301,16 @@ const connectHandler = async (
 
         if (!existingChallenge || existingChallenge.walletAddress !== walletAddress) {
           // Audit log: Challenge not found or wallet mismatch
+          const reason = existingChallenge ? 'wallet_mismatch' : 'challenge_not_found';
           auditLogger.logChallengeFailed({
             walletAddress,
             challengeId: challenge,
-            reason: existingChallenge ? 'wallet_mismatch' : 'challenge_not_found',
+            reason,
             requestId,
             ipAddress,
             userAgent,
           });
+          auditFailedConnect(reason);
           
           return next(new AuthenticationError("Invalid or expired challenge", ErrorCode.INVALID_CHALLENGE));
         }
@@ -308,6 +325,7 @@ const connectHandler = async (
             ipAddress,
             userAgent,
           });
+          auditFailedConnect('challenge_used');
           
           return next(new AuthenticationError("Challenge has already been used", ErrorCode.CHALLENGE_USED));
         }
@@ -321,6 +339,7 @@ const connectHandler = async (
             requestId,
             ipAddress,
           });
+          auditFailedConnect('challenge_expired');
           
           return next(new AuthenticationError("Challenge has expired. Please request a new one.", ErrorCode.CHALLENGE_EXPIRED));
         }
@@ -334,6 +353,7 @@ const connectHandler = async (
           ipAddress,
           userAgent,
         });
+        auditFailedConnect('challenge_not_found');
         
         return next(new AuthenticationError("Invalid or expired challenge", ErrorCode.INVALID_CHALLENGE));
       }
@@ -354,6 +374,7 @@ const connectHandler = async (
           ipAddress,
           userAgent,
         });
+        auditFailedConnect('invalid_signature');
         
         return next(new AuthenticationError("Invalid signature", ErrorCode.INVALID_SIGNATURE));
       }
@@ -562,6 +583,56 @@ router.post(
   connectRateLimiter,
   validate(connectSchema),
   connectHandler,
+);
+
+/**
+ * @swagger
+ * /api/auth/me:
+ *   get:
+ *     summary: Probe the current JWT session
+ *     description: |
+ *       Cheap session check for clients. Returns the identity claims resolved
+ *       from the authenticated JWT plus its expiry (`exp`, seconds since the
+ *       Unix epoch), so the client can decide when to refresh without calling
+ *       a heavier profile endpoint. Uses the same bearer auth as all other
+ *       protected routes; see the `BearerAuth` scheme and `JwtPayload` schema
+ *       for claim semantics and clock-skew guidance.
+ *     tags: [auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current session identity and expiry
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/JwtPayload'
+ *             example:
+ *               userId: 2f7a0f7e-7c1f-4b0e-9a1d-6e9c1f2a3b4c
+ *               walletAddress: GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN
+ *               role: USER
+ *               exp: 1799999999
+ *       401:
+ *         description: Missing, invalid, or expired JWT
+ *         content:
+ *           application/json:
+ *             example: { error: "No token provided" }
+ */
+router.get(
+  "/me",
+  authenticateUser,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : "";
+    const decoded = verifyToken(token);
+
+    return res.status(200).json({
+      userId: req.user.userId,
+      walletAddress: req.user.walletAddress,
+      role: req.user.role,
+      exp: decoded?.exp ?? null,
+    });
+  }),
 );
 
 /**

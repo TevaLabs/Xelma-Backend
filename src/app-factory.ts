@@ -23,6 +23,7 @@ import express, {
   Router,
 } from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import swaggerUi from 'swagger-ui-express';
 
 import authRoutes from './routes/auth.routes';
@@ -39,6 +40,7 @@ import errorsRoutes from './routes/errors.routes';
 import corsDiagnosticsRoutes from './routes/admin-cors-diagnostics.routes';
 import deadLetterRoutes from './routes/admin-dead-letter.routes';
 import betAuditRoutes from './routes/admin-bet-audit.routes';
+import runtimeFlagsRoutes from './routes/admin-runtime-flags.routes';
 import healthRoutes from './routes/health';
 import statsRoutes from './routes/stats';
 import indexRoutes from './routes/index';
@@ -67,6 +69,7 @@ import { swaggerSpec } from './docs/openapi';
 import { hackathonSwaggerSpec } from './docs/hackathon-openapi';
 import config from './config';
 import logger from './utils/logger';
+import { noStoreHeaders } from './utils/http-cache';
 
 export type AppMode = 'full' | 'hackathon';
 
@@ -191,7 +194,22 @@ function mountBaseMiddleware(app: Application, mode: AppMode): void {
   // Permissions-Policy that helmet's defaults do not set (Issue #414/#480).
   app.use(securityHeadersMiddleware);
 
+  // gzip/deflate for compressible bodies (JSON, text) above the default 1 kb
+  // threshold, negotiated via Accept-Encoding (#699). Registered before any
+  // route so every response passes through it; already-encoded and
+  // non-compressible content types are skipped by the middleware's default
+  // filter. Socket.IO attaches to the HTTP server directly and never reaches
+  // this stack.
+  app.use(compression());
+
   const jsonLimit = process.env.JSON_BODY_LIMIT || '16kb';
+  const chatLimit = process.env.CHAT_BODY_LIMIT || jsonLimit;
+  const predictionsLimit = process.env.PREDICTIONS_BODY_LIMIT || jsonLimit;
+
+  // Dedicated request body size limits for chat and predictions routes (#891)
+  app.use(['/api/chat', '/api/v1/chat'], express.json({ limit: chatLimit }));
+  app.use(['/api/predictions', '/api/v1/predictions'], express.json({ limit: predictionsLimit }));
+
   app.use(express.json({ limit: jsonLimit }));
   if (mode === 'full') {
     app.use(express.urlencoded({ extended: true, limit: jsonLimit }));
@@ -236,15 +254,15 @@ function mountApiRoutes(
   features: AppFeatures,
 ): void {
   if (features.auth) {
-    target.use('/auth', authRoutes);
+    target.use('/auth', noStoreHeaders, authRoutes);
   }
 
   target.use('/user', userRoutes);
   target.use('/rounds', roundsRoutes);
-  target.use('/bets', betsRoutes);
+  target.use('/bets', noStoreHeaders, betsRoutes);
 
   if (features.predictions) {
-    target.use('/predictions', predictionsRoutes);
+    target.use('/predictions', noStoreHeaders, predictionsRoutes);
   }
   if (features.education) {
     target.use('/education', educationRoutes);
@@ -271,6 +289,7 @@ function mountApiRoutes(
     target.use('/admin/cors-diagnostics', corsDiagnosticsRoutes);
     target.use('/admin/dead-letter', deadLetterRoutes);
     target.use('/admin/bet-audit', betAuditRoutes);
+    target.use('/admin/runtime-flags', runtimeFlagsRoutes);
   } else if (features.corsDiagnostics) {
     // In hackathon mode, mount CORS diagnostics independently when
     // ENABLE_CORS_DIAGNOSTICS is set. Auth/admin checks are still enforced
@@ -283,9 +302,10 @@ function mountApiRoutes(
   }
 
   // Multi-asset price ticker. Defines its own `/prices` path, so it mounts at
-  // the API root rather than under a prefix. The two modes serve different
-  // response shapes (raw snapshot vs. success envelope), so the router is
-  // mode-specific like rounds and leaderboard above.
+  // the API root rather than under a prefix. Both routers delegate to the same
+  // handler, so the `{ success, data }` envelope is identical across modes
+  // (#639); they stay separate only because each carries the OpenAPI
+  // description for its own spec.
   target.use('/', mode === 'full' ? pricesRoutes : indexRoutes);
 
   if (features.legacyPriceEndpoint) {
@@ -337,10 +357,14 @@ export function createApp(options: CreateAppOptions = {}): Application {
   }
 
   if (features.deprecationHeaders) {
+    const apiSunsetDate =
+      config.app?.apiSunsetDate ||
+      process.env.API_SUNSET_DATE ||
+      'Sat, 01 Jan 2027 00:00:00 GMT';
     app.use('/api', (req: Request, res: Response, next: NextFunction) => {
       if (!req.path.startsWith('/v1')) {
         res.setHeader('Deprecation', 'true');
-        res.setHeader('Sunset', 'Sat, 01 Jan 2027 00:00:00 GMT');
+        res.setHeader('Sunset', apiSunsetDate);
         res.setHeader('Link', `</api/v1${req.path}>; rel="successor-version"`);
       }
       next();
@@ -373,16 +397,13 @@ export function createApp(options: CreateAppOptions = {}): Application {
   }
 
   if (includeErrorHandlers) {
+    // Both apps share a single 404 handler so unmatched routes return an
+    // identical response shape regardless of entrypoint (#637). Each mode
+    // still keeps its own error handler for errors forwarded via next(err).
+    app.use(notFoundHandler);
     if (mode === 'full') {
-      // Forward unmatched routes into the error handler so 404s use the same
-      // response envelope as every other error.
-      app.use((req: Request, _res: Response, next: NextFunction) => {
-        const { NotFoundError } = require('./utils/errors');
-        next(new NotFoundError(`Route ${req.method} ${req.path} not found`));
-      });
       app.use(fullErrorHandler);
     } else {
-      app.use(notFoundHandler);
       app.use(hackathonErrorHandler);
     }
   }

@@ -34,6 +34,8 @@ export interface JwtPayload {
   userId: string;
   walletAddress: string;
   role: UserRole;
+  /** Standard JWT expiry claim, in seconds since the Unix epoch. */
+  exp?: number;
 }
 
 export interface AuthRequest extends Request {

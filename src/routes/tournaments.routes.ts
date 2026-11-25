@@ -9,6 +9,7 @@ import {
 } from "../schemas/tournament.schema";
 import tournamentService from "../services/tournament.service";
 import { sendSuccess } from "../utils/response";
+import { NotFoundError } from "../utils/errors";
 
 const router = Router();
 
@@ -149,7 +150,8 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     const tournament = tournamentService.getMockById(req.params.id);
     if (!tournament) {
-      return res.status(404).json({ success: false, error: "Tournament not found" });
+      // Standard error envelope — the same shape every other route returns.
+      throw new NotFoundError("Tournament not found");
     }
     return sendSuccess(res, tournament);
   }),
@@ -268,6 +270,11 @@ router.post(
 /**
  * POST /api/tournaments/:id/join
  * Join a tournament (authenticated).
+ *
+ * A full tournament no longer rejects the join: the user is queued on the
+ * waitlist and the response says so (`status: "WAITLISTED"` plus the queue
+ * position), which keeps the queue deterministic and lets the client show
+ * "you are #2 in line" instead of a dead-end 409.
  */
 router.post(
   "/:id/join",
@@ -282,6 +289,10 @@ router.post(
     return sendSuccess(res, {
       tournamentId: id,
       currentParticipants: result.currentParticipants,
+      status: result.status,
+      ...(result.waitlistPosition !== undefined
+        ? { waitlistPosition: result.waitlistPosition }
+        : {}),
     });
   }),
 );

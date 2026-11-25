@@ -73,6 +73,8 @@ a distributed lock alone does not cover.
 | `SCHEDULER_LOCK_REQUIRED` | `false` | Set to `true` to refuse to run any locked job unless Redis is reachable. |
 | `ROUND_SCHEDULER_ENABLED` | `false` | Enables round creation/close crons. |
 | `AUTO_RESOLVE_ENABLED` | `false` | Enables the legacy auto-resolution cron. |
+| `AUTO_RESOLVE_INTERVAL_SECONDS` | `30` | Auto-resolution cron interval. |
+| `AUTO_RESOLVE_JITTER_MS` | `5000` | Inclusive upper bound of a random delay before each auto-resolve tick (Issue #978). Staggers lock attempts so replicas do not contend simultaneously. Capped below the interval; `0` disables it. |
 
 ### Redis availability policy
 
@@ -112,6 +114,17 @@ When adding a job, pick the TTL from how long you can tolerate a crashed leader
 blocking it, and `maxHoldSeconds` from a generous upper bound on a healthy run.
 The renewal interval is derived (`ttl/3`) and clamped below the TTL, so a
 misconfiguration cannot make the lock race its own expiry.
+
+### Auto-resolve jitter
+
+All replicas schedule `auto-resolve-rounds` at the same UTC second. Before
+attempting the lock, each tick waits a random 0–`AUTO_RESOLVE_JITTER_MS`
+milliseconds, so the herd spreads across the interval instead of hammering Redis
+and the database simultaneously (Issue #978). The delay is capped below
+`AUTO_RESOLVE_INTERVAL_SECONDS * 1000`; invalid values fall back to the 5 s
+default. Jitter only affects the scheduled cron callback — direct calls to
+`autoResolveRounds()` (for example from tests or an operator script) run
+immediately.
 
 ---
 

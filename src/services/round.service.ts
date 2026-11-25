@@ -1,14 +1,28 @@
-import { GameMode, Round } from "@prisma/client";
+import {
+  BetMode,
+  BetStatus,
+  GameMode,
+  OutboxEventType,
+  PredictionChainStatus,
+  Prisma,
+  Round,
+} from "@prisma/client";
 import sorobanService from "./soroban.service";
 import websocketService from "./websocket.service";
 import notificationService from "./notification.service";
 import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
-import { ConflictError, ValidationError, ErrorCode } from "../utils/errors";
+import {
+  ConflictError,
+  IllegalRoundTransitionError,
+  NotFoundError,
+  ValidationError,
+  ErrorCode,
+} from "../utils/errors";
 import { RoundLifecycleOutcome, RoundStatus } from "../types/round.types";
 import roundLifecycleService from "./round-lifecycle.service";
 import { Decimal } from "@prisma/client/runtime/library";
-import { toDecimal, toNumber } from "../utils/decimal.util";
+import { decAdd, toDecimal, toNumber } from "../utils/decimal.util";
 import { roundsStartedTotal } from "../metrics/application.metrics";
 import config from "../config";
 import {
@@ -24,6 +38,31 @@ interface LegendsPriceRange {
   min: number;
   max: number;
 }
+
+/** Result of an admin cancellation (Issue #977). */
+export interface CancelRoundResult {
+  outcome:
+    | RoundLifecycleOutcome.UPDATED
+    | RoundLifecycleOutcome.ALREADY_CANCELLED;
+  round: Round | null;
+  refundedCount: number;
+  refundedTotal: number;
+}
+
+/**
+ * Postgres advisory-lock key used to serialise concurrent ACTIVE-round starts.
+ * A plain `findFirst` + `create` is a TOCTOU race: two admins (or a double
+ * submit) can both observe "no active round" and both insert one. The lock is
+ * transaction-scoped (`pg_advisory_xact_lock`) and keyed per game mode, so
+ * UP_DOWN and LEGENDS rounds may still start independently.
+ *
+ * Namespace is the ASCII bytes of "XELM"; keys are stable per mode.
+ */
+const ACTIVE_ROUND_LOCK_NAMESPACE = 0x58454c4d; // 'XELM'
+const ACTIVE_ROUND_LOCK_KEY: Record<GameMode, number> = {
+  [GameMode.UP_DOWN]: 1,
+  [GameMode.LEGENDS]: 2,
+};
 
 export class RoundService {
   /**
@@ -89,24 +128,24 @@ export class RoundService {
         }));
       }
 
-      // Create round in database
-      const round = await prisma.round.create({
-        data: {
-          mode: gameMode,
-          // Rounds are instantiated directly in ACTIVE (open) state: creation
-          // bootstraps the machine rather than transitioning an existing row.
-          // Every *transition* out of ACTIVE routes through the lifecycle
-          // state machine (round-lifecycle.service).
-          status: "ACTIVE" as RoundStatus,
-          startTime,
-          endTime,
-          startPrice: startPriceDecimal,
-          sorobanRoundId,
-          isSoroban: mode === "UP_DOWN" && sorobanService.isReady(),
-          priceRanges: priceRanges
-            ? JSON.parse(JSON.stringify(priceRanges))
-            : null,
-        },
+      // Create round in database. The check above is a friendly fast-fail;
+      // reserveActiveRound performs the authoritative, lock-protected check
+      // so two concurrent starts for the same mode cannot both insert a row.
+      const round = await this.reserveActiveRound(gameMode, {
+        mode: gameMode,
+        // Rounds are instantiated directly in ACTIVE (open) state: creation
+        // bootstraps the machine rather than transitioning an existing row.
+        // Every *transition* out of ACTIVE routes through the lifecycle
+        // state machine (round-lifecycle.service).
+        status: "ACTIVE" as RoundStatus,
+        startTime,
+        endTime,
+        startPrice: startPriceDecimal,
+        sorobanRoundId,
+        isSoroban: mode === "UP_DOWN" && sorobanService.isReady(),
+        priceRanges: priceRanges
+          ? JSON.parse(JSON.stringify(priceRanges))
+          : null,
       });
 
       logger.info(
@@ -146,6 +185,40 @@ export class RoundService {
       logger.error("Failed to start round:", error);
       throw error;
     }
+  }
+
+  /**
+   * Atomically reserve the single ACTIVE slot for a game mode.
+   *
+   * The advisory lock serialises concurrent transactions for the same mode;
+   * the re-check inside the transaction is authoritative (the earlier check in
+   * `startRound` is only a fast-fail). A loser of the race gets the same 409
+   * ConflictError as the sequential path, so callers see one consistent
+   * contract regardless of how the race resolves.
+   */
+  private async reserveActiveRound(
+    mode: GameMode,
+    data: Prisma.RoundUncheckedCreateInput,
+  ): Promise<Round> {
+    return prisma.$transaction(async (tx) => {
+      // Prisma binds JS numbers as bigint; the two-argument advisory-lock
+      // function is `(int4, int4)`, so cast explicitly.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ACTIVE_ROUND_LOCK_NAMESPACE}::int, ${ACTIVE_ROUND_LOCK_KEY[mode]}::int)`;
+
+      const active = await tx.round.findFirst({
+        where: { mode, status: "ACTIVE" },
+        select: { id: true },
+      });
+
+      if (active) {
+        throw new ConflictError(
+          `An active ${mode} round already exists (ID: ${active.id})`,
+          ErrorCode.ACTIVE_ROUND_EXISTS,
+        );
+      }
+
+      return tx.round.create({ data });
+    });
   }
 
   /**
@@ -287,6 +360,251 @@ export class RoundService {
       return await roundLifecycleService.lockRound(roundId);
     } catch (error) {
       logger.error("Failed to lock round:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Admin cancellation with full participant refunds (Issue #977).
+   *
+   * The whole operation — lifecycle transition, prediction/bet refunds,
+   * balance credits and outbox writes — runs in one Prisma transaction, so a
+   * crash or any write failure rolls the cancellation back completely.
+   *
+   * Idempotency is derived from the round status, not a separate key:
+   *   - CANCELLED  → return ALREADY_CANCELLED without refunding again
+   *   - RESOLVED   → reject (a settled round cannot be cancelled)
+   *   - ACTIVE/LOCKED → cancel once; a concurrent loser of the compare-and-set
+   *     transition is folded into the ALREADY_CANCELLED outcome
+   *
+   * Only settled participants are refunded: predictions in CONFIRMED or
+   * NOT_REQUIRED chain state, and their CONFIRMED bets. Predictions/bets still
+   * in flight on-chain are deliberately excluded — their chain settlement is
+   * outside this transaction and cannot be rolled back here.
+   */
+  async cancelRound(roundId: string): Promise<CancelRoundResult> {
+    const settledPredictions = {
+      where: {
+        chainStatus: {
+          in: [
+            PredictionChainStatus.CONFIRMED,
+            PredictionChainStatus.NOT_REQUIRED,
+          ],
+        },
+      },
+    };
+
+    try {
+      // Fast-fail outside the transaction before opening a DB transaction.
+      const existing = await prisma.round.findUnique({
+        where: { id: roundId },
+        include: { predictions: settledPredictions },
+      });
+
+      if (!existing) {
+        throw new NotFoundError(`Round not found: ${roundId}`);
+      }
+      if (existing.status === "RESOLVED") {
+        throw new ConflictError(
+          "Cannot cancel a resolved round",
+          ErrorCode.ROUND_ALREADY_RESOLVED,
+        );
+      }
+      if (existing.status === "CANCELLED") {
+        return {
+          outcome: RoundLifecycleOutcome.ALREADY_CANCELLED,
+          round: existing,
+          refundedCount: 0,
+          refundedTotal: 0,
+        };
+      }
+      if (existing.status !== "ACTIVE" && existing.status !== "LOCKED") {
+        throw new ConflictError(
+          `Cannot cancel a ${existing.status} round`,
+          ErrorCode.CONFLICT,
+        );
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        // Authoritative re-check: the state machine's conditional UPDATE is
+        // the compare-and-set that serialises concurrent admin cancels.
+        const round = await tx.round.findUnique({
+          where: { id: roundId },
+          include: { predictions: settledPredictions },
+        });
+
+        if (!round) {
+          throw new NotFoundError(`Round not found: ${roundId}`);
+        }
+        if (round.status === "RESOLVED") {
+          throw new ConflictError(
+            "Cannot cancel a resolved round",
+            ErrorCode.ROUND_ALREADY_RESOLVED,
+          );
+        }
+        if (round.status === "CANCELLED") {
+          return {
+            outcome: RoundLifecycleOutcome.ALREADY_CANCELLED as const,
+            round: round as Round,
+            refundedCount: 0,
+            refundedTotal: 0,
+          };
+        }
+        if (round.status !== "ACTIVE" && round.status !== "LOCKED") {
+          throw new ConflictError(
+            `Cannot cancel a ${round.status} round`,
+            ErrorCode.CONFLICT,
+          );
+        }
+
+        // Claim the round before any refund write. If another cancel wins the
+        // race this throws IllegalRoundTransitionError and the transaction
+        // rolls back with no balance credits or outbox rows.
+        const cancelled = await roundLifecycleService.transitionRound(
+          roundId,
+          "CANCELLED",
+          { tx },
+          false,
+        );
+
+        const now = new Date();
+        let refundedCount = 0;
+        let refundTotal = toDecimal(0);
+
+        for (const prediction of round.predictions) {
+          const amount = toDecimal(prediction.amount);
+          const refundAmount = toNumber(amount);
+
+          await tx.prediction.update({
+            where: { id: prediction.id },
+            data: { won: null, payout: refundAmount },
+          });
+          await tx.user.update({
+            where: { id: prediction.userId },
+            data: { virtualBalance: { increment: refundAmount } },
+          });
+
+          // Resolve confirmed bets inline: betService.resolveBet opens its own
+          // transaction, which cannot be nested inside this one. The BET_RESOLVED
+          // outbox row mirrors the bet service's payload so the poller sees an
+          // identical event shape.
+          const bets = await tx.bet.findMany({
+            where: {
+              userId: prediction.userId,
+              roundId,
+              status: BetStatus.CONFIRMED,
+            },
+          });
+
+          for (const bet of bets) {
+            await tx.bet.update({
+              where: { id: bet.id },
+              data: { status: BetStatus.RESOLVED, resolvedAt: now },
+            });
+            await tx.outboxEvent.create({
+              data: {
+                eventType: OutboxEventType.BET_RESOLVED,
+                aggregateId: bet.id,
+                aggregateType: "bet",
+                payload: {
+                  betId: bet.id,
+                  userId: bet.userId,
+                  roundId,
+                  mode:
+                    bet.mode === BetMode.UP_DOWN ? "UP_DOWN" : "PRECISION",
+                  won: false,
+                  payout: refundAmount,
+                  reason: "ROUND_CANCELLED",
+                },
+              },
+            });
+          }
+
+          const message = `Round #${roundId.slice(0, 6)} was cancelled. ${refundAmount.toFixed(8)} XLM was refunded to your balance.`;
+          await tx.outboxEvent.create({
+            data: {
+              eventType: OutboxEventType.NOTIFICATION_CREATE,
+              aggregateId: roundId,
+              aggregateType: "round",
+              payload: {
+                userId: prediction.userId,
+                type: "REFUND",
+                title: "Round Cancelled — Prediction Refunded",
+                message,
+                data: { roundId, amount: refundAmount },
+              },
+            },
+          });
+          await tx.outboxEvent.create({
+            data: {
+              eventType: OutboxEventType.WEBSOCKET_EMIT,
+              aggregateId: roundId,
+              aggregateType: "round",
+              payload: {
+                eventName: "notification:new",
+                room: `user:${prediction.userId}`,
+                data: {
+                  type: "REFUND",
+                  title: "Round Cancelled — Prediction Refunded",
+                  message,
+                  data: { roundId, amount: refundAmount },
+                  isRead: false,
+                },
+              },
+            },
+          });
+
+          refundedCount += 1;
+          refundTotal = decAdd(refundTotal, amount);
+        }
+
+        // Always emit one round-level outbox event, including the no-participant
+        // case, so cancellation is durable and replayable by the outbox poller.
+        await tx.outboxEvent.create({
+          data: {
+            eventType: OutboxEventType.WEBSOCKET_EMIT,
+            aggregateId: roundId,
+            aggregateType: "round",
+            payload: {
+              eventName: "round:cancelled",
+              room: `round:${roundId}`,
+              data: { roundId, status: "CANCELLED", refundedCount },
+            },
+          },
+        });
+
+        return {
+          outcome: RoundLifecycleOutcome.UPDATED as const,
+          round: { ...cancelled, predictions: round.predictions } as Round,
+          refundedCount,
+          refundedTotal: toNumber(refundTotal),
+        };
+      });
+
+      websocketService.emitRoundUpdate(result.round);
+      logger.info(
+        `Round ${roundId} cancelled: refunded ${result.refundedCount} prediction(s), ${result.refundedTotal} XLM`,
+      );
+      return result;
+    } catch (error) {
+      // A concurrent cancel can lose the compare-and-set after both callers
+      // passed the status checks. The winner already performed the refunds,
+      // so report the idempotent outcome instead of double-crediting.
+      if (error instanceof IllegalRoundTransitionError) {
+        const current = await prisma.round.findUnique({
+          where: { id: roundId },
+        });
+        if (current?.status === "CANCELLED") {
+          return {
+            outcome: RoundLifecycleOutcome.ALREADY_CANCELLED,
+            round: current,
+            refundedCount: 0,
+            refundedTotal: 0,
+          };
+        }
+      }
+
+      logger.error("Failed to cancel round:", error);
       throw error;
     }
   }

@@ -14,6 +14,14 @@
  * New in #282: checks for tests configured, OpenAPI tooling, env example
  * completeness, and migration health.
  *
+ * New in #632: three recurring production gaps are checked individually —
+ *   - docs/architecture.md exists (file check),
+ *   - the auth router registers a JWT refresh route (source heuristic),
+ *   - GET /metrics sits behind an auth guard everywhere it is mounted
+ *     (source heuristic).
+ * The heuristics read route registrations with comments stripped, so a
+ * stray mention of "refresh" or "auth" in a docblock cannot satisfy them.
+ *
  * Why this lives as a plain Node script:
  *   - It runs before the TypeScript build, so it can flag a missing
  *     build artifact instead of crashing the CI step that needs it.
@@ -162,6 +170,61 @@ function missingEnvVars() {
   );
 }
 
+// ── Source heuristics (#632) ────────────────────────────────────────
+// These inspect how routes are *registered*, not whether a word appears
+// somewhere in the file, so comments are removed before matching.
+function stripComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+/** True when the auth router registers a handler on the `/refresh` path. */
+function hasRefreshRoute(authRoutesSource) {
+  if (!authRoutesSource) return false;
+  return /\brouter\.(post|put|patch|get)\(\s*["'`]\/refresh["'`]\s*,/.test(
+    stripComments(authRoutesSource),
+  );
+}
+
+// Middleware names that count as explicit protection for /metrics: the
+// repo's require*/authenticate* guards, or a token / API key / allowlist check.
+const METRICS_GUARD_PATTERN =
+  /\b(require[A-Z]\w*|authenticate\w*|verify\w*Token\w*|\w*[Aa]llow[Ll]ist\w*|\w*[Aa]pi[Kk]ey\w*)\b/;
+
+/**
+ * True when the metrics router's scrape handler (`router.get("/")`) has a
+ * guard middleware in front of it AND every `/metrics` mount in the app
+ * factory serves that router (so no unguarded inline handler shadows it).
+ */
+function metricsRouteIsProtected(metricsRoutesSource, appFactorySource) {
+  if (!metricsRoutesSource || !appFactorySource) return false;
+
+  const routes = stripComments(metricsRoutesSource);
+  // Everything between the path and the handler's parameter list is the
+  // middleware chain, e.g. `router.get("/", requirePublicMetricsAuth, async (`.
+  const scrape = routes.match(
+    /\brouter\.get\(\s*["'`]\/["'`]\s*,([\s\S]*?)(?:async\s*)?\(\s*_?req\b/,
+  );
+  if (!scrape || !METRICS_GUARD_PATTERN.test(scrape[1])) return false;
+
+  const factory = stripComments(appFactorySource);
+  const routerImport = factory.match(
+    /import\s+(\w+)\s+from\s+["']\.\/routes\/metrics\.routes["']/,
+  );
+  if (!routerImport) return false;
+
+  const mounts = [
+    ...factory.matchAll(
+      /\.(?:use|get|all)\(\s*["'`]\/metrics["'`]\s*,\s*([^)]*)\)/g,
+    ),
+  ];
+  return (
+    mounts.length > 0 &&
+    mounts.every((mount) => mount[1].trim() === routerImport[1])
+  );
+}
+
 const newChecks = [
   // ── Tests configured ──────────────────────────────────────────────
   {
@@ -254,6 +317,33 @@ const newChecks = [
     detail:
       "The most recent migration directory is missing migration.sql. It may be corrupt. Run `npx prisma migrate dev` to regenerate.",
   },
+
+  // ── Recurring production gaps (#632) ──────────────────────────────
+  {
+    name: "Architecture documentation exists (docs/architecture.md)",
+    required: true,
+    run: () => fileExists("docs/architecture.md"),
+    detail:
+      "docs/architecture.md is missing. Operators and new contributors need a written map of the runtime (entrypoints, layers, background jobs) before running this in production.",
+  },
+  {
+    name: "Auth routes expose a JWT refresh endpoint",
+    required: true,
+    run: () => hasRefreshRoute(readFileMaybe("src/routes/auth.routes.ts")),
+    detail:
+      "No `router.post(\"/refresh\", ...)` registration found in src/routes/auth.routes.ts. Without a refresh route, clients must redo the full wallet-signature challenge every time a JWT expires.",
+  },
+  {
+    name: "/metrics is protected by an auth guard",
+    required: true,
+    run: () =>
+      metricsRouteIsProtected(
+        readFileMaybe("src/routes/metrics.routes.ts"),
+        readFileMaybe("src/app-factory.ts"),
+      ),
+    detail:
+      "GET /metrics does not appear to be guarded. src/routes/metrics.routes.ts must register the scrape handler behind an auth middleware (e.g. requirePublicMetricsAuth), and every `/metrics` mount in src/app-factory.ts must serve that router. An open /metrics leaks route names, traffic volumes and process internals.",
+  },
 ];
 
 checks.push(...newChecks);
@@ -313,4 +403,10 @@ function main() {
   }
 }
 
-main();
+// Run when invoked as a script; export the pure heuristics so they can be
+// unit tested against fixture source without touching the real repo files.
+if (require.main === module) {
+  main();
+}
+
+module.exports = { stripComments, hasRefreshRoute, metricsRouteIsProtected };

@@ -26,6 +26,11 @@ const shouldRunDbTests =
 
 const describeDb = shouldRunDbTests ? describe : describe.skip;
 
+// Ids of the rows this suite created — used to clean up without touching the
+// rows of the other tournament suites, which share the same database.
+let createdUserIds: string[] = [];
+let createdTournamentIds: string[] = [];
+
 describeDb('tournament lifecycle (Issue #502)', () => {
   beforeAll(async () => {
     if (shouldRunDbTests) {
@@ -40,11 +45,29 @@ describeDb('tournament lifecycle (Issue #502)', () => {
   });
 
   afterEach(async () => {
-    await prisma.transaction.deleteMany({});
-    await prisma.tournamentParticipant.deleteMany({});
-    await prisma.userStats.deleteMany({});
-    await prisma.tournament.deleteMany({});
-    await prisma.user.deleteMany({});
+    // Scoped cleanup: only the rows this suite created are removed. A blanket
+    // `deleteMany({})` would wipe the rows of the other tournament suites,
+    // which run in parallel against the same database.
+    const tournamentIds = createdTournamentIds;
+    const userIds = createdUserIds;
+    createdTournamentIds = [];
+    createdUserIds = [];
+
+    if (tournamentIds.length > 0) {
+      await prisma.tournamentWaitlist.deleteMany({
+        where: { tournamentId: { in: tournamentIds } },
+      });
+      await prisma.tournamentParticipant.deleteMany({
+        where: { tournamentId: { in: tournamentIds } },
+      });
+      await prisma.tournament.deleteMany({ where: { id: { in: tournamentIds } } });
+    }
+
+    if (userIds.length > 0) {
+      await prisma.userStats.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.transaction.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    }
   });
 
   afterAll(async () => {
@@ -52,7 +75,7 @@ describeDb('tournament lifecycle (Issue #502)', () => {
   });
 
   async function createUsers(count: number) {
-    return Promise.all(
+    const created = await Promise.all(
       Array.from({ length: count }, (_, i) =>
         prisma.user.create({
           data: {
@@ -62,10 +85,12 @@ describeDb('tournament lifecycle (Issue #502)', () => {
         }),
       ),
     );
+    createdUserIds.push(...created.map((user) => user.id));
+    return created;
   }
 
   async function createTournament(maxParticipants = 3) {
-    return tournamentService.createTournament({
+    const created = await tournamentService.createTournament({
       name: 'Saga Cup',
       description: 'End-to-end tournament saga',
       mode: 'UP_DOWN',
@@ -76,6 +101,8 @@ describeDb('tournament lifecycle (Issue #502)', () => {
       endTime: new Date(Date.now() + 3_600_000),
       rounds: 5,
     });
+    createdTournamentIds.push(created.id);
+    return created;
   }
 
   describe('create -> join -> lock -> settle -> payout', () => {

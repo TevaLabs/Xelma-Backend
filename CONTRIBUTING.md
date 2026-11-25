@@ -56,7 +56,7 @@ two apps deliberately serve different implementations:
 | --- | --- | --- |
 | Rounds router | `src/routes/rounds.routes.ts` (production) | `src/routes/rounds.ts` (mock) |
 | Leaderboard router | `src/routes/leaderboard.routes.ts` | `src/routes/leaderboard.ts` |
-| Prices router | `src/routes/prices.ts` (raw snapshot) | `src/routes/index.ts` (success envelope) |
+| Prices router | `src/routes/prices.ts` (owns `getPricesHandler`) | `src/routes/index.ts` (same handler, hackathon OpenAPI docs) |
 | Health mount | `GET /health` | `GET /api`, `GET /api/health` |
 | OpenAPI spec | `src/docs/openapi.ts` | `src/docs/hackathon-openapi.ts` |
 | Error handler | `middleware/errorHandler.middleware.ts` | `middleware/errorHandler.ts` |

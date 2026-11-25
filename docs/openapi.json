@@ -1043,7 +1043,7 @@
     "/api/rounds/start": {
       "post": {
         "summary": "Start a new prediction round",
-        "description": "Admin-only. Starts a new round for a given mode, start price, and duration.",
+        "description": "Admin-only. Starts a new round for a given mode, start price, and duration.\\n\n`mode: 0` starts an UP_DOWN round; `mode: 1` starts a LEGENDS round, which\nrequires at least two non-overlapping `priceRanges`. The server rejects a\nsecond start while a round is already active.\\n\nRequires an Admin JWT (`403` for USER/ORACLE tokens) and is rate limited\nper IP; on limit it responds `429` with a `Retry-After` header.\n",
         "tags": [
           "rounds"
         ],
@@ -1077,7 +1077,7 @@
                   },
                   "priceRanges": {
                     "type": "array",
-                    "description": "Optional LEGENDS-only custom ranges",
+                    "description": "Optional LEGENDS-only custom ranges (min 2, must not overlap)",
                     "items": {
                       "type": "object",
                       "properties": {
@@ -1100,27 +1100,190 @@
                   "startPrice",
                   "duration"
                 ]
+              },
+              "examples": {
+                "upDown": {
+                  "summary": "Minimal UP_DOWN round",
+                  "value": {
+                    "mode": 0,
+                    "startPrice": 0.23,
+                    "duration": 60
+                  }
+                },
+                "legends": {
+                  "summary": "LEGENDS round with custom ranges",
+                  "value": {
+                    "mode": 1,
+                    "startPrice": 0.23,
+                    "duration": 120,
+                    "priceRanges": [
+                      {
+                        "min": 0.2,
+                        "max": 0.22
+                      },
+                      {
+                        "min": 0.22,
+                        "max": 0.24
+                      }
+                    ]
+                  }
+                }
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Round started"
+            "description": "Round started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "round"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "round": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "mode",
+                        "status",
+                        "startTime",
+                        "endTime",
+                        "startPrice"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "UP_DOWN",
+                            "LEGENDS"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "ACTIVE",
+                            "LOCKED",
+                            "RESOLVED"
+                          ]
+                        },
+                        "startTime": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "endTime": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "startPrice": {
+                          "type": "string",
+                          "description": "Decimal(20",
+                          "8) string": null
+                        },
+                        "priceRanges": {
+                          "type": "array",
+                          "nullable": true,
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "min": {
+                                "type": "number"
+                              },
+                              "max": {
+                                "type": "number"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
-            "description": "Validation error"
+            "description": "Validation error (bad mode, non-positive price/duration, overlapping LEGENDS ranges)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Validation error",
+                  "message": "Invalid start price",
+                  "code": "VALIDATION_ERROR",
+                  "path": "/api/rounds/start"
+                }
+              }
+            }
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "Missing or invalid JWT",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No token provided"
+                }
+              }
+            }
           },
           "403": {
-            "description": "Forbidden"
+            "description": "Authenticated but not an Admin",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Admin access required"
+                }
+              }
+            }
           },
           "409": {
-            "description": "Conflict - active round exists"
+            "description": "Conflict - an active round already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many round-start requests from this IP",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitResponse"
+                }
+              }
+            }
           }
-        }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "cURL",
+            "source": "curl -X POST \"$API_BASE_URL/api/rounds/start\" \\\\\n  -H \"Authorization: Bearer $ADMIN_TOKEN\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"mode\":0,\"startPrice\":0.23,\"duration\":60}'\n"
+          }
+        ]
       }
     },
     "/api/rounds/{id}": {
@@ -1256,6 +1419,77 @@
           },
           "404": {
             "description": "Round not found"
+          }
+        }
+      }
+    },
+    "/api/rounds/{id}/cancel": {
+      "post": {
+        "summary": "Cancel a round and refund its participants",
+        "description": "Admin-only. Cancels an ACTIVE or LOCKED round and refunds every settled participant inside a single database transaction, writing the matching outbox events atomically. Idempotent: cancelling an already-CANCELLED round returns `already_cancelled` without refunding anyone. A RESOLVED round cannot be cancelled.\n",
+        "tags": [
+          "rounds"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Round cancelled (or already cancelled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "enum": [
+                        "updated",
+                        "already_cancelled"
+                      ]
+                    },
+                    "refundedCount": {
+                      "type": "integer"
+                    },
+                    "refundedTotal": {
+                      "type": "string",
+                      "description": "XLM amount as a decimal string"
+                    },
+                    "round": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT"
+          },
+          "403": {
+            "description": "Forbidden - caller is not an Admin"
+          },
+          "404": {
+            "description": "Round not found"
+          },
+          "409": {
+            "description": "Conflict - round is already resolved or not cancellable"
           }
         }
       }
@@ -1419,61 +1653,49 @@
     "/api/prices": {
       "get": {
         "summary": "Multi-asset USD prices (BTC, ETH, XLM)",
-        "description": "**Hackathon/demo price endpoint. Do not confuse with production `GET /api/price`.**\n\nReturns BTC, ETH, and XLM spot prices (CoinGecko with a 30-second cache,\nor mock data when `DATA_MODE=mock`). Wrapped in the standard\n`{ success: true, data }` envelope.\n\n| Path | App | Purpose |\n|------|-----|---------|\n| `GET /api/prices` | Hackathon + production | Multi-asset ticker |\n| `GET /api/price` | Production only | Single-asset XLM oracle |\n\nThe hackathon app does **not** serve `/api/price`. Frontends targeting\nthis demo API must use `/api/prices`. The two paths are **not** aliases\nand return different payloads on production.\n",
+        "description": "**Hackathon/demo price endpoint. Do not confuse with production `GET /api/price`.**\n\nReturns BTC, ETH, and XLM spot prices (CoinGecko with a 30-second cache,\nor mock data when `DATA_MODE=mock`). Wrapped in the standard\n`{ success: true, data }` envelope — the same handler and envelope the\nproduction app serves on this path.\n\n| Path | App | Purpose |\n|------|-----|---------|\n| `GET /api/prices` | Hackathon + production | Multi-asset ticker |\n| `GET /api/price` | Production only | Single-asset XLM oracle |\n\nThe hackathon app does **not** serve `/api/price`. Frontends targeting\nthis demo API must use `/api/prices`. The two paths are **not** aliases\nand return different payloads on production.\n",
         "tags": [
           "prices"
         ],
         "responses": {
           "200": {
-            "description": "Current market prices in a success envelope",
+            "description": "Current market prices in the success envelope",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/PriceResponse"
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data"
-                  ]
+                  "$ref": "#/components/schemas/PriceResponse"
+                },
+                "example": {
+                  "success": true,
+                  "data": {
+                    "BTC": 67420.12,
+                    "ETH": 3241.55,
+                    "XLM": 0.2891,
+                    "stale": false,
+                    "lastUpdatedAt": "2026-07-29T12:00:00.000Z"
+                  }
                 }
               }
             }
           },
           "503": {
-            "description": "Price service unavailable (no cache)",
+            "description": "Price service unavailable (no cache and upstream failed)",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "required": [
+                    "success",
+                    "error"
+                  ],
                   "properties": {
                     "success": {
                       "type": "boolean",
                       "example": false
                     },
                     "error": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "stale": {
-                      "type": "boolean"
-                    },
-                    "lastUpdatedAt": {
                       "type": "string",
-                      "nullable": true
-                    },
-                    "source": {
-                      "type": "string",
-                      "nullable": true
+                      "example": "Unable to fetch prices and no cached data is available"
                     }
                   }
                 }
@@ -1637,7 +1859,50 @@
         },
         "responses": {
           "200": {
-            "description": "Predictions processed"
+            "description": "Batch processed. Per-item outcomes are returned even when some (or all) predictions fail; the HTTP status stays 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "results"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "description": "True when at least one prediction succeeded."
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "index",
+                          "success"
+                        ],
+                        "properties": {
+                          "index": {
+                            "type": "integer"
+                          },
+                          "success": {
+                            "type": "boolean"
+                          },
+                          "prediction": {
+                            "type": "object",
+                            "nullable": true
+                          },
+                          "error": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "429": {
             "description": "Too many batch requests",
@@ -1760,7 +2025,7 @@
     "/metrics": {
       "get": {
         "summary": "Prometheus metrics",
-        "description": "Returns all application and process metrics in Prometheus text format. Scrape this endpoint with a Prometheus instance. Requires admin JWT or a valid METRICS_SCRAPE_TOKEN.\n",
+        "description": "Returns all application and process metrics in Prometheus text format. Scrape this endpoint with a Prometheus instance. Requires an admin JWT or a valid METRICS_SCRAPE_TOKEN in production. Outside production, anonymous scrape is allowed as long as METRICS_SCRAPE_TOKEN is unset.\n",
         "tags": [
           "Observability"
         ],
@@ -2221,6 +2486,34 @@
         }
       }
     },
+    "/health/live": {
+      "get": {
+        "summary": "Kubernetes liveness probe",
+        "description": "Lightweight process liveness check with no downstream dependency calls.",
+        "tags": [
+          "health"
+        ],
+        "responses": {
+          "200": {
+            "description": "Process is alive"
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Kubernetes readiness probe",
+        "description": "Deep dependency readiness check across DB, Redis, Soroban, and Oracle.",
+        "tags": [
+          "health"
+        ],
+        "responses": {
+          "200": {
+            "description": "Readiness check completed"
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "summary": "Lightweight hackathon health check",
@@ -2434,6 +2727,17 @@
             "bearerAuth": []
           }
         ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Replaying the same key and body returns the original response without recording another bet"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2474,6 +2778,9 @@
           },
           "401": {
             "description": "Missing or invalid JWT"
+          },
+          "409": {
+            "description": "Idempotency key conflict"
           }
         }
       }
@@ -2638,6 +2945,42 @@
           },
           "400": {
             "description": "Unknown status filter"
+          },
+          "401": {
+            "description": "Missing or invalid JWT"
+          },
+          "403": {
+            "description": "Admin access required"
+          }
+        }
+      }
+    },
+    "/api/bets/reconciliation/round/{roundId}": {
+      "get": {
+        "summary": "Reconciliation report for one round",
+        "description": "Admin-only. Returns per-status counts for the round plus a list of bets whose status and on-chain fields do not agree, so operators can spot mismatches without scanning raw records.\n",
+        "tags": [
+          "bets"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "roundId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Round whose bets should be reconciled"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-status counts and mismatch list for the round"
           },
           "401": {
             "description": "Missing or invalid JWT"
@@ -2883,6 +3226,48 @@
         ]
       }
     },
+    "/api/auth/me": {
+      "get": {
+        "summary": "Probe the current JWT session",
+        "description": "Cheap session check for clients. Returns the identity claims resolved\nfrom the authenticated JWT plus its expiry (`exp`, seconds since the\nUnix epoch), so the client can decide when to refresh without calling\na heavier profile endpoint. Uses the same bearer auth as all other\nprotected routes; see the `BearerAuth` scheme and `JwtPayload` schema\nfor claim semantics and clock-skew guidance.\n",
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current session identity and expiry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JwtPayload"
+                },
+                "example": {
+                  "userId": "2f7a0f7e-7c1f-4b0e-9a1d-6e9c1f2a3b4c",
+                  "walletAddress": "GB2IKI5ONW2CQBD7WX4I76B5V65KQNEEVBLFYSYPC4IMHENDNBR5AYUN",
+                  "role": "USER",
+                  "exp": 1799999999
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired JWT",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No token provided"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/refresh": {
       "post": {
         "summary": "Refresh JWT access token",
@@ -2940,6 +3325,31 @@
             "source": "curl -X POST \"$API_BASE_URL/api/auth/refresh\" \\\n  -H \"Authorization: Bearer YOUR_EXPIRED_OR_CURRENT_JWT\"\n"
           }
         ]
+      }
+    },
+    "/api/admin/runtime-flags": {
+      "get": {
+        "summary": "Inspect safe runtime feature flags",
+        "description": "Returns the non-secret runtime flags for operators. Admin only.",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Safe runtime flag matrix"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Admin access required"
+          }
+        }
       }
     },
     "/api/admin/metrics/rate-limits": {
@@ -3130,6 +3540,15 @@
               "default": 7
             },
             "description": "Clear records older than this many days"
+          },
+          {
+            "in": "query",
+            "name": "endpoint",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional endpoint path filter to clear metrics only for a specific endpoint"
           }
         ],
         "responses": {

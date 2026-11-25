@@ -120,6 +120,29 @@ describe('Concurrent Round Creation Prevention (Issue #66)', () => {
       await prisma.round.deleteMany({ where: { id: firstRoundId } });
     });
 
+    it('serialises two concurrent starts for the same mode (one 200, one 409)', async () => {
+      const start = (startPrice: number) =>
+        request(app)
+          .post('/api/rounds/start')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ mode: 0, startPrice, duration: 300 });
+
+      // Fire both without awaiting the first: previously both requests could
+      // pass the un-locked findFirst check and each insert an ACTIVE round.
+      const [first, second] = await Promise.all([start(0.1234), start(0.1235)]);
+
+      expect([first.status, second.status].sort()).toEqual([200, 409]);
+      const loser = first.status === 409 ? first : second;
+      expect(loser.body.message).toContain('active');
+      expect(loser.body.message).toContain('UP_DOWN');
+
+      // Exactly one ACTIVE UP_DOWN round survived the race.
+      const active = await prisma.round.findMany({
+        where: { mode: 'UP_DOWN' as any, status: 'ACTIVE' as any },
+      });
+      expect(active).toHaveLength(1);
+    });
+
     it('should allow creating UP_DOWN and LEGENDS rounds simultaneously', async () => {
       // Create UP_DOWN round
       const res1 = await request(app)

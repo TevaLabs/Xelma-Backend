@@ -40,6 +40,7 @@ describe('Hackathon HTTP Endpoints (Integration)', () => {
     it('returns ok status and timestamp when soroban is initialized', async () => {
       const res = await request(app).get('/api/health');
       expect(res.status).toBe(200);
+      expect(res.headers['cache-control']).toContain('no-store');
       expect(res.body.success).toBe(true);
       expect(res.body.data).toEqual(
         expect.objectContaining({

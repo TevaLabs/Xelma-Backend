@@ -189,6 +189,23 @@ describe("RateLimitMetricsService in-memory fallback", () => {
     expect(summary.recentEvents).toHaveLength(0);
   });
 
+  it("clears old in-memory records filtered by endpoint (#1022)", async () => {
+    mockCreate.mockRejectedValue(new Error("no db"));
+    mockDeleteMany.mockRejectedValue(new Error("no db"));
+    mockGroupBy.mockResolvedValue([]);
+    mockFindMany.mockResolvedValue([]);
+
+    await service.recordHit({ endpoint: "/api/auth/connect", key: "k1" });
+    await service.recordHit({ endpoint: "/api/predictions/submit", key: "k2" });
+
+    const deleted = await service.clearOldMetrics(-1, "/api/auth/connect");
+    expect(deleted).toBe(1);
+
+    const summary = await service.getSummary(10);
+    expect(summary.recentEvents).toHaveLength(1);
+    expect(summary.recentEvents[0].endpoint).toBe("/api/predictions/submit");
+  });
+
   it("merges in-memory and Prisma records in summary", async () => {
     mockCreate.mockResolvedValue({});
     mockGroupBy.mockResolvedValue([]);

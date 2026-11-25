@@ -73,6 +73,45 @@ Soroban or just record the intent **locally**.
 > The active mode is logged at startup:
 > `Bet mode: STUB (no on-chain calls)` or `Bet mode: ON-CHAIN (Soroban)`.
 
+### MAX_STAKE
+
+Circuit breaker on bet / prediction size, enforced in the Zod schemas
+(`src/utils/max-stake.util.ts`) so it applies identically to stub and on-chain
+paths.
+
+| Setting | Value |
+|---|---|
+| Env var | `MAX_STAKE` (alias: `MAX_PREDICTION_AMOUNT`) |
+| Unit | **XLM** (same unit as every `amount` field; never stroops) |
+| Default | `1000000` (also used if the value is unset or not a positive number) |
+| Over-max result | `400` with a field error on `amount` |
+
+**Affected endpoints:** `POST /api/bets/*`, `POST /api/rounds/:id/bet*`,
+`POST /api/predictions/submit` and batch, and legends predictions.
+
+Precision bet `predictedPrice` uses the same cap and the same 8-decimal scale
+as `amount` (`Decimal(20, 8)` in storage). Values above the cap or with more
+than 8 decimal places are rejected with a `400` field error on
+`predictedPrice`, so a request accepted by validation can always be stored
+without rounding.
+
+### Data retention (expired challenges and idempotency keys)
+
+`SchedulerService` runs `retentionService.runAllPolicies()` daily at 03:00 under
+the `run-retention-policies` distributed lock. In memory mode the
+`MemoryHousekeepingService` sweep runs the same auth-challenge and idempotency
+cleanups.
+
+| Data | Expiry / TTL | Deleted when |
+|---|---|---|
+| `AuthChallenge` | `expiresAt` (challenge lifetime) and `RETENTION_AUTH_CHALLENGES_TTL_DAYS` (default `7`) | `expiresAt` passed **or** older than the TTL |
+| `IdempotencyKey` | Per-key `expiresAt`: 10 min default for `checkIdempotency`/`storeIdempotencyResult`, 24 h default for locks | `expiresAt` passed |
+| Chat messages / audit logs | `RETENTION_CHAT_MESSAGES_TTL_DAYS` / `RETENTION_AUDIT_LOGS_TTL_DAYS` (default `90`) | older than the TTL |
+
+Expired idempotency keys are also ignored on read, so a stale key cannot replay
+a response even before the job runs. Tests: `src/tests/retention-expiry.spec.ts`,
+`src/tests/idempotency.spec.ts`.
+
 ### SOROBAN_FAIL_CLOSED
 
 Controls whether **money paths** (bet placement and round resolve) abort when
@@ -114,6 +153,23 @@ routers is mounted is decided by the app mode — see
 ---
 
 ## Recommended combinations
+
+## Operator diagnostics
+
+The full application exposes `GET /api/admin/runtime-flags` to administrators.
+It returns only a whitelist of non-secret mode and scheduler flags, including
+`dataMode`, `dataStore`, `roundsMockMode`, and the scheduler state. It never
+returns `DATABASE_URL`, JWT secrets, Soroban secrets, or other credentials.
+The endpoint is not mounted by the hackathon app.
+
+Public price and stats responses use **per-endpoint** browser/CDN caches
+(Issue #871): the price feeds (`GET /api/prices`, `GET /api/price`) default to
+30 seconds (`PRICES_CACHE_TTL_SECONDS`), while the landing-page counters
+(`GET /api/stats`) default to a short 5 seconds (`STATS_CACHE_TTL_SECONDS`) so
+a CDN never pins stale numbers. The stats TTL also caps the origin-side
+in-process stats cache, so the short window is real end to end (Issue #876).
+Health responses are always `no-store`; Redis and database caching are
+separate concerns from HTTP caching.
 
 ### 1. Full local development (no external deps)
 
@@ -258,3 +314,135 @@ The multi-stage `Dockerfile` packages both full production (with live Soroban co
 | **Demo / Hackathon** | `DATA_MODE=mock`, `API_MODE=hackathon`, `RUN_MIGRATIONS=false` | Boots lightweight mock demo server `dist/server.js` without requiring external database or Soroban keys. |
 | **API Only** | `API_ONLY=true`, `BET_STUB_MODE=true` | Boots standard API server without running background schedulers or oracle loops. |
 
+---
+
+## Kubernetes Readiness vs Liveness Probes
+
+Kubernetes relies on two distinct probe mechanisms to manage container lifecycles and traffic routing: **Liveness Probes** and **Readiness Probes**. Configuring these incorrectly can cause cascading failure loops in production.
+
+### Key Conceptual Differences
+
+| Probe Type | Purpose | Failure Consequence | Recommended Endpoint |
+|---|---|---|---|
+| **Liveness Probe** | Detects if the Node.js process is stuck, deadlocked, or unresponsive. | **Container restart** (Kubelet kills the container and initiates restart backoff). | `GET /health/live` (Full mode) or `GET /api/live` (Hackathon mode) |
+| **Readiness Probe** | Detects whether the backend container is ready to accept incoming user traffic. | **Traffic isolation** (Pod removed from Service endpoints; no restarts). | `GET /health/ready` or `GET /health` (Full mode) / `GET /api/ready` (Hackathon mode) |
+
+> [!WARNING]
+> **Never probe downstream dependencies (PostgreSQL, Redis, Soroban RPC) in a Liveness Probe!**
+> If an external database or network connection has a transient 10-second outage, a deep liveness check fails and triggers pod restarts across all replicas simultaneously. This exacerbates cluster congestion ("restart storm"). External dependencies must **only** be checked in Readiness Probes.
+
+---
+
+### Endpoint Semantics by Mode
+
+#### 1. Full Backend Mode (`src/index.ts`, `API_MODE=full`)
+
+- **Liveness (`GET /`)**:
+  - Returns `200 OK` with `{ message: "Hello World! Xelma Backend is running", status: "OK" }`.
+  - Exercises Express routing and event loop without querying PostgreSQL or Soroban.
+- **Readiness (`GET /health` or `GET /metrics/readiness`)**:
+  - Evaluates Prisma PostgreSQL connection, Redis cache ping, Soroban RPC initialization, and Price Oracle staleness.
+  - Status semantics:
+    - `healthy` (`200 OK`): All services online and operational.
+    - `degraded` (`200 OK`): Non-critical dependency (e.g. stale price oracle, uninitialized Soroban testnet) is impaired, but backend can still serve requests.
+    - `unhealthy` (`503 Service Unavailable`): Critical dependency (PostgreSQL database) unreachable. Pod is immediately removed from load balancing until database connectivity recovers.
+
+#### 2. Hackathon / Mock Mode (`src/server.ts`, `API_MODE=hackathon`)
+
+- **Liveness**: `GET /api` or `GET /api/health`
+- **Readiness (`GET /api/health`)**:
+  - Returns lightweight in-memory and demo status. Database and Redis checks are only evaluated if explicitly configured (`DATA_STORE=postgres`, `REDIS_URL`).
+
+---
+
+### Kubernetes Manifest Examples
+
+#### Production Deployment (`full` mode)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xelma-backend
+  labels:
+    app: xelma-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: xelma-backend
+  template:
+    metadata:
+      labels:
+        app: xelma-backend
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/tevalabs/xelma-backend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: DATA_MODE
+              value: "live"
+            - name: BET_STUB_MODE
+              value: "false"
+            - name: SOROBAN_FAIL_CLOSED
+              value: "true"
+          # Liveness: checks that the process is alive. Never check DB here!
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Readiness: checks database, redis, soroban, and price feeds
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 2
+```
+
+#### Demo / Hackathon Deployment (`hackathon` mode)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xelma-hackathon
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: hackathon-api
+          image: ghcr.io/tevalabs/xelma-backend:latest
+          ports:
+            - containerPort: 3001
+          env:
+            - name: API_MODE
+              value: "hackathon"
+            - name: DATA_MODE
+              value: "mock"
+          livenessProbe:
+            httpGet:
+              path: /api/live
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /api/ready
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+```

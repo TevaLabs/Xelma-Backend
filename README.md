@@ -170,6 +170,8 @@ The hackathon app and the production app share the same services, but the data b
 See [src/data/mockData.ts](src/data/mockData.ts) for the full in-memory seed data and fallback constants.
 
 > **Runtime modes reference:** For the complete flag matrix (DATA_MODE, BET_STUB_MODE, ROUNDS_MOCK_MODE), recommended combinations, and interaction diagrams, see **[docs/runtime-modes.md](docs/runtime-modes.md)**.
+>
+> **Stake cap:** `amount` on bets/predictions and `predictedPrice` on precision bets are limited by `MAX_STAKE` (XLM, default `1000000`) to 8 decimal places; over-max requests get a `400`. Retention TTLs for expired auth challenges and idempotency keys are documented there too.
 
 ---
 
@@ -428,13 +430,34 @@ against a single transition graph (`types/tournament.types.ts`). Out-of-order
 requests (e.g. locking a COMPLETED tournament) return a structured `409
 TOURNAMENT_INVALID_STATE` rather than mutating state.
 
-- `GET /` - List tournaments. Query: `?mode=UP_DOWN|LEGENDS`, `?status=UPCOMING|ACTIVE|COMPLETED|CANCELLED`, `limit`, `offset` (mode and status may be combined). Response: `{ success, data, pagination: { limit, offset, total } }`
+- `GET /` - List tournaments. Query: `?mode=UP_DOWN|LEGENDS`, `?status=UPCOMING|ACTIVE|COMPLETED|CANCELLED`, `limit`, `offset` (mode and status may be combined, case-insensitive). Response: `{ success, data, pagination: { limit, offset, total } }`
 - `POST /` - [Auth] `createTournament` starts the saga at `UPCOMING`
 - `GET /:id` - Get tournament detail by id
 - `POST /:id/join` - [Auth] Join a tournament (atomic, race-safe capacity enforcement)
 - `POST /:id/lock` - [Auth] Lock the roster `UPCOMING → ACTIVE`
 - `POST /:id/settle` - [Auth] Settle `ACTIVE → COMPLETED` and pay winners
 - `POST /:id/cancel` - [Auth] Cancel `UPCOMING/ACTIVE → CANCELLED`
+
+##### **Tournament waitlist**
+
+When a tournament is at capacity, `POST /api/tournaments/:id/join` no longer
+rejects the request: the user is queued on a persistent waitlist
+(`TournamentWaitlist`) and the response reports the new status.
+
+- `POST /:id/join` response: `{ success, data: { currentParticipants, status, waitlistPosition? } }`
+  where `status` is `CONFIRMED` (seat held) or `WAITLISTED` (queued). When
+  `status` is `WAITLISTED`, `waitlistPosition` is the 1-based rank among the
+  users still waiting; it is omitted for `CONFIRMED` joins.
+- Duplicate requests are rejected with `409 CONFLICT`: `Already joined this
+  tournament` or `Already on the tournament waitlist`.
+- Queue order is a monotonic ticket allocated under the tournament row lock, so
+  concurrent joins never produce gaps, duplicates, or a different order than
+  the one the tickets were handed out in. The API `waitlistPosition` is
+  recomputed from the live `WAITING` rows, so a user who leaves the queue
+  immediately moves everyone behind them up by one.
+- A seat freed by a leaving participant is offered to the first `WAITING` entry
+  in ticket order. Terminal tournaments (`COMPLETED`/`CANCELLED`) never
+  promote from the waitlist.
 
 #### **Leaderboard (`/api/leaderboard`)**
 
@@ -466,7 +489,7 @@ TOURNAMENT_INVALID_STATE` rather than mutating state.
 - `GET /health` - Detailed health check (uptime, status)
 - `GET /metrics` - Prometheus metrics for HTTP, schedulers, oracle, predictions, WebSocket, rate limits, and DB pool settings
 - `GET /api/price` - **Production only.** Current XLM/USD oracle price as a decimal string (`price_usd`) with staleness / provider info. **Not** an alias of `/api/prices`.
-- `GET /api/prices` - Multi-asset BTC / ETH / XLM ticker (CoinGecko, 30 s cache). Production returns the raw object; the hackathon app wraps it in `{ success, data }`. **Not** an alias of `/api/price`.
+- `GET /api/prices` - Multi-asset BTC / ETH / XLM ticker (CoinGecko, 30 s cache). Both apps return the same `{ success, data }` envelope (and `503 { success: false, error }` when no price data is available). **Not** an alias of `/api/price`.
 - `GET /api-docs` - Swagger UI documentation
 - `GET /api-docs.json` - OpenAPI specification
 
@@ -521,6 +544,25 @@ The application uses **PostgreSQL** via **Prisma ORM**. Key models:
 - **Transaction**: Balance change history (bonus, win, loss, etc.)
 - **AuthChallenge**: Wallet signature challenges for authentication
 - **AuditLog**: Security audit trail for authentication and authorization events
+
+#### **UserStats Projection & Rebuild**
+
+`UserStats` is a *materialized projection* of the prediction history: every settled prediction bumps its counters by one (`updateUserStatsForRound` in `src/services/leaderboard.service.ts`). Incremental maintenance drifts — a retried round resolution counts twice, a crash between the prediction write and the stats write loses a count, a backfill never reaches the projection. The counters still look plausible, so nothing in the request path can detect it.
+
+The rebuild recomputes the projection from the prediction history and compares it with the stored rows. Both the incremental writer and the rebuild share one implementation of the "was this prediction correct?" rule ([src/utils/prediction-outcome.util.ts](src/utils/prediction-outcome.util.ts)), so they cannot disagree about what the projection *should* contain.
+
+```bash
+# Dry run (default): report the drift, write nothing. Exits 1 when drift is found.
+npm run db:rebuild:user-stats
+
+# Scope the run to a single user
+npm run db:rebuild:user-stats -- --user <userId>
+
+# Apply: rewrite the drifted rows
+npm run db:rebuild:user-stats:apply
+```
+
+The rebuild lives in `src/services/stats.service.ts` (`rebuildUserStats`); `scripts/rebuild-user-stats.ts` is only the command-line wrapper.
 
 ---
 
@@ -861,6 +903,27 @@ round IDs, socket IDs, request bodies, and secrets.
 
 For ready-to-use Prometheus alert rules covering oracle freshness, Soroban RPC,
 and circuit-breaker health, see the [Prometheus alerts cookbook](docs/prometheus-alerts-cookbook.md).
+
+**Scrape auth (Issue #636)**: `GET /metrics` is not anonymously readable in
+production. Set `METRICS_SCRAPE_TOKEN` and configure your Prometheus job to
+send it as a bearer token:
+
+```yaml
+scrape_configs:
+  - job_name: xelma-backend
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials: <METRICS_SCRAPE_TOKEN value>
+    static_configs:
+      - targets: ["your-host:3000"]
+```
+
+Without `METRICS_SCRAPE_TOKEN` set, the endpoint allows anonymous scrape only
+when `NODE_ENV != production` (local dev/demo convenience); in production it
+falls back to requiring an Admin JWT, so the endpoint is never anonymously
+exposed. An Admin JWT also works in any environment:
+`Authorization: Bearer <admin JWT>`.
 
 > **Running more than one replica?** Cron jobs elect a single leader per tick
 > via Redis. Every replica must share one `REDIS_URL`, or round creation and
@@ -1584,15 +1647,19 @@ At minimum, migration PRs should include:
 | `npm run dev`                   | Start the **production** development server (`src/index.ts`) with hot-reload — use this for all feature work                                                                                                          |
 | `npm run dev:hackathon`         | Start the hackathon demo server (`src/server.ts`) — mock data only, no database required                                                                                                                              |
 | `npm run build`                 | Compile TypeScript to JavaScript                                                                                                                                                                                      |
+| `npm run lint`                  | Typecheck with `tsc --noEmit`                                                                                                                                                                                         |
+| `npm run lint:eslint`           | Run ESLint static analysis over `src/**/*.ts` (also runs in CI)                                                                                                                                                       |
 | `npm test`                      | Run Jest test suite                                                                                                                                                                                                   |
 | `npm run test:coverage`         | Run Jest with coverage reporting and thresholds                                                                                                                                                                       |
 | `npm run test:unit:coverage`    | Run unit tests with coverage reporting and thresholds                                                                                                                                                                 |
 | `npm run test:watch`            | Run tests in watch mode                                                                                                                                                                                               |
 | `npm run test:load`             | Run load baselines plus overload 429/503 backpressure checks                                                                                                                                                          |
-| `npm run ci`                    | Run lint, build, unit coverage, and integration tests                                                                                                                                                                 |
+| `npm run ci`                    | Run typecheck, ESLint, build, unit coverage, and integration tests                                                                                                                                                    |
 | `npm run prisma:generate`       | Generate Prisma client                                                                                                                                                                                                |
 | `npm run prisma:migrate`        | Run database migrations                                                                                                                                                                                               |
 | `npm run db:seed:mock`          | Seed database with mock data                                                                                                                                                                                          |
+| `npm run db:rebuild:user-stats` | Dry-run the `UserStats` rebuild: report drift between the stored projection and the prediction history, write nothing (exit code 1 on drift)                 |
+| `npm run db:rebuild:user-stats:apply` | Apply the `UserStats` rebuild: rewrite the drifted projection rows from the prediction history                                                                                                                  |
 | `node dist/index.js`            | Run production full backend (Prisma, Soroban, schedulers, WebSocket); use this command in production Render profile                                                                                                   |
 | `npm run prisma:migrate`        | Create/apply a Prisma dev migration for the core schema                                                                                                                                                               |
 | `npm run prisma:migrate:deploy` | Apply committed Prisma migrations without creating new ones                                                                                                                                                           |
@@ -1615,6 +1682,17 @@ node scripts/publish-pr.js --fix-existing
 ```
 
 Or: `npm run pr:publish --fix-existing` / `npm run pr:publish --title="..." --issue=500` (equals-form flags). The script rewrites HEAD with `git commit-tree` (so Cursor cannot re-inject the trailer), force-with-lease pushes the `fork` remote, and creates or updates the upstream PR.
+
+### Linting
+
+Two checks run on every pull request: `npm run lint` (the TypeScript typecheck) and `npm run lint:eslint` (static analysis via ESLint). To see and auto-fix what ESLint reports locally:
+
+```bash
+npm run lint:eslint          # list violations (file:line and rule name)
+npm run lint:eslint -- --fix # apply safe automatic fixes
+```
+
+The rule set lives in `.eslintrc.cjs`. Rules that had pre-existing violations when ESLint was introduced are explicitly baselined off there, with comments explaining why; tighten them one at a time as those files are touched. Do not disable a rule just to silence a new violation without noting it in the PR.
 
 ---
 

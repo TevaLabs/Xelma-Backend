@@ -1339,4 +1339,94 @@ describe("Bet reconciliation lifecycle (#403)", () => {
       expect(await betService.getBet("bet-nope")).toBeNull();
     });
   });
+
+  describe("round reconciliation report (#982)", () => {
+    const rawBet = (overrides: Record<string, unknown> = {}) => ({
+      id: "bet-1",
+      userId: "user-1",
+      roundId: "round-1",
+      mode: BetMode.UP_DOWN,
+      side: "UP",
+      amount: 10,
+      predictedPrice: null,
+      status: BetStatus.ACCEPTED,
+      txHash: null,
+      failureReason: null,
+      submittedAt: null,
+      confirmedAt: null,
+      resolvedAt: null,
+      failedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...overrides,
+    });
+
+    it("counts only the requested round and reports consistent bets as clean", async () => {
+      mockBetFindMany.mockResolvedValue([
+        rawBet({ id: "bet-1", status: BetStatus.ACCEPTED }),
+        rawBet({
+          id: "bet-2",
+          status: BetStatus.CONFIRMED,
+          txHash: "0xabc",
+          submittedAt: new Date(),
+          confirmedAt: new Date(),
+        }),
+      ]);
+
+      const report = await betService.getRoundReconciliationReport("round-1");
+
+      expect(mockBetFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: undefined, roundId: "round-1", status: undefined },
+        })
+      );
+      expect(report).toEqual({
+        roundId: "round-1",
+        total: 2,
+        counts: {
+          ACCEPTED: 1,
+          SUBMITTED: 0,
+          CONFIRMED: 1,
+          RESOLVED: 0,
+          FAILED: 0,
+        },
+        mismatches: [],
+      });
+    });
+
+    it("flags bets whose status disagrees with their reconciliation fields", async () => {
+      mockBetFindMany.mockResolvedValue([
+        rawBet({ id: "confirmed-no-hash", status: BetStatus.CONFIRMED }),
+        rawBet({ id: "failed-no-reason", status: BetStatus.FAILED, failedAt: new Date() }),
+        rawBet({
+          id: "submitted-resolved",
+          status: BetStatus.SUBMITTED,
+          txHash: "0xdef",
+          resolvedAt: new Date(),
+        }),
+        rawBet({ id: "accepted-with-hash", status: BetStatus.ACCEPTED, txHash: "0xfed" }),
+      ]);
+
+      const report = await betService.getRoundReconciliationReport("round-1");
+
+      expect(report.total).toBe(4);
+      expect(report.counts).toEqual({
+        ACCEPTED: 1,
+        SUBMITTED: 1,
+        CONFIRMED: 1,
+        RESOLVED: 0,
+        FAILED: 1,
+      });
+      expect(report.mismatches).toEqual([
+        { betId: "confirmed-no-hash", status: BetStatus.CONFIRMED, reason: "CONFIRMED bet has no txHash" },
+        { betId: "failed-no-reason", status: BetStatus.FAILED, reason: "failed bet has no failureReason" },
+        {
+          betId: "submitted-resolved",
+          status: BetStatus.SUBMITTED,
+          reason: "submitted bet has a confirmation or resolution timestamp",
+        },
+        { betId: "accepted-with-hash", status: BetStatus.ACCEPTED, reason: "accepted bet already has a txHash" },
+      ]);
+    });
+  });
 });

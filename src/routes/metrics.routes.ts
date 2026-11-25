@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { metricsRegistry } from '../middleware/metrics.middleware';
 import { prisma } from '../lib/prisma';
 import { checkSchemaReadiness } from '../services/schema-readiness.service';
-import { requireMetricsAuth } from '../middleware/auth.middleware';
+import { requirePublicMetricsAuth } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -13,8 +13,9 @@ const router = Router();
  *     summary: Prometheus metrics
  *     description: >
  *       Returns all application and process metrics in Prometheus text format.
- *       Scrape this endpoint with a Prometheus instance. Requires admin JWT or
- *       a valid METRICS_SCRAPE_TOKEN.
+ *       Scrape this endpoint with a Prometheus instance. Requires an admin JWT
+ *       or a valid METRICS_SCRAPE_TOKEN in production. Outside production,
+ *       anonymous scrape is allowed as long as METRICS_SCRAPE_TOKEN is unset.
  *     tags:
  *       - Observability
  *     security:
@@ -31,7 +32,7 @@ const router = Router();
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  */
-router.get('/', requireMetricsAuth, async (_req: Request, res: Response) => {
+router.get('/', requirePublicMetricsAuth, async (_req: Request, res: Response) => {
   res.set('Content-Type', metricsRegistry.contentType);
   res.end(await metricsRegistry.metrics());
 });

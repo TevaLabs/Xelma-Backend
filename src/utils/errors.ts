@@ -21,6 +21,7 @@ export enum ErrorCode {
   CHALLENGE_EXPIRED = "CHALLENGE_EXPIRED",
   CHALLENGE_USED = "CHALLENGE_USED",
   INVALID_SIGNATURE = "INVALID_SIGNATURE",
+  AUTH_USER_NOT_FOUND = "AUTH_USER_NOT_FOUND",
   INSUFFICIENT_FUNDS = "INSUFFICIENT_FUNDS",
   ROUND_NOT_ACTIVE = "ROUND_NOT_ACTIVE",
   ROUND_LOCKED = "ROUND_LOCKED",
@@ -295,6 +296,14 @@ export const ERROR_CATALOG: readonly ErrorCatalogEntry[] = [
     description:
       "Signature does not verify against the supplied wallet address and " +
       "challenge payload.",
+  },
+  {
+    code: ErrorCode.AUTH_USER_NOT_FOUND,
+    status: 401,
+    errorClass: "AuthenticationError",
+    description:
+      "JWT verified, but the user it was issued for no longer exists. The token " +
+      "cannot be used; the client must re-authenticate with a live wallet.",
   },
   {
     code: ErrorCode.INSUFFICIENT_FUNDS,

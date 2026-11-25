@@ -30,6 +30,9 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      - name: Run ESLint
+        run: npm run lint:eslint
+
   scorecard:
     name: production-readiness scorecard
     runs-on: ubuntu-latest
@@ -73,6 +76,18 @@ jobs:
         with:
           name: dist
           path: dist/
+
+      - name: Generate OpenAPI spec
+        run: npm run docs:openapi && cp docs/openapi.json api-docs.json
+
+      - name: Publish OpenAPI artifact on main
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-docs
+          path: api-docs.json
+          retention-days: 30
+          if-no-files-found: error
 
   contract-drift:
     name: contract drift check
@@ -139,6 +154,7 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
       JWT_SECRET: ci-test-secret
+      RUN_DB_TESTS: "true"
 
     services:
       postgres:
@@ -169,10 +185,15 @@ jobs:
         run: npm ci
 
       - name: Run database migrations
-        run: npm run db:migrate
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
 
       - name: Run integration tests
         run: npm run test:integration
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
+          RUN_DB_TESTS: "true"
 
   test-hackathon-http:
     name: test (hackathon HTTP)
@@ -181,6 +202,7 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
       JWT_SECRET: ci-test-secret
+      RUN_DB_TESTS: "true"
 
     services:
       postgres:
@@ -211,7 +233,12 @@ jobs:
         run: npm ci
 
       - name: Run database migrations
-        run: npm run db:migrate
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
 
       - name: Run hackathon HTTP tests
         run: npm run test:hackathon:http
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/xelma_ci
+          RUN_DB_TESTS: "true"

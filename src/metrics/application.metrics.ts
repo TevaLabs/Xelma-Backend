@@ -72,6 +72,37 @@ export const roundsResolvedTotal = new Counter({
    registers: [metricsRegistry],
 });
 
+/**
+ * Resolution lateness (Issue #976).
+ *
+ * `roundsResolveDelayedTotal` counts every observation of an unresolved round
+ * whose endTime has already passed; `roundResolutionStalenessSeconds` carries
+ * how late the most recently observed unresolved round was, per game mode.
+ * Both are updated by ResolutionService whenever it looks at a round, so a
+ * round stuck in ACTIVE/LOCKED keeps producing signal on every auto-resolve
+ * sweep even though it never settles. `mode` is low-cardinality; no round or
+ * user identifiers enter the labels.
+ *
+ * Alert-worthy:
+ * - `rate(rounds_resolve_delayed_total[5m]) > 0` sustained — rounds are being
+ *   settled (or swept) after their endTime; investigate the oracle/resolver.
+ * - `round_resolution_staleness_seconds{mode="UP_DOWN"}` growing — one round
+ *   is increasingly overdue.
+ */
+export const roundsResolveDelayedTotal = new Counter({
+   name: 'rounds_resolve_delayed_total',
+   help: 'Total observations of unresolved rounds past their endTime',
+   labelNames: ['mode'] as const,
+   registers: [metricsRegistry],
+});
+
+export const roundResolutionStalenessSeconds = new Gauge({
+   name: 'round_resolution_staleness_seconds',
+   help: 'Seconds past endTime of the most recently observed unresolved round, by mode',
+   labelNames: ['mode'] as const,
+   registers: [metricsRegistry],
+});
+
 export const predictionsPlacedTotal = new Counter({
    name: 'predictions_placed_total',
    help: 'Total number of predictions placed',

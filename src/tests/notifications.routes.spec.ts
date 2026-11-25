@@ -247,6 +247,18 @@ describe("Notifications Routes & Ownership (Issue #78)", () => {
       expect(res.body.success).toBe(true);
       expect(typeof res.body.markedCount).toBe("number");
     });
+
+    it("ignores a client-supplied userId and updates only the JWT owner", async () => {
+      await request(app)
+        .patch("/api/notifications/read-all")
+        .set("Authorization", `Bearer ${tokenA}`)
+        .send({ userId: userB.id });
+
+      expect(mockNotificationUpdateMany).toHaveBeenLastCalledWith({
+        where: { userId: userA.id, isRead: false },
+        data: { isRead: true },
+      });
+    });
   });
 
   describe("DELETE /api/notifications/:id - ownership", () => {

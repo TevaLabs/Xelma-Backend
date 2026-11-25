@@ -38,8 +38,12 @@ export const PARITY_ALLOWLIST: ParityAllowlistEntry[] = [
 
   // --- health mount point (mode-specific) ---
   { method: "GET", path: "/health", only: "main", reason: "Production health probe sits outside /api so it is neither rate limited nor versioned.", flag: "mode: health mount" },
+  { method: "GET", path: "/health/live", only: "main", reason: "Dedicated liveness probe outside /api (process-only, no DB/RPC checks).", flag: "mode: health mount" },
+  { method: "GET", path: "/health/ready", only: "main", reason: "Dedicated readiness probe outside /api (deep DB/Redis/Soroban/Oracle checks).", flag: "mode: health mount" },
   { method: "GET", path: "/health/health", only: "main", reason: "Legacy alias: the health router defines its own /health path and is mounted at /health. Kept so existing probes do not break.", flag: "mode: health mount" },
   { method: "GET", path: "/api", only: "hackathon", reason: "Hackathon app answers the bare /api readiness call from the health router.", flag: "mode: health mount" },
+  { method: "GET", path: "/api/live", only: "hackathon", reason: "Hackathon app serves the dedicated liveness probe under /api.", flag: "mode: health mount" },
+  { method: "GET", path: "/api/ready", only: "hackathon", reason: "Hackathon app serves the dedicated readiness probe under /api.", flag: "mode: health mount" },
   { method: "GET", path: "/api/health", only: "hackathon", reason: "Hackathon app serves the lightweight health check under /api.", flag: "mode: health mount" },
 
   // --- auth ---

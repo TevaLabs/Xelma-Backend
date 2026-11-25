@@ -36,6 +36,7 @@ import { createApp } from "../app";
 import tournamentService, {
   filterTournaments,
   MOCK_TOURNAMENTS,
+  resetTournamentDataSource,
 } from "../services/tournament.service";
 
 describe("Tournament listing (#378)", () => {
@@ -43,7 +44,10 @@ describe("Tournament listing (#378)", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    delete process.env.TOURNAMENTS_SOURCE;
+    // This suite asserts the mock seed store. Pin the source explicitly now
+    // that live mode defaults to Prisma (#371).
+    process.env.TOURNAMENTS_SOURCE = "mock";
+    resetTournamentDataSource();
   });
 
   describe("filterTournaments helper", () => {

@@ -30,6 +30,18 @@ export const swaggerSpec = swaggerJSDoc({
           bearerFormat: 'JWT',
           description: 'Paste a JWT like: Bearer <token>',
         },
+        BearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description:
+            'JWT access token obtained from POST /api/auth/connect. Send it as ' +
+            '`Authorization: Bearer <token>`. Tokens carry the claims in ' +
+            '#/components/schemas/JwtPayload. Verification uses the standard ' +
+            'JWT `exp` check with no additional clock-skew tolerance, so client ' +
+            'and server clocks must be kept in sync (NTP). A token is rejected as ' +
+            'soon as `exp` passes; refresh or re-authenticate before then.',
+        },
       },
       schemas: {
         // ── Shared base (re-declared via allOf with production-specific fields) ──
@@ -63,6 +75,54 @@ export const swaggerSpec = swaggerJSDoc({
             error: 'AppError',
             message: 'Too many requests from this IP, please try again after 15 minutes',
             code: 'RATE_LIMIT_EXCEEDED',
+          },
+        },
+
+        /**
+         * Claims carried by the signed JWT and returned by GET /api/auth/me.
+         *
+         * Clock skew: verification relies on the standard `exp` claim and has no
+         * configured tolerance. Keep client and server clocks synchronized via
+         * NTP; refresh shortly before `exp` rather than waiting for the last
+         * second. `exp` is a Unix timestamp in seconds, not milliseconds.
+         */
+        JwtPayload: {
+          type: 'object',
+          description:
+            'Signed JWT claims. `exp` is the standard expiry claim in seconds ' +
+            'since the Unix epoch. There is no explicit clock-skew tolerance, ' +
+            'so keep client/server clocks synchronized and refresh before `exp`.',
+          required: ['userId', 'walletAddress', 'role'],
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'Internal user id this token was issued for.',
+              example: '2f7a0f7e-7c1f-4b0e-9a1d-6e9c1f2a3b4c',
+            },
+            walletAddress: {
+              type: 'string',
+              description: 'Stellar Ed25519 public key the user signed in with.',
+              example: CONNECT_EXAMPLE_PUBLIC_KEY,
+            },
+            role: {
+              type: 'string',
+              enum: ['USER', 'ADMIN', 'ORACLE'],
+              description: 'Role recorded when the token was issued.',
+              example: 'USER',
+            },
+            iat: {
+              type: 'integer',
+              description: 'Standard issued-at claim, seconds since the Unix epoch.',
+              example: 1799900000,
+            },
+            exp: {
+              type: 'integer',
+              description:
+                'Standard expiry claim, seconds since the Unix epoch. Tokens are ' +
+                'rejected once this time passes; no extra clock-skew grace is applied.',
+              example: 1799999999,
+            },
           },
         },
 

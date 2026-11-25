@@ -15,6 +15,7 @@ import {
   LeaderboardResponse,
 } from "../types/leaderboard.types";
 import { toDecimal, toNumber, serializeMoney } from "../utils/decimal.util";
+import { isPredictionCorrect } from "../utils/prediction-outcome.util";
 import {
   buildCursorMeta,
   buildOffsetMeta,
@@ -427,7 +428,7 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
   // Process each prediction inside its own transaction so a failure on one
   // user does not roll back the others.
   for (const prediction of round.predictions) {
-    const isCorrect = calculatePredictionResult(prediction, round);
+    const isCorrect = isPredictionCorrect(prediction, round);
     const earnings = toDecimal(
       isCorrect ? toNumber(prediction.amount) : -toNumber(prediction.amount),
     );
@@ -479,19 +480,7 @@ export async function updateUserStatsForRound(roundId: string): Promise<void> {
 // Private helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function calculatePredictionResult(prediction: any, round: any): boolean {
-  if (round.startPrice === null || round.endPrice === null) return false;
+// The "was this prediction correct?" rule now lives in
+// `src/utils/prediction-outcome.util.ts` so the incremental writer here and
+// the full rebuild in `stats.service.ts` (Issue #877) can never disagree.
 
-  if (round.mode === GameMode.UP_DOWN) {
-    const priceWentUp = round.endPrice.gt(round.startPrice);
-    return (
-      (prediction.side === "UP" && priceWentUp) ||
-      (prediction.side === "DOWN" && !priceWentUp)
-    );
-  } else {
-    if (!prediction.priceRange) return false;
-    const range = prediction.priceRange as { min: number; max: number };
-    const endPrice = toNumber(round.endPrice);
-    return endPrice >= range.min && endPrice <= range.max;
-  }
-}

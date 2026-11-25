@@ -31,6 +31,7 @@ export interface AppConfig {
    * "demo"       — fail-open: stub mode allowed, secrets optional.
    */
   safetyProfile: SafetyProfile;
+  apiSunsetDate: string;
 }
 
 export interface JwtConfig {
@@ -152,6 +153,7 @@ function buildConfig(): Config {
       false,
     ),
     safetyProfile,
+    apiSunsetDate: v.optional(env.API_SUNSET_DATE, "Sat, 01 Jan 2027 00:00:00 GMT"),
   };
 
   const jwt: JwtConfig = {

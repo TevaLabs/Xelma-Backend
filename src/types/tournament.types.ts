@@ -135,4 +135,47 @@ export interface TournamentSagaDisplay {
   prizePool: string;
 }
 
+// ---------------------------------------------------------------------------
+// Tournament waitlist (Issue #874)
+// ---------------------------------------------------------------------------
+
+/**
+ * Outcome of a join attempt.
+ *
+ * `CONFIRMED` — the user took a participant seat.
+ * `WAITLISTED` — the tournament was full, so the user was queued instead of
+ * being rejected. The queue is deterministic (first come, first served) and
+ * `waitlistPosition` says how far down the line the user is.
+ */
+export type TournamentJoinStatus = 'CONFIRMED' | 'WAITLISTED';
+
+/** Result of `joinTournament`. */
+export interface TournamentJoinResult {
+  /** Participants currently holding a seat (never exceeds `maxParticipants`). */
+  currentParticipants: number;
+  status: TournamentJoinStatus;
+  /** 1-based rank in the waitlist — only present when status is `WAITLISTED`. */
+  waitlistPosition?: number;
+}
+
+/** Lifecycle of a single waitlist entry. */
+export type TournamentWaitlistEntryStatus = 'WAITING' | 'PROMOTED' | 'CANCELLED';
+
+/** One entry of a tournament waitlist, as returned by `getWaitlist`. */
+export interface TournamentWaitlistEntry {
+  tournamentId: string;
+  userId: string;
+  /** 1-based rank among the still-waiting entries. */
+  position: number;
+  status: TournamentWaitlistEntryStatus;
+  createdAt: string;
+}
+
+/** Result of `leaveTournament`. */
+export interface TournamentLeaveResult {
+  currentParticipants: number;
+  /** Set when a waiting user took the freed seat. */
+  promotedUserId?: string;
+}
+
 export {}

@@ -110,14 +110,6 @@ export const hackathonSwaggerSpec = swaggerJSDoc({
         },
         // ── Shared base schema (imported from shared-components) ──
         ...sharedComponents.schemas,
-        NotFoundResponse: {
-          type: 'object',
-          properties: {
-            error: { type: 'string', example: 'Route GET /api/unknown not found' },
-            path: { type: 'string', example: '/api/unknown' },
-          },
-          required: ['error', 'path'],
-        },
         PriceResponse: {
           type: 'object',
           description:

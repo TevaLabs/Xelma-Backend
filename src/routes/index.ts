@@ -1,7 +1,5 @@
 import { Router } from 'express';
-import { getPrices } from '../services/priceService';
-import { asyncHandler } from '../middleware/errorHandler.middleware';
-import { sendSuccess } from '../utils/response';
+import { getPricesHandler } from './prices';
 
 const router = Router();
 
@@ -15,7 +13,8 @@ const router = Router();
  *
  *       Returns BTC, ETH, and XLM spot prices (CoinGecko with a 30-second cache,
  *       or mock data when `DATA_MODE=mock`). Wrapped in the standard
- *       `{ success: true, data }` envelope.
+ *       `{ success: true, data }` envelope — the same handler and envelope the
+ *       production app serves on this path.
  *
  *       | Path | App | Purpose |
  *       |------|-----|---------|
@@ -29,27 +28,36 @@ const router = Router();
  *       - prices
  *     responses:
  *       200:
- *         description: Current market prices in a success envelope
+ *         description: Current market prices in the success envelope
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PriceResponse'
+ *             example:
+ *               success: true
+ *               data:
+ *                 BTC: 67420.12
+ *                 ETH: 3241.55
+ *                 XLM: 0.2891
+ *                 stale: false
+ *                 lastUpdatedAt: '2026-07-29T12:00:00.000Z'
+ *       503:
+ *         description: Price service unavailable (no cache and upstream failed)
  *         content:
  *           application/json:
  *             schema:
  *               type: object
- *               required: [success, data]
+ *               required: [success, error]
  *               properties:
  *                 success:
  *                   type: boolean
- *                   example: true
- *                 data:
- *                   $ref: '#/components/schemas/PriceResponse'
- *       503:
- *         description: Price service unavailable (no cache)
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: Unable to fetch prices and no cached data is available
  */
-router.get(
-  '/prices',
-  asyncHandler(async (_req, res) => {
-    const prices = await getPrices();
-    sendSuccess(res, prices);
-  })
-);
+// The handler is owned by ./prices so both modes return the same envelope,
+// failure shape and cache headers (#639); only the description above differs.
+router.get('/prices', getPricesHandler);
 
 export default router;

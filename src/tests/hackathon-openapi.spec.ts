@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { hackathonSwaggerSpec } from '../docs/hackathon-openapi';
+import { sharedComponents } from '../docs/shared-components';
 
 const REQUIRED_HACKATHON_PATHS: Array<{ path: string; method: string }> = [
   { path: '/api/auth/challenge', method: 'post' },
@@ -27,5 +28,16 @@ describe('Hackathon OpenAPI spec', () => {
     expect(pricesOp).toBeDefined();
     expect(String(pricesOp.description ?? '')).toMatch(/\/api\/price/);
     expect(paths['/api/price']).toBeUndefined();
+  });
+
+  it('shares NotFoundResponse and PaginationMeta schemas from sharedComponents', () => {
+    const schemas = (hackathonSwaggerSpec as { components?: { schemas?: Record<string, any> } }).components?.schemas ?? {};
+
+    expect(schemas.NotFoundResponse).toBeDefined();
+    expect(schemas.NotFoundResponse).toEqual(sharedComponents.schemas.NotFoundResponse);
+    expect(schemas.NotFoundResponse.required).toEqual(['error', 'message', 'code', 'path', 'timestamp']);
+
+    expect(schemas.PaginationMeta).toBeDefined();
+    expect(schemas.PaginationMeta).toEqual(sharedComponents.schemas.PaginationMeta);
   });
 });

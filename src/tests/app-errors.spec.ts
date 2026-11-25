@@ -23,10 +23,13 @@ describe('hackathon app error handling', () => {
     const res = await request(app).get('/api/does-not-exist');
 
     expect(res.status).toBe(404);
-    expect(res.body).toEqual({
-      error: 'Not Found',
+    expect(res.body).toMatchObject({
+      error: 'NotFoundError',
+      message: 'Route GET /api/does-not-exist not found',
+      code: 'NOT_FOUND',
       path: '/api/does-not-exist',
     });
+    expect(typeof res.body.timestamp).toBe('string');
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 

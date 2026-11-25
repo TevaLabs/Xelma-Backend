@@ -93,6 +93,17 @@ enum TournamentStatus {
   CANCELLED
 }
 
+/// Lifecycle of a tournament waitlist entry (Issue #874).
+///
+///   WAITING   -> queued for a free slot
+///   PROMOTED  -> a slot became free and the user took the participant seat
+///   CANCELLED -> the user left the queue (or the tournament closed the queue)
+enum TournamentWaitlistStatus {
+  WAITING
+  PROMOTED
+  CANCELLED
+}
+
 /// Lifecycle of a payout claim (Issue #492).
 ///
 ///   PENDING   -> discovered by the sweeper (or a user claim); waiting to be worked
@@ -138,6 +149,7 @@ model User {
   transactions        Transaction[]
   multiplayerSessions MultiplayerSession[]
   tournamentParticipants TournamentParticipant[]
+  tournamentWaitlist    TournamentWaitlist[]
   bets                Bet[]
   claims              Claim[]
 }
@@ -159,6 +171,7 @@ model Tournament {
   updatedAt         DateTime                    @updatedAt
 
   participants TournamentParticipant[]
+  waitlist     TournamentWaitlist[]
 
   @@index([status])
   @@index([mode])
@@ -175,6 +188,32 @@ model TournamentParticipant {
 
   @@unique([tournamentId, userId])
   @@index([tournamentId])
+  @@index([userId])
+}
+
+/// Queue of users who tried to join a full tournament (Issue #874).
+///
+/// The `position` column is a monotonically increasing ticket: it is handed
+/// out under the tournament row lock, so the queue order is deterministic
+/// (first come, first served) and a cancelled or promoted ticket is never
+/// reused. The *rank* a waiting user sees is derived from it (the number of
+/// still-waiting entries with a smaller ticket + 1), which keeps the
+/// user-facing position contiguous even when somebody ahead leaves.
+model TournamentWaitlist {
+  id           String                   @id @default(uuid())
+  tournamentId String
+  userId       String
+  position     Int
+  status       TournamentWaitlistStatus @default(WAITING)
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@unique([tournamentId, position])
+  @@index([tournamentId, status])
   @@index([userId])
 }
 

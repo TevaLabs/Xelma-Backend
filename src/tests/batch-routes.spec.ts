@@ -4,6 +4,10 @@ import request from "supertest";
 import { UserRole } from "@prisma/client";
 import { createApp } from "../index";
 import { generateToken } from "../utils/jwt.util";
+import {
+  batchPredictionRateLimiter,
+  batchLeaderboardRateLimiter,
+} from "../middleware/rateLimiter.middleware";
 
 const USER_A_ID = "batch-user-a-id";
 const USER_B_ID = "batch-user-b-id";
@@ -47,6 +51,7 @@ describe("Batch Predictions Routes", () => {
     userA = {
       id: USER_A_ID,
       walletAddress: "GBATCH_USER_A_TEST_AAAAAAAAAAAAAAAA",
+      role: UserRole.USER,
     };
     userAToken = generateToken(userA.id, userA.walletAddress, UserRole.USER);
 
@@ -55,6 +60,10 @@ describe("Batch Predictions Routes", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Rate-limit keys are per user id; reset so assertions about validation
+    // are never masked by a 429 from a previous test in the same suite.
+    batchPredictionRateLimiter.resetKey(USER_A_ID);
+    batchLeaderboardRateLimiter.resetKey(USER_A_ID);
   });
 
   describe("POST /api/predictions/batch-submit", () => {
@@ -172,6 +181,35 @@ describe("Batch Predictions Routes", () => {
       expect(response.body.results[1].success).toBe(false);
     });
 
+    it("reports success=false when every item fails (partial failure envelope)", async () => {
+      const batchRequest = {
+        predictions: [
+          { roundId: "missing-1", amount: 10, side: "UP" },
+          { roundId: "missing-2", amount: 15, side: "DOWN" },
+        ],
+      };
+
+      const mockResult = {
+        success: false,
+        results: [
+          { index: 0, success: false, error: "Round not found" },
+          { index: 1, success: false, error: "Round not found" },
+        ],
+      };
+      mockSubmitBatchPredictions.mockResolvedValue(mockResult);
+
+      const response = await request(app)
+        .post("/api/predictions/batch-submit")
+        .set("Authorization", `Bearer ${userAToken}`)
+        .send(batchRequest);
+
+      expect(response.status).toBe(200);
+      // The route must not overwrite the service's success flag with `true`.
+      expect(response.body).toEqual(mockResult);
+      expect(response.body.success).toBe(false);
+      expect(response.body.results.every((r: any) => r.success === false)).toBe(true);
+    });
+
     it("should reject empty batch", async () => {
       const response = await request(app)
         .post("/api/predictions/batch-submit")
@@ -265,6 +303,7 @@ describe("Batch Leaderboard Routes", () => {
     userA = {
       id: USER_A_ID,
       walletAddress: "GBATCH_USER_A_TEST_AAAAAAAAAAAAAAAA",
+      role: UserRole.USER,
     };
     userAToken = generateToken(userA.id, userA.walletAddress, UserRole.USER);
 
@@ -273,6 +312,10 @@ describe("Batch Leaderboard Routes", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Rate-limit keys are per user id; reset so assertions about validation
+    // are never masked by a 429 from a previous test in the same suite.
+    batchPredictionRateLimiter.resetKey(USER_A_ID);
+    batchLeaderboardRateLimiter.resetKey(USER_A_ID);
   });
 
   describe("POST /api/leaderboard/batch", () => {

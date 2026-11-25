@@ -196,6 +196,8 @@ jest.mock('../middleware/auth.middleware', () => ({
   authenticateUser: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
   requireOracle: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireMetricsAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requirePublicMetricsAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   verifyStellarAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   bindAuthenticatedWallet: (_req: unknown, _res: unknown, next: () => void) => next(),
   optionalAuthentication: (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -260,7 +262,15 @@ jest.mock('../lib/prisma', () => ({
 }));
 
 import { createApp } from '../app';
+import { createApp as createFullApp } from '../index';
 import { extractRoutes, routeKey } from '../security/route-parity.registry';
+import {
+  assertAuthEnvelopeContract,
+  expectAuthErrorEnvelope,
+  expectChallengeEnvelope,
+  expectConnectEnvelope,
+  type ContractResponse,
+} from './helpers/auth-envelope.assertions';
 
 const VALID_WALLET = 'GB3JDWCQWJ5VQJ3H6E6GQGZVFKU4ZQXGJ6S4Q2W7S6ZJ5R2YQH2B7ZQX';
 
@@ -351,10 +361,7 @@ describe('Hackathon wallet auth mount (issue #400)', () => {
     const res = await postJson(baseUrl, '/api/auth/challenge', {
       walletAddress: VALID_WALLET,
     });
-
-    expect(res.status).toBe(200);
-    expect(res.body.challenge).toBeDefined();
-    expect(res.body.expiresAt).toBeDefined();
+    expectChallengeEnvelope(res);
   });
 
   it('exposes POST /api/auth/connect and returns a JWT', async () => {
@@ -363,16 +370,85 @@ describe('Hackathon wallet auth mount (issue #400)', () => {
       challenge: 'smoke-challenge',
       signature: 'smoke-signature',
     });
-
-    expect(res.status).toBe(200);
-    expect(typeof res.body.token).toBe('string');
-    expect(res.body.token.length).toBeGreaterThan(10);
-    expect(res.body.user?.walletAddress).toBe(VALID_WALLET);
+    expectConnectEnvelope(res, VALID_WALLET);
   });
 
   it('returns validation error instead of 404 for empty challenge body', async () => {
     const res = await postJson(baseUrl, '/api/auth/challenge', {});
     expect(res.status).not.toBe(404);
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expectAuthErrorEnvelope(res);
+  });
+});
+
+/**
+ * Issue #972: the full and hackathon entrypoints must return identical auth
+ * envelopes. Both suites drive the same shared runner so a drift in either app
+ * fails this single spec.
+ */
+describe('Auth envelope parity — full vs hackathon (issue #972)', () => {
+  let hackathonServer: http.Server;
+  let fullServer: http.Server;
+  let hackathonBase: string;
+  let fullBase: string;
+
+  beforeAll(async () => {
+    hackathonServer = http.createServer(createApp());
+    fullServer = http.createServer(createFullApp());
+    await Promise.all([
+      new Promise<void>((resolve) => hackathonServer.listen(0, '127.0.0.1', resolve)),
+      new Promise<void>((resolve) => fullServer.listen(0, '127.0.0.1', resolve)),
+    ]);
+    hackathonBase = `http://127.0.0.1:${(hackathonServer.address() as AddressInfo).port}`;
+    fullBase = `http://127.0.0.1:${(fullServer.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await Promise.all([
+      new Promise<void>((resolve, reject) =>
+        hackathonServer.close((err) => (err ? reject(err) : resolve())),
+      ),
+      new Promise<void>((resolve, reject) =>
+        fullServer.close((err) => (err ? reject(err) : resolve())),
+      ),
+    ]);
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAuthChallengeFindMany.mockResolvedValue([]);
+    mockAuthChallengeDeleteMany.mockResolvedValue({ count: 0 });
+    mockAuthChallengeCreate.mockResolvedValue({});
+    mockAuthChallengeUpdateMany.mockResolvedValue({ count: 1 });
+    mockAuthChallengeFindUnique.mockResolvedValue(null);
+    mockUserFindUnique.mockResolvedValue({
+      id: 'smoke-user',
+      walletAddress: VALID_WALLET,
+      createdAt: new Date(),
+      lastLoginAt: new Date(),
+      streak: 1,
+      virtualBalance: 1000,
+      role: 'USER',
+    });
+    mockUserUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 'smoke-user',
+      walletAddress: VALID_WALLET,
+      createdAt: new Date(),
+      lastLoginAt: (data.lastLoginAt as Date) || new Date(),
+      streak: (data.streak as number) || 1,
+      virtualBalance: 1000,
+      role: 'USER',
+    }));
+    mockTransactionCreate.mockResolvedValue({});
+  });
+
+  const poster = (base: string) => async (path: string, body: Record<string, unknown>) =>
+    postJson(base, path, body) as Promise<ContractResponse>;
+
+  it('returns the same auth envelope contract on the hackathon app', async () => {
+    await assertAuthEnvelopeContract(poster(hackathonBase), VALID_WALLET);
+  });
+
+  it('returns the same auth envelope contract on the full app', async () => {
+    await assertAuthEnvelopeContract(poster(fullBase), VALID_WALLET);
   });
 });
