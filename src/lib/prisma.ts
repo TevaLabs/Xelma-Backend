@@ -44,6 +44,10 @@ export const prisma = (() => {
         updateMany: async () => ({ count: 0 }) as any,
         // Add other model mocks if needed.
       },
+      betAuditEvent: {
+        create: async ({ data }: any) => ({ id: "bet-audit-event-1", ...data }),
+        findMany: async () => [],
+      },
       // #391: lightweight in-memory stubs for the hackathon-data models so
       // unit tests (NODE_ENV=test, no real DATABASE_URL) exercise the same
       // Prisma-shaped API as production without needing a live database.

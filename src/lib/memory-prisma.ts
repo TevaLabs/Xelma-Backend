@@ -535,6 +535,7 @@ const multiplayerSessions = new MemoryCollection("id", () => ({
   lastSeenAt: new Date(),
 }));
 const auditLogs = new MemoryCollection("id");
+const betAuditEvents = new MemoryCollection("id");
 const outboxEvents = new MemoryCollection("id", () => ({
   status: "PENDING",
   attempts: 0,
@@ -691,6 +692,7 @@ const modelClients = {
   tournamentParticipant: tournamentParticipants,
   multiplayerSession: multiplayerSessions,
   auditLog: auditLogs,
+  betAuditEvent: betAuditEvents,
   outboxEvent: outboxEvents,
   mockRound: mockRounds,
   mockLeaderboard,

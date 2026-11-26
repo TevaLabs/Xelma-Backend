@@ -29,6 +29,13 @@
  *   - "memory"   (default / hackathon)  – events held in an in-memory array
  *   - "database" (full mode)            – persisted to the AuditLog table
  *
+ * Optional durable persistence (Issue #990):
+ *   Set BET_AUDIT_PERSISTENCE_ENABLED=true to write every emitted event to the
+ *   dedicated BetAuditEvent table. Persistence is opt-in, best-effort, and
+ *   additive — the in-memory store (and any legacy AuditLog writes) still
+ *   happen exactly as before, so a process restart no longer loses the audit
+ *   trail when the flag is enabled.
+ *
  * Future on-chain migration:
  *   The BetAuditEvent schema maps 1:1 to a future on-chain event. Each field
  *   can be serialised as a Solidity/ Soroban event parameter. The `event`
@@ -100,6 +107,36 @@ class BetAuditService {
     const mode = process.env.BET_AUDIT_STORAGE;
     if (mode === "database") return "database";
     return "memory";
+  }
+
+  /**
+   * Whether emitted events are also written to the dedicated BetAuditEvent
+   * table. Off by default so hackathon / DB-less deployments stay unaffected.
+   * `BET_AUDIT_STORAGE=database|prisma|postgres` is treated as opt-in for
+   * backward compatibility with the existing database mode.
+   */
+  get persistenceEnabled(): boolean {
+    const flags = [
+      "BET_AUDIT_PERSISTENCE_ENABLED",
+      "BET_AUDIT_EVENT_PERSISTENCE_ENABLED",
+      "BET_AUDIT_PERSIST_ENABLED",
+      "BET_AUDIT_PERSISTENCE",
+      "BET_AUDIT_DB_ENABLED",
+      "BET_AUDIT_DATABASE_ENABLED",
+    ];
+
+    for (const flag of flags) {
+      const raw = process.env[flag];
+      if (raw !== undefined) {
+        const value = raw.trim().toLowerCase();
+        return value === "true" || value === "1" || value === "yes" || value === "on";
+      }
+    }
+
+    const storage = process.env.BET_AUDIT_STORAGE;
+    return (
+      storage === "database" || storage === "prisma" || storage === "postgres"
+    );
   }
 
   /**
@@ -200,6 +237,15 @@ class BetAuditService {
 
     logger.info("Claim accepted", { audit: true, requestId, correlationId, ...event });
 
+    if (this.persistenceEnabled) {
+      void this.persistBetAuditEvent(event).catch((error) => {
+        logger.error("Failed to persist bet audit event to database", {
+          error: error instanceof Error ? error.message : "Unknown error",
+          eventType: event.event,
+        });
+      });
+    }
+
     if (this.storageMode === "database") {
       void this.persistClaimToDatabase(event).catch((error) => {
         logger.error("Failed to persist claim audit event to database", {
@@ -238,6 +284,17 @@ class BetAuditService {
       // Round lookup is best-effort; silent fail
     }
 
+    if (this.persistenceEnabled) {
+      try {
+        await this.persistBetAuditEvent(event);
+      } catch (error) {
+        logger.error("Failed to persist bet audit event to database", {
+          error: error instanceof Error ? error.message : "Unknown error",
+          eventType: event.event,
+        });
+      }
+    }
+
     if (this.storageMode === "database") {
       try {
         await this.persistToDatabase(event);
@@ -248,6 +305,35 @@ class BetAuditService {
         });
       }
     }
+  }
+
+  /**
+   * Write the event verbatim to the optional BetAuditEvent table. Missing
+   * client/model (e.g. the table has not been migrated yet) is a no-op so an
+   * audit write can never break a bet flow.
+   */
+  private async persistBetAuditEvent(event: BetAuditEvent): Promise<void> {
+    const model = (prisma as any).betAuditEvent;
+    if (!model || typeof model.create !== "function") return;
+
+    await model.create({
+      data: {
+        event: event.event,
+        roundId: event.roundId,
+        betId: event.betId,
+        address: event.address,
+        amount: event.amount,
+        side: event.side,
+        mode: event.mode,
+        result: event.result,
+        status: event.status,
+        txHash: event.txHash,
+        requestId: event.requestId,
+        correlationId: event.correlationId,
+        failureReason: event.failureReason,
+        createdAt: new Date(event.createdAt),
+      },
+    });
   }
 
   private async persistToDatabase(event: BetAuditEvent): Promise<void> {
