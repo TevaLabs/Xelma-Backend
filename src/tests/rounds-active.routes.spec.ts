@@ -85,4 +85,78 @@ describe("Rounds Routes - active round sourcing", () => {
     expect(res.body.data.source).toBe("none");
     expect(res.body.data.rounds).toEqual([]);
   });
+
+  it("GET /api/rounds serializes pool totals as decimal strings", async () => {
+    mockGetRoundsForApi.mockResolvedValueOnce({
+      source: "soroban",
+      rounds: [
+        {
+          id: "soroban-1",
+          mode: "UP_DOWN",
+          status: "ACTIVE",
+          startPrice: 0.12,
+          poolUp: 3,
+          poolDown: 4,
+        },
+      ],
+    });
+
+    const res = await request(app).get("/api/rounds");
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.rounds[0]).toMatchObject({
+      poolUp: "3.00000000",
+      poolDown: "4.00000000",
+    });
+  });
+
+  it("GET /api/rounds/active serializes pool totals as decimal strings", async () => {
+    mockGetRoundsForApi.mockResolvedValueOnce({
+      source: "database",
+      rounds: [
+        {
+          id: "db-1",
+          mode: "UP_DOWN",
+          status: "ACTIVE",
+          startPrice: 0.12,
+          poolUp: 1.5,
+          poolDown: "2.345",
+        },
+      ],
+    });
+
+    const res = await request(app).get("/api/rounds/active");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.source).toBe("database");
+    expect(res.body.data.rounds[0]).toMatchObject({
+      poolUp: "1.50000000",
+      poolDown: "2.34500000",
+    });
+    expect(typeof res.body.data.rounds[0].poolUp).toBe("string");
+    expect(typeof res.body.data.rounds[0].poolDown).toBe("string");
+  });
+
+  it("GET /api/rounds/active defaults missing pool totals to zero", async () => {
+    mockGetRoundsForApi.mockResolvedValueOnce({
+      source: "mock",
+      rounds: [
+        {
+          id: "mock-1",
+          mode: "UP_DOWN",
+          status: "ACTIVE",
+          startPrice: 0.12,
+        },
+      ],
+    });
+
+    const res = await request(app).get("/api/rounds/active");
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.rounds[0]).toMatchObject({
+      poolUp: "0.00000000",
+      poolDown: "0.00000000",
+    });
+  });
 });

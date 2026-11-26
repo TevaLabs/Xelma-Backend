@@ -1413,6 +1413,57 @@
         ]
       }
     },
+    "/api/rounds/active": {
+      "get": {
+        "summary": "List active prediction rounds with pool totals",
+        "description": "Returns active rounds with `poolUp` and `poolDown` serialized as decimal strings.",
+        "tags": [
+          "rounds"
+        ],
+        "responses": {
+          "200": {
+            "description": "Active rounds with source metadata and pool totals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "soroban",
+                            "database",
+                            "mock",
+                            "none"
+                          ]
+                        },
+                        "rounds": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/RoundResponse"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/rounds/{id}": {
       "get": {
         "summary": "Get a round by ID",

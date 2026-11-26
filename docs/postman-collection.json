@@ -1851,6 +1851,42 @@
               }
             },
             {
+              "id": "00000000-0000-4000-8000-000000000975",
+              "name": "List active prediction rounds with pool totals",
+              "request": {
+                "name": "List active prediction rounds with pool totals",
+                "description": {
+                  "content": "Returns active rounds with `poolUp` and `poolDown` serialized as decimal strings.",
+                  "type": "text/plain"
+                },
+                "url": {
+                  "path": [
+                    "api",
+                    "rounds",
+                    "active"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "auth": null
+              },
+              "response": [],
+              "event": [],
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              }
+            },
+            {
               "id": "d2f5c0f1-7078-4e96-8026-65c0bff778fe",
               "name": "{id}",
               "item": [
