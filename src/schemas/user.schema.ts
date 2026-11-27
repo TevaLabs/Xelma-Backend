@@ -32,6 +32,23 @@ const preferencesSchema = z
   .strict()
   .optional();
 
+/** Schema for PATCH /api/user/notification-preferences (Issue #1033).
+ * Mirrors the User.notificationPreferences Json field:
+ * {"win": true, "loss": true, "roundStart": false, "bonus": true, "announcement": true}
+ */
+export const notificationPreferencesSchema = z
+  .object({
+    win: z.boolean().optional(),
+    loss: z.boolean().optional(),
+    roundStart: z.boolean().optional(),
+    bonus: z.boolean().optional(),
+    announcement: z.boolean().optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, 'At least one notification preference must be provided');
+
+export type NotificationPreferencesInput = z.infer<typeof notificationPreferencesSchema>;
+
 export const updateProfileSchema = z
   .object({
     nickname: nicknameSchema.optional(),

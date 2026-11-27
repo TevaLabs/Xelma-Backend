@@ -307,3 +307,95 @@ describe("PATCH /api/user/profile — input validation (Issue #137)", () => {
     expect(res.status).toBe(401);
   });
 });
+
+/**
+ * Tests for PATCH /api/user/notification-preferences (Issue #1033).
+ */
+describe("PATCH /api/user/notification-preferences (Issue #1033)", () => {
+  let app: Express;
+  let token: string;
+
+  beforeAll(() => {
+    app = createApp();
+    token = generateToken(USER_ID, WALLET, UserRole.USER);
+  });
+
+  beforeEach(() => {
+    mockUserFindUnique.mockResolvedValue({
+      id: USER_ID,
+      walletAddress: WALLET,
+      role: UserRole.USER,
+      notificationPreferences: { win: true, loss: true, roundStart: false, bonus: true, announcement: true },
+    });
+    mockUserUpdate.mockResolvedValue({
+      id: USER_ID,
+      notificationPreferences: { win: false, loss: true, roundStart: false, bonus: true, announcement: true },
+    });
+  });
+
+  it("updates notification preferences", async () => {
+    const res = await request(app)
+      .patch("/api/user/notification-preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ win: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    const updateCall = mockUserUpdate.mock.calls[0][0];
+    expect(updateCall.data.notificationPreferences).toEqual({
+      win: false,
+      loss: true,
+      roundStart: false,
+      bonus: true,
+      announcement: true,
+    });
+  });
+
+  it("updates multiple notification preferences at once", async () => {
+    const res = await request(app)
+      .patch("/api/user/notification-preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ win: false, roundStart: true, announcement: false });
+
+    expect(res.status).toBe(200);
+    const updateCall = mockUserUpdate.mock.calls[0][0];
+    expect(updateCall.data.notificationPreferences.win).toBe(false);
+    expect(updateCall.data.notificationPreferences.roundStart).toBe(true);
+    expect(updateCall.data.notificationPreferences.announcement).toBe(false);
+  });
+
+  it("rejects empty body", async () => {
+    const res = await request(app)
+      .patch("/api/user/notification-preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects unknown fields inside notification preferences", async () => {
+    const res = await request(app)
+      .patch("/api/user/notification-preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ unknownField: true });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects non-boolean values", async () => {
+    const res = await request(app)
+      .patch("/api/user/notification-preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ win: "yes" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects unauthenticated request with 401", async () => {
+    const res = await request(app)
+      .patch("/api/user/notification-preferences")
+      .send({ win: false });
+
+    expect(res.status).toBe(401);
+  });
+});

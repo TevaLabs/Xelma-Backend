@@ -98,7 +98,7 @@ const mockClient = {
       result: undefined,
       signAndSend: async (_opts?: unknown) => ({
         result: undefined,
-        hash: "tx_hash_abc123",
+        sendTransactionResponse: { hash: "tx_hash_abc123" },
       }),
     };
   },
@@ -153,7 +153,13 @@ const mockClient = {
     if (mockPlaceBetShouldThrow) {
       return Promise.reject(new Error("precision bet error"));
     }
-    return mockTx(undefined);
+    return {
+      result: undefined,
+      signAndSend: async (_opts?: unknown) => ({
+        result: undefined,
+        sendTransactionResponse: { hash: "tx_hash_abc123" },
+      }),
+    };
   },
   get_user_precision_prediction: () => mockTx<null>(null),
 };

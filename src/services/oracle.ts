@@ -31,6 +31,8 @@ class PriceOracle {
   private _running = false;
   private lastUpdatedAt: Date | null = null;
   private activeSource: string | null = null;
+  /** Last successful fetch timestamp per provider name. */
+  private readonly lastSuccessAtPerProvider = new Map<string, Date>();
 
   private constructor() {
     this.providerChain = createDefaultProviders(this.REQUEST_TIMEOUT).map((provider) => ({
@@ -137,6 +139,7 @@ class PriceOracle {
         this.lastProvider = entry.provider.name;
         this.activeSource = entry.provider.name;
         this.lastUpdatedAt = new Date();
+        this.lastSuccessAtPerProvider.set(entry.provider.name, new Date());
         priceOracleUpdatesTotal.inc({ provider: entry.provider.name });
         this.publishHealthMetrics();
         logger.info(`Fetched XLM price: $${toDecimalString(result.data)} via ${entry.provider.name}`, {
@@ -230,6 +233,29 @@ class PriceOracle {
         ? Math.floor(this.lastUpdatedAt.getTime() / 1000)
         : null,
     };
+  }
+
+  /**
+   * Per-provider health snapshots consumed by /health. Reports each provider's
+   * circuit-breaker state and last successful fetch timestamp so stale prices
+   * are not silent — operators can see which provider is failing.
+   */
+  public getProviderHealth(): Array<{
+    name: string;
+    state: 'closed' | 'open' | 'half-open';
+    failureCount: number;
+    lastSuccessAt: string | null;
+  }> {
+    return this.providerChain.map((entry) => {
+      const snapshot = entry.breaker.getSnapshot();
+      const lastSuccess = this.lastSuccessAtPerProvider.get(entry.provider.name);
+      return {
+        name: entry.provider.name,
+        state: snapshot.state,
+        failureCount: snapshot.failureCount,
+        lastSuccessAt: lastSuccess?.toISOString() ?? null,
+      };
+    });
   }
 
   /** Push the current freshness snapshot into the Prometheus gauges. */

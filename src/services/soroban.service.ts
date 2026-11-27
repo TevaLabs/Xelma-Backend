@@ -384,8 +384,7 @@ export class SorobanService {
           side: betSide,
         });
         const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        // Return a generic state, or the tx hash if the bindings expose it
-        return { state: "on-chain-success", txHash: (res as any).hash };
+        return { state: "on-chain-success", txHash: res.sendTransactionResponse?.hash };
       },
       {
         timeoutMs: this.CALL_TIMEOUT_MS,
@@ -451,7 +450,7 @@ export class SorobanService {
           predicted_price: priceScaled,
         });
         const res = await tx.signAndSend({ signTransaction: this.signWithAdmin.bind(this) });
-        return { state: "on-chain-success", txHash: (res as any).hash };
+        return { state: "on-chain-success", txHash: res.sendTransactionResponse?.hash };
       },
       {
         timeoutMs: this.CALL_TIMEOUT_MS,
@@ -743,14 +742,14 @@ export class SorobanService {
         async () => {
           // If the bindings client exposes get_user_position or get_bet, call it.
           // Fall back to checking contract storage or stats if not directly available.
-          const client = this.client as any;
-          if (typeof client?.get_user_position === 'function') {
-            const pos = await client.get_user_position({
+          if (typeof this.client!.get_user_position === 'function') {
+            const tx = await this.client!.get_user_position({
               user: userAddress,
               ...(roundId ? { round_id: roundId } : {}),
             });
-            if (!pos || !pos.result) return null;
-            const res = pos.result;
+            const pos = tx.result;
+            if (!pos) return null;
+            const res = pos;
             const side: 'UP' | 'DOWN' = res.side?.tag === 'Up' ? 'UP' : 'DOWN';
             const amount = Number(res.amount) / 10_000_000;
             return { side, amount };

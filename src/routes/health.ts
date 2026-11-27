@@ -127,6 +127,12 @@ async function checkOracle(): Promise<{
   lastUpdatedAt?: string | null;
   stalenessSeconds?: number | null;
   provider?: string | null;
+  providers?: Array<{
+    name: string;
+    state: string;
+    failureCount: number;
+    lastSuccessAt: string | null;
+  }>;
   error?: string;
 }> {
   const start = Date.now();
@@ -136,6 +142,7 @@ async function checkOracle(): Promise<{
     }
     const stale = priceOracle.isStale();
     const lastUpdatedAt = priceOracle.getLastUpdatedAt();
+    const providers = priceOracle.getProviderHealth();
     return {
       status: stale ? 'stale' : 'healthy',
       durationMs: Date.now() - start,
@@ -143,6 +150,7 @@ async function checkOracle(): Promise<{
       lastUpdatedAt: lastUpdatedAt?.toISOString() ?? null,
       stalenessSeconds: priceOracle.getStalenessSeconds(),
       provider: priceOracle.getActiveSource(),
+      providers,
     };
   } catch (err) {
     return {
