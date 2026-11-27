@@ -610,6 +610,36 @@ model AuditLog {
   @@index([outcome])
 }
 
+/// Durable bet-audit events (Issue #990).
+///
+/// The in-memory BetAuditService store resets on every process restart. When
+/// BET_AUDIT_PERSISTENCE_ENABLED=true, each emitted BetAuditEvent is also
+/// written here so the audit trail survives restarts. Fields mirror the
+/// BetAuditEvent TypeScript interface 1:1 for straightforward replay.
+model BetAuditEvent {
+  id            String   @id @default(uuid())
+  event         String   @db.VarChar(50)
+  roundId       String?
+  betId         String?
+  address       String
+  amount        Decimal  @db.Decimal(20, 8)
+  side          String?  @db.VarChar(10)
+  mode          String?  @db.VarChar(20)
+  result        String   @db.VarChar(100)
+  status        String?  @db.VarChar(50)
+  txHash        String?  @db.VarChar(200)
+  requestId     String?  @db.VarChar(100)
+  correlationId String?  @db.VarChar(200)
+  failureReason String?  @db.VarChar(1000)
+  createdAt     DateTime @default(now())
+
+  @@index([event, createdAt])
+  @@index([address, createdAt])
+  @@index([roundId])
+  @@index([betId])
+  @@index([txHash])
+}
+
 // =======================
 // Mock Data Models
 // =======================

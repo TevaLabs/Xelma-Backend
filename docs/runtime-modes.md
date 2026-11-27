@@ -25,6 +25,7 @@ behavior, or choosing the right flags for a deployment profile.
 | `DATA_MODE` | `config.app.dataMode` | `live`, `mock` | `live` | `src/config/index.ts` |
 | `DATA_STORE` | `config.app.dataStore` | `postgres`, `memory` | auto (see below) | `src/config/index.ts` |
 | `BET_STUB_MODE` | `process.env.BET_STUB_MODE` | `true`, `false` | `true` | `src/services/bet.service.ts` |
+| `BET_AUDIT_PERSISTENCE_ENABLED` | `process.env.BET_AUDIT_PERSISTENCE_ENABLED` | `true`, `false` | `false` | `src/services/bet-audit.service.ts` |
 | `ROUNDS_MOCK_MODE` | `config.app.roundsMockMode` | `true`, `false` | `false` | `src/config/index.ts` |
 | `API_ONLY` | `process.env.API_ONLY` | `true`, `false` | `false` | `src/index.ts` |
 | `SOROBAN_FAIL_CLOSED` | `config.soroban.failClosed` | `true`, `false` | `false` | `src/config/index.ts` |
@@ -72,6 +73,23 @@ Soroban or just record the intent **locally**.
 
 > The active mode is logged at startup:
 > `Bet mode: STUB (no on-chain calls)` or `Bet mode: ON-CHAIN (Soroban)`.
+
+### BET_AUDIT_PERSISTENCE_ENABLED
+
+Bet-audit events (`BET_ACCEPTED`, `BET_FAILED`, `BET_RECONCILED`,
+`CLAIM_ACCEPTED`) are always kept in memory for the admin audit endpoint. By
+default that store resets on every process restart.
+
+| `BET_AUDIT_PERSISTENCE_ENABLED` | Behavior |
+|---|---|
+| `false` / unset (default) | In-memory only; no `BetAuditEvent` writes |
+| `true` | Every emitted event is also written to the `BetAuditEvent` table (fire-and-forget; audit failures never fail a bet) |
+
+`BET_AUDIT_STORAGE=database` remains supported for legacy `AuditLog` writes and
+also opts into the dedicated table unless the flag is explicitly `false`.
+
+**Implementation:** `src/services/bet-audit.service.ts`; table defined in
+`prisma/schema.prisma` and `prisma/migrations/20261127000000_add_bet_audit_event`.
 
 ### MAX_STAKE
 

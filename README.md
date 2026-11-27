@@ -544,6 +544,7 @@ The application uses **PostgreSQL** via **Prisma ORM**. Key models:
 - **Transaction**: Balance change history (bonus, win, loss, etc.)
 - **AuthChallenge**: Wallet signature challenges for authentication
 - **AuditLog**: Security audit trail for authentication and authorization events
+- **BetAuditEvent**: Optional durable trail for bet/claim audit events (Issue #990)
 
 #### **UserStats Projection & Rebuild**
 
@@ -578,6 +579,13 @@ All authentication and authorization events are logged for security monitoring a
 - **Storage**: Audit events are persisted to the `AuditLog` table in the database
 - **Configuration**: Controlled by `AUDIT_LOG_DATABASE_ENABLED` (default: `true`)
 - **Fallback**: When database persistence is disabled, events are only logged to Winston (files/console)
+
+Bet/claim audit events are a separate stream managed by
+`src/services/bet-audit.service.ts`. They always live in memory (so the admin
+bet-audit endpoint stays fast) and are lost on restart by default. Set
+`BET_AUDIT_PERSISTENCE_ENABLED=true` to also write every emitted event to the
+dedicated `BetAuditEvent` table. Writes are best-effort/fire-and-forget and
+never block or fail a bet. See `docs/runtime-modes.md`.
 
 #### Retention Policies
 

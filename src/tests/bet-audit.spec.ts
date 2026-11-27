@@ -35,6 +35,9 @@ jest.mock("../lib/prisma", () => ({
     auditLog: {
       create: jest.fn().mockResolvedValue({ id: "audit-123" }),
     },
+    betAuditEvent: {
+      create: jest.fn().mockResolvedValue({ id: "bet-audit-123" }),
+    },
     bet: {
       create: jest.fn().mockImplementation((args: any) => Promise.resolve({ id: "bet-1", ...args.data, createdAt: new Date(), updatedAt: new Date() })),
       findUnique: jest.fn(),
@@ -96,6 +99,7 @@ import logger from "../utils/logger";
 import { prisma } from "../lib/prisma";
 
 const mockAuditLogCreate = prisma.auditLog.create as any;
+const mockBetAuditEventCreate = (prisma as any).betAuditEvent.create as any;
 
 const VALID_ADDRESS = "GABCDEF1234567890ABCDEF1234567890ABCDEF1234567890";
 
@@ -381,6 +385,177 @@ describe("BetAuditService", () => {
     it('should return "memory" for unknown env var values', () => {
       process.env.BET_AUDIT_STORAGE = "unknown";
       expect(betAuditService.storageMode).toBe("memory");
+    });
+  });
+
+  // --------------------------------------------------------------
+  // Optional Prisma BetAuditEvent persistence (Issue #990)
+  // --------------------------------------------------------------
+  describe("optional BetAuditEvent persistence", () => {
+    const persistenceFlags = [
+      "BET_AUDIT_PERSISTENCE_ENABLED",
+      "BET_AUDIT_EVENT_PERSISTENCE_ENABLED",
+      "BET_AUDIT_PERSIST_ENABLED",
+      "BET_AUDIT_PERSISTENCE",
+      "BET_AUDIT_DB_ENABLED",
+      "BET_AUDIT_DATABASE_ENABLED",
+    ];
+    let originalStorage: string | undefined;
+
+    beforeEach(() => {
+      originalStorage = process.env.BET_AUDIT_STORAGE;
+      delete process.env.BET_AUDIT_STORAGE;
+      for (const flag of persistenceFlags) delete process.env[flag];
+    });
+
+    afterEach(() => {
+      if (originalStorage !== undefined) {
+        process.env.BET_AUDIT_STORAGE = originalStorage;
+      } else {
+        delete process.env.BET_AUDIT_STORAGE;
+      }
+      for (const flag of persistenceFlags) delete process.env[flag];
+    });
+
+    it("should not write to BetAuditEvent by default", async () => {
+      betAuditService.emitBetAccepted({
+        address: VALID_ADDRESS,
+        amount: 100,
+        side: "UP",
+        mode: "UP_DOWN",
+        result: "stub",
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(betAuditService.persistenceEnabled).toBe(false);
+      expect(mockBetAuditEventCreate).not.toHaveBeenCalled();
+    });
+
+    it("should persist accepted bets to BetAuditEvent when enabled", async () => {
+      process.env.BET_AUDIT_PERSISTENCE_ENABLED = "true";
+
+      betAuditService.emitBetAccepted({
+        betId: "bet-1",
+        address: VALID_ADDRESS,
+        amount: 100,
+        side: "UP",
+        mode: "UP_DOWN",
+        result: "on-chain-success",
+        status: "CONFIRMED",
+        txHash: "0xabc123",
+        requestId: "req-1",
+        correlationId: "req-1:0xabc123",
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(betAuditService.persistenceEnabled).toBe(true);
+      expect(mockBetAuditEventCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          event: "BET_ACCEPTED",
+          betId: "bet-1",
+          roundId: "round-1",
+          address: VALID_ADDRESS,
+          amount: 100,
+          side: "UP",
+          mode: "UP_DOWN",
+          result: "on-chain-success",
+          status: "CONFIRMED",
+          txHash: "0xabc123",
+          requestId: "req-1",
+          correlationId: "req-1:0xabc123",
+          createdAt: expect.any(Date),
+        }),
+      });
+    });
+
+    it("should persist claim events to BetAuditEvent when enabled", async () => {
+      process.env.BET_AUDIT_PERSISTENCE_ENABLED = "true";
+
+      betAuditService.emitClaimAccepted({
+        address: VALID_ADDRESS,
+        amount: 25,
+        result: "claim-success",
+        txHash: "0xclaim",
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(mockBetAuditEventCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          event: "CLAIM_ACCEPTED",
+          address: VALID_ADDRESS,
+          amount: 25,
+          result: "claim-success",
+          txHash: "0xclaim",
+        }),
+      });
+    });
+
+    it("should keep database storage opting into BetAuditEvent persistence", async () => {
+      process.env.BET_AUDIT_STORAGE = "database";
+
+      betAuditService.emitBetFailed({
+        address: VALID_ADDRESS,
+        amount: 100,
+        mode: "UP_DOWN",
+        result: "on-chain-failure",
+        failureReason: "tx rejected",
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(mockBetAuditEventCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          event: "BET_FAILED",
+          failureReason: "tx rejected",
+        }),
+      });
+      expect(mockAuditLogCreate).toHaveBeenCalled();
+    });
+
+    it("should allow an explicit false flag to disable persistence", async () => {
+      process.env.BET_AUDIT_STORAGE = "database";
+      process.env.BET_AUDIT_PERSISTENCE_ENABLED = "false";
+
+      betAuditService.emitBetAccepted({
+        address: VALID_ADDRESS,
+        amount: 100,
+        side: "UP",
+        mode: "UP_DOWN",
+        result: "stub",
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(betAuditService.persistenceEnabled).toBe(false);
+      expect(mockBetAuditEventCreate).not.toHaveBeenCalled();
+      expect(mockAuditLogCreate).toHaveBeenCalled();
+    });
+
+    it("should handle BetAuditEvent persistence errors gracefully", async () => {
+      process.env.BET_AUDIT_PERSISTENCE_ENABLED = "true";
+      mockBetAuditEventCreate.mockRejectedValueOnce(
+        new Error("BetAuditEvent table unavailable"),
+      );
+
+      betAuditService.emitBetAccepted({
+        address: VALID_ADDRESS,
+        amount: 100,
+        side: "UP",
+        mode: "UP_DOWN",
+        result: "stub",
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(logger.error).toHaveBeenCalledWith(
+        "Failed to persist bet audit event to database",
+        expect.objectContaining({
+          error: "BetAuditEvent table unavailable",
+        }),
+      );
     });
   });
 });

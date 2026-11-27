@@ -10,7 +10,7 @@ import {
   AuthenticatedRequest,
 } from "../middleware/auth.middleware";
 import { asyncHandler } from "../middleware/errorHandler.middleware";
-import { toDecimal } from "../utils/decimal.util";
+import { toDecimal, serializeMoney, type MoneyInput } from "../utils/decimal.util";
 import { serializeRound } from "../serializers/monetary.serializer";
 import {
   adminRoundRateLimiter,
@@ -32,6 +32,32 @@ import { executeBet, BetKind } from "./bet-execution";
 
 const router = Router();
 
+function serializeRoundForApi(round: Record<string, unknown>) {
+  return serializeRound({
+    ...round,
+    poolUp: serializeMoney(round.poolUp as MoneyInput),
+    poolDown: serializeMoney(round.poolDown as MoneyInput),
+  });
+}
+
+async function listActiveRounds(
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { source, rounds } = await roundService.getRoundsForApi();
+    sendSuccess(res, {
+      source,
+      rounds: rounds.map((round) =>
+        serializeRoundForApi(round as unknown as Record<string, unknown>),
+      ),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /**
  * @openapi
  * /api/rounds:
@@ -44,19 +70,7 @@ const router = Router();
  *       200:
  *         description: Active rounds with source metadata
  */
-router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
-  try {
-    // Source fallback order: Soroban on-chain → database → mock data.
-    // Controlled by roundService.getRoundsForApi(); see round.service.ts.
-    const { source, rounds } = await roundService.getRoundsForApi();
-    sendSuccess(res, {
-      source,
-      rounds: rounds.map((round) => serializeRound(round)),
-    });
-  } catch (err) {
-    next(err);
-  }
-});
+router.get("/", listActiveRounds);
 
 /**
  * @swagger
@@ -222,9 +236,33 @@ router.post(
   }),
 );
 
-// NOTE: GET /active was removed — it duplicated GET / (both called
-// roundService.getRoundsForApi()). Callers should use GET / instead.
-// Kept here as a comment for discoverability; see issue #370.
+/**
+ * @openapi
+ * /api/rounds/active:
+ *   get:
+ *     summary: List active prediction rounds with pool totals
+ *     description: Returns active rounds with `poolUp` and `poolDown` serialized as decimal strings.
+ *     tags:
+ *       - rounds
+ *     responses:
+ *       200:
+ *         description: Active rounds with source metadata and pool totals
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     source: { type: string, enum: [soroban, database, mock, none] }
+ *                     rounds:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/RoundResponse' }
+ */
+router.get("/active", listActiveRounds);
 
 /**
  * @swagger
