@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getPrices } from '../services/priceService';
 import { sendSuccess, sendError } from '../utils/response';
 import priceOracle from '../services/oracle';
-import { setPublicCache, pricesCacheTtlSeconds } from '../utils/http-cache';
+import { setPublicCache, pricesCacheTtlSeconds, oraclePriceCacheTtlSeconds } from '../utils/http-cache';
 
 const router = Router();
 
@@ -142,7 +142,7 @@ router.get('/prices', getPricesHandler);
  *               timestamp: '2026-07-29T12:00:05.000Z'
  */
 legacyXlmPriceRouter.get('/price', (_req: Request, res: Response) => {
-  setPublicCache(res, pricesCacheTtlSeconds());
+  setPublicCache(res, oraclePriceCacheTtlSeconds());
   const price = priceOracle.getPriceString();
   const lastUpdatedAt = priceOracle.getLastUpdatedAt();
   res.json({

@@ -1,0 +1,17 @@
+# Keep the build context small and free of local state. The Dockerfile copies
+# only package files, vendor, prisma, scripts, src, tsconfig.json and docker/.
+node_modules
+**/node_modules
+dist
+coverage
+.git
+.github
+.vscode
+.idea
+*.log
+npm-debug.log*
+.env
+.env.*
+Dockerfile
+docker-compose*.yml
+*.md

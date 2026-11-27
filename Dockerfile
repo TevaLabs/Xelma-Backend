@@ -4,7 +4,7 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json package-lock.json ./
 COPY vendor ./vendor
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
 FROM deps AS build
 COPY prisma ./prisma
@@ -20,7 +20,8 @@ WORKDIR /app
 # Install production dependencies only (omit devDependencies)
 COPY package.json package-lock.json ./
 COPY vendor ./vendor
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --no-audit --no-fund \
+    && npm cache clean --force
 
 COPY prisma ./prisma
 COPY scripts ./scripts

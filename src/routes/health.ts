@@ -9,6 +9,12 @@ import { asyncHandler } from '../middleware/errorHandler.middleware';
 import { sendSuccess } from '../utils/response';
 import config from '../config';
 import { setNoStore } from '../utils/http-cache';
+import {
+  isSorobanRpcProbeEnabled,
+  probeSorobanRpcCached,
+  sorobanRpcSlowThresholdMs,
+} from '../services/soroban-rpc-probe';
+import type { SorobanRpcProbeResult } from '../services/soroban-rpc-probe';
 
 const router = Router();
 
@@ -62,6 +68,7 @@ async function checkSoroban(): Promise<{
   status: string;
   durationMs: number;
   initialized?: boolean;
+  rpc?: SorobanRpcProbeResult;
   error?: string;
 }> {
   const start = Date.now();
@@ -74,12 +81,35 @@ async function checkSoroban(): Promise<{
         retries: 1,
       },
     );
-    const healthData = health.data;
+    const initialized = health.data?.initialized;
+    let status = initialized ? 'healthy' : 'unavailable';
+    let rpc: SorobanRpcProbeResult | undefined;
+
+    // Active RPC latency probe (Issue #994). It only runs for an initialised
+    // Soroban service, so unconfigured deployments never make an outbound RPC
+    // call from the health endpoint. Results are cached for a few seconds so
+    // frequent Kubernetes probes do not hammer the RPC node.
+    if (initialized && config.soroban.rpcUrl && isSorobanRpcProbeEnabled()) {
+      rpc = await probeSorobanRpcCached({
+        rpcUrl: config.soroban.rpcUrl,
+        timeoutMs: HEALTH_TIMEOUT_MS,
+        slowThresholdMs: sorobanRpcSlowThresholdMs(),
+      });
+      if (rpc.status !== 'healthy') {
+        status = 'degraded';
+        logger.warn('Health check: Soroban RPC probe not healthy', {
+          status: rpc.status,
+          latencyMs: rpc.latencyMs,
+        });
+      }
+    }
+
     return {
-      status: health.data?.initialized ? 'healthy' : 'unavailable',
+      status,
       durationMs: Date.now() - start,
-      initialized: health.data?.initialized,
-      error: health.error?.message,
+      initialized,
+      ...(rpc ? { rpc } : {}),
+      error: health.error?.message ?? rpc?.error,
     };
   } catch (err) {
     return {
@@ -360,6 +390,23 @@ router.get('/health', asyncHandler(async (_req: Request, res: Response) => {
  *                           type: number
  *                         initialized:
  *                           type: boolean
+ *                         rpc:
+ *                           type: object
+ *                           description: |
+ *                             Result of an active JSON-RPC `getHealth` probe. Present only when
+ *                             the Soroban service is initialised and the probe is enabled
+ *                             (`HEALTH_SOROBAN_RPC_PROBE`). Latency is also recorded in the
+ *                             `soroban_rpc_duration_seconds` histogram (`operation="health_probe"`).
+ *                           properties:
+ *                             status:
+ *                               type: string
+ *                               enum: [healthy, slow, unhealthy, timeout]
+ *                             latencyMs:
+ *                               type: number
+ *                             latestLedger:
+ *                               type: integer
+ *                             error:
+ *                               type: string
  *                         error:
  *                           type: string
  *                     oracle:
