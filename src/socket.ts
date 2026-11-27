@@ -51,6 +51,15 @@ interface AuthenticatedSocket extends TypedSocket {
    walletAddress?: string;
    /** Unix epoch (ms) at which the JWT expires. */
    tokenExpiresAt?: number;
+   /**
+    * Set by the auth middleware when the token supplied at connect-time has
+    * already expired (Issue #1001). The handshake is allowed to complete so
+    * the typed `auth:error` event can reach the client, and the connection
+    * handler emits it and disconnects immediately — instead of rejecting
+    * the handshake, which drops the client abruptly with only a
+    * `connect_error` and no typed event.
+    */
+   pendingAuthError?: AuthErrorPayload;
 }
 
 /**
@@ -264,6 +273,11 @@ export function checkExpiredTokenSockets(
  * ### Token expiry & reconnect flow
  * When a JWT expires, the server emits an `auth:error` event with
  * `{ code: "AUTH_TOKEN_EXPIRED" }` and then gracefully disconnects the socket.
+ * This applies both to tokens that expire while connected (detected by the
+ * periodic expiry checker) and to tokens that are already expired when the
+ * client connects (Issue #1001): the handshake is allowed to complete so
+ * the typed event reaches the client, and the socket is disconnected
+ * immediately afterwards instead of being dropped abruptly.
  * Clients MUST:
  *   1. Listen for `auth:error` events on every authenticated socket.
  *   2. On `code === "AUTH_TOKEN_EXPIRED"`: call the HTTP token-refresh endpoint
@@ -347,8 +361,19 @@ export async function initializeSocket(
          if (!verifyResult.valid) {
             if (verifyResult.expired) {
                logger.warn(`Expired token for socket ${socket.id}`);
+               // Issue #1001: do NOT reject the handshake here — a rejected
+               // handshake drops the client abruptly with only a
+               // `connect_error` and no typed event. Instead, let the
+               // handshake complete and let the connection handler emit a
+               // typed `auth:error` event before disconnecting.
                // AUTH_TOKEN_EXPIRED signals clients to refresh and reconnect.
-               return next(new Error('AUTH_TOKEN_EXPIRED'));
+               socket.pendingAuthError = {
+                  code: AUTH_TOKEN_EXPIRED,
+                  message:
+                     'Your session token has expired. ' +
+                     'Refresh your access token and reconnect.',
+               };
+               return next();
             }
             logger.warn(`Invalid token for socket ${socket.id}`);
             return next(new Error('AUTH_TOKEN_INVALID'));
@@ -400,6 +425,19 @@ export async function initializeSocket(
 
    // Connection handler
    io.on('connection', (socket: AuthenticatedSocket) => {
+      // Issue #1001: a token that was already expired at connect-time is
+      // rejected with a typed `auth:error` event emitted BEFORE disconnect,
+      // instead of an abrupt handshake rejection. This runs before any
+      // registry/room/hello work so the client sees only the auth error.
+      if (socket.pendingAuthError) {
+         logger.warn(
+            `Rejecting socket ${socket.id} with expired token: emitting auth:error before disconnect`
+         );
+         socket.emit('auth:error', socket.pendingAuthError);
+         socket.disconnect(false);
+         return;
+      }
+
       logger.info(
          `Client connected: ${socket.id}${socket.userId ? ` (user: ${socket.userId})` : ' (unauthenticated)'}`
       );
