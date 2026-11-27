@@ -32,6 +32,7 @@
 import { OutboxEventStatus, OutboxEventType, DispatchChannel } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import logger from '../utils/logger';
+import { retryOrThrow } from '../utils/retry.util';
 import deadLetterQueueService from './dead-letter-queue.service';
 
 // ─── tunables ────────────────────────────────────────────────────────────────
@@ -58,6 +59,40 @@ export function getOutboxRetentionDays(): number {
   const raw = process.env.OUTBOX_RETENTION_DAYS;
   const n = raw ? parseInt(raw, 10) : NaN;
   return Number.isFinite(n) && n > 0 ? n : 7;
+}
+
+/** First cooldown applied after a failed poll cycle (Issue #1008). */
+export function getOutboxErrorBackoffBaseMs(): number {
+  const raw = process.env.OUTBOX_ERROR_BACKOFF_BASE_MS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 1_000;
+}
+
+/** Upper bound for the poll-cycle cooldown (Issue #1008). */
+export function getOutboxErrorBackoffMaxMs(): number {
+  const raw = process.env.OUTBOX_ERROR_BACKOFF_MAX_MS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 60_000;
+}
+
+// ─── poll-cycle backoff state (Issue #1008) ───────────────────────────────────
+//
+// Without this, a database outage turns every cron tick into a failed query —
+// a tight loop that hammers an already-struggling database. After a failed
+// cycle we skip polls for an exponentially growing cooldown instead.
+
+let consecutivePollFailures = 0;
+let backoffUntilMs = 0;
+
+/** Clears backoff state. Exported for tests. */
+export function resetOutboxBackoff(): void {
+  consecutivePollFailures = 0;
+  backoffUntilMs = 0;
+}
+
+/** Returns the epoch-ms at which the next poll is allowed. Exported for tests. */
+export function getOutboxBackoffUntil(): number {
+  return backoffUntilMs;
 }
 
 // ─── payload shapes ──────────────────────────────────────────────────────────
@@ -177,11 +212,45 @@ class OutboxService {
   ): Promise<ProcessOutboxResult> {
     const result: ProcessOutboxResult = { processed: 0, failed: 0, escalated: 0 };
 
-    const rows = await prisma.outboxEvent.findMany({
-      where: { status: OutboxEventStatus.PENDING },
-      orderBy: { createdAt: 'asc' },
-      take: batchSize,
-    });
+    const now = Date.now();
+    if (now < backoffUntilMs) {
+      logger.debug(
+        `Outbox poller: skipping poll, backing off for ${backoffUntilMs - now}ms`,
+      );
+      return result;
+    }
+
+    let rows: Awaited<ReturnType<typeof prisma.outboxEvent.findMany>>;
+    try {
+      // Issue #1008: a transient DB failure is retried with exponential
+      // backoff by the shared retry util instead of surfacing immediately.
+      rows = await retryOrThrow(
+        () =>
+          prisma.outboxEvent.findMany({
+            where: { status: OutboxEventStatus.PENDING },
+            orderBy: { createdAt: 'asc' },
+            take: batchSize,
+          }),
+        'outbox.poll',
+        { maxAttempts: 3, initialDelayMs: 100, maxDelayMs: 1_000 },
+      );
+      consecutivePollFailures = 0;
+      backoffUntilMs = 0;
+    } catch (err) {
+      // The database is still unavailable after the in-call retries. Cool the
+      // poller down before the next cron tick so failures do not pile up.
+      consecutivePollFailures += 1;
+      const delayMs = Math.min(
+        getOutboxErrorBackoffBaseMs() * 2 ** (consecutivePollFailures - 1),
+        getOutboxErrorBackoffMaxMs(),
+      );
+      backoffUntilMs = Date.now() + delayMs;
+      logger.warn(
+        `Outbox poller: DB poll failed (consecutive failure ${consecutivePollFailures}); backing off for ${delayMs}ms`,
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+      throw err;
+    }
 
     if (rows.length === 0) return result;
 

@@ -469,8 +469,18 @@ export async function initializeSocket(
                // Auto-rejoin rooms the user occupied before the drop. The
                // client also receives the resume payload so it can update
                // local UI state without a round-trip.
+               // Issue #1005: persisted rooms are re-joined without a client
+               // request, so they must pass the same private-room ACL as an
+               // explicit join. A stale `user:<other>` row must never hand this
+               // socket another user's notification stream.
                for (const room of resume.rooms) {
-                  socket.join(room);
+                  if (isAuthorizedPrivateRoomJoin(socket, room)) {
+                     socket.join(room);
+                  } else {
+                     logger.warn(
+                        `Skipped unauthorized resume room for socket ${socket.id}: ${room} (user: ${socket.userId})`,
+                     );
+                  }
                }
                socket.emit('session:resume', resume as ResumePayload);
 

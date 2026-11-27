@@ -3619,6 +3619,599 @@
                     }
                   ]
                 },
+                {
+                  "id": "2e215d75-e30c-48bf-b236-51bf19b9a247",
+                  "name": "Prediction submitted",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "rounds",
+                        ":id",
+                        "simulate"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": [
+                        {
+                          "disabled": false,
+                          "type": "any",
+                          "value": "<string>",
+                          "key": "id",
+                          "description": "(Required) Round ID to simulate"
+                        }
+                      ]
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "method": "POST",
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{bearerToken}}"
+                        }
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"finalPrice\": \"<number>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": [
+                    {
+                      "id": "9e7b7bac-7769-4860-b37e-376c479899fa",
+                      "name": "Simulation results",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "simulate"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) Round ID to simulate"
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          },
+                          {
+                            "key": "Accept",
+                            "value": "application/json"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {
+                          "mode": "raw",
+                          "raw": "{\n  \"finalPrice\": \"<number>\"\n}",
+                          "options": {
+                            "raw": {
+                              "language": "json"
+                            }
+                          }
+                        }
+                      },
+                      "status": "OK",
+                      "code": 200,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "application/json"
+                        }
+                      ],
+                      "body": "{\n  \"success\": true,\n  \"roundId\": \"string\",\n  \"simulatedPrice\": 1169.959240448718,\n  \"mode\": \"LEGENDS\",\n  \"startPrice\": \"1000.33333333\",\n  \"winningSide\": \"UP\",\n  \"winningRange\": {\n    \"min\": 596.5341751735631,\n    \"max\": 7804.98429925483\n  },\n  \"predictions\": [\n    {\n      \"won\": false,\n      \"payout\": \"1000.33333333\",\n      \"amount\": \"1000.33333333\",\n      \"side\": \"UP\"\n    },\n    {\n      \"won\": true,\n      \"payout\": \"1000.33333333\",\n      \"amount\": \"1000.33333333\",\n      \"side\": \"UP\"\n    }\n  ],\n  \"summary\": {\n    \"totalPredictions\": 7175,\n    \"winners\": 1134,\n    \"losers\": 7010,\n    \"refunded\": 5443,\n    \"totalPayout\": \"1000.33333333\"\n  }\n}",
+                      "cookie": [],
+                      "_postman_previewlanguage": "json"
+                    },
+                    {
+                      "id": "41c609cb-2bfd-485b-b1ed-9eb6bff27a58",
+                      "name": "Validation error - finalPrice missing",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "simulate"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) Round ID to simulate"
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {
+                          "mode": "raw",
+                          "raw": "{\n  \"finalPrice\": \"<number>\"\n}",
+                          "options": {
+                            "raw": {
+                              "language": "json"
+                            }
+                          }
+                        }
+                      },
+                      "status": "Bad Request",
+                      "code": 400,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "f95ece74-b732-45f3-ab5e-aee3d7c64350",
+                      "name": "Unauthorized - missing or invalid bearer token",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "simulate"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) Round ID to simulate"
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {
+                          "mode": "raw",
+                          "raw": "{\n  \"finalPrice\": \"<number>\"\n}",
+                          "options": {
+                            "raw": {
+                              "language": "json"
+                            }
+                          }
+                        }
+                      },
+                      "status": "Unauthorized",
+                      "code": 401,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "b06f6885-71c1-4bec-bdf9-e140fe143b9b",
+                      "name": "Forbidden - simulation disabled (ENABLE_SIMULATION=false) or caller is not an admin",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "simulate"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) Round ID to simulate"
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {
+                          "mode": "raw",
+                          "raw": "{\n  \"finalPrice\": \"<number>\"\n}",
+                          "options": {
+                            "raw": {
+                              "language": "json"
+                            }
+                          }
+                        }
+                      },
+                      "status": "Forbidden",
+                      "code": 403,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    },
+                    {
+                      "id": "ede96a4d-f0af-4412-ab99-b17f29e1e6e7",
+                      "name": "Round not found",
+                      "originalRequest": {
+                        "url": {
+                          "path": [
+                            "api",
+                            "rounds",
+                            ":id",
+                            "simulate"
+                          ],
+                          "host": [
+                            "{{baseUrl}}"
+                          ],
+                          "query": [],
+                          "variable": [
+                            {
+                              "disabled": false,
+                              "type": "any",
+                              "value": "<string>",
+                              "key": "id",
+                              "description": "(Required) Round ID to simulate"
+                            }
+                          ]
+                        },
+                        "header": [
+                          {
+                            "description": {
+                              "content": "Added as a part of security scheme: bearer",
+                              "type": "text/plain"
+                            },
+                            "key": "Authorization",
+                            "value": "Bearer <token>"
+                          }
+                        ],
+                        "method": "POST",
+                        "body": {
+                          "mode": "raw",
+                          "raw": "{\n  \"finalPrice\": \"<number>\"\n}",
+                          "options": {
+                            "raw": {
+                              "language": "json"
+                            }
+                          }
+                        }
+                      },
+                      "status": "Not Found",
+                      "code": 404,
+                      "header": [
+                        {
+                          "key": "Content-Type",
+                          "value": "text/plain"
+                        }
+                      ],
+                      "body": "",
+                      "cookie": [],
+                      "_postman_previewlanguage": "text"
+                    }
+                  ],
+                  "event": [],
+                  "protocolProfileBehavior": {
+                    "disableBodyPruning": true
+                  }
+                }
+              ],
+              "event": []
+            }
+          ],
+          "event": []
+        },
+        {
+          "id": "2fe2d6b2-5dec-4263-b60e-fa0c66de5e50",
+          "name": "Multi-asset USD prices (BTC, ETH, XLM)",
+          "request": {
+            "name": "Multi-asset USD prices (BTC, ETH, XLM)",
+            "description": {
+              "content": "**Hackathon/demo price endpoint. Do not confuse with production `GET /api/price`.**\n\nReturns BTC, ETH, and XLM spot prices (CoinGecko with a 30-second cache,\nor mock data when `DATA_MODE=mock`). Wrapped in the standard\n`{ success: true, data }` envelope — the same handler and envelope the\nproduction app serves on this path.\n\n| Path | App | Purpose |\n|------|-----|---------|\n| `GET /api/prices` | Hackathon + production | Multi-asset ticker |\n| `GET /api/price` | Production only | Single-asset XLM oracle |\n\nThe hackathon app does **not** serve `/api/price`. Frontends targeting\nthis demo API must use `/api/prices`. The two paths are **not** aliases\nand return different payloads on production.\n",
+              "type": "text/plain"
+            },
+            "url": {
+              "path": [
+                "api",
+                "prices"
+              ],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "method": "GET",
+            "auth": null
+          },
+          "response": [
+            {
+              "id": "a3046914-9e17-4fbb-961f-d92e415dcde8",
+              "name": "Current market prices in the success envelope",
+              "originalRequest": {
+                "url": {
+                  "path": [
+                    "api",
+                    "prices"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "body": {}
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"BTC\": 67420.12,\n    \"ETH\": 3241.55,\n    \"XLM\": 0.2891,\n    \"stale\": false,\n    \"lastUpdatedAt\": \"2026-07-29T12:00:00.000Z\"\n  }\n}",
+              "cookie": [],
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "id": "be78596b-4861-41cf-8cca-a3cdbefc77eb",
+              "name": "Price service unavailable (no cache and upstream failed)",
+              "originalRequest": {
+                "url": {
+                  "path": [
+                    "api",
+                    "prices"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "body": {}
+              },
+              "status": "Service Unavailable",
+              "code": 503,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"error\": \"Unable to fetch prices and no cached data is available\"\n}",
+              "cookie": [],
+              "_postman_previewlanguage": "json"
+            }
+          ],
+          "event": [],
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          }
+        },
+        {
+          "id": "a4fe60fa-c6d3-4756-9031-0f10ca64ec05",
+          "name": "Single-asset XLM oracle price",
+          "request": {
+            "name": "Single-asset XLM oracle price",
+            "description": {
+              "content": "**Do not confuse with `GET /api/prices`.**\n\nProduction oracle endpoint for the current XLM/USD price as a precise\ndecimal string, plus staleness / provider metadata. Use this when you\nneed the oracle feed (not the multi-asset CoinGecko ticker).\n\n| Path | Purpose | Typical client |\n|------|---------|----------------|\n| `GET /api/price` | Single-asset XLM oracle | Round resolution / oracle consumers |\n| `GET /api/prices` | Multi-asset BTC / ETH / XLM | Price widgets, dashboards |\n\n**Availability:** served by the production app (`src/index.ts`). The\nhackathon/demo app does **not** expose this path — use `GET /api/prices`\nthere instead.\n\n**Deprecation note:** like other unversioned `/api/*` routes on the\nproduction app, responses include `Deprecation` / `Sunset` headers\npointing at a future `/api/v1` successor. There is intentionally no\n`/api/v1/price` mirror yet (`GET /price` is on the versioned-alias\nallowlist). `/api/price` and `/api/prices` are **not** deprecated\nrelative to each other — they remain separate contracts.\n",
+              "type": "text/plain"
+            },
+            "url": {
+              "path": [
+                "api",
+                "price"
+              ],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "method": "GET",
+            "auth": null
+          },
+          "response": [
+            {
+              "id": "ca1fe6d7-99b7-4c19-959d-c92862eb2d67",
+              "name": "Current XLM oracle price snapshot",
+              "originalRequest": {
+                "url": {
+                  "path": [
+                    "api",
+                    "price"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "body": {}
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"asset\": \"XLM\",\n  \"price_usd\": \"0.28910000\",\n  \"stale\": false,\n  \"provider\": \"coingecko\",\n  \"lastUpdatedAt\": \"2026-07-29T12:00:00.000Z\",\n  \"source\": \"live\",\n  \"timestamp\": \"2026-07-29T12:00:05.000Z\"\n}",
+              "cookie": [],
+              "_postman_previewlanguage": "json"
+            }
+          ],
+          "event": [],
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          }
+        },
+        {
+          "id": "bc230c39-e89b-45e7-b1a2-0d3f97dcd2bb",
+          "name": "predictions",
+          "item": [
+            {
+              "id": "ddac9df2-e0dd-41e0-b2a1-0b1c6c4704ef",
+              "name": "Submit a prediction",
+              "request": {
+                "name": "Submit a prediction",
+                "description": {
+                  "content": "Submit a prediction for a round. Supports idempotency via Idempotency-Key header for safe retries.",
+                  "type": "text/plain"
+                },
+                "url": {
+                  "path": [
+                    "api",
+                    "predictions",
+                    "submit"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "disabled": false,
+                    "description": "Unique key for idempotent request handling. Duplicate identical requests return the cached response for 10 minutes; reuse with a different request body returns 409.",
+                    "key": "Idempotency-Key",
+                    "value": "<string>"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{bearerToken}}"
+                    }
+                  ]
+                },
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"roundId\": \"<string>\",\n  \"amount\": \"<number>\",\n  \"side\": \"<string>\",\n  \"priceRange\": {\n    \"min\": \"<number>\",\n    \"max\": \"<number>\"\n  }\n}",
@@ -3631,7 +4224,7 @@
               },
               "response": [
                 {
-                  "id": "2e215d75-e30c-48bf-b236-51bf19b9a247",
+                  "id": "cbb5971b-2ee0-4d64-80de-84f446c29b31",
                   "name": "Prediction submitted",
                   "originalRequest": {
                     "url": {
@@ -5550,6 +6143,61 @@
                 },
                 {
                   "id": "b5f4d250-be63-4938-9481-fe2d90322bc8",
+                  "name": "Idempotency key conflict",
+                  "originalRequest": {
+                    "url": {
+                      "path": [
+                        "api",
+                        "bets",
+                        "up-down"
+                      ],
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "query": [],
+                      "variable": []
+                    },
+                    "header": [
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      },
+                      {
+                        "disabled": false,
+                        "description": "Replaying the same key and body returns the original response without recording another bet",
+                        "key": "Idempotency-Key",
+                        "value": "<string>"
+                      }
+                    ],
+                    "method": "POST",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"address\": \"<string>\",\n  \"amount\": \"<number>\",\n  \"side\": \"<string>\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Conflict",
+                  "code": 409,
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "text/plain"
+                    }
+                  ],
+                  "body": "",
+                  "cookie": [],
+                  "_postman_previewlanguage": "text"
+                },
+                {
+                  "id": "84aa612c-007f-43f9-b3fe-bdeb67cb9d01",
                   "name": "Idempotency key conflict",
                   "originalRequest": {
                     "url": {

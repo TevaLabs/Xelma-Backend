@@ -27,6 +27,7 @@ import { asyncHandler } from "../middleware/errorHandler.middleware";
 import { challengeSchema, connectSchema } from "../schemas/auth.schema";
 import { AuthenticationError, ErrorCode } from "../utils/errors";
 import { auditLogger } from "../utils/audit-logger";
+import { toCanonicalStellarAddress } from "../utils/stellar-address.util";
 
 /**
  * Wallet auth challenge/connect/verify routes.
@@ -115,7 +116,11 @@ router.post(
     const userAgent = req.get('user-agent');
     
     try {
-      const { walletAddress }: ChallengeRequestBody = req.body;
+      const { walletAddress: rawWalletAddress }: ChallengeRequestBody = req.body;
+      // Issue #993: persist/compare only the canonical StrKey form so a
+      // mixed-case address cannot create a second challenge/user row.
+      const walletAddress =
+        toCanonicalStellarAddress(rawWalletAddress) ?? rawWalletAddress;
 
       // Clean up existing unused challenges for this wallet (enforce one-active-challenge policy)
       const deletedChallenges = await prisma.authChallenge.findMany({
@@ -260,7 +265,11 @@ const connectHandler = async (
   const userAgent = req.get('user-agent');
 
   try {
-    const { walletAddress, challenge, signature }: ConnectRequestBody = req.body;
+    const { walletAddress: rawWalletAddress, challenge, signature }: ConnectRequestBody = req.body;
+    // Issue #993: user lookup/create/update all key off `walletAddress`, so
+    // canonicalise it once here before touching the DB.
+    const walletAddress =
+      toCanonicalStellarAddress(rawWalletAddress) ?? rawWalletAddress;
 
     // Every failed connect attests one aggregate AUTH_FAILED audit event in
     // addition to the challenge-lifecycle event below. Reasons are fixed

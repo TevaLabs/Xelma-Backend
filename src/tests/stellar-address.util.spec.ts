@@ -10,8 +10,10 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
  * tests in CI).
  */
 const mockIsValidEd25519 = jest.fn<(addr: string) => boolean>();
+const mockNormalizeStrKey = jest.fn<(addr: string) => string>();
 jest.mock('../services/stellar.service', () => ({
   isValidStellarAddress: (addr: string) => mockIsValidEd25519(addr),
+  normalizeStellarAddress: (addr: string) => mockNormalizeStrKey(addr),
   verifySignature: jest.fn(),
 }));
 
@@ -21,6 +23,7 @@ import {
   optionalStellarAddressSchema,
   validateStellarAddressParam,
   createStellarAddressSchema,
+  toCanonicalStellarAddress,
 } from '../utils/stellar-address.util';
 import { ValidationError, ErrorCode } from '../utils/errors';
 
@@ -29,6 +32,35 @@ const ADDR = 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H';
 
 beforeEach(() => {
   mockIsValidEd25519.mockReset();
+  mockNormalizeStrKey.mockReset();
+});
+
+describe('toCanonicalStellarAddress (Issue #993)', () => {
+  it('returns the canonical StrKey for a valid address', () => {
+    mockIsValidEd25519.mockReturnValue(true);
+    mockNormalizeStrKey.mockReturnValue(ADDR);
+
+    expect(toCanonicalStellarAddress(ADDR.toLowerCase())).toBe(ADDR);
+    expect(mockNormalizeStrKey).toHaveBeenCalledWith(ADDR.toLowerCase());
+  });
+
+  it('returns null for invalid / non-string input without normalising', () => {
+    mockIsValidEd25519.mockReturnValue(false);
+
+    for (const bad of ['GINVALID', '', null, undefined, 42, {}]) {
+      expect(toCanonicalStellarAddress(bad as unknown)).toBeNull();
+    }
+    expect(mockNormalizeStrKey).not.toHaveBeenCalled();
+  });
+
+  it('returns null (does not throw) when normalisation throws', () => {
+    mockIsValidEd25519.mockReturnValue(true);
+    mockNormalizeStrKey.mockImplementation(() => {
+      throw new Error('boom');
+    });
+
+    expect(toCanonicalStellarAddress(ADDR)).toBeNull();
+  });
 });
 
 describe('isValidStellarAddress', () => {

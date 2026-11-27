@@ -64,6 +64,7 @@ jest.mock("../config", () => ({
       roundsMockMode: false,
       dataMode: "mock",
       dataStore: "postgres",
+      safetyProfile: "demo",
       enableSimulation: mockConfigState.enableSimulation,
       enableMultiplayerSocial: false,
     },
