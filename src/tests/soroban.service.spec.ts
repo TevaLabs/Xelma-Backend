@@ -50,6 +50,8 @@ let mockMintResult: unknown = BigInt(10_000_000_000);
 let mockMintShouldThrow = false;
 let mockGetActiveRoundResult: unknown = null;
 let mockGetActiveRoundShouldThrow = false;
+let mockGetLastRoundIdResult: unknown = BigInt(0);
+let mockGetLastRoundIdShouldThrow = false;
 let mockPlaceBetShouldThrow = false;
 let mockBalanceResult: unknown = BigInt(0);
 let mockBalanceShouldThrow = false;
@@ -133,7 +135,12 @@ const mockClient = {
     }
     return mockTx(mockGetActiveRoundResult);
   },
-  get_last_round_id: () => mockTx(BigInt(0)),
+  get_last_round_id: () => {
+    if (mockGetLastRoundIdShouldThrow) {
+      return Promise.reject(new Error("RPC timeout"));
+    }
+    return mockTx(mockGetLastRoundIdResult);
+  },
   get_user_stats: (_params: unknown) => {
     if (mockUserStatsShouldThrow) {
       return Promise.reject(new Error("user stats RPC failed"));
@@ -194,6 +201,8 @@ function resetFixtures(): void {
   mockMintShouldThrow = false;
   mockGetActiveRoundResult = null;
   mockGetActiveRoundShouldThrow = false;
+  mockGetLastRoundIdResult = BigInt(0);
+  mockGetLastRoundIdShouldThrow = false;
   mockPlaceBetShouldThrow = false;
   mockBalanceResult = BigInt(0);
   mockBalanceShouldThrow = false;
@@ -434,6 +443,23 @@ describe("SorobanService: getActiveRound", () => {
     mockGetActiveRoundResult = null;
     const result = await sorobanService.getActiveRound();
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getLastRoundId success
+// ---------------------------------------------------------------------------
+describe("SorobanService: getLastRoundId", () => {
+  it("returns the last round id as a number", async () => {
+    mockGetLastRoundIdResult = BigInt(7);
+    const result = await sorobanService.getLastRoundId();
+    expect(result).toBe(7);
+  });
+
+  it("returns 0 when no rounds exist yet", async () => {
+    mockGetLastRoundIdResult = BigInt(0);
+    const result = await sorobanService.getLastRoundId();
+    expect(result).toBe(0);
   });
 });
 
@@ -731,6 +757,14 @@ describe("SorobanService: getActiveRound errors", () => {
   it("returns null gracefully on RPC error (fail-open)", async () => {
     mockGetActiveRoundShouldThrow = true;
     const result = await sorobanService.getActiveRound();
+    expect(result).toBeNull();
+  });
+});
+
+describe("SorobanService: getLastRoundId errors", () => {
+  it("returns null gracefully on RPC error (fail-open)", async () => {
+    mockGetLastRoundIdShouldThrow = true;
+    const result = await sorobanService.getLastRoundId();
     expect(result).toBeNull();
   });
 });

@@ -575,6 +575,47 @@ export class SorobanService {
   }
 
   /**
+   * Returns the ID of the last round created on the Soroban contract
+   * (read-only simulation). 0 when no round has been created yet.
+   *
+   * Returns null when Soroban is unavailable or the call fails, so callers
+   * can distinguish "no rounds on chain" (0) from "chain unreachable"
+   * (null). Used by the Soroban round-ID backfill (Issue #979) as the
+   * chain-head diagnostic.
+   *
+   * Timeout: 10s for read-only queries (faster than write operations)
+   */
+  async getLastRoundId(): Promise<number | null> {
+    await this.ready;
+    if (!this.initialized) return null;
+
+    const result = await this.callWithBreaker("sorobanGetLastRoundId", () =>
+      withTimeout(
+        async () => {
+          const tx = await this.client!.get_last_round_id();
+          return Number(tx.result);
+        },
+        {
+          timeoutMs: 10000, // Shorter timeout for read-only
+          operationName: "sorobanGetLastRoundId",
+          retries: 1, // Only retry once for read-only
+        },
+      ),
+      null,
+    );
+
+    if (!result.success) {
+      logger.warn("Failed to get last round id from Soroban", {
+        error: result.error?.message,
+        timedOut: result.timedOut,
+      });
+      return null;
+    }
+
+    return result.data ?? null;
+  }
+
+  /**
    * Mints 1000 vXLM for a new user (one-time only).
    * Returns the minted amount converted from stroops to XLM.
    * 
