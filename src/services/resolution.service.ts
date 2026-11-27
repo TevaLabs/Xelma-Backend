@@ -385,7 +385,82 @@ if (priceUnchanged) {
       );
 
       if (decEq(winningPool, 0)) {
-         logger.warn(`Round ${round.id}: No winners, no payouts`);
+         // No one bet on the winning side, so every prediction is a loss.
+         // Mirror the LEGENDS zero-pool path below: settle each prediction
+         // as a loss and write LOSS outbox events atomically with the
+         // payout updates. Returning early here used to leave every
+         // prediction unsettled and every user unnotified, even though the
+         // round itself still resolved.
+         for (const prediction of round.predictions) {
+            await db.prediction.update({
+               where: { id: prediction.id },
+               data: {
+                  won: false,
+                  payout: 0,
+               },
+            });
+
+            await db.user.update({
+               where: { id: prediction.userId },
+               data: {
+                  streak: 0,
+               },
+            });
+
+            // Resolve the corresponding bet as loss
+            const bet = await db.bet.findFirst({
+               where: {
+                  userId: prediction.userId,
+                  roundId: round.id,
+                  status: BetStatus.CONFIRMED,
+               },
+            });
+
+            if (bet) {
+               await betService.resolveBet(bet.id, false, 0);
+            }
+
+            // Write LOSS outbox event — winning side existed but had no pool
+            // (no one bet on it), so everyone is a loser.
+            await db.outboxEvent.create({
+               data: {
+                  eventType: OutboxEventType.NOTIFICATION_CREATE,
+                  aggregateId: round.id,
+                  aggregateType: 'round',
+                  payload: {
+                     userId: prediction.userId,
+                     type: 'LOSS',
+                     title: 'Prediction Did Not Win',
+                     message: `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
+                     data: { roundId: round.id },
+                  },
+               },
+            });
+
+            await db.outboxEvent.create({
+               data: {
+                  eventType: OutboxEventType.WEBSOCKET_EMIT,
+                  aggregateId: round.id,
+                  aggregateType: 'round',
+                  payload: {
+                     eventName: 'notification:new',
+                     room: `user:${prediction.userId}`,
+                     userId: prediction.userId,
+                     data: {
+                        type: 'LOSS',
+                        title: 'Prediction Did Not Win',
+                        message: `Your prediction in Round #${round.id.slice(0, 6)} did not win. Keep trying!`,
+                        data: { roundId: round.id },
+                        isRead: false,
+                     },
+                  },
+               },
+            });
+         }
+
+         logger.info(
+            `Round ${round.id}: Winning side had no predictions, all predictions marked as losses`
+         );
          return;
       }
 
