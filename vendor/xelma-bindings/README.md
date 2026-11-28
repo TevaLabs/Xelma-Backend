@@ -90,12 +90,14 @@ As long as your editor is configured to show JavaScript/TypeScript documentation
 
 ## Backend vendor pin upgrades
 
-The backend records the expected upstream revision **and the contract surface it
-depends on** in `bindings.pin.json` at the repo root (not in this directory, so
-deleting `vendor/xelma-bindings` cannot lose it). `.commit-sha` in this folder
-records the revision the checked-in `dist/` was actually built from.
+The backend records the expected upstream revision, package version **and the
+contract surface it depends on** in `bindings.pin.json` at the repo root (not in
+this directory, so deleting `vendor/xelma-bindings` cannot lose it).
+`.commit-sha` in this folder records the revision the checked-in `dist/` was
+actually built from.
 
 ```bash
+npm run check:bindings:version                # installed package version matches the pin
 npm run check:bindings                       # revision + build artifacts (fast, no install)
 npm run build && npm run check:bindings:abi  # + TypeScript surface + contract ABI
 ```

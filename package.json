@@ -13,6 +13,7 @@
     "lint:eslint": "eslint \"src/**/*.ts\"",
     "scorecard": "node scripts/production-readiness-scorecard.js",
     "check:bindings": "node scripts/install-bindings.js --check",
+    "check:bindings:version": "node scripts/check-bindings-version.js",
     "check:bindings:abi": "node dist/scripts/check-bindings.js",
     "test": "jest",
     "test:unit": "jest --selectProjects unit",

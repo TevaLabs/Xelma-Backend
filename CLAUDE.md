@@ -29,6 +29,7 @@ npm run prisma:generate  # Regenerate Prisma client after schema changes
 npm run prisma:migrate   # Run pending migrations
 
 # Vendored Soroban bindings (see docs/bindings-upgrade.md)
+npm run check:bindings:version # Installed package version matches bindings.pin.json
 npm run check:bindings       # Pinned commit + build artifacts (fast, no install)
 npm run check:bindings:abi   # Full contract surface + ABI check (needs npm run build)
 
